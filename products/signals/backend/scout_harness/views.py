@@ -23,7 +23,7 @@ import uuid
 import dataclasses
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.db import transaction
 from django.utils import timezone
@@ -343,8 +343,12 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
 def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | None:
     """Map validated `charts` entries to `ReportChartInput`s for the report tools. Content validation
     lives in `ReportChart`, which the tools build from these; this only crosses the DRF boundary so a
-    malformed chart still surfaces as an invalid-report error. Empty/None yields None ("no charts")."""
-    if not entries:
+    malformed chart still surfaces as an invalid-report error.
+
+    An absent or null `charts` yields None, which an edit reads as "leave the report's charts alone".
+    An empty list is preserved as an empty list, because on an edit that is the instruction to take
+    the report's charts down (see `_build_edit_charts`). Emit treats both the same way."""
+    if entries is None:
         return None
     return [
         ReportChartInput(
@@ -1265,7 +1269,9 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             exclude_origins=(
                 ()
                 if _may_read_reports(request, self.team.parent_team or self.team)
-                else (SignalScoutNote.Origin.REPORT_DISMISSAL,)
+                # Both derived origins quote report content (id, title, and the reviewer's / user's
+                # text), so a caller without report read access must not see either.
+                else (SignalScoutNote.Origin.REPORT_DISMISSAL, SignalScoutNote.Origin.REPORT_DISCUSSION)
             ),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
@@ -1909,7 +1915,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if enabling:
             _reject_if_enabled_cap_reached(team_id, config.skill_name)
         # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
-        save_kwargs = {}
+        save_kwargs: dict[str, Any] = {}
         if enabling:
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)

@@ -16,6 +16,11 @@ POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
 POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
 POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
 
+# The LLM gateway authorizes by application id, so these must stay equal to
+# POSTHOG_CODE_DEV_APP_ID / POSTHOG_AI_DEV_APP_ID in llm_gateway/products/config.py.
+ARRAY_APP_ID_DEV = "019ebb47-c750-0000-e1ea-723a6ff112d3"
+POSTHOG_AI_APP_ID_DEV = "019edb1a-cce4-0000-1f6d-682061862da9"
+
 # Every OAuth application sandbox agent tokens are minted under. Tokens for these apps
 # are only ever created server-side (never via the consent flow or personal API keys),
 # so a request bearing one provably originates from a sandbox run.

@@ -15,6 +15,7 @@ import type {
     CreateFromPromptInputApi,
     EndExperimentApi,
     ExperimentApi,
+    ExperimentFlagCleanupTargetApi,
     ExperimentFlagCleanupTaskApi,
     ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
@@ -586,6 +587,29 @@ export const experimentsEndCreate = async (
     })
 }
 
+export const getExperimentsFlagCleanupTargetRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/flag_cleanup_target/`
+}
+
+/**
+ * Repository a flag-cleanup pull request for this experiment would be opened in.
+ *
+ * Resolution order: the experiment's saved repository, else the team's only connected
+ * GitHub repository. When the team has several repositories and none is saved
+ * (source=ambiguous), pass one via `repository` on end/ship_variant. Requires access
+ * to PostHog Desktop, like open_cleanup_pr (403 otherwise).
+ */
+export const experimentsFlagCleanupTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentFlagCleanupTargetApi> => {
+    return apiMutator<ExperimentFlagCleanupTargetApi>(getExperimentsFlagCleanupTargetRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExperimentsFlagCleanupTaskRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/flag_cleanup_task/`
 }
@@ -1081,9 +1105,10 @@ export const getExperimentsSessionContextsCreateUrl = (projectId: string) => {
  * query string; the endpoint only reads. Already-computed sessions are served from (and
  * cold ones written to) the same short-lived per-viewer cache the single-session endpoint
  * uses, so opening any prefetched recording renders its context instantly. Sessions whose
- * recording metadata doesn't exist yet are omitted from the response, as are sessions
- * beyond the batch's recording-day budget (each distinct recording day costs its own set
- * of ClickHouse scans, so only the most recent days are computed per request).
+ * recording metadata doesn't exist yet are omitted from the response, as are recordings
+ * the caller can't access and sessions beyond the batch's recording-day budget (each
+ * distinct recording day costs its own set of ClickHouse scans, so only the most recent
+ * days are computed per request).
  */
 export const experimentsSessionContextsCreate = async (
     projectId: string,

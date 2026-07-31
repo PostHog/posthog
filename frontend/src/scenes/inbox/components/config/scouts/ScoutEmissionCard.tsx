@@ -9,6 +9,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { captureScoutAction } from '../../../inboxAnalytics'
 import { LinkedSignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../../../types'
 import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
@@ -70,10 +71,26 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
     }, [isDeepLinked, emission.finding_id])
 
     const copyFindingLink = (): void => {
+        captureScoutAction({
+            actionType: 'copy_finding_link',
+            surface: 'scout_detail',
+            skillName,
+            extra: { severity: emission.severity },
+        })
         void copyToClipboard(
             `${window.location.origin}${addProjectIdIfMissing(urls.inboxScout(skillName, emission.finding_id))}`,
             'finding link'
         )
+    }
+
+    const toggleExpanded = (): void => {
+        captureScoutAction({
+            actionType: expanded ? 'collapse_emission' : 'expand_emission',
+            surface: 'scout_detail',
+            skillName,
+            extra: { severity: emission.severity, run_id: run.run_id, signal_report_id: report?.id ?? null },
+        })
+        setExpanded((value) => !value)
     }
 
     return (
@@ -86,7 +103,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
             <div className="flex items-center">
                 <button
                     type="button"
-                    onClick={() => setExpanded((value) => !value)}
+                    onClick={toggleExpanded}
                     className="flex flex-1 items-center gap-2 px-3 py-2 text-left"
                     aria-expanded={expanded}
                 >
@@ -136,6 +153,14 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                     <Link
                         to={urls.inboxReport('reports', report.id)}
                         className="mt-2 inline-flex max-w-full items-center gap-1 rounded bg-primary-highlight px-2 py-0.5 text-xs font-medium text-primary"
+                        onClick={() =>
+                            captureScoutAction({
+                                actionType: 'open_linked_report',
+                                surface: 'scout_detail',
+                                skillName,
+                                extra: { signal_report_id: report.id, severity: emission.severity },
+                            })
+                        }
                     >
                         <span className="shrink-0 text-muted">In report:</span>
                         <span className="truncate">{report.title || 'Untitled report'}</span>
@@ -157,7 +182,18 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                         {run.task_url && (
                             <>
                                 <span className="flex-1" />
-                                <Link to={run.task_url} className="flex items-center gap-1 font-medium shrink-0">
+                                <Link
+                                    to={run.task_url}
+                                    className="flex items-center gap-1 font-medium shrink-0"
+                                    onClick={() =>
+                                        captureScoutAction({
+                                            actionType: 'open_task_run',
+                                            surface: 'scout_detail',
+                                            skillName,
+                                            extra: { run_id: run.run_id },
+                                        })
+                                    }
+                                >
                                     Open task run <IconExternal className="size-3" />
                                 </Link>
                             </>

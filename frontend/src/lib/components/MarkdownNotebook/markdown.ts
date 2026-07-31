@@ -57,6 +57,11 @@ export function isDiscussionCommentProps(props: NotebookComponentProps): boolean
 }
 const TABLE_SEPARATOR_CELL_REGEX = /^:?-{3,}:?$/
 const EMPTY_PARAGRAPH_MARKDOWN = ' '
+/** One blank line separates two blocks of the same card; a second one starts a new card
+ * (`startsGroup` in `types.ts`). Programmatic writers append blocks with this separator so each
+ * one lands as its own node. */
+export const NOTEBOOK_BLOCK_SEPARATOR = '\n\n\n'
+const NOTEBOOK_BLOCK_JOINER = '\n\n'
 // Every character the serializer may backslash-escape; the inline parser turns `\X` back into
 // the literal character for exactly this set, so the two must stay in sync.
 const INLINE_ESCAPABLE_CHARS = new Set([
@@ -114,6 +119,7 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
     }
 
     let lineIndex = 0
+    let blankLinesBeforeBlock = 0
     while (lineIndex < lines.length) {
         const line = lines[lineIndex]
 
@@ -122,12 +128,15 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
                 id: '',
                 type: 'paragraph',
                 children: [],
+                startsGroup: nodes.length > 0 && blankLinesBeforeBlock > 1 ? true : undefined,
             })
+            blankLinesBeforeBlock = 0
             lineIndex += 1
             continue
         }
 
         if (!line.trim()) {
+            blankLinesBeforeBlock += 1
             lineIndex += 1
             continue
         }
@@ -137,8 +146,12 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
             errors.push(result.error)
         }
         if (result.node) {
+            if (nodes.length > 0 && blankLinesBeforeBlock > 1) {
+                result.node.startsGroup = true
+            }
             pushParsedNode(result.node)
         }
+        blankLinesBeforeBlock = 0
         lineIndex = Math.max(result.nextLineIndex, lineIndex + 1)
     }
 
@@ -152,8 +165,14 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
 
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
-        .map((node) => serializeDocumentNode(node, shouldPreserveEmptyParagraphs))
-        .join('\n\n')
+        .map((node, index) => {
+            const block = serializeDocumentNode(node, shouldPreserveEmptyParagraphs)
+            if (index === 0) {
+                return block
+            }
+            return `${node.startsGroup ? NOTEBOOK_BLOCK_SEPARATOR : NOTEBOOK_BLOCK_JOINER}${block}`
+        })
+        .join('')
     const lastNode = document.nodes[document.nodes.length - 1]
     const previousNode = document.nodes[document.nodes.length - 2]
     const shouldPreserveTrailingEmptyParagraph =

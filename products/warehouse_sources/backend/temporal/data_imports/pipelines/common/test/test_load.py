@@ -3,6 +3,8 @@ import uuid
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 import pyarrow as pa
 from parameterized import parameterized
 
@@ -12,9 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     IncrementalFieldMissingFromDataError,
     get_incremental_field_value,
     run_post_load_operations,
+    update_job_row_count,
 )
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load"
+_DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
@@ -73,7 +77,6 @@ async def _run_post_load(
             source=MagicMock(),
             delta_table_helper=helper,
             row_count=10,
-            file_uris=["s3://bucket/orders/1.parquet"],
             table_schema_dict={},
             resource_name="orders",
             logger=logger,
@@ -174,27 +177,77 @@ class TestRunPostLoadDeltaMaintenance:
         else:
             update_config.assert_not_called()
 
+    @parameterized.expand([("non_cdc", False), ("cdc", True)])
     @pytest.mark.asyncio
-    async def test_maintenance_failure_does_not_fail_post_load(self):
-        # A maintenance hiccup (S3 flake) must not fail the final batch — the rest of post-load
+    async def test_prepares_s3_files_with_post_maintenance_file_list(self, _name: str, is_cdc: bool) -> None:
+        # Compaction/vacuum maintenance above can rewrite or delete files referenced by the
+        # pre-maintenance file_uris snapshot the caller passed in. Regression: prepare_s3_files_for_querying
+        # was called with that stale snapshot, raising FileNotFoundError on files maintenance just removed.
+        schema = _make_schema(is_cdc=is_cdc)
+        post_maintenance_uris = ["s3://bucket/orders/compacted.parquet"]
+        helper = _make_helper(file_uris=post_maintenance_uris)
+
+        _, prepare_s3 = await _run_post_load(schema, helper, cdc_write_mode="incremental" if is_cdc else None)
+
+        prepare_s3.assert_awaited_once()
+        assert prepare_s3.await_args is not None
+        assert prepare_s3.await_args.args[2] == post_maintenance_uris
+
+    @parameterized.expand(
+        [
+            # A genuine maintenance bug must still be captured for visibility.
+            ("genuine_bug", RuntimeError("maintenance blew up"), True),
+            # A transient S3 rate-limit/connectivity blip is already non-fatal here (the next
+            # tick's maintenance retries the same idempotent cleanup) and must not be promoted
+            # into a fresh error-tracking issue — the regression this guards.
+            ("transient_s3_slowdown", OSError("Generic S3 error: Please reduce your request rate."), False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_maintenance_failure_handling(self, _name: str, error: Exception, expect_capture: bool):
+        # A maintenance hiccup must not fail the final batch — the rest of post-load
         # (queryable folder prep, table registration) still has to run or the job wedges.
         schema = _make_schema(is_cdc=True)
         helper = _make_helper()
-        helper.run_maintenance = AsyncMock(side_effect=RuntimeError("maintenance blew up"))
+        helper.run_maintenance = AsyncMock(side_effect=error)
 
         with patch(f"{_LOAD_MODULE}.capture_exception") as mock_capture:
             _, prepare_s3 = await _run_post_load(schema, helper, cdc_write_mode="incremental")
 
-        mock_capture.assert_called_once()
+        assert mock_capture.called is expect_capture
+        prepare_s3.assert_awaited_once()
+
+    @parameterized.expand(
+        [
+            ("genuine_bug", RuntimeError("compaction blew up"), True),
+            ("transient_s3_slowdown", OSError("Generic S3 error: Please reduce your request rate."), False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_compact_failure_handling(self, _name: str, error: Exception, expect_capture: bool):
+        # Same non-fatal handling as maintenance, for the non-CDC unconditional compact_table path.
+        schema = _make_schema(is_cdc=False)
+        helper = _make_helper()
+        helper.compact_table = AsyncMock(side_effect=error)
+
+        with patch(f"{_LOAD_MODULE}.capture_exception") as mock_capture:
+            _, prepare_s3 = await _run_post_load(schema, helper)
+
+        assert mock_capture.called is expect_capture
         prepare_s3.assert_awaited_once()
 
 
 class TestGetIncrementalFieldValue:
-    def _schema(self, incremental_field: str) -> MagicMock:
+    def _schema(self, incremental_field: str, sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL) -> MagicMock:
         schema = MagicMock()
-        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.sync_type = sync_type
         schema.sync_type_config = {"incremental_field": incremental_field, "incremental_field_type": "integer"}
         schema.incremental_field_type = "integer"
+        schema.should_use_incremental_field = sync_type in (
+            ExternalDataSchema.SyncType.INCREMENTAL,
+            ExternalDataSchema.SyncType.APPEND,
+            ExternalDataSchema.SyncType.WEBHOOK,
+        )
         return schema
 
     def test_returns_max_of_configured_column(self):
@@ -215,3 +268,41 @@ class TestGetIncrementalFieldValue:
         assert "created" in message  # available columns are listed for self-service fixing
         matching_keys = [key for key in Any_Source_Errors if key in message]
         assert matching_keys, "exception message must stay matched by an Any_Source_Errors entry"
+
+    @parameterized.expand(
+        [
+            ("xmin", ExternalDataSchema.SyncType.XMIN),
+            ("cdc", ExternalDataSchema.SyncType.CDC),
+        ]
+    )
+    def test_stale_incremental_field_ignored_for_self_tracking_sync_types(self, _name: str, sync_type: str):
+        # xmin/cdc track their cursor outside sync_type_config (xmin_ceiling, cdc_last_log_position).
+        # A schema switched from incremental to xmin/cdc keeps the old incremental_field key around,
+        # which used to raise IncrementalFieldMissingFromDataError even though this sync type never
+        # reads that column.
+        table = pa.table({"id": ["a"], "created": [10]})
+        schema = self._schema("updated_at", sync_type=sync_type)
+
+        assert get_incremental_field_value(schema, table) is None
+
+
+class TestUpdateJobRowCount:
+    @pytest.mark.asyncio
+    async def test_retries_transient_query_wait_timeout_then_succeeds(self):
+        # A saturated pgbouncer pool rejects the row-count UPDATE with `query_wait_timeout`; the
+        # query never reached Postgres, so retrying it is safe and avoids failing the whole
+        # import activity (and redoing the batch pull) over a momentary blip.
+        update = MagicMock(side_effect=[OperationalError("query_wait_timeout"), None])
+        queryset = MagicMock(update=update)
+        logger = MagicMock(adebug=AsyncMock())
+
+        with (
+            patch(f"{_LOAD_MODULE}.ExternalDataJob.objects.filter", return_value=queryset),
+            patch(f"{_DB_RETRY_MODULE}.close_old_connections") as close,
+            patch(f"{_DB_RETRY_MODULE}.time.sleep") as sleep,
+        ):
+            await update_job_row_count("job-1", 5, logger)
+
+        assert update.call_count == 2
+        close.assert_called_once()
+        sleep.assert_called_once_with(2)

@@ -1,15 +1,19 @@
 import json
+import time
 import asyncio
+import contextlib
 from collections.abc import Callable, Sequence
 from typing import Any, Literal
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 
 import numpy as np
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 import posthoganalytics
+import botocore.exceptions
 import deltalake.exceptions
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
@@ -51,14 +55,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
-# Substrings of the `OSError`s raised talking to our own S3-backed data-warehouse bucket that are
-# transient and self-recovering, not a bug in our code or a customer credential problem:
+# Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
+# that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
 #   (IMDS/STS blips, dispatch timeouts)
 # - "Please reduce your request rate" is S3's SlowDown throttling response, surfaced by s3fs/aiobotocore
-#   when a bulk delete (e.g. `_purge_s3_prefix`) outruns the bucket's request-rate limit
-# A retry (next maintenance pass, or next sync attempt) redoes the same idempotent operation from
-# scratch, so these shouldn't be treated the same as a bug in our logic.
+#   when a bulk operation (e.g. `_purge_s3_prefix`'s list-then-delete) outruns the bucket's request-rate limit
+# A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
+# bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
     "an error occurred while loading credentials",
     "the credential provider was not enabled",
@@ -68,7 +72,66 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
 
 
 def is_transient_object_store_error(error: BaseException) -> bool:
-    return isinstance(error, OSError) and any(needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS)
+    """True for a transient object-store error, however it happened to surface.
+
+    `DeltaTable.is_deltatable()` raises these as a plain `OSError`, but table-level operations
+    (e.g. `vacuum()`, `optimize.compact()`) wrap the identical underlying object-store error text in
+    `deltalake.exceptions.DeltaError` instead — same blip, different exception type depending on
+    which delta-rs entry point hit it. `_purge_s3_prefix`'s s3fs/aiobotocore calls can also raise a
+    bare `botocore.exceptions.NoCredentialsError` unwrapped — the same IMDS/STS credential-provider
+    blip, just surfaced by aiobotocore's own credential resolution instead of delta-rs's Rust
+    `object_store` crate. `NoCredentialsError`'s message is a fixed, generic string (no needle to
+    match), but hitting our own instance-role-authenticated bucket always means the same transient
+    resolution hiccup, so it's recognized by type rather than by message.
+    """
+    if isinstance(error, botocore.exceptions.NoCredentialsError):
+        return True
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_OBJECT_STORE_ERRORS
+    )
+
+
+# Delta's conflict checker raises CommitFailedError the moment a concurrent commit invalidates what
+# a committing operation read — a merge predicate, or optimize.compact's file-rewrite plan — unlike a
+# plain version-bump race, delta-rs does not consume max_commit_retries or retry this itself (see
+# delta-rs kernel/transaction/conflict_checker.rs), because resolving it safely requires re-reading
+# the table and re-running the operation, which is exactly what its "must be rerun" error message
+# asks the caller to do.
+DELTA_MERGE_CONFLICT_RETRIES = 3
+
+# `optimize.compact` plans its rewrite against the file list at the start of its scan, then reads
+# those files. A concurrent maintenance pass on the same table (e.g. a Temporal activity attempt that
+# heartbeat-timed-out but keeps running as a zombie — see this package's README on the equivalent
+# unfenced race for repartition) can vacuum one of those files out from under the scan before it gets
+# read, which delta-rs surfaces as this DeltaError. The scan failing here means the optimize aborted
+# before committing anything — the table is left exactly as it was, just still fragmented — so this is
+# safe to skip and retry on the next maintenance pass, not a bug in our logic.
+TRANSIENT_DELTA_MAINTENANCE_ERRORS = ("Optimize selected-file scan failed",)
+
+
+def is_transient_delta_maintenance_error(error: BaseException) -> bool:
+    return isinstance(error, deltalake.exceptions.DeltaError) and any(
+        needle in str(error) for needle in TRANSIENT_DELTA_MAINTENANCE_ERRORS
+    )
+
+
+# _purge_s3_prefix is idempotent (every step is existence-gated), so retrying it whole after a brief
+# backoff is as safe as retrying a single failed call, and simpler.
+_PURGE_S3_PREFIX_MAX_ATTEMPTS = 4
+
+
+def is_transient_maintenance_error(error: BaseException) -> bool:
+    """Infra blips seen during pre-write maintenance that aren't a maintenance bug.
+
+    Covers S3/object-store hiccups reaching our own data-warehouse bucket (see
+    `is_transient_object_store_error` above), racy concurrent-maintenance DeltaErrors (see
+    `is_transient_delta_maintenance_error` above), and app-DB connection blips (DNS, pooler drops) hit
+    while resolving `job.folder_path()` on a pooled connection — the same `OperationalError`/`InterfaceError`
+    classification used for this failure class in `repartition_table.py`'s `_is_transient_infra_error`.
+    """
+    if isinstance(error, OperationalError | InterfaceError):
+        return True
+    return is_transient_object_store_error(error) or is_transient_delta_maintenance_error(error)
 
 
 def _delta_merge_spill_kwargs() -> dict[str, int]:
@@ -90,6 +153,24 @@ def _delta_merge_spill_kwargs() -> dict[str, int]:
 
 
 async def _purge_s3_prefix(s3: Any, uri: str) -> None:
+    """Delete every object under `uri`, retrying on transient S3 SlowDown throttling.
+
+    Bulk-listing and bulk-deleting a table's worth of objects can trip S3's `SlowDown` response
+    under enough request volume; retry the whole (idempotent) purge with backoff before giving up.
+    """
+    attempt = 0
+    while True:
+        try:
+            await _purge_s3_prefix_once(s3, uri)
+            return
+        except OSError as e:
+            attempt += 1
+            if attempt >= _PURGE_S3_PREFIX_MAX_ATTEMPTS or not is_transient_object_store_error(e):
+                raise
+            await asyncio.sleep(2**attempt)
+
+
+async def _purge_s3_prefix_once(s3: Any, uri: str) -> None:
     """Delete every object under `uri`, resilient to S3 recursive-delete gaps.
 
     A lone `_rm(uri, recursive=True)` can leave objects behind on S3-compatible stores (directory
@@ -205,6 +286,45 @@ def _first_per_pk_table(
     return pa_table.take(kept_indices)
 
 
+def _merge_predicate_ops(normalized_primary_keys: list[str]) -> list[str]:
+    """Per-key merge match conditions, using NULL-safe equality.
+
+    delta-rs matches source↔target with plain `source.c = target.c`, which is NULL-*un*safe:
+    `NULL = NULL` evaluates to NULL (not true). Composite keys with nullable columns — e.g. the
+    GoogleAds report resources keyed on `segments.ad_network_type` / `segments.click_type` /
+    `segments.device`, which are frequently NULL — therefore never match their existing target row,
+    so `when_not_matched_insert_all` re-inserts them on *every* incremental sync and the table
+    silently accumulates a duplicate per NULL-keyed row. `IS NOT DISTINCT FROM` treats NULL == NULL,
+    matching the source dedup (`_first_per_pk_table` groups NULLs together) and stopping the drift.
+
+    Each term is parenthesised: delta-rs's predicate parser (1.6.1) mis-associates a bare
+    `a IS NOT DISTINCT FROM b AND c IS NOT DISTINCT FROM d` (it groups `b AND c`), so the parens are
+    required for it to plan.
+    """
+    return [f"(source.{c} IS NOT DISTINCT FROM target.{c})" for c in normalized_primary_keys]
+
+
+def _deltalite_write_stats(stats: Any) -> dict[str, int | float | str | bool]:
+    """Flatten a deltalite ``UpsertStats`` into scalar log fields for structured, parseable output.
+
+    Enumerates the object's public scalar attributes (the pyo3 ``#[pyo3(get)]`` getters — version,
+    partitions_touched, files_added/removed/carried_over/probed, rows_updated/inserted/copied,
+    source_rows, null_pk_rows, …) rather than a fixed list, so fields added crate-side later (e.g.
+    per-phase timings) surface automatically. Best-effort — a stats change must never break the write.
+    """
+    fields: dict[str, int | float | str | bool] = {}
+    for name in dir(stats):
+        if name.startswith("_"):
+            continue
+        try:
+            value = getattr(stats, name)
+        except Exception:  # noqa: BLE001 - a flaky getter must not break logging a committed write
+            continue
+        if isinstance(value, bool | int | float | str):
+            fields[name] = value
+    return fields
+
+
 def delta_storage_options() -> dict[str, str]:
     """delta-rs storage options for the data-warehouse bucket, independent of any import job — so a
     read path (e.g. the person-property backfill) can open a Delta table without constructing a full
@@ -279,6 +399,17 @@ class DeltaTableHelper:
         """Public accessor for the delta-rs storage options (used by the in-place repartitioner)."""
         return self._get_credentials()
 
+    async def _capture_unless_transient(self, e: Exception) -> None:
+        """capture_exception unless `e` is a known-transient object-store blip (see
+        is_transient_object_store_error) — those recover on retry and aren't a defect, so reporting
+        them to error tracking is just noise. Never suppresses the re-raise itself, so Temporal's
+        activity retry policy is unaffected either way.
+        """
+        if is_transient_object_store_error(e):
+            await self._logger.awarning(f"get_delta_table: transient object-store error, not reporting: {e}")
+        else:
+            capture_exception(e)
+
     async def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
         delta_table = await self.get_delta_table()
         if delta_table is None:
@@ -286,8 +417,14 @@ class DeltaTableHelper:
 
         delta_table_schema = pyarrow_schema_from_arrow_exportable(delta_table.schema())
 
+        # Columns added here always predate their own addition: every file the table already
+        # holds was written without this column, so it must tolerate absent values on those
+        # rows. Forcing nullable regardless of the incoming batch's own nullability (which
+        # reflects only whether *this* batch happened to contain nulls) is what lets a later
+        # `optimize.compact()` read those old files at all — a non-nullable add otherwise fails
+        # compaction with "Non-nullable column '<name>' is missing from the physical schema".
         new_fields = [
-            deltalake.Field.from_arrow(field)
+            deltalake.Field.from_arrow(field.with_nullable(True))
             for field in ensure_delta_compatible_arrow_schema(schema)
             if field.name not in delta_table_schema.names
         ]
@@ -310,7 +447,7 @@ class DeltaTableHelper:
             # best-effort maintenance to the main write path, so this can't safely swallow the
             # error and report "no table" here — that would trip should_overwrite_table for a
             # table that actually exists, risking data loss.
-            capture_exception(e)
+            await self._capture_unless_transient(e)
             raise
 
         if is_delta:
@@ -319,7 +456,7 @@ class DeltaTableHelper:
                     deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
                 )
             except Exception as e:
-                capture_exception(e)
+                await self._capture_unless_transient(e)
                 error_text = "".join(str(arg) for arg in e.args)
                 # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
                 # metadata action — impossible on a healthy table): wipe so the sync starts fresh.
@@ -386,6 +523,28 @@ class DeltaTableHelper:
 
         return await asyncio.to_thread(delta_table.file_uris)
 
+    async def _execute_with_conflict_retry(
+        self, table: deltalake.DeltaTable, operation_fn: Callable[[], dict], operation_name: str
+    ) -> dict:
+        """Run a Delta operation that commits (merge, optimize.compact, ...), refreshing the table
+        and re-running it on a commit conflict.
+
+        See DELTA_MERGE_CONFLICT_RETRIES for why this can't rely on delta-rs's own retry budget.
+        """
+        attempt = 0
+        while True:
+            try:
+                return await asyncio.to_thread(operation_fn)
+            except deltalake.exceptions.CommitFailedError:
+                if attempt >= DELTA_MERGE_CONFLICT_RETRIES:
+                    raise
+                attempt += 1
+                await self._logger.awarning(
+                    f"{operation_name}: commit conflict, retrying with refreshed table "
+                    f"(attempt {attempt}/{DELTA_MERGE_CONFLICT_RETRIES})"
+                )
+                await asyncio.to_thread(table.update_incremental)
+
     async def _dedupe_incremental_batch(
         self, data: pa.Table, primary_keys: Sequence[Any], use_partitioning: bool
     ) -> pa.Table:
@@ -404,6 +563,105 @@ class DeltaTableHelper:
                 f"(keys={dedupe_keys}) from a batch of {data.num_rows} before writing"
             )
         return deduped
+
+    async def _write_via_deltalite(
+        self,
+        *,
+        existing_delta_table: deltalake.DeltaTable,
+        data: pa.Table,
+        normalized_primary_keys: list[str],
+        use_partitioning: bool,
+        commit_metadata: dict[str, str] | None,
+    ) -> bool:
+        """Phase 2: perform the incremental merge via deltalite instead of the delta-rs MERGE.
+
+        Returns True if deltalite committed the write (caller then skips the delta-rs MERGE), or False
+        to fall back to the MERGE. Falls back on *anything* — flag off, import failure, deltalite error /
+        commit conflict / refusal — so switching a schema to deltalite can only change which engine
+        writes, never whether the sync succeeds; the worst case is today's behaviour. Controlled solely
+        by the per-schema ``data-warehouse-deltalite-write`` feature flag (no env switch), so it can be
+        ramped / killed entirely from the flag UI without a deploy.
+        """
+        if not normalized_primary_keys:
+            return False
+
+        # The flag check is a rollout gate, not part of the write: a flag miss (off) or any error here
+        # (including the import) must fall back to the delta-rs MERGE *silently*.
+        try:
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_write import (
+                is_deltalite_write_enabled,
+            )
+
+            enabled = await database_sync_to_async_pool(is_deltalite_write_enabled)(
+                self._job.team_id, str(self._job.schema_id), None
+            )
+        except Exception:  # noqa: BLE001 - a flag-eval / import error just means "don't use deltalite"
+            return False
+        if not enabled:
+            return False
+
+        # deltalite is enabled. Only the upsert *commit* gates the fallback: a pre-commit failure means
+        # nothing was written, so we re-run the delta-rs MERGE. Anything AFTER the commit is best-effort
+        # bookkeeping and must NOT return False — otherwise the MERGE would re-run on top of deltalite's
+        # already-committed write. (Lazy metrics import keeps the heavy pipeline_v3 chain off the module
+        # import path — circular.)
+        try:
+            import deltalite
+
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+                DELTALITE_WRITE_DURATION_SECONDS,
+                DELTALITE_WRITE_TOTAL,
+            )
+
+            uri = await self._get_delta_table_uri()
+            storage_options = self._get_credentials()
+            partition_key = PARTITION_KEY if use_partitioning else None
+
+            def _upsert() -> Any:
+                table = deltalite.DeltaLiteTable.open(uri, storage_options)
+                return table.upsert(
+                    data,
+                    list(normalized_primary_keys),
+                    partition_key,
+                    commit_metadata=commit_metadata,
+                )
+
+            started = time.perf_counter()
+            stats = await asyncio.to_thread(_upsert)
+            duration_s = time.perf_counter() - started
+        except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
+            await self._logger.awarning(
+                f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
+            )
+            try:
+                DELTALITE_WRITE_TOTAL.labels(outcome="fallback").inc()
+            except Exception:  # noqa: BLE001 - the metrics import itself failed; the warning is enough
+                pass
+            return False
+
+        # Committed — the real table is now deltalite's output. NOTHING past this point may raise into
+        # the caller: an exception here would leave `deltalite_wrote` unset and either fail/retry the
+        # sync or re-run the delta-rs MERGE on top of deltalite's already-committed write. So every
+        # post-commit step (handle refresh, log, metric) is wrapped best-effort and we always return True.
+        try:
+            # Refresh the in-memory delta-rs handle to deltalite's new version so the table returned by
+            # write_to_deltalake (and any subsequent reads) reflects the real state.
+            await asyncio.to_thread(existing_delta_table.update_incremental)
+            # Structured, parseable stats (parity with the old `Delta Merge Stats: {json}` line): every
+            # UpsertStats field becomes its own log key, plus the wall-clock duration. `_deltalite_write_stats`
+            # enumerates the pyo3 getters, so fields added crate-side later (e.g. per-phase timings) flow
+            # through here without a code change.
+            await self._logger.ainfo(
+                "deltalite write: committed",
+                duration_ms=round(duration_s * 1000),
+                **_deltalite_write_stats(stats),
+            )
+            DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
+            DELTALITE_WRITE_DURATION_SECONDS.observe(duration_s)
+        except Exception as e:  # noqa: BLE001 - the write is committed; bookkeeping must never raise
+            with contextlib.suppress(Exception):
+                await self._logger.awarning(f"deltalite write committed but post-commit bookkeeping failed: {e}")
+        return True
 
     async def write_to_deltalake(
         self,
@@ -476,8 +734,20 @@ class DeltaTableHelper:
                 if n in py_table_column_names:
                     normalized_primary_keys.append(n)
 
-            predicate_ops = [f"source.{c} = target.{c}" for c in normalized_primary_keys]
-            if use_partitioning:
+            predicate_ops = _merge_predicate_ops(normalized_primary_keys)
+
+            # Phase 2 canary: try deltalite for the real merge. On success the delta-rs MERGE (and the
+            # now-redundant forward shadow) below are skipped; on any failure this returns False and we
+            # fall through to the MERGE, so a deltalite issue can never fail the sync.
+            deltalite_wrote = await self._write_via_deltalite(
+                existing_delta_table=existing_delta_table,
+                data=data,
+                normalized_primary_keys=normalized_primary_keys,
+                use_partitioning=use_partitioning,
+                commit_metadata=commit_metadata,
+            )
+
+            if not deltalite_wrote and use_partitioning:
                 predicate_ops.append(f"source.{PARTITION_KEY} = target.{PARTITION_KEY}")
 
                 # Group the table by the partition key and merge multiple times with streamed_exec=True for optimised merging
@@ -501,11 +771,13 @@ class DeltaTableHelper:
 
                     merge_commit_properties = commit_properties if i == last_partition_index else None
 
+                    # Bind the current loop values as defaults so a conflict retry (which re-calls
+                    # this closure) can't accidentally pick up a later iteration's values.
                     def _do_merge(
-                        filtered_table: pa.Table,
-                        predicate: str,
-                        merge_commit_properties: deltalake.CommitProperties | None,
-                    ):
+                        filtered_table: pa.Table = filtered_table,
+                        predicate: str = predicate,
+                        merge_commit_properties: deltalake.CommitProperties | None = merge_commit_properties,
+                    ) -> dict:
                         return (
                             existing_delta_table.merge(
                                 source=filtered_table,
@@ -521,13 +793,15 @@ class DeltaTableHelper:
                             .execute()
                         )
 
-                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate, merge_commit_properties)
+                    merge_stats = await self._execute_with_conflict_retry(
+                        existing_delta_table, _do_merge, "write_to_deltalake: merge"
+                    )
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
                     if progress_callback:
                         progress_callback()
-            else:
+            elif not deltalite_wrote:
                 # Single merge call → safe to tag directly; this is the terminal commit.
                 def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
                     return (
@@ -545,7 +819,11 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                merge_stats = await asyncio.to_thread(_do_merge_unpartitioned, data, predicate_ops)
+                merge_stats = await self._execute_with_conflict_retry(
+                    existing_delta_table,
+                    lambda: _do_merge_unpartitioned(data, predicate_ops),
+                    "write_to_deltalake: merge",
+                )
                 await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         elif (
             write_type == "full_refresh"
@@ -605,6 +883,13 @@ class DeltaTableHelper:
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                 )
+            else:
+                # An append re-casts each source column to its stored type, same as a merge. A decimal
+                # column that outgrew decimal128 arrives here as text (decimal256 renders to string),
+                # and delta-rs can't parse the scientific notation arrow emits for scale-heavy zeros
+                # (e.g. '0E-18') back into the stored decimal — an opaque DeltaError that retries
+                # forever. Align to the stored decimal types up front, exactly as the merge path does.
+                data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
             await self._logger.adebug(f"write_to_deltalake: write_type = append")
 
@@ -691,7 +976,11 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                close_stats = await asyncio.to_thread(_do_scd2_close, first_per_pk, predicate)
+                close_stats = await self._execute_with_conflict_retry(
+                    existing_delta_table,
+                    lambda: _do_scd2_close(first_per_pk, predicate),
+                    "write_scd2_to_deltalake: close merge",
+                )
                 await self._logger.adebug(f"SCD2 close stats: {json.dumps(close_stats)}")
 
         # Step 2: Append all new rows
@@ -777,27 +1066,37 @@ class DeltaTableHelper:
         """
         return await self.has_commit_with_metadata({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
-    async def vacuum_table(self) -> None:
-        table = await self.get_delta_table()
-        if table is None:
-            raise Exception("Deltatable not found")
-
+    async def _vacuum(self, table: deltalake.DeltaTable) -> None:
         await self._logger.adebug("Vacuuming table...")
         vacuum_stats = await asyncio.to_thread(
             table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
 
+    async def _compact(self, table: deltalake.DeltaTable) -> None:
+        await self._logger.adebug("Compacting table...")
+        compact_stats = await self._execute_with_conflict_retry(
+            table, lambda: table.optimize.compact(), "compact_table"
+        )
+        await self._logger.adebug(json.dumps(compact_stats))
+
+    async def vacuum_table(self) -> None:
+        table = await self.get_delta_table()
+        if table is None:
+            raise Exception("Deltatable not found")
+
+        await self._vacuum(table)
+
     async def compact_table(self) -> None:
         table = await self.get_delta_table()
         if table is None:
             raise Exception("Deltatable not found")
 
-        await self._logger.adebug("Compacting table...")
-        compact_stats = await asyncio.to_thread(table.optimize.compact)
-        await self._logger.adebug(json.dumps(compact_stats))
-
-        await self.vacuum_table()
+        await self._compact(table)
+        # Reuse the table already resolved above instead of re-fetching it: `get_delta_table`
+        # is cached only opportunistically, so a re-fetch here can race a concurrent sync of a
+        # different table evicting this table's cache entry and spuriously report it missing.
+        await self._vacuum(table)
         await self._logger.adebug("Compacting and vacuuming complete")
 
     async def vacuum_if_stale(self, last_vacuum_version: int | None, commit_threshold: int) -> int | None:
@@ -836,7 +1135,7 @@ class DeltaTableHelper:
         await self._logger.ainfo(
             f"vacuum_if_stale: {commits_since} commits since last vacuum (>= {commit_threshold}), vacuuming"
         )
-        await self.vacuum_table()
+        await self._vacuum(table)
         try:
             # Observability for the maintenance path — how often tables vacuum and how much log churn
             # accrued between vacuums. Best-effort: telemetry must never break the sync.
@@ -876,7 +1175,7 @@ class DeltaTableHelper:
         arrive here with None.
 
         Returns True if compaction ran, False if it was skipped. Cheap when the table is
-        healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
+        healthy: one S3 LIST via `table.file_uris`. Intended for pre-write defensive cleanup
         so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
         before reaching `_post_run_operations`) cleans up before adding to the pile.
         """
@@ -884,7 +1183,7 @@ class DeltaTableHelper:
         if table is None:
             return False
 
-        file_uris = await self.get_file_uris()
+        file_uris = await asyncio.to_thread(table.file_uris)
         total_files = len(file_uris)
         if partition_count is None:
             # One directory per partition value; unpartitioned tables collapse to the single
@@ -906,7 +1205,8 @@ class DeltaTableHelper:
             return False
 
         await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
-        await self.compact_table()
+        await self._compact(table)
+        await self._vacuum(table)
         return True
 
     async def run_maintenance(

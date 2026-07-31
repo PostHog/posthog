@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from django.core.cache import cache
 
+import requests
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -318,6 +319,13 @@ class GoogleAdsSource(
                 "Google rejected the credentials for this integration. Please reconnect your Google Ads "
                 "integration and make sure the connected account can access your Google Ads accounts."
             ) from e
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            # The walk retries a transient blip internally; this means every attempt on some request
+            # timed out or failed to connect. Actionable and retryable from the user's side, so surface
+            # a clean message instead of the raw connection error.
+            raise IntegrationAccountListingError(
+                "Google Ads did not respond in time while listing your accounts. Please try again."
+            ) from e
 
         names_by_id = {account["id"]: account["name"] for account in accounts}
         integration_accounts = [
@@ -479,5 +487,16 @@ class GoogleAdsSource(
                     False,
                     "Google Ads returned a temporary error while validating your credentials. This is "
                     "usually a transient issue on Google's side — please try again in a moment.",
+                )
+            # A gRPC INVALID_ARGUMENT ("Request contains an invalid argument") means Google rejected the
+            # request as malformed — most often a customer ID (or MCC manager ID) that isn't a valid
+            # account. Its str() is the same raw protobuf dump (with a per-request peer IP) the user
+            # can't act on, so surface an actionable prompt instead of leaking it.
+            if "INVALID_ARGUMENT" in error_message:
+                return (
+                    False,
+                    "Google Ads rejected the request as invalid while validating your credentials. Check "
+                    "that your customer ID (and your manager account ID, if using an MCC) is correct, then "
+                    "try again.",
                 )
             return False, f"Error validating credentials: {error_message}"

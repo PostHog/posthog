@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
     DeltaTableHelper,
+    is_transient_maintenance_error,
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
@@ -427,6 +428,17 @@ async def handle_corrupted_delta_log(
             if not await delta_table_helper.is_table_corrupted():
                 return False
         except Exception as e:
+            if is_transient_object_store_error(e):
+                # `is_table_corrupted` opens the table via `DeltaTable.is_deltatable`, which can hit
+                # the same IMDS/STS credential-provider or connectivity blips as any other delta-rs
+                # object-store call — not evidence the table is corrupt, just a blip talking to our
+                # own S3 bucket. Skip the revive check this sync rather than reporting a defect; the
+                # next sync's check runs fresh.
+                await logger.awarning(
+                    f"handle_corrupted_delta_log: is_table_corrupted transient object-store error, "
+                    f"skipping revive check schema_id={schema.id}: {e}"
+                )
+                return False
             capture_exception(e)
             return False
 
@@ -704,9 +716,10 @@ async def run_pre_write_defensive_compact(
     the CDC post-load path in `common/load.py` writes the same watermark, and both merge
     via `update_sync_type_config_keys` under a row lock. Wrapped in try/except so a
     maintenance failure never blocks the actual sync; the original error path is unaffected.
-    A transient object-store error (see `is_transient_object_store_error`) is logged at
-    warning instead of captured — the next sync's maintenance pass retries it from scratch,
-    so it isn't a bug in this function, just a temporary blip talking to our own S3 bucket.
+    A transient infra error (see `is_transient_maintenance_error`) — an object-store hiccup, a racy
+    concurrent-maintenance DeltaError, or an app-DB connection blip — is logged at warning instead of
+    captured. The next sync's maintenance pass retries it from scratch, so it isn't a bug in this
+    function, just a temporary blip talking to our own S3 bucket, delta table, or app DB.
 
     Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the behaviour
     identical across pipelines without each having to know how to look up `partition_count`
@@ -730,8 +743,8 @@ async def run_pre_write_defensive_compact(
                 schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
             )
     except Exception as e:
-        if is_transient_object_store_error(e):
-            await logger.awarning(f"Pre-write maintenance skipped: transient object-store error: {e}")
+        if is_transient_maintenance_error(e):
+            await logger.awarning(f"Pre-write maintenance skipped: transient infra error: {e}")
             return
         capture_exception(e)
         await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)
