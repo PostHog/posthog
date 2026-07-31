@@ -483,6 +483,70 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     return _task_run_to_dto(run)
 
 
+def find_signal_implementation_run(
+    *, team_id: int, repository: str, head_branch: str | None
+) -> contracts.SignalImplementationRunDTO | None:
+    """The signals-origin implementation run that produced this PR, if any.
+
+    Matches the PR's head branch against ``state.self_driving_head_branch``, the branch name the
+    server generated at run creation (signals' auto_start) and stamped into PATCH-protected run
+    state. That stamp is the only end of the run->PR link no caller can write: ``output.pr_url``
+    and ``output.head_branch`` are settable by any team member with task access, so matching on
+    them would let one member aim the approve-first review carve-out at an App-authored PR whose
+    contents they chose. The head branch itself comes from GitHub (webhook payload or REST fetch),
+    so both ends of the join are attested.
+
+    Callers (stamphog's inbox carve-out) pass the repository the PR event came from and own fork
+    safety: pass ``head_branch`` only for a repo-native head, never a fork's (a fork's head ref is
+    attacker-controlled). Dropping failed and cancelled runs and soft-deleted tasks stops a dead
+    or disowned run from keeping the carve-out alive on later pushes. A COMPLETED run still
+    matches: success flips the run to COMPLETED right after it opens the PR, so excluding it
+    would end re-reviews the moment the implementation finishes.
+    """
+    # TODO(security): the run->PR link is only as strong as the branch NAME, and the name is not a
+    # secret. state.self_driving_head_branch is unforgeable, but the name it holds is readable by any
+    # team member (auto_start writes it into the task description, and TaskRunDetailSerializer exposes
+    # `state`) and low-entropy. A run that finishes WITHOUT opening a PR keeps its stamp yet leaves its
+    # branch unclaimed, so a member can read the name, have their own task's agent push an App-authored
+    # repo-native PR from that exact branch, then set_output the original run's pr_url to fire the
+    # carve-out: the head ref genuinely belongs to this run, so an approve-first review lands on a PR
+    # whose contents they chose. The real fix is to bind on the head SHA the sandbox actually pushed
+    # (recorded server-side into protected state) rather than the branch name, because a run that never
+    # pushed has no SHA to bind, which removes the unclaimed-branch surface entirely; re-reviews then
+    # pin to the PR identity once the first attested SHA establishes it. It is a heavy change (sandbox
+    # has to report the pushed SHA back, and the re-review path needs the PR-identity pin), so it is
+    # deferred. The exposure is intra-tenant and gated behind an opt-in toggle that defaults off, which
+    # makes it an accepted residual for the current internal rollout; close it before any external one.
+    if not head_branch:
+        return None
+    run = (
+        TaskRun.objects.filter(
+            team_id=team_id,
+            state__self_driving_head_branch=head_branch,
+            task__repository__iexact=repository.strip(),
+            task__deleted=False,
+        )
+        .exclude(status__in=(TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+        .order_by("-created_at")
+        .select_related("task")
+        .first()
+    )
+    if run is None or run.team_id != team_id:
+        return None
+    task = run.task
+    # Belt and braces: only signals' auto_start stamps the branch key today, but the ai_stage and
+    # signal-report checks keep a future writer of the key from silently widening the carve-out.
+    if task.signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
+        return None
+    return contracts.SignalImplementationRunDTO(
+        run_id=run.id,
+        task_id=task.id,
+        team_id=run.team_id,
+        signal_report_id=task.signal_report_id,
+        task_created_by_id=task.created_by_id,
+    )
+
+
 def get_wizard_pr_ready_email_context(run_id: str | UUID) -> contracts.WizardPrReadyEmailContextDTO | None:
     """Data ``send_wizard_pr_ready_email`` needs for a run, or ``None`` if the run has no PR URL yet."""
     run = TaskRun.objects.select_related("task").filter(id=run_id).first()
@@ -1794,6 +1858,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
+        # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
+        # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
+        "ai_stage",
+        # The server-generated head branch the run->PR link is keyed on (find_signal_implementation_run).
+        # A PATCHable value would let a caller re-aim the approve-first carve-out at any App-authored
+        # PR, which is the exact forgery the stamp exists to prevent.
+        "self_driving_head_branch",
         # The run's model posture, chosen at creation by the server-owned caller and read back out
         # of state when the run dispatches. It decides what the run costs, and for a run routed to
         # an unbilled gateway product (create_wizard_cloud_run pins claude-sonnet-5 for the
@@ -4789,6 +4860,16 @@ def run_task(
         prev_wizard_head_branch = (previous_run.state or {}).get("wizard_head_branch")
         if prev_wizard_head_branch:
             extra_state["wizard_head_branch"] = prev_wizard_head_branch
+
+        # Same reasoning for a signals self-driving run: the head branch is baked into the original
+        # prompt, so the resumed run pushes it too, and the review carve-out's branch linkage
+        # (find_signal_implementation_run) only matches the successor if its stamp is carried
+        # forward — otherwise a resume (the usual recovery for a cancelled run) silently ends
+        # re-reviews. The key is PATCH-protected, so this server-side copy is the only way it
+        # reaches the successor run.
+        prev_self_driving_head_branch = (previous_run.state or {}).get("self_driving_head_branch")
+        if prev_self_driving_head_branch:
+            extra_state["self_driving_head_branch"] = prev_self_driving_head_branch
 
         # A read-only GitHub grant describes how the task was created, not one run — without the
         # carry-forward, a resumed successor of a repo-less read-only run falls through to the

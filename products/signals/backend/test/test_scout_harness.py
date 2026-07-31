@@ -34,7 +34,7 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, 
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import _REPORT_CHARTS, HARNESS_PROMPT_VERSION, build_run_prompt
-from products.signals.backend.scout_harness.runner import RunResult, _create_run_row, arun_signals_scout
+from products.signals.backend.scout_harness.runner import RunResult, _ai_stage, _create_run_row, arun_signals_scout
 from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     SkillNotFoundError,
@@ -818,8 +818,9 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
-    # Scouts pass ai_stage='scout' to the sandbox session so every $ai_generation carries it,
-    # letting scout spend be split out of the ai_product='signals' bucket (scouts have no report id).
+    # Scouts pass a `scout:<skill>` ai_stage to the sandbox session so every $ai_generation
+    # carries it, letting scout spend be split out of the ai_product='signals' bucket (scouts
+    # have no report id) and attributed to one scout.
     session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
     captured: dict = {}
 
@@ -842,7 +843,32 @@ async def test_run_tags_session_with_scout_ai_stage(ateam, aerrors_skill):
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
-    assert captured["ai_stage"] == "scout"
+    # `signals-scout-errors` is not a canonical scout, so its team-authored name is withheld.
+    assert captured["ai_stage"] == "scout:custom"
+
+
+@parameterized.expand(
+    [
+        ("canonical", "signals-scout-general", "scout:general"),
+        ("team_authored", "signals-scout-our-own-thing", "scout:custom"),
+    ]
+)
+def test_ai_stage_tag_only_carries_canonical_scout_names(_name, skill_name, expected):
+    # Team-authored names must collapse to `custom`: ai_stage is a low-cardinality tag and the
+    # fleet can enroll teams by wildcard, so admitting them grows it without bound.
+    skill = LoadedSkill(
+        name=skill_name,
+        version=1,
+        body="scout",
+        description="",
+        allowed_tools=[],
+        files=[],
+        skill_id="skill-1",
+        # A canonical scout a team edited reads as `custom` here, and must still be named.
+        origin="custom",
+        authors=[],
+    )
+    assert _ai_stage(skill) == expected
 
 
 @pytest.mark.asyncio

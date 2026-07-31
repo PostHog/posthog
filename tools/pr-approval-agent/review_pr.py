@@ -192,11 +192,17 @@ class GateResult:
 class Pipeline:
     """Orchestrates the full PR review: fetch → classify → gates → LLM review."""
 
-    def __init__(self, pr_number: int, repo: str, *, dry_run: bool = False, verbose: bool = False):
+    def __init__(
+        self, pr_number: int, repo: str, *, dry_run: bool = False, verbose: bool = False, self_driving: bool = False
+    ):
         self.pr_number = pr_number
         self.repo = repo
         self.dry_run = dry_run
         self.verbose = verbose
+        # Set only by the hosted runtime, for PRs it verified came from a self-driving Inbox
+        # implementation run. It relaxes two gates (bot author, draft) and swaps author trust for
+        # task provenance.
+        self.self_driving = self_driving
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
@@ -212,7 +218,7 @@ class Pipeline:
         """Run the full pipeline, return final verdict string."""
         self._fetch()
 
-        if self.pr.author_is_bot:
+        if self.pr.author_is_bot and not self.self_driving:
             return self._refuse_bot_author()
 
         gate_verdict = self._classify_and_gate()
@@ -462,6 +468,9 @@ class Pipeline:
             # the T1-agent path only (see _maybe_compute_familiarity). None here
             # keeps the other paths' prompts byte-identical to before.
             "familiarity": None,
+            # False renders the provenance block empty, leaving every other prompt unchanged.
+            # True swaps the author trust context for task provenance.
+            "self_driving": self.self_driving,
         }
 
     def _summarize_assurance(self) -> dict:
@@ -571,7 +580,9 @@ class Pipeline:
     def _check_prerequisites(self) -> tuple[bool, str]:
         pr = self.pr
         issues = []
-        if pr.draft:
+        # Self-driving PRs are reviewed while still draft so the verdict is ready at Inbox triage
+        # time. The approval is pinned to the head SHA, so it holds when the PR flips to ready.
+        if pr.draft and not self.self_driving:
             issues.append("PR is still in draft")
         if pr.mergeable_state == "dirty":
             issues.append("merge conflicts present")
@@ -918,6 +929,8 @@ class Pipeline:
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
                 "familiarity": familiarity_evidence(self.familiarity),
+                # Audit trail: records that this review ran with the gates relaxed (see __init__).
+                "self_driving": self.self_driving,
             },
             "provenance": provenance_evidence(self.provenance),
             "gates": [

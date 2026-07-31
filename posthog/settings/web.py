@@ -549,6 +549,8 @@ SPECTACULAR_SETTINGS = {
         #    path (drf-spectacular generates the x-spec-enum-id from the same tuples).
         # --- Model class paths (ChoiceField x-spec-enum-id hashes) ---
         "SignalReportRefundReasonEnum": "products.signals.backend.models.SignalReportRefund.Reason",
+        "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
+        "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
         "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
@@ -819,7 +821,20 @@ SPECTACULAR_SETTINGS = {
         "DescriptionContentTypeEnum": ["text", "html"],
         # Field-name collisions: multiple different choice sets use the same field name
         # across different serializer components.
-        "StringMatchOperatorEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
+        "StringMatchOperatorEnum": [
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "starts_with",
+            "not_starts_with",
+            "ends_with",
+            "not_ends_with",
+            "regex",
+            "not_regex",
+        ],
+        # Survey url/device match types keep the operator subset without starts_with/ends_with.
+        "SurveyMatchTypeEnum": ["exact", "is_not", "icontains", "not_icontains", "regex", "not_regex"],
         "DateOperatorEnum": ["is_date_exact", "is_date_before", "is_date_after"],
         "DetailModeValueEnum": ["minimal", "detailed"],
         "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
