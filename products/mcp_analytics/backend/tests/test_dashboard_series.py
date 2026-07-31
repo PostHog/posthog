@@ -84,23 +84,34 @@ class TestMCPToolCallsAndErrorsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cli
 
         assert [r.bucket for r in results] == ["2026-07-21 11:00:00", "2026-07-21 12:00:00"]
 
-    def test_minute_interval_keeps_the_window_exact(self) -> None:
-        # QueryDateRange only leaves a relative date_from untruncated at minute/second granularity,
-        # so a runner that drops the interval widens "last hour" back to the top of the hour.
+    @parameterized.expand(
+        [
+            ("minute", IntervalType.MINUTE, "-1h", [("2026-07-21 11:10:00", 1)]),
+            ("day", IntervalType.DAY, "-1d", [("2026-07-20 00:00:00", 1), ("2026-07-21 00:00:00", 2)]),
+        ]
+    )
+    def test_relative_windows_follow_the_interval_granularity(
+        self, _name: str, interval: IntervalType, date_from: str, expected: list[tuple[str, int]]
+    ) -> None:
+        # QueryDateRange only leaves a relative date_from untruncated at minute/second granularity.
+        # Both directions matter here: "last hour" has to stay exact or it pulls in an extra chunk
+        # of calls, while day and up has to cover whole days or the first bucket undercounts against
+        # the wall-clock keys the client zero-fills with.
         with freeze_time("2026-07-21 18:30:00"):
-            # 10:15 Pacific sits inside the truncated window (top of the hour, 10:00) but outside
-            # the exact one (11:30 minus an hour, 10:30).
+            # 08:00 Pacific on the 20th: inside the truncated day window, outside an exact one.
+            self._emit(timestamp=datetime(2026, 7, 20, 15, 0, tzinfo=UTC))
+            # 10:15 Pacific: inside the truncated hour window (10:00), outside the exact one (10:30).
             self._emit(timestamp=datetime(2026, 7, 21, 17, 15, tzinfo=UTC))
             self._emit(timestamp=datetime(2026, 7, 21, 18, 10, tzinfo=UTC))
 
             results = self._run(
                 MCPToolCallsAndErrorsQuery(
-                    dateRange=DateRange(date_from="-1h"),
-                    interval=IntervalType.MINUTE,
+                    dateRange=DateRange(date_from=date_from),
+                    interval=interval,
                 )
             )
 
-        assert [r.bucket for r in results] == ["2026-07-21 11:10:00"]
+        assert [(r.bucket, r.successes) for r in results] == expected
 
     def test_property_filters_scope_the_series(self) -> None:
         self._emit(timestamp=datetime(2026, 7, 21, 18, 0, tzinfo=UTC), tool_name="query_run")
