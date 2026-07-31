@@ -136,28 +136,6 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                     <Markdown>
                         {dedent`
-                            PostHog captures the \`get_weather\` call above automatically, as an \`$ai_span\` with
-                            its real execution duration, nested under the trace. You write no capture code for it. Pass
-                            \`group_id\` in \`RunConfig\` to link multiple runs from the same conversation. OpenAI
-                            documents it as "a grouping identifier to link multiple traces from the same
-                            conversation."
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            \`distinct_id\` ties every run to a person, so you can see everything one user asked for
-                            and know who hit an error or ran up cost. \`group_id\` groups every run in one
-                            conversation, so a multi-turn exchange reads as a single thread instead of separate,
-                            unrelated traces. A trace covers one run, and a session covers the whole conversation:
-                            passing the same \`group_id\` across every run is what connects them. Together,
-                            \`distinct_id\` and \`group_id\` give you a complete view: which person, which
-                            conversation, which run, and every LLM call and tool call inside it.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
                             You can expect captured \`$ai_generation\` events to have the following properties:
                         `}
                     </Markdown>

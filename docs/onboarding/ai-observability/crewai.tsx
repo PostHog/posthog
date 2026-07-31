@@ -82,17 +82,6 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                             without proxying your calls.
                         </Markdown>
                     </CalloutBox>
-
-                    <CalloutBox type="caution" icon="IconWarning" title="PostHog SDK version">
-                        <Markdown>
-                            {dedent`
-                                CrewAI installs \`chromadb\`, which pins \`posthog<6.0.0\`. The AI observability
-                                wrappers and the LangChain handler work on 5.x, so CrewAI tracing works normally.
-                                The posthog SDK added \`posthog.ai.otel\` in 7.12.0. You cannot install the
-                                OpenTelemetry integration alongside CrewAI unless you override chromadb's pin.
-                            `}
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },

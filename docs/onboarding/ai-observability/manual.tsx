@@ -310,29 +310,7 @@ export const getManualSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 <>
                     <Markdown>
                         {dedent`
-                            \`$ai_span\` is a plain trace node. It is not tied to any LLM provider. Use it for tool
-                            calls, database queries, retrieval steps, or any other work you want timed inside a
-                            trace. Set \`$ai_span_type\` to describe the kind of work, for example \`tool\`,
-                            \`chain\`, \`retriever\`, or \`agent\`.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            Nothing computes duration for you. Time your own code and pass the result as
-                            \`$ai_latency\`. The span must also carry the same \`$ai_trace_id\` as the generation it
-                            belongs to, or it will not nest inside the same trace.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            For example, here is a tool call captured as a span right after the generation that
-                            triggered it. Both share the same \`$ai_trace_id\` (so they nest in one trace) and
-                            \`$ai_session_id\` (so they group into the same conversation). \`client\` is PostHog's
-                            [OpenAI wrapper](https://posthog.com/docs/ai-observability/installation/openai), which
-                            captures the \`$ai_generation\` automatically. \`posthog\` is the raw client used to
-                            capture the span.
+                            Spans are other actions taken within a LLM trace, like tool calls or database queries. They can be captured using an \`$ai_span\` event.
                         `}
                     </Markdown>
 

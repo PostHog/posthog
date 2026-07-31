@@ -85,30 +85,6 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                         `}
                     />
 
-                    <Markdown>
-                        Pass `user_id` and `$ai_session_id` in `metadata` to identify the caller and group every call
-                        made through that LM into one PostHog session. Both forward straight through LiteLLM's callback
-                        like any other metadata key.
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            \`user_id\` ties this call to a person, mapped to PostHog's \`distinct_id\`. This lets
-                            you see everything one user asked for and know who hit an error or ran up cost.
-                            \`$ai_session_id\` groups every call made through that LM into one conversation, so a
-                            multi-turn exchange reads as a single thread instead of separate, unrelated calls.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            A trace covers one call, and a session covers the whole conversation: passing the same
-                            session id across every call is what connects them. Together, they give you a complete
-                            view: who made the request, which conversation it is part of, and every generation and
-                            tool call inside it.
-                        `}
-                    </Markdown>
-
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
                             DSPy uses LiteLLM under the hood for LLM provider access. By configuring PostHog as a
@@ -127,17 +103,7 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                     <Markdown>
                         {dedent`
                             Use DSPy as normal. PostHog automatically captures an \`$ai_generation\` event for each
-                            LLM call made through LiteLLM. LiteLLM's callback does not see a retrieval step or any
-                            other work your own code does around it. Capture that as a span yourself, as the
-                            example below does before calling \`predictor\`.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            LiteLLM has no \`posthog_trace_id\` parameter, so generate the trace id yourself and
-                            pass it to \`dspy.LM()\` alongside \`$ai_session_id\`. Reuse that same trace id when you
-                            capture the span, so it nests under the same trace as the generation that follows it.
+                            LLM call made through LiteLLM.
                         `}
                     </Markdown>
 
@@ -164,23 +130,6 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             )
                             dspy.configure(lm=lm)
 
-                            # retrieve() is your existing retrieval setup
-                            start = time.time()
-                            context = retrieve("hedgehog facts")
-
-                            posthog.capture(
-                                distinct_id=user_id,
-                                event="$ai_span",
-                                properties={
-                                    "$ai_trace_id": trace_id,
-                                    "$ai_session_id": session_id,
-                                    "$ai_span_id": str(uuid.uuid4()),
-                                    "$ai_span_name": "retrieve",
-                                    "$ai_input_state": "hedgehog facts",
-                                    "$ai_output_state": context,
-                                    "$ai_latency": time.time() - start,
-                                },
-                            )
 
                             # Define a simple signature
                             class QA(dspy.Signature):
@@ -189,8 +138,7 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                                 answer: str = dspy.OutputField()
 
                             predictor = dspy.Predict(QA)
-                            question = f"Using this context, answer what a fun fact about hedgehogs is: {context}"
-                            result = predictor(question=question)
+                            result = predictor(question="What's a fun fact about hedgehogs?")
                             print(result.answer)
                         `}
                     />
@@ -212,20 +160,35 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                 <>
                     <Markdown>
                         {dedent`
-                            The recommended example above already captures a retrieval step as a span, ahead of
-                            the generation that uses its output. Use the same pattern for a tool call or any other
-                            work you want timed inside the trace.
+                            Capture tool calls as a span yourself, as the example below does before calling \`predictor\`.
                         `}
                     </Markdown>
 
-                    <Markdown>
-                        {dedent`
-                            The span must carry the same \`$ai_trace_id\` as the generation it belongs to, or it
-                            will not nest under the same trace. Nothing measures duration for you: time your own
-                            code and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind
-                            of work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            # retrieve() is your existing retrieval setup
+                            start = time.time()
+                            context = retrieve("hedgehog facts")
+
+                            posthog.capture(
+                                distinct_id=user_id,
+                                event="$ai_span",
+                                properties={
+                                    "$ai_trace_id": trace_id,
+                                    "$ai_session_id": session_id,
+                                    "$ai_span_id": str(uuid.uuid4()),
+                                    "$ai_span_name": "retrieve",
+                                    "$ai_input_state": "hedgehog facts",
+                                    "$ai_output_state": context,
+                                    "$ai_latency": time.time() - start,
+                                },
+                            )
+
+                            question = f"Using this context, answer what a fun fact about hedgehogs is: {context}"
+                            result = predictor(question=question)
                         `}
-                    </Markdown>
+                    />
 
                     <Markdown>
                         {dedent`

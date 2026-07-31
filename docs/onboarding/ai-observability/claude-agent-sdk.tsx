@@ -106,31 +106,6 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                         `}
                     />
 
-                    <Markdown>
-                        {dedent`
-                            Each \`$ai_span\` event above carries the tool's real execution duration and nests
-                            under the trace automatically. You write no capture code for it.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            \`posthog_distinct_id\` ties this call to a person, so you can see everything one user
-                            asked for and know who hit an error or ran up cost. \`$ai_session_id\` groups every
-                            generation, span, and trace from a call into one PostHog session. This makes a
-                            multi-turn exchange read as a single thread, instead of separate, unrelated calls.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            A trace covers one query, and a session covers the whole conversation: passing the same
-                            session id across every query is what connects them. Together, \`posthog_distinct_id\`
-                            and \`$ai_session_id\` give you a complete view: who made the request, which
-                            conversation it is part of, and every generation and tool call inside it.
-                        `}
-                    </Markdown>
-
                     <Blockquote>
                         <Markdown>
                             {dedent`
