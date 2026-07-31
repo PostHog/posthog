@@ -85,6 +85,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 session_limit=inputs.session_limit,
                 config_override=inputs.config_override,
+                started_at=inputs.started_at,
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
             retry_policy=_STATE_RETRY,
@@ -147,6 +148,8 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 upload_video_to_gemini_activity,
                 UploadVideoToGeminiInputs(asset_id=asset_result.asset_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                # The activity heartbeats, so a dead worker costs ~2 minutes, not the full budget.
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_STEP_RETRY,
             )
             call_output: ScannerCallOutput = await wf.execute_activity(
@@ -159,6 +162,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                     snapshot_override=selection.snapshot,
                 ),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_STEP_RETRY,
             )
             await self._record(
@@ -199,6 +203,7 @@ class EvaluatePromptSuggestionWorkflow(PostHogWorkflow):
                 after_output=after_output,
                 error=error,
                 preview=preview,
+                started_at=inputs.started_at,
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
             retry_policy=_STATE_RETRY,

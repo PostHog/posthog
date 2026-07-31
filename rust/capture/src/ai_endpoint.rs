@@ -637,6 +637,7 @@ fn build_kafka_event(
         redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
         skip_heatmap_processing: false,
         overflow_reason: None,
+        distinct_id_truncated_from: None,
     };
 
     // Create ProcessedEvent

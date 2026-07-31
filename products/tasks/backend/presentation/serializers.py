@@ -11,7 +11,8 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from croniter import croniter
-from drf_spectacular.utils import PolymorphicProxySerializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -251,6 +252,13 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    url = serializers.URLField(
+        required=False,
+        help_text=(
+            "Presigned download URL for the artifact. Populated on the finalize-upload response so "
+            "the caller can link to the file directly; it is time-limited and not persisted on the manifest."
+        ),
+    )
 
 
 class TaskRunDetailSerializer(DataclassSerializer):
@@ -410,7 +418,10 @@ class TaskWriteSerializer(serializers.Serializer):
     origin_product = serializers.ChoiceField(
         choices=tasks_facade.TaskOriginProduct.choices,
         required=False,
-        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+        help_text=(
+            "PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). "
+            "Origins reserved for server-created agents cannot be set through this API."
+        ),
     )
     repository = serializers.CharField(
         max_length=255,
@@ -596,23 +607,18 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
-            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
-        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
-            # Experiments tasks are team-readable, so letting API callers pick this origin
-            # would let them expose an arbitrary task to the whole team. The experiments
-            # flow creates its tasks server-side through the facade, never through here.
-            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
-        if value == tasks_facade.TaskOriginProduct.SIGNALS_SCOUT:
-            # Scout tasks are created only by the signals scout harness. A forged scout origin
-            # would route the task's run logs into PostHog's internal Logs project
-            # (run_log_mirror) and inherit scout visibility semantics.
-            raise serializers.ValidationError("origin_product 'signals_scout' is reserved for signals scout runs")
-        if value == tasks_facade.TaskOriginProduct.ONBOARDING:
-            # This origin routes the run's LLM traffic to the unbilled `onboarding` gateway
-            # product, so a forged one would be free model access. Only create_wizard_cloud_run
-            # sets it, behind its own rate limits and daily cap.
-            raise serializers.ValidationError("origin_product 'onboarding' is reserved for setup wizard cloud runs")
+        reserved_origins = {
+            tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
+            tasks_facade.TaskOriginProduct.EXPERIMENTS,
+            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+            # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
+            # forged origin would be free model access. Only create_wizard_cloud_run sets it,
+            # behind its own rate limits and daily cap.
+            tasks_facade.TaskOriginProduct.ONBOARDING,
+        }
+        if value in reserved_origins:
+            raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 
     def validate_repository(self, value):
@@ -952,6 +958,46 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
                     {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
                 )
         return attrs
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class InsightQueryJSONField(serializers.JSONField):
+    """Insight query JSON — freeform across query kinds, so typed as a plain object."""
+
+
+class TaskRunLivingArtifactChartRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Chart title, also used as the delivered file name.",
+    )
+    query = InsightQueryJSONField(
+        required=False,
+        help_text=(
+            "Insight query JSON to render ad hoc, e.g. "
+            '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. '
+            "SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. "
+            "Provide exactly one of query or insight_id."
+        ),
+    )
+    insight_id = serializers.IntegerField(
+        required=False,
+        help_text="Numeric id of a saved insight to render. Provide exactly one of query or insight_id.",
+    )
+
+    def validate(self, attrs):
+        if (attrs.get("query") is None) == (attrs.get("insight_id") is None):
+            raise serializers.ValidationError({"query": "Provide exactly one of query or insight_id."})
+        return attrs
+
+
+class TaskRunLivingArtifactChartResponseSerializer(serializers.Serializer):
+    artifact = TaskRunLivingArtifactResponseSerializer(help_text="The living artifact registered for delivery.")
+    export_asset_id = serializers.IntegerField(help_text="Id of the rendered PNG export backing the chart.")
+    url = serializers.URLField(
+        allow_null=True,
+        required=False,
+        help_text="Link to explore this chart interactively in PostHog.",
+    )
 
 
 class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):

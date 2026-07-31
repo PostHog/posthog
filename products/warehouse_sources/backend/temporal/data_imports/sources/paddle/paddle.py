@@ -39,6 +39,29 @@ class PaddlePermissionError(Exception):
     pass
 
 
+class PaddlePaginator(JSONResponsePaginator):
+    """Follows ``meta.pagination.next``, gated on ``meta.pagination.has_more``.
+
+    Paddle populates ``next`` on every page, including the last one; per their
+    pagination docs, ``has_more`` is the only end-of-results signal. Following
+    ``next`` alone therefore refetches the final page forever.
+    """
+
+    def update_state(self, response: requests.Response, data: Optional[list[Any]] = None) -> None:
+        try:
+            body = response.json()
+        except Exception:
+            body = {}
+        meta = body.get("meta") if isinstance(body, dict) else None
+        pagination = meta.get("pagination") if isinstance(meta, dict) else None
+        if isinstance(pagination, dict) and pagination.get("has_more") is False:
+            self._has_next_page = False
+            return
+        # has_more missing or malformed: fall back to the next link, where the base
+        # class still stops on a repeated URL.
+        super().update_state(response, data)
+
+
 def _format_paddle_datetime_query_value(value: Any) -> str:
     if isinstance(value, datetime):
         parsed = value
@@ -99,7 +122,7 @@ def paddle_source(
             "base_url": PADDLE_BASE_URL,
             "headers": {"Content-Type": "application/json"},
             "auth": {"type": "bearer", "token": api_key},
-            "paginator": JSONResponsePaginator(next_url_path="meta.pagination.next"),
+            "paginator": PaddlePaginator(next_url_path="meta.pagination.next"),
         },
         "resources": [
             {

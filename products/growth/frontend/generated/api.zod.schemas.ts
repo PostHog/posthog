@@ -451,12 +451,12 @@ export const OverallHealthEnumApi = zod
 export type OverallHealthEnumApi = zod.input<typeof OverallHealthEnumApi>
 export type OverallHealthEnumApiOutput = zod.output<typeof OverallHealthEnumApi>
 
-export const HealthEnumApi = zod
+export const SdkHealthReportHealthEnumApi = zod
     .enum(['success', 'warning', 'danger'])
     .describe('\* `success` - success\n\* `warning` - warning\n\* `danger` - danger')
 
-export type HealthEnumApi = zod.input<typeof HealthEnumApi>
-export type HealthEnumApiOutput = zod.output<typeof HealthEnumApi>
+export type SdkHealthReportHealthEnumApi = zod.input<typeof SdkHealthReportHealthEnumApi>
+export type SdkHealthReportHealthEnumApiOutput = zod.output<typeof SdkHealthReportHealthEnumApi>
 
 export const LibEnumApi = zod
     .enum([

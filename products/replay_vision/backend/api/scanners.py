@@ -8,7 +8,13 @@ from django.utils import timezone
 import structlog
 import django_filters
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -26,6 +32,7 @@ from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
     OrderByFilter,
@@ -1128,7 +1135,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     @extend_schema(
         request=ObserveRequestSerializer,
-        responses={202: ObserveResponseSerializer},
+        responses={
+            202: ObserveResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The observation workflow couldn't be started."
+            ),
+        },
     )
     @action(
         detail=True,
@@ -1163,7 +1175,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             raise Throttled(detail="This team is at its in-flight observation limit. Try again in a few minutes.")
         if outcome is WorkflowStartOutcome.FAILED:
             return Response(
-                {"error": "Failed to start observation workflow"},
+                # `detail` (not `error`) so ApiError carries the message into the frontend toast.
+                {"detail": "Failed to start the observation. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
@@ -1292,8 +1305,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         snapshot = compute_quota_snapshot(self.team.organization_id)
         cost = observation_credits_for_model(scanner.model)
-        # Uncapped org (remaining None) → quota never binds; otherwise how many of THIS model's cost fit.
-        quota_limit = in_flight_limit if snapshot.remaining is None else (snapshot.remaining // cost if cost else 0)
+        # Uncapped org, or a free model that spends nothing: quota can't bind. Otherwise, how many of
+        # THIS model's cost fit.
+        quota_limit = in_flight_limit if snapshot.remaining is None or cost <= 0 else snapshot.remaining // cost
         # Report quota as the reason only when it's the strictly tighter limit.
         if quota_limit < in_flight_limit:
             return quota_limit, "skipped_quota", team_in_flight, scanner_in_flight
@@ -1450,7 +1464,12 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
 
     @extend_schema(
         request=SuggestTagsRequestSerializer,
-        responses={200: SuggestTagsResponseSerializer},
+        responses={
+            200: SuggestTagsResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="Tag suggestions couldn't be generated."
+            ),
+        },
     )
     @action(
         detail=False,
@@ -1489,7 +1508,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         except SuggestionError:
             return Response(
-                {"error": "Couldn't generate tag suggestions right now. Please try again."},
+                {"detail": "Couldn't generate tag suggestions right now. Try again in a moment."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
