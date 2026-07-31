@@ -1280,7 +1280,8 @@ class TestPosthogConnectIntegration(BaseTest):
             assert params["client_id"] == expected_client_id
             # User-selected scopes plus the always-appended identity scopes needed for /oauth/userinfo.
             assert params["scope"] == "task:read task:write openid email"
-            assert params["redirect_uri"] == "https://localhost:8010/integrations/posthog/callback"
+            # Host comes from SITE_URL, which differs by environment; assert the stable callback suffix.
+            assert params["redirect_uri"].endswith("/integrations/posthog/callback")
             # posthog uses PKCE
             assert params["code_challenge_method"] == "S256"
             # Region is carried in state so the callback (on the connecting cell) exchanges the code

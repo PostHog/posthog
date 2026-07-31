@@ -49,8 +49,11 @@ def _connection_access_token(integration: Integration) -> str:
 
 
 def _validate_target_path(path: str) -> str:
-    stripped = (path or "").lstrip("/")
-    if not stripped or "://" in stripped or ".." in stripped or not _SAFE_PATH.match(stripped):
+    raw = path or ""
+    stripped = raw.lstrip("/")
+    # Reject a leading `//` (protocol-relative-looking) even though the fixed base URL already fixes
+    # the host — it's never a legitimate API path, so refuse it rather than silently normalizing.
+    if not stripped or raw.startswith("//") or "://" in stripped or ".." in stripped or not _SAFE_PATH.match(stripped):
         raise ValidationError("path must be a relative target API path, e.g. `api/projects/2/insights/`.")
     return stripped
 
