@@ -38,14 +38,12 @@ def find_task_run(
     repository = repository.strip() if repository else None
 
     def _scope(runs):
-        # `team_id`: TaskRun has no team-scoped manager, so this lookup spans every team by default —
-        # correct for the webhook backstop (it resolves the team FROM the matched run), but a caller
-        # that already knows the team must scope BEFORE ordering + `.first()`, or a newer same-repo /
-        # same-pr_url run in another tenant shadows the legitimate one and wins the pick. `live_only`
-        # drops cancelled/failed/completed runs and soft-deleted tasks, for callers (the self-driving
-        # carve-out) that must act only on a live, still-owned run — mirrors the wizard leg below.
+        # TaskRun has no team-scoped manager, so this spans every team, which the webhook backstop
+        # needs. A caller that knows its team must filter first, or another team's run can win the pick.
         if team_id is not None:
             runs = runs.filter(team_id=team_id)
+        # The self-driving carve-out may act only on a run that is still live and still owned, so
+        # this drops terminal runs and soft-deleted tasks the same way the wizard branch below does.
         if live_only:
             runs = runs.filter(task__deleted=False).exclude(status__in=_TERMINAL_RUN_STATUSES)
         return runs

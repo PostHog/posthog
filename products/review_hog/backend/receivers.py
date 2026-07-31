@@ -15,13 +15,14 @@ assignment meaning (background signals tasks are created as the GitHub-integrati
 is why it only counts when it maps into the assigned set.
 
 The assigned reviewers carry a second, independent toggle: `stamphog_review_inbox_prs` sends the PR
-(the PR leg only — stamphog has nothing to publish to on a bare branch) to hosted Stamphog for an
-approve-first review with a real GitHub approval, via the stamphog facade (`queue_inbox_pr_review`).
-Its gate is **any** assigned reviewer's opt-in rather than the acting one's, because stamphog reads
-no per-user options — narrowing it to one reviewer would only drop reviews the other assignees
-asked for. That call only queues the initial review; later pushes re-review through stamphog's own
-webhook path, which re-checks the same gate through the resolver registered in `connect()` (an
-inversion hook — stamphog can't import review_hog back without a dependency cycle).
+to hosted Stamphog for an approve-first review with a real GitHub approval, through the stamphog
+facade (`queue_inbox_pr_review`). Only when there is a PR, because stamphog's verdict is a GitHub
+review and a bare pushed branch gives it nothing to post to. Any assigned reviewer's opt-in is
+enough, unlike the acting-reviewer gate above: stamphog reads no per-user options, so narrowing it
+to one reviewer would only drop reviews the other assignees asked for. That call queues the first
+review only; later pushes are re-reviewed by stamphog's own webhook path, which re-checks the same
+toggle through the resolver registered in `connect()` (stamphog cannot import review_hog back
+without a dependency cycle).
 
 Review targets, in priority order:
 - `output.pr_url` → the PR leg: full review, published to the PR. Written by the agent server when
@@ -50,7 +51,7 @@ from django.db.models.signals import post_save
 from products.review_hog.backend.models import ReviewUserSettings
 from products.signals.backend.models import SignalReportArtefact
 
-# Deliberately import-light (it holds only the hook registry), so it can load here on ready().
+# Holds only the hook registry, so importing it at module level keeps ready() cheap.
 from products.stamphog.backend.facade.inbox_hooks import register_inbox_acting_reviewer_resolver
 
 logger = logging.getLogger(__name__)
@@ -63,10 +64,8 @@ def connect() -> None:
         sender=django_apps.get_model("tasks", "TaskRun"),
         dispatch_uid="review_hog_task_run_completed",
     )
-    # Stamphog's webhook path re-checks the acting reviewer's stamphog toggle before every
-    # re-review of a self-driving PR; it gets the resolver through this hook because importing
-    # review_hog from stamphog would be a dependency cycle (this module already calls stamphog's
-    # facade the other way).
+    # Stamphog re-checks this toggle before re-reviewing a self-driving PR. It gets the resolver
+    # through a hook because importing review_hog from stamphog would be a dependency cycle.
     register_inbox_acting_reviewer_resolver(resolve_stamphog_acting_reviewer)
 
 
@@ -98,12 +97,8 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         task = instance.task  # first DB hit
         if task.signal_report_id is None:
             return
-        # Only the self-driving IMPLEMENTATION run reviews, keyed on the run's ai_stage. The other
-        # signal tasks (report research, repo selection) share signal_report_id AND internal=True with
-        # the implementation task — auto_start stamps it internal=True too — so an `internal` gate
-        # here couldn't tell them apart and silently disabled the whole feature. ai_stage
-        # ="implementation" (stamped by auto_start on the PR-opening run) is the marker that does; the
-        # gate is shared by both toggle legs below, each of which still fires only on its own setting.
+        # Only the self-driving implementation run reviews. Report research and repo selection share
+        # both signal_report_id and internal=True with it, so only ai_stage tells them apart.
         if (instance.state or {}).get("ai_stage") != "implementation":
             return
         repository = (task.repository or "").strip() or None
@@ -117,9 +112,8 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         settings_by_user = ReviewUserSettings.load_many(instance.team_id, [user.id for user in resolved])
         acting_user_id = _pick_reviewer(resolved, task.created_by_id)
         stamphog_user_id = _pick_stamphog_reviewer(resolved, settings_by_user, task.created_by_id)
-        # robust=True on both: the two legs are independent fire-and-forget dispatches sharing one
-        # commit-hook queue, so a raise in the first (e.g. a deferred-import failure) must not cancel
-        # the second. Django logs the failing hook and still runs its siblings.
+        # robust=True on both: the two dispatches are independent but share one commit-hook queue, so
+        # a failure in one must not cancel the other. Django logs the failing hook and runs the rest.
         if settings_by_user[acting_user_id].review_inbox_prs:
             transaction.on_commit(
                 lambda: _start_review(
@@ -133,11 +127,8 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
                 robust=True,
             )
         if pr_url is not None and stamphog_user_id is not None and repository is not None:
-            # The PR leg only: stamphog's verdict is a GitHub review, so a bare pushed branch
-            # gives it nothing to post to. The facade queues a Celery task, so the only work on
-            # this save path is the broker publish. The task's repository rides along because
-            # `output.pr_url` is writable through the task-run API, so the queued review can pin
-            # the PR to where the task actually runs.
+            # Only when there is a PR: stamphog posts a GitHub review, and a bare branch gives it
+            # nothing to post to. Queuing a Celery task keeps this save path fast.
             stamphog_pr_url, stamphog_repository = pr_url, repository
             transaction.on_commit(
                 lambda: _start_stamphog_review(
@@ -157,11 +148,11 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
 def resolve_stamphog_acting_reviewer(team_id: int, signal_report_id: str, task_created_by_id: int | None) -> int | None:
     """A reviewer whose stamphog inbox toggle is currently on, else None.
 
-    Registered with stamphog's inbox hook registry (see `connect()`): stamphog's webhook path calls
-    it before re-reviewing a self-driving PR on a later push, so switching the toggle off mid-PR
-    stops new stamphog runs. Must stay in lockstep with the trigger leg's own gate — if one leg
-    fires on "any assigned reviewer opted in" while the other resolves only the canonical one, a
-    push would retract a standing approval as opted-out while somebody is still opted in.
+    Registered with stamphog's inbox hook registry (see `connect()`). Stamphog calls it before
+    re-reviewing a self-driving PR on a later push, so turning the toggle off mid-PR stops further
+    stamphog runs. It has to gate the same way the initial trigger does: if one path fires on "any
+    assigned reviewer opted in" and the other only on the canonical reviewer, a push would treat the
+    PR as opted out and retract a standing approval while somebody is still opted in.
     """
     resolved = _resolve_assigned_reviewers(team_id, signal_report_id)
     if not resolved:
@@ -175,12 +166,12 @@ def _pick_stamphog_reviewer(
 ) -> int | None:
     """The user id to attribute a stamphog inbox review to, or None when nobody is opted in.
 
-    Unlike the ReviewHog leg, the gate is **any** assigned reviewer's opt-in, not the canonical
-    one's: stamphog reads no per-user options — the id it gets is provenance only — so narrowing to
-    one reviewer would just drop reviews the rest of the assignees asked for. The pick among the
-    opted-in reviewers follows the same created-by-else-first rule, so the attributed user is stable
-    across the trigger and re-review legs. One review per head either way: this resolves a single id
-    however many are opted in, and stamphog dedupes on (pull request, head sha).
+    Any assigned reviewer's opt-in is enough, unlike the ReviewHog review which gates on the
+    canonical reviewer's: stamphog reads no per-user options, so the id is provenance only and
+    narrowing to one reviewer would drop reviews the other assignees asked for. Among the opted-in
+    reviewers the pick follows the same created-by-else-first rule, so the same user is attributed
+    on the first review and on later re-reviews. Either way there is one review per head: this
+    returns a single id however many are opted in, and stamphog dedupes on (pull request, head sha).
     """
     opted_in = [user for user in resolved if settings_by_user[user.id].stamphog_review_inbox_prs]
     return _pick_reviewer(opted_in, task_created_by_id) if opted_in else None
@@ -189,11 +180,11 @@ def _pick_stamphog_reviewer(
 def _pick_reviewer(resolved: list[Any], task_created_by_id: int | None) -> int:
     """The canonical reviewer out of a non-empty resolved list: the task's own user, else the first.
 
-    The task's user (`created_by` — the auto-start assignee, or whoever clicked "Create PR") wins
-    **when they are among the resolved reviewers**: someone who asked for the implementation gets
-    their own rules applied to its review. Otherwise the **first** resolved reviewer is canonical
-    (maintainer decisions, 2026-07-02/03) — a background task whose creator carries no assignment
-    meaning, or a non-assigned clicker, follows the primary assignee's rules.
+    The task's user (`created_by`: the auto-start assignee, or whoever clicked "Create PR") wins when
+    they are among the resolved reviewers, so someone who asked for the implementation gets their own
+    rules applied to its review. Otherwise the first resolved reviewer is canonical (maintainer
+    decisions, 2026-07-02/03): a background task whose creator carries no assignment meaning, or a
+    non-assigned clicker, follows the primary assignee's rules.
     """
     return next((user.id for user in resolved if user.id == task_created_by_id), resolved[0].id)
 
@@ -201,13 +192,12 @@ def _pick_reviewer(resolved: list[Any], task_created_by_id: int | None) -> int:
 def _resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[Any]:
     """The report's assigned reviewers, in assignment order (no opt-in toggles checked here).
 
-    Assignment = the report's **latest** `suggested_reviewers` artefact — the exact set the Inbox
-    "For you" filter matches and Slack notifications fan out to — with logins resolved to org
-    members the same way those surfaces resolve them. Which of them gates and drives which review is
-    the callers' business: ReviewHog runs under the canonical one (`_pick_reviewer`, whose
-    perspectives / blind-spots / validator / urgency threshold drive it), stamphog under any who
-    opted in (`_pick_stamphog_reviewer`). Empty when the report has no reviewers or none resolve to
-    an org member.
+    Assignment means the report's latest `suggested_reviewers` artefact, the same set the Inbox "For
+    you" filter matches and Slack notifications fan out to, with logins resolved to org members the
+    same way those surfaces resolve them. Callers decide which of them gates what: ReviewHog runs
+    under the canonical reviewer (`_pick_reviewer`, whose perspectives, blind spots, validator, and
+    urgency threshold drive the review), stamphog under any who opted in (`_pick_stamphog_reviewer`).
+    Empty when the report has no reviewers or none resolve to an org member.
     """
     # Deferred: the resolver module pulls posthog.schema (heavy) — keep it off django.setup().
     from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
@@ -245,14 +235,13 @@ def _start_stamphog_review(
 ) -> None:
     """Fire-and-forget the hosted Stamphog review; the broker being down must never surface into the saver.
 
-    Repo-config gating (a synced+enabled StamphogRepoConfig for the PR's repository) happens
-    inside the queued task — teams without the Stamphog App get a silent no-op there, so this
-    stays a plain toggle-gated dispatch. `repository` is the task's own repo, which the queued
-    task requires the PR to be in.
+    The queued task checks the repo config (a synced, enabled StamphogRepoConfig for the PR's
+    repository), so teams without the Stamphog App get a silent no-op there and this stays a plain
+    toggle-gated dispatch. `repository` is the task's own repo, which the queued task requires the
+    PR to be in; `output.pr_url` is writable through the task-run API, so the PR alone isn't trusted.
     """
     # Deferred so django.setup() (which imports this module via ready()) doesn't pay for the
-    # stamphog facade's model imports in every process; only the hook-registry module is light
-    # enough to import at the top.
+    # stamphog facade's model imports in every process; only the hook registry is light enough.
     from products.stamphog.backend.facade.api import queue_inbox_pr_review  # noqa: PLC0415
 
     try:

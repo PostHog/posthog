@@ -110,12 +110,12 @@ def get_repo_config(team_id: int, repository: str) -> contracts.RepoConfigDTO | 
 
 
 def has_reviewable_repo_config(team_id: int) -> bool:
-    """Whether the team has at least one repo hosted reviews can actually run on (synced + enabled).
+    """Whether the team has at least one enabled repo config that hosted reviews can run on.
 
-    "Synced" means the config was bound through the authenticated sync flow: a non-blank
-    installation_id AND a connecting user (the principal the sandbox LLM credential is minted
-    under — reviews fail closed without one). Drives the Code review scene's Stamphog inbox
-    toggle: when this is false, the toggle has nothing to act on and renders disabled.
+    The config must have been bound through the authenticated sync flow: a non-blank
+    installation_id and a connecting user, because the sandbox LLM credential is minted under
+    that user and reviews fail closed without one. The Code review scene disables its Stamphog
+    inbox toggle when this is false, since the toggle would have nothing to act on.
     """
     return (
         StamphogRepoConfig.objects.for_team(team_id)
@@ -134,19 +134,18 @@ def queue_inbox_pr_review(
     signal_report_id: str,
     task_run_id: str,
 ) -> None:
-    """Queue the initial hosted Stamphog review of a self-driving inbox PR (fire-and-forget).
+    """Queue the first hosted Stamphog review of a self-driving inbox PR, without waiting for it.
 
-    The programmatic entry for review_hog's inbox trigger: the caller has already resolved an
-    assigned reviewer with the ``stamphog_review_inbox_prs`` toggle on. ``repository`` is the
-    linked task's own repo — the PR must be in it, since the task->PR link this rides on
-    (``TaskRun.output.pr_url``) is writable through the task-run API. Everything else — resolving
-    a synced+enabled repo config (silent no-op without one), fetching the PR, re-verifying its
-    App-machine-user authorship, creating the run with inbox provenance, starting the workflow —
-    happens in a Celery task so the caller's save path never blocks on GitHub or the product DB.
+    Called by review_hog's inbox trigger, which has already found an assigned reviewer with the
+    ``stamphog_review_inbox_prs`` toggle on. ``repository`` is the linked task's own repo, and the
+    PR must be in it, because the task-to-PR link this rides on (``TaskRun.output.pr_url``) is
+    writable through the task-run API. A Celery task does the rest: resolve a synced and enabled
+    repo config (no-op without one), fetch the PR, re-check that the App machine user authored it,
+    create the run with inbox provenance, start the workflow. That keeps GitHub and the product DB
+    off the caller's save path.
     """
-    # Deferred: the Celery task module drags the GitHub client and temporal client onto the
-    # import path, which must stay off this facade's light import surface (review_hog's API
-    # serializer imports it for has_reviewable_repo_config).
+    # Imported here because the task module pulls in the GitHub and temporal clients, and this
+    # facade stays light for review_hog's serializer, which imports has_reviewable_repo_config.
     from products.stamphog.backend.tasks.tasks import process_inbox_pr_review  # noqa: PLC0415
 
     process_inbox_pr_review.delay(

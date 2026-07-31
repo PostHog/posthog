@@ -110,11 +110,9 @@ def build_reviewer_invocation(
     ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
     (the engine needs them for the git-blame familiarity signal, which it
     otherwise gets from a `gh` call it can't make in the sandbox).
-    ``self_driving_review`` is the engine's carve-out flag for positively identified
-    self-driving inbox PRs: it defaults closed here AND in the engine, and the Action
-    runtime never sets it — only a run stamped with inbox provenance turns it on, which
-    is what lets the engine review a bot-authored draft without weakening its bot-author
-    refusal for anything else.
+    ``self_driving_review`` lets the engine review a bot-authored draft, the one exception
+    to its bot-author refusal. It defaults closed here and in the engine, the Action runtime
+    never sets it, and only a run stamped with inbox provenance turns it on.
     """
     context = {
         "repo": repo,

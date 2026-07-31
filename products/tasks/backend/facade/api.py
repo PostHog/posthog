@@ -488,19 +488,19 @@ def find_signal_implementation_run(
 ) -> contracts.SignalImplementationRunDTO | None:
     """The signals-origin implementation run that produced this PR, if any.
 
-    Matches runs the same way the GitHub-webhook backstop does (``pr_url`` first, then
-    repository + branch — see ``webhooks.find_task_run``) and answers only for the
-    self-driving shape: the signal-report implementation run, identified by its
-    ``ai_stage="implementation"`` state in the given team.
-    Callers (stamphog's inbox carve-out) use this to positively identify a bot-authored PR
-    as a PostHog Code self-driving implementation and gate automation on it, so the match is
-    both **team-scoped** and **live-only at the query level**: ``team_id`` is applied before the
-    lookup orders and picks a winner (a newer same-repo/same-pr_url run in another tenant can't
-    shadow the legitimate run and force a None), and cancelled/failed/completed runs and
-    soft-deleted tasks are excluded (a disowned or dead run must not keep the carve-out alive on
-    later pushes). Wizard/manual tasks and unlinked PRs return None too. The caller supplies the
-    repository the PR event came from and is responsible for fork safety (only branch-match PRs
-    whose head repo IS that repository).
+    Matches the same way the GitHub webhook does (``pr_url`` first, then repository plus branch;
+    see ``webhooks.find_task_run``), then keeps only a signal-report run whose state carries
+    ``ai_stage="implementation"``. Wizard tasks, manual tasks, and unlinked PRs return ``None``.
+
+    Callers (stamphog's inbox carve-out) use this to confirm a bot-authored PR really is a PostHog
+    Code self-driving implementation, so the match is narrowed inside the query. Applying
+    ``team_id`` before the lookup orders and picks a winner stops a newer run in another team with
+    the same repo or pr_url from shadowing the real one and forcing a ``None``. Dropping
+    cancelled, failed, and completed runs and soft-deleted tasks stops a dead or disowned run from
+    keeping the carve-out alive on later pushes.
+
+    The caller passes the repository the PR event came from and owns fork safety: match on branch
+    only when the PR's head repo is that repository.
     """
     # Deferred: webhooks imports this module back (signal_workflow_completion), so a
     # module-level import here would be circular.
@@ -510,11 +510,8 @@ def find_signal_implementation_run(
     if run is None or run.team_id != team_id:
         return None
     task = run.task
-    # Match the self-driving IMPLEMENTATION run specifically, keyed on ai_stage. The pipeline's other
-    # signal tasks (research, repo_selection) share signal_report_id AND internal=True with it, so an
-    # `internal` gate here excluded the very run this must identify — every real implementation task
-    # is internal=True (auto_start), which silently disabled the carve-out. auto_start stamps the
-    # PR-opening run ai_stage="implementation" (products/signals/backend/auto_start.py).
+    # The other signal tasks (research, repo_selection) share signal_report_id and internal=True, so
+    # only ai_stage="implementation" (stamped by signals' auto_start) picks out the PR-opening run.
     if task.signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
         return None
     return contracts.SignalImplementationRunDTO(
@@ -1837,11 +1834,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "loop_trigger_id",
         "trigger_context",
         "config_snapshot",
-        # Stage provenance stamped once at run creation (create_and_run's extra_state).
-        # ai_stage="implementation" is what identifies a self-driving implementation run to the
-        # review carve-outs (find_signal_implementation_run, review_hog's inbox trigger); a
-        # PATCHable value would let any task controller forge implementation provenance onto a
-        # run and route an App-bot PR into the approve-first bot/draft/mode/permission bypass.
+        # Stamped once at run creation. The review carve-outs read ai_stage="implementation" as proof
+        # a run is self-driving, so a PATCHable value would forge that and unlock the bot/draft bypass.
         "ai_stage",
         # The run's model posture, chosen at creation by the server-owned caller and read back out
         # of state when the run dispatches. It decides what the run costs, and for a run routed to

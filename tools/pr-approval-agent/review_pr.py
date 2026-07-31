@@ -199,13 +199,8 @@ class Pipeline:
         self.repo = repo
         self.dry_run = dry_run
         self.verbose = verbose
-        # The self-driving inbox carve-out: review a bot-authored draft PR that the hosted
-        # runtime positively linked to a PostHog Code signals implementation task. Defaults
-        # closed and nothing in the Action runtime ever sets it (review_local.py sets it from
-        # the hosted context JSON), so Action behavior is unchanged by construction. It relaxes
-        # exactly two gates — the bot-author refusal and the draft prerequisite — and marks the
-        # classification so the reviewer prompt carries the provenance instead of human-author
-        # trust signals.
+        # Set only by the hosted runtime, for PRs it verified came from a PostHog Code implementation
+        # task. It relaxes two gates (bot author, draft) and swaps author trust for task provenance.
         self.self_driving = self_driving
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
@@ -472,8 +467,8 @@ class Pipeline:
             # the T1-agent path only (see _maybe_compute_familiarity). None here
             # keeps the other paths' prompts byte-identical to before.
             "familiarity": None,
-            # False keeps every non-carve-out prompt byte-identical (the provenance block
-            # renders empty); True swaps human-author trust context for task provenance.
+            # False renders the provenance block empty, leaving every other prompt unchanged.
+            # True swaps the author trust context for task provenance.
             "self_driving": self.self_driving,
         }
 
@@ -584,9 +579,8 @@ class Pipeline:
     def _check_prerequisites(self) -> tuple[bool, str]:
         pr = self.pr
         issues = []
-        # Self-driving inbox PRs are reviewed while still draft on purpose: the verdict must be
-        # ready at Inbox triage time, and a head-pinned approval granted on the draft takes
-        # effect when the PR flips to ready.
+        # Self-driving PRs are reviewed while still draft so the verdict is ready at Inbox triage
+        # time. The approval is pinned to the head SHA, so it holds when the PR flips to ready.
         if pr.draft and not self.self_driving:
             issues.append("PR is still in draft")
         if pr.mergeable_state == "dirty":
@@ -934,7 +928,7 @@ class Pipeline:
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
                 "familiarity": familiarity_evidence(self.familiarity),
-                # Audit trail for the carve-out: which gates ran relaxed, and why (see __init__).
+                # Audit trail: records that this review ran with the gates relaxed (see __init__).
                 "self_driving": self.self_driving,
             },
             "provenance": provenance_evidence(self.provenance),

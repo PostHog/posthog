@@ -681,13 +681,12 @@ class Reviewer:
         return "\n" + line
 
     def _format_self_driving(self, cl: dict) -> str:
-        """Render the TRUSTED provenance block for a self-driving inbox review, or "".
+        """The TRUSTED provenance block for a self-driving inbox review, or "" for every other review.
 
-        Empty string keeps every non-carve-out prompt byte-identical. When set, it replaces the
-        human-author trust context the prompt normally leans on (familiarity is deliberately
-        absent, the author is a machine user) with the one trust fact that applies: the platform
-        verified this PR came from a PostHog Code implementation task a team member's Inbox
-        report produced. That is provenance, not an endorsement of the diff.
+        The author is a machine user, so the author-trust context the prompt normally leans on
+        (familiarity, org membership) says nothing here. This block replaces it with the one fact
+        that holds: the platform verified the PR came from a PostHog Code implementation task behind
+        a team member's Inbox report. That is provenance, not an endorsement of the diff.
         """
         if not cl.get("self_driving"):
             return ""
