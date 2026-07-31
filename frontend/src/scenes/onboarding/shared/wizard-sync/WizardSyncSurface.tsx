@@ -8,7 +8,6 @@ import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { isRunStale, resolveStartedByLabel } from './helpers'
 import { useNow } from './hooks'
 import { InstallationProgress } from './installationProgressLogic'
-import { wizardDashboardLogic } from './wizardDashboardLogic'
 import { WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
 import { WizardSyncDialog } from './WizardSyncDialog'
 import { WizardSyncLauncher } from './WizardSyncLauncher'
@@ -51,7 +50,7 @@ export function WizardSyncSurface({
     cancelling?: boolean
 }): JSX.Element {
     const { dismissedKey, dialogOpen } = useValues(wizardSyncUiLogic)
-    const { dismiss, restore, openDialog, closeDialog } = useActions(wizardSyncUiLogic)
+    const { dismiss, restore, openDialog, closeDialog, openHandoffDoc } = useActions(wizardSyncUiLogic)
     const { user } = useValues(userLogic)
     const startedByLabel = resolveStartedByLabel(progress.startedBy, user?.email)
     const {
@@ -60,10 +59,8 @@ export function WizardSyncSurface({
         reportWizardSyncRestored,
         reportWizardSyncRunDismissed,
         reportWizardSyncHandoffShown,
-        reportWizardSyncDashboardCtaShown,
-        reportWizardSyncDashboardCtaClicked,
+        reportWizardSyncHandoffDocOpened,
     } = useActions(onboardingEventUsageLogic)
-    const { detectedDashboard } = useValues(wizardDashboardLogic)
     // `now` also feeds the staleness check, which needs a live clock while the run is non-terminal.
     const endMs = endedAt ? new Date(endedAt).getTime() : NaN
     const now = useNow(!Number.isNaN(endMs))
@@ -75,7 +72,6 @@ export function WizardSyncSurface({
     // Only cloud runs can zombie like this: their handle is persisted browser state that outlives the
     // run, where a local run is gated by the session detector's own liveness poll.
     const stale = mode === 'cloud' && !isTerminal && isRunStale(startedAt, lastActivityAt, streamLost, now)
-    const dashboard = progress.phase === 'completed' ? detectedDashboard : null
     const eventProps = { runKey, mode, phase: progress.phase }
 
     // The completed-handoff funnel (exposure + CTA impression) — deduped per run inside the events
@@ -87,13 +83,13 @@ export function WizardSyncSurface({
             reportWizardSyncHandoffShown({ runKey, mode, surface: 'fab', prOpened })
         }
     }, [completed, runKey, mode, prOpened, reportWizardSyncHandoffShown])
-    const dashboardVisible = !!dashboard
-    useEffect(() => {
-        if (dashboardVisible) {
-            reportWizardSyncDashboardCtaShown({ runKey, mode, surface: 'fab' })
-        }
-    }, [dashboardVisible, runKey, mode, reportWizardSyncDashboardCtaShown])
-    const handleDashboardClick = (): void => reportWizardSyncDashboardCtaClicked({ runKey, mode, surface: 'fab' })
+    const handoffText = progress.handoffText
+    const handleViewReport = handoffText
+        ? () => {
+              reportWizardSyncHandoffDocOpened({ runKey, mode, trigger: 'button' })
+              openHandoffDoc({ key: runKey, text: handoffText })
+          }
+        : undefined
     // One-shot: a double-click can land two dispatches before the surface unmounts, which would
     // double-fire the dismissal telemetry and re-run onClear.
     const clearedRef = useRef(false)
@@ -135,8 +131,7 @@ export function WizardSyncSurface({
                         mode={mode}
                         stale={stale}
                         startedByLabel={startedByLabel}
-                        dashboard={dashboard}
-                        onDashboardClick={handleDashboardClick}
+                        onViewReport={handleViewReport}
                         onExpand={() => {
                             reportWizardSyncExpanded(eventProps)
                             openDialog()
@@ -156,8 +151,7 @@ export function WizardSyncSurface({
                 mode={mode}
                 stale={stale}
                 startedByLabel={startedByLabel}
-                dashboard={dashboard}
-                onDashboardClick={handleDashboardClick}
+                onViewReport={handleViewReport}
                 isOpen={dialogOpen}
                 onClose={closeDialog}
                 onClear={handleClear}

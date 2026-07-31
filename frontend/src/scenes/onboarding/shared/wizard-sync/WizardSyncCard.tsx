@@ -1,8 +1,7 @@
-import { IconCloud, IconDashboard, IconExpand45, IconLaptop, IconPullRequest, IconX } from '@posthog/icons'
+import { IconCloud, IconDocument, IconExpand45, IconLaptop, IconPullRequest, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
-import { urls } from 'scenes/urls'
 
 import {
     currentTaskLabel,
@@ -18,7 +17,6 @@ import {
 import { InstallationProgress } from './installationProgressLogic'
 import { PipStrip } from './PipStrip'
 import { StatusGlyph } from './StatusGlyph'
-import { DetectedDashboard } from './wizardDashboardLogic'
 
 export type WizardSyncMode = 'cloud' | 'local'
 
@@ -43,8 +41,7 @@ export function WizardSyncCard({
     elapsedSeconds,
     mode,
     stale = false,
-    dashboard,
-    onDashboardClick,
+    onViewReport,
     onExpand,
     onDismiss,
     dismissTooltip = 'Dismiss',
@@ -57,10 +54,9 @@ export function WizardSyncCard({
     stale?: boolean
     /** A teammate's name for a local run they started (null when it's the viewer's own run or unknown). */
     startedByLabel?: string | null
-    /** Dashboard the wizard built, when detected — the completed card's payoff for runs with no PR. */
-    dashboard?: DetectedDashboard | null
-    /** Telemetry hook for the dashboard CTA — navigation itself rides the button's `to`. */
-    onDashboardClick?: () => void
+    /** Opens the run's handoff doc (the setup report) — the completed card's payoff for runs with
+     * no PR. Only rendered when the progress actually carries a doc. */
+    onViewReport?: () => void
     onExpand: () => void
     onDismiss?: () => void
     /** What the X actually does here — "Minimize" while the run is live, "Dismiss" once terminal. */
@@ -151,19 +147,19 @@ export function WizardSyncCard({
                             <span className="truncate max-w-32">{prNameLabel(progress.prUrl)}</span>
                         </LemonButton>
                     )}
-                    {progress.phase === 'completed' && !progress.prUrl && dashboard && (
+                    {progress.phase === 'completed' && !progress.prUrl && progress.handoffText && onViewReport && (
                         <LemonButton
                             size="xsmall"
                             type="primary"
-                            to={urls.dashboard(dashboard.id)}
-                            icon={<IconDashboard />}
+                            icon={<IconDocument />}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                onDashboardClick?.()
+                                onViewReport()
                             }}
-                            tooltip="The wizard set this up for you. It fills up as your events arrive"
+                            tooltip="What the agent set up, and what to check before you commit"
+                            data-attr="wizard-sync-card-view-report"
                         >
-                            Preview dashboard
+                            Setup report
                         </LemonButton>
                     )}
                     <LemonButton

@@ -48730,6 +48730,11 @@ export namespace Schemas {
       event_plan: WizardSessionDTOEventPlan;
       /** @nullable */
       error: WizardSessionDTOError;
+      /**
+         * Markdown handoff doc the wizard produced for this run (its setup report), or null while the run hasn't written one. Sticky once set.
+         * @nullable
+         */
+      handoff_text: string | null;
       /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
       created_by: WizardSessionUserDTO | null;
       created_at: string;
@@ -72096,6 +72101,12 @@ export namespace Schemas {
     export interface UpsertWizardSessionRequest {
       /** Populated while the wizard is blocked on a question in the terminal. Null/absent means no input is pending; a push without it clears the previous prompt. */
       pending_input?: PendingInput | null;
+      /**
+         * Markdown handoff doc for the run (the wizard's setup report). Send it once the run has produced one; omitting it on later pushes keeps the stored value.
+         * @maxLength 65536
+         * @nullable
+         */
+      handoff_text?: string | null;
       /**
          * Stable identifier the wizard mints for this run (format: '{workflow_id}-{skill_id}-{started_at_iso}'). Reposting with the same session_id upserts the existing row.
          * @maxLength 255

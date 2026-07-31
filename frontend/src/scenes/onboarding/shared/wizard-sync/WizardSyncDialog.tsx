@@ -5,7 +5,6 @@ import { cn } from 'lib/utils/css-classes'
 import { elapsedLabel, localModeLabel, syncHeadline, toneTextClass } from './helpers'
 import { InstallationProgressContent } from './InstallationProgressContent'
 import { InstallationProgress } from './installationProgressLogic'
-import { DetectedDashboard } from './wizardDashboardLogic'
 import { WizardSyncMode } from './WizardSyncCard'
 
 // The expanded "all the details" dialog: the full pipeline plus the terminal payoff or failure.
@@ -15,30 +14,29 @@ export function WizardSyncDialog({
     progress,
     elapsedSeconds,
     mode,
-    dashboard,
     isOpen,
     onClose,
     onClear,
     onCancel,
+    onViewReport,
     cancelling = false,
     stale = false,
     startedByLabel,
-    onDashboardClick,
 }: {
     progress: InstallationProgress
     elapsedSeconds: number
     mode: WizardSyncMode
-    dashboard?: DetectedDashboard | null
     isOpen: boolean
     onClose: () => void
     onClear?: () => void
     onCancel?: () => void
+    /** Opens the run's handoff doc (the setup report) when the progress carries one. */
+    onViewReport?: () => void
     cancelling?: boolean
     /** The run has gone quiet for long enough that it can be dismissed without orphaning live work. */
     stale?: boolean
     /** A teammate's name for a local run they started (null when it's the viewer's own run or unknown). */
     startedByLabel?: string | null
-    onDashboardClick?: () => void
 }): JSX.Element {
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
     return (
@@ -51,12 +49,7 @@ export function WizardSyncDialog({
                         {elapsedLabel(elapsedSeconds, stale)}
                     </span>
                 </div>
-                <InstallationProgressContent
-                    progress={progress}
-                    mode={mode}
-                    dashboard={dashboard}
-                    onDashboardClick={onDashboardClick}
-                />
+                <InstallationProgressContent progress={progress} mode={mode} onViewReport={onViewReport} />
                 {/* A stale run gets the same exit as a terminal one: nothing is reporting on it, so
                     leaving Cancel as the only control would strand the user behind a request that
                     cannot bring it back. Cancel stays available below for as long as the run is not

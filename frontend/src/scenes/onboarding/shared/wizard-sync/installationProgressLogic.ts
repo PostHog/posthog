@@ -31,7 +31,7 @@ import {
     watchWorkflowWhileMounted,
     wizardActiveSessionDetectorLogic,
 } from './wizardActiveSessionDetectorLogic'
-import { wizardDashboardLogic } from './wizardDashboardLogic'
+import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 import { resolveWorkflowId } from './workflows'
 
 // Per-session telemetry guards, deliberately module-scoped rather than on the kea `cache`: the logic
@@ -132,6 +132,9 @@ export interface InstallationProgress {
     pendingInput: WizardPendingInput | null
     /** Who started the run (null when unknown). `email` is for the "is this me?" check. */
     startedBy: { name: string; email: string } | null
+    /** Markdown handoff doc the wizard produced (its setup report), once the run has one. Sticky on
+     * the session row, so it survives later pushes and the finished-run snapshot. */
+    handoffText: string | null
 }
 
 export interface InstallationProgressLogicProps {
@@ -200,9 +203,6 @@ export interface installationProgressLogicActions {
     taskRunStreamCompleted: () => {
         value: true
     } // taskRunStreamLogic
-    detectWizardDashboard: (args_0: { startedAt: string }) => {
-        startedAt: string
-    } // wizardDashboardLogic
     connectSession: () => {
         value: true
     } // wizardSessionStreamLogic
@@ -212,6 +212,11 @@ export interface installationProgressLogicActions {
     sessionUpdated: (session: WizardSessionDTOApi) => {
         session: WizardSessionDTOApi
     } // wizardSessionStreamLogic
+    handoffDocReceived: (doc: { key: string; startedByEmail: string | null; text: string }) => {
+        key: string
+        startedByEmail: string | null
+        text: string
+    } // wizardSyncUiLogic
     markSessionCurrent: () => {
         value: true
     }
@@ -230,7 +235,9 @@ export interface installationProgressLogicMeta {
             sessionIsCurrent: boolean,
             isStalled: boolean,
             dismissedSessionId: string | null,
-            arg: any
+            activeCloudRun: CloudRunHandle | null,
+            arg: any,
+            arg2: any
         ) => InstallationProgress
     }
 }
@@ -288,8 +295,8 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
             ['reportWizardSyncSessionDetected', 'reportWizardSyncSessionFinished'],
             finishedLocalRunLogic,
             ['recordFinishedLocalRun', 'supersedeFinishedLocalRun'],
-            wizardDashboardLogic,
-            ['detectWizardDashboard'],
+            wizardSyncUiLogic,
+            ['handoffDocReceived'],
         ],
     })),
     actions({
@@ -316,7 +323,9 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 s.sessionIsCurrent,
                 s.isStalled,
                 s.dismissedSessionId,
+                s.activeCloudRun,
                 (_, props) => props.mode,
+                (_, props) => props.runId,
             ],
             (
                 taskRunState: TaskRunStreamState | null,
@@ -327,10 +336,22 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 sessionIsCurrent: boolean,
                 isStalled: boolean,
                 dismissedSessionId: string | null,
-                mode
+                activeCloudRun: CloudRunHandle | null,
+                mode,
+                runId
             ): InstallationProgress =>
                 mode === 'cloud'
-                    ? cloudProgress(taskRunState, progressSteps, taskConnectionStatus, latestSession, isStalled)
+                    ? cloudProgress(
+                          taskRunState,
+                          progressSteps,
+                          taskConnectionStatus,
+                          latestSession,
+                          isStalled,
+                          Date.now(),
+                          // The kickoff stamp scopes the handoff doc to this run (see cloudProgress);
+                          // a handle for a different run means no window rather than a wrong one.
+                          activeCloudRun?.runId === runId ? (activeCloudRun?.startedAt ?? null) : null
+                      )
                     : localProgress(
                           latestSession,
                           sessionConnectionStatus,
@@ -339,7 +360,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                       ),
         ],
     }),
-    listeners(({ actions, props, cache, values }) => ({
+    listeners(({ actions, props, cache }) => ({
         // Once the cloud run is terminal there is nothing left for the session source to enrich —
         // release this instance's share so an undismissed finished run doesn't keep a session
         // stream/poll alive app-wide. The share accounting protects a co-mounted local instance,
@@ -349,14 +370,6 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 return
             }
             releaseSessionShare(sessionStreamKey(props), instanceKey(props), actions.disconnectSession)
-            // The cloud wizard builds a dashboard too — look it up so the completed surfaces can
-            // link to it. startedAt travels on the persisted run handle; without it there's no run
-            // window to scope the search to, so skip.
-            const startedAt =
-                values.activeCloudRun?.runId === props.runId ? values.activeCloudRun?.startedAt : undefined
-            if (values.taskRunState?.status === 'completed' && startedAt) {
-                actions.detectWizardDashboard({ startedAt })
-            }
         },
         // Local-run bookkeeping, owned by the single local-mode instance so cloud instances (which
         // share the session stream purely for wizard-stage detail) don't double-fire it.
@@ -405,6 +418,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
 //     session schedule its teardown grace window
 //   - finished-run handle: snapshot a fresh terminal run so its handoff surface outlives the
 //     stream, and supersede the previous run's handle once a new run goes live
+//   - handoff doc: announce a fresh session's doc so the one-time auto-open dialog can fire
 export function runLocalSessionBookkeeping(
     session: WizardSessionDTOApi,
     prev: WizardSessionDTOApi | null,
@@ -413,6 +427,7 @@ export function runLocalSessionBookkeeping(
         markSessionCurrent: () => void
         recordFinishedLocalRun: (session: WizardSessionDTOApi) => void
         supersedeFinishedLocalRun: (sessionId: string) => void
+        handoffDocReceived: (doc: { key: string; text: string; startedByEmail: string | null }) => void
         reportWizardSyncSessionDetected: (props: {
             workflowId: string
             skillId: string
@@ -443,6 +458,21 @@ export function runLocalSessionBookkeeping(
             actions.recordFinishedLocalRun(session)
         } else {
             actions.supersedeFinishedLocalRun(session.session_id)
+        }
+        // Freshness-gated like the rest: a stale row's doc was either seen already or belongs to a
+        // run nobody is watching. The seen-keys guard makes redeliveries a no-op. Completed only:
+        // the buttons that reopen the doc are gated on the completed phase, so announcing it for an
+        // errored run would burn the one auto-open on a dialog the user can never get back to.
+        if (
+            session.run_phase === 'completed' &&
+            typeof session.handoff_text === 'string' &&
+            session.handoff_text.length > 0
+        ) {
+            actions.handoffDocReceived({
+                key: session.session_id,
+                text: session.handoff_text,
+                startedByEmail: session.created_by?.email ?? null,
+            })
         }
         // Reach metric: count each live wizard session the sync surfaces, once per session_id.
         // Gated on freshness so stale terminal rows sitting in the DB — which never reach the
