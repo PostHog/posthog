@@ -113,6 +113,7 @@ export function ActionFilterRow({
     inlineEventsDocLink,
     definitionPopoverRenderer,
     operatorAllowlist,
+    allowRelativeDateOptions,
 }: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties' | 'allowNonCapturedEvents'>): JSX.Element {
     const effectiveActionsTaxonomicGroupTypes = [
         TaxonomicFilterGroupType.SuggestedFilters,
@@ -727,6 +728,7 @@ export function ActionFilterRow({
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
+                        allowRelativeDateOptions={allowRelativeDateOptions}
                         triggerVariant="input"
                     />
                     <SaveAsActionBanner filter={filter} />

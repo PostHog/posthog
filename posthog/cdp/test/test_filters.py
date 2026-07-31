@@ -1,5 +1,6 @@
 import re
 import json
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
@@ -850,3 +851,66 @@ class TestCohortInlining(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "or replace the cohort with inline person property filters. "
             "Update your filters at: SETTINGS_URL#internal-user-filtering"
         )
+
+
+class TestRelativeDateFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
+    @parameterized.expand(
+        [
+            ("days", "-14d", "day", -14),
+            ("hours", "-24h", "hour", -24),
+            # Not every Hog VM implements a week or year unit for dateAdd, so those are expressed
+            # in days and months.
+            ("weeks", "-2w", "day", -14),
+            ("quarters", "-1q", "month", -3),
+            ("years", "-1y", "month", -12),
+        ]
+    )
+    def test_relative_date_compiles_to_runtime_expression(self, _name, value, unit, amount):
+        bytecode = compile_filters_bytecode(
+            {"properties": [{"key": "last_login", "value": value, "operator": "is_date_before", "type": "person"}]},
+            self.team,
+        )["bytecode"]
+
+        assert "now" in bytecode
+        assert "dateAdd" in bytecode
+        assert unit in bytecode
+        assert amount in bytecode
+
+    def test_relative_date_is_evaluated_when_the_filter_runs(self):
+        bytecode = compile_filters_bytecode(
+            {"properties": [{"key": "last_login", "value": "-14d", "operator": "is_date_before", "type": "person"}]},
+            self.team,
+        )["bytecode"]
+
+        def last_login(days_ago: int) -> dict:
+            stamp = datetime.now(tz=UTC) - timedelta(days=days_ago)
+            return {"person": {"properties": {"last_login": stamp.strftime("%Y-%m-%dT%H:%M:%S")}}}
+
+        assert execute_bytecode(bytecode, last_login(20)).result is True
+        assert execute_bytecode(bytecode, last_login(1)).result is False
+
+    def test_absolute_date_still_compiles_to_a_constant(self):
+        bytecode = compile_filters_bytecode(
+            {
+                "properties": [
+                    {"key": "last_login", "value": "2026-01-01", "operator": "is_date_before", "type": "person"}
+                ]
+            },
+            self.team,
+        )["bytecode"]
+
+        assert "2026-01-01" in bytecode
+        assert "dateAdd" not in bytecode
+
+    def test_anchored_relative_date_is_rejected(self):
+        result = compile_filters_bytecode(
+            {
+                "properties": [
+                    {"key": "last_login", "value": "-1dStart", "operator": "is_date_before", "type": "person"}
+                ]
+            },
+            self.team,
+        )
+
+        assert result["bytecode"] is None
+        assert "not supported in real-time filters" in result["bytecode_error"]

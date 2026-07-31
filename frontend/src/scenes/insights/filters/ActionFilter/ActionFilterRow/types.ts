@@ -86,6 +86,7 @@ export interface ActionFilterRowProps {
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
+    allowRelativeDateOptions?: boolean
 }
 
 export interface MathSelectorProps {

@@ -110,6 +110,8 @@ export interface ActionFilterProps {
     hogQLGlobals?: Record<string, any>
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     operatorAllowlist?: PropertyOperator[]
+    /** Offer relative dates (e.g. "14 days ago") as values for date property filters */
+    allowRelativeDateOptions?: boolean
     /** Extra content rendered in the footer alongside the "Add series" button */
     customFooter?: React.ReactNode
 }
@@ -151,6 +153,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         hogQLGlobals,
         definitionPopoverRenderer,
         operatorAllowlist,
+        allowRelativeDateOptions,
         customFooter,
     },
     ref
@@ -221,6 +224,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         allowNonCapturedEvents,
         hogQLGlobals,
         operatorAllowlist,
+        allowRelativeDateOptions,
         inlineEventsDocLink: isTrendsFilter(filters)
             ? 'https://posthog.com/docs/product-analytics/trends/overview#combine-events-inline'
             : 'https://posthog.com/docs/product-analytics/funnels#combine-events-inline',

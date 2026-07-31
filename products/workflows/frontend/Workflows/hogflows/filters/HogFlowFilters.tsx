@@ -113,6 +113,7 @@ export function HogFlowEventFilters({
             allowNonCapturedEvents
             hogQLGlobals={sampleGlobals}
             operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
+            allowRelativeDateOptions
         />
     )
 }
@@ -168,6 +169,7 @@ export function HogFlowPropertyFilters({
             }}
             hogQLGlobals={sampleGlobals}
             operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
+            allowRelativeDateOptions
         />
     )
 }

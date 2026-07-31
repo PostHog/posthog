@@ -1,6 +1,9 @@
+import datetime
 from typing import Any
 
 import re2
+
+from common.hogvm.python.objects import is_hog_date, is_hog_datetime
 
 _CASE_INSENSITIVE_OPTS = re2.Options()
 _CASE_INSENSITIVE_OPTS.case_sensitive = False
@@ -148,7 +151,23 @@ def calculate_cost(object, marked: set | None = None) -> int:
     return COST_PER_UNIT
 
 
+def _temporal_seconds(value: Any) -> float | None:
+    if is_hog_datetime(value):
+        return value["dt"]
+    if is_hog_date(value):
+        return datetime.datetime(value["year"], value["month"], value["day"], tzinfo=datetime.UTC).timestamp()
+    return None
+
+
 def unify_comparison_types(left, right):
+    # Two temporal values order by epoch seconds (matching ClickHouse and the TypeScript and Rust
+    # VMs). Without this they stay as dicts and comparing them raises, silently breaking realtime
+    # `is date after` / `is date before` filters.
+    left_seconds = _temporal_seconds(left)
+    right_seconds = _temporal_seconds(right)
+    if left_seconds is not None and right_seconds is not None:
+        return left_seconds, right_seconds
+
     # Handle boolean cases FIRST since bool is a subclass of int in Python
     if isinstance(left, bool) and isinstance(right, str):
         # Convert string to boolean: 'true'/'false' strings, or truthy/falsy

@@ -5,7 +5,7 @@ from django.conf import settings
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, ast, property_to_expr
+from posthog.hogql.property import action_to_expr, ast, property_to_expr, runtime_relative_dates
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.models.team.team import Team
@@ -308,7 +308,10 @@ def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[
         )
         actions = {action.id: action for action in actions_list}
 
-    return hog_function_filters_to_expr(filters, team, actions)
+    # Filter bytecode is compiled once on save and executed for as long as the function lives, so
+    # relative dates must resolve when the filter runs, not now.
+    with runtime_relative_dates():
+        return hog_function_filters_to_expr(filters, team, actions)
 
 
 class SelectFinder(TraversingVisitor):

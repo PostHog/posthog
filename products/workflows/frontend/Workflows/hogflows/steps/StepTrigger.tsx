@@ -829,6 +829,7 @@ function ConversionGoalSection(): JSX.Element {
                         pageKey="workflow-conversion-properties"
                         hideBehavioralCohorts
                         operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
+                        allowRelativeDateOptions
                         logicalRowDivider
                     />
                 </div>

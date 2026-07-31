@@ -1,5 +1,7 @@
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Literal, Optional, TypeGuard, cast
 
 from django.db import models
@@ -378,6 +380,9 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+_RELATIVE_DATE_REGEX = r"^-?[0-9]+[hdwmqysHDWMQY]"
+
+
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     """Resolve a date value for IS_DATE_* operators.
 
@@ -398,14 +403,67 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     if not isinstance(value, str):
         return value
 
-    relative_regex = r"^-?[0-9]+[hdwmqysHDWMQY]"
-    if re.match(relative_regex, value):
+    if re.match(_RELATIVE_DATE_REGEX, value):
         from posthog.utils import relative_date_parse
 
         resolved = relative_date_parse(value, team.timezone_info)
         return resolved.strftime("%Y-%m-%d %H:%M:%S")
 
     return value
+
+
+# Relative-date suffix to a (unit, multiplier) pair for dateAdd. Only second, minute, hour, day and
+# month are implemented by every Hog VM (the Rust one rejects week and year), so weeks, quarters and
+# years are expressed in the units that are.
+_RELATIVE_DATE_UNITS: dict[str, tuple[str, int]] = {
+    "s": ("second", 1),
+    "M": ("minute", 1),
+    "h": ("hour", 1),
+    "d": ("day", 1),
+    "w": ("day", 7),
+    "m": ("month", 1),
+    "q": ("month", 3),
+    "y": ("month", 12),
+}
+
+_RUNTIME_RELATIVE_DATES: ContextVar[bool] = ContextVar("hogql_runtime_relative_dates", default=False)
+
+
+@contextmanager
+def runtime_relative_dates() -> Iterator[None]:
+    """Compile relative IS_DATE_* values into an expression evaluated when the filter runs.
+
+    ClickHouse queries are compiled per request, so folding ``-14d`` to a constant there is both
+    correct and cheaper. Real-time filter bytecode is compiled once when a hog function or workflow
+    is saved and then executed for months, where the same constant would silently mean "14 days
+    before this was saved" rather than "14 days ago".
+    """
+    token = _RUNTIME_RELATIVE_DATES.set(True)
+    try:
+        yield
+    finally:
+        _RUNTIME_RELATIVE_DATES.reset(token)
+
+
+def _date_comparison_rhs(value: str, team: Team) -> ast.Expr:
+    """Build the right-hand side of an IS_DATE_* comparison."""
+    if _RUNTIME_RELATIVE_DATES.get() and re.match(_RELATIVE_DATE_REGEX, value):
+        match = re.fullmatch(r"-(?P<number>[0-9]+)(?P<kind>[hdwmqysM])", value)
+        if not match:
+            # Anchored forms like `-1dStart` depend on the team's week start day and calendar
+            # boundaries, which dateAdd can't express. Fail loudly rather than freeze the value.
+            raise QueryError(f"Relative date '{value}' is not supported in real-time filters")
+        unit, multiplier = _RELATIVE_DATE_UNITS[match.group("kind")]
+        return ast.Call(
+            name="dateAdd",
+            args=[
+                ast.Constant(value=unit),
+                ast.Constant(value=-int(match.group("number")) * multiplier),
+                ast.Call(name="now", args=[]),
+            ],
+        )
+
+    return _force_datetime(ast.Constant(value=_resolve_date_value(value, team)))
 
 
 def _force_datetime(expr: ast.Expr) -> ast.Expr:
@@ -590,7 +648,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_date_comparison_rhs(value, team),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
@@ -605,7 +663,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_date_comparison_rhs(value, team),
         )
     elif operator == PropertyOperator.GT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
@@ -614,7 +672,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_date_comparison_rhs(value, team),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
