@@ -185,6 +185,88 @@ pub fn start_pod_with_address(
     }
 }
 
+/// A handler whose `resume_partition` fails a fixed number of times
+/// before succeeding — the shape of a resume that has to take broker
+/// state and hits a transient error.
+pub struct FlakyResumeHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    remaining_failures: AtomicUsize,
+}
+
+#[async_trait]
+impl HandoffHandler for FlakyResumeHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        if self.remaining_failures.load(Ordering::SeqCst) > 0 {
+            self.remaining_failures.fetch_sub(1, Ordering::SeqCst);
+            return Err(personhog_coordination::error::Error::invalid_state(
+                "resume failed (test)",
+            ));
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose first `failures` resume attempts fail.
+pub fn start_pod_with_flaky_resume(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    failures: usize,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = FlakyResumeHandler {
+        events: Arc::clone(&events),
+        remaining_failures: AtomicUsize::new(failures),
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
+}
+
 /// Start a pod whose warm_partition blocks forever. Useful for testing
 /// crashes during the Warming phase.
 pub fn start_pod_blocking(

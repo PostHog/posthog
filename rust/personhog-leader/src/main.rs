@@ -52,7 +52,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("failed to install rustls ring CryptoProvider");
 
     let config = Config::init_from_env().expect("Invalid configuration");
-    preregister_metrics();
+    config
+        .validate_fencing_timescales()
+        .expect("Invalid fencing configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
     // Initialize tracing
@@ -119,21 +121,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let monitor_guard = manager.monitor_background();
 
-    // Metrics/health HTTP server
+    // Metrics/health HTTP server. The router is built here rather than
+    // inside the task because `setup_metrics_routes` is what installs the
+    // process-wide recorder: anything preregistered before it lands in a
+    // no-op recorder and never becomes a series.
     let metrics_port = config.metrics_port;
+    let health_router = Router::new()
+        .route(
+            "/_readiness",
+            get(move || {
+                let r = readiness.clone();
+                async move { r.check().await }
+            }),
+        )
+        .route("/_liveness", get(move || async move { liveness.check() }));
+    let metrics_router = setup_metrics_routes(health_router);
+    preregister_metrics();
+
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
-
-        let health_router = Router::new()
-            .route(
-                "/_readiness",
-                get(move || {
-                    let r = readiness.clone();
-                    async move { r.check().await }
-                }),
-            )
-            .route("/_liveness", get(move || async move { liveness.check() }));
-        let metrics_router = setup_metrics_routes(health_router);
 
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)
@@ -220,12 +226,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             window_ms = config.fencing_window_ms,
             "broker-enforced epoch fencing enabled for the changelog"
         );
-        preregister_fencing_metrics();
+        preregister_fencing_metrics(num_partitions);
+        // The fenced producer runs on a tighter message timeout than the
+        // shared one: its writes must resolve inside the lease runway.
+        let fencing_kafka = common_kafka::config::KafkaConfig {
+            kafka_message_timeout_ms: config.fencing_message_timeout().as_millis() as u32,
+            ..config.kafka.clone()
+        };
         Some(Arc::new(FencedChangelogProducers::new(
-            config.kafka.clone(),
+            fencing_kafka,
             config.kafka_person_state_topic.clone(),
-            Duration::from_millis(config.fencing_txn_timeout_ms),
-            Duration::from_millis(config.fencing_txn_timeout_ms),
+            config.fencing_txn_timeout(),
+            config.fencing_txn_timeout(),
             Duration::from_millis(config.fencing_window_ms),
         )))
     } else {

@@ -901,9 +901,16 @@ impl PodHandle {
                 // admission depend on an undocumented handler side
                 // effect. Resuming after a warm that already unfenced is
                 // an idempotent no-op.
-                if self.fenced_partitions.lock().await.remove(&partition) {
+                // Clear the local record only once the handler has
+                // actually resumed: `resume_partition` can fail (it may
+                // re-take broker-side state), and forgetting the fence
+                // first would leave the data plane fenced with no branch
+                // left to re-enter — writes rejected forever while the
+                // convergence reports success.
+                if self.fenced_partitions.lock().await.contains(&partition) {
                     tracing::info!(pod, partition, "converging to Serving: resuming writes");
                     self.handler.resume_partition(partition).await?;
+                    self.fenced_partitions.lock().await.remove(&partition);
                     did_work = true;
                 }
             }

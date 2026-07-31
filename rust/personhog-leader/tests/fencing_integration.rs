@@ -113,3 +113,32 @@ async fn sustained_writes_across_window_boundaries() {
             .expect("every write must land across window boundaries");
     }
 }
+
+/// A request that vanishes mid-produce — tonic drops the handler future
+/// when the client's deadline expires — must return its seat in the
+/// window. Without that, the committer waits on an in-flight count that
+/// never reaches zero and every later write on the partition parks
+/// forever behind it.
+#[tokio::test]
+async fn a_cancelled_produce_does_not_wedge_the_partition() {
+    let topic = format!("fence_cancel_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    producers.acquire(0).await.expect("acquire");
+
+    {
+        let p = Arc::clone(&producers);
+        let mut inflight = Box::pin(async move { p.produce(0, &test_person(1)).await });
+        // Far too little time to finish: the future is dropped mid-send.
+        tokio::time::timeout(Duration::from_micros(200), &mut inflight)
+            .await
+            .ok();
+    }
+
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        producers.produce(0, &test_person(2)),
+    )
+    .await
+    .expect("a later write must not hang behind the cancelled one")
+    .expect("and must succeed");
+}

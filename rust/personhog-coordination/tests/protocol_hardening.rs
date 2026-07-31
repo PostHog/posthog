@@ -22,10 +22,10 @@ use assignment_coordination::store::parse_watch_value;
 use async_trait::async_trait;
 use common::{
     revoke_lease_of_key, start_coordinator, start_coordinator_named,
-    start_coordinator_reconcile_parked, start_pod, start_pod_gated, start_pod_with_lease_ttl,
-    start_router_with_lease_ttl, store_at, test_store, test_store_with_prefix, wait_for_condition,
-    CutoverEvent, FlakyProxy, HandoffEvent, MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT,
-    POLL_INTERVAL, WAIT_TIMEOUT,
+    start_coordinator_reconcile_parked, start_pod, start_pod_gated, start_pod_with_flaky_resume,
+    start_pod_with_lease_ttl, start_router_with_lease_ttl, store_at, test_store,
+    test_store_with_prefix, wait_for_condition, CutoverEvent, FlakyProxy, HandoffEvent,
+    MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
@@ -3134,4 +3134,52 @@ async fn budget_exhaustion_fences_before_deregistering() {
         !pods.iter().any(|p| p.pod_name == "fatal-fence-pod"),
         "the teardown must deregister on the way out"
     );
+}
+
+/// A resume that fails must leave the partition still marked fenced, so
+/// a later convergence retries it. Clearing the local fence before the
+/// handler succeeds strands the data plane fenced with no branch left to
+/// re-enter: writes rejected forever while every convergence reports
+/// success and no budget escalates.
+#[tokio::test]
+async fn pod_retries_resume_after_a_failed_attempt() {
+    let store = test_store("handoff-cancel-resume-retry").await;
+    let cancel = CancellationToken::new();
+
+    let pod = start_pod_with_flaky_resume(Arc::clone(&store), "resume-flaky-a", 1, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "resume-flaky-a"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    put_handoff(&store, 0, None, "resume-flaky-a", HandoffPhase::Warming).await;
+    wait_for_event(&pod.events, HandoffEvent::Warmed(0)).await;
+    assert!(store.complete_handoff(0).await.expect("complete"));
+    store.delete_handoff(0).await.expect("cleanup");
+
+    put_handoff(
+        &store,
+        0,
+        Some("resume-flaky-a"),
+        "resume-flaky-b",
+        HandoffPhase::Draining,
+    )
+    .await;
+    wait_for_event(&pod.events, HandoffEvent::Drained(0)).await;
+
+    // Cancel the handoff. The first resume fails; the pod must come back
+    // to it rather than treating the partition as resumed.
+    store.delete_handoff(0).await.expect("delete handoff");
+    wait_for_event(&pod.events, HandoffEvent::Resumed(0)).await;
+
+    cancel.cancel();
 }

@@ -35,8 +35,15 @@ pub struct Config {
 
     /// Timeout for transactional init (fencing acquisition) and
     /// commit/abort operations.
-    #[envconfig(default = "10000")]
+    #[envconfig(default = "0")]
     pub fencing_txn_timeout_ms: u64,
+
+    /// `message.timeout.ms` for the fenced changelog producer only. It is
+    /// separate from the shared producer's because a fenced write's total
+    /// must fit inside the lease self-fence runway — see
+    /// [`Config::validate_fencing_timescales`].
+    #[envconfig(default = "0")]
+    pub fencing_message_timeout_ms: u32,
 
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
@@ -280,7 +287,108 @@ pub struct Config {
     pub heartbeat_interval_secs: u64,
 }
 
+/// A fenced write must resolve inside the runway the lease keepalive
+/// reserves for self-fencing (a third of the TTL). The bound is on the
+/// *queued* write, not the lucky one: an arrival can park behind a
+/// window that is already committing, so it pays that window's send and
+/// commit before its own — hence the factor of two below.
+///
+/// librdkafka additionally requires `message.timeout.ms <= transaction
+/// .timeout.ms`, and rejects a `transaction.timeout.ms` under a second.
+/// Deriving both from the runway satisfies every relation by
+/// construction wherever the lease TTL leaves room, and
+/// [`Config::validate_fencing_timescales`] refuses the configurations
+/// where it does not.
+const FENCING_MESSAGE_SHARE: u32 = 3;
+const FENCING_TXN_SHARE: u32 = 6;
+const FENCING_SHARE_BASE: u32 = 10;
+
+/// librdkafka's documented minimum for `transaction.timeout.ms`.
+const MIN_TXN_TIMEOUT: Duration = Duration::from_millis(1000);
+/// A floor for the send timeout; zero means *no timeout* to librdkafka,
+/// the opposite of what this bound exists to express.
+const MIN_MESSAGE_TIMEOUT: Duration = Duration::from_millis(250);
+
 impl Config {
+    /// The runway the keepalive reserves for the local fence: it
+    /// declares lease loss after two thirds of the TTL, leaving the
+    /// final third for the fence to land before the coordinator can
+    /// treat the lease as expired.
+    pub fn lease_fence_runway(&self) -> Duration {
+        Duration::from_millis((self.lease_ttl.max(0) as u64).saturating_mul(1000) / 3)
+    }
+
+    /// The budget one write may spend, derived so that a write queued
+    /// behind another still finishes inside the runway.
+    fn fencing_budget(&self) -> Duration {
+        self.lease_fence_runway()
+            .saturating_sub(Duration::from_millis(self.fencing_window_ms))
+            / 2
+    }
+
+    /// How long a fenced send may take.
+    pub fn fencing_message_timeout(&self) -> Duration {
+        if self.fencing_message_timeout_ms > 0 {
+            return Duration::from_millis(u64::from(self.fencing_message_timeout_ms));
+        }
+        (self.fencing_budget() * FENCING_MESSAGE_SHARE / FENCING_SHARE_BASE)
+            .max(MIN_MESSAGE_TIMEOUT)
+    }
+
+    /// How long a transaction init, commit, or abort may take.
+    pub fn fencing_txn_timeout(&self) -> Duration {
+        if self.fencing_txn_timeout_ms > 0 {
+            return Duration::from_millis(self.fencing_txn_timeout_ms);
+        }
+        (self.fencing_budget() * FENCING_TXN_SHARE / FENCING_SHARE_BASE).max(MIN_TXN_TIMEOUT)
+    }
+
+    /// Every relation the fenced produce path depends on, checked at
+    /// startup: the derivation satisfies them wherever the lease TTL
+    /// leaves room, and an operator can override either knob.
+    pub fn validate_fencing_timescales(&self) -> Result<(), String> {
+        if !self.kafka_transactional_fencing {
+            return Ok(());
+        }
+        let (message, txn, runway, window) = (
+            self.fencing_message_timeout(),
+            self.fencing_txn_timeout(),
+            self.lease_fence_runway(),
+            Duration::from_millis(self.fencing_window_ms),
+        );
+        if txn < MIN_TXN_TIMEOUT {
+            return Err(format!(
+                "fencing transaction timeout ({txn:?}) is below librdkafka's minimum \
+                 ({MIN_TXN_TIMEOUT:?}); the producer would not start"
+            ));
+        }
+        if message < MIN_MESSAGE_TIMEOUT {
+            return Err(format!(
+                "fencing message timeout ({message:?}) is below {MIN_MESSAGE_TIMEOUT:?}; \
+                 zero means no timeout at all to librdkafka"
+            ));
+        }
+        if message > txn {
+            return Err(format!(
+                "fencing message timeout ({message:?}) exceeds the transaction timeout \
+                 ({txn:?}); librdkafka rejects the producer outright"
+            ));
+        }
+        // A write parked behind a committing window pays that window's
+        // send and commit before its own, so the runway has to cover two.
+        let queued_worst_case = window + (message + txn) * 2;
+        if queued_worst_case > runway {
+            return Err(format!(
+                "a fenced write queued behind another can take {queued_worst_case:?} \
+                 (window {window:?} + 2 × (send {message:?} + commit {txn:?})), longer than \
+                 the lease self-fence runway ({runway:?} = LEASE_TTL {}s / 3); raise LEASE_TTL \
+                 or lower the fencing timeouts",
+                self.lease_ttl,
+            ));
+        }
+        Ok(())
+    }
+
     pub fn grpc_keepalive_interval(&self) -> Option<Duration> {
         if self.grpc_keepalive_interval_secs == 0 {
             None
@@ -375,5 +483,75 @@ mod tests {
 
         let wildcard6 = "[::]:50053".parse().unwrap();
         assert!(derive_advertise_address(&wildcard6, "").is_err());
+    }
+}
+
+#[cfg(test)]
+mod fencing_timescale_tests {
+    use super::*;
+
+    fn fenced(lease_ttl: i64) -> Config {
+        let mut config = Config::init_from_env().expect("defaults");
+        config.kafka_transactional_fencing = true;
+        config.lease_ttl = lease_ttl;
+        config.fencing_txn_timeout_ms = 0;
+        config.fencing_message_timeout_ms = 0;
+        config
+    }
+
+    /// At any lease TTL the derivation must either satisfy every
+    /// relation or be rejected — never produce a config that starts and
+    /// then violates the runway, and never one librdkafka refuses.
+    #[test]
+    fn derived_timeouts_are_either_valid_or_rejected() {
+        for lease_ttl in [0, 1, 5, 10, 30, 60, 300] {
+            let config = fenced(lease_ttl);
+            if config.validate_fencing_timescales().is_ok() {
+                let (message, txn) = (
+                    config.fencing_message_timeout(),
+                    config.fencing_txn_timeout(),
+                );
+                assert!(txn >= MIN_TXN_TIMEOUT, "LEASE_TTL={lease_ttl}");
+                assert!(message >= MIN_MESSAGE_TIMEOUT, "LEASE_TTL={lease_ttl}");
+                assert!(message <= txn, "LEASE_TTL={lease_ttl}");
+                let queued = Duration::from_millis(config.fencing_window_ms) + (message + txn) * 2;
+                assert!(
+                    queued <= config.lease_fence_runway(),
+                    "LEASE_TTL={lease_ttl}: queued worst case {queued:?} exceeds runway"
+                );
+            }
+        }
+    }
+
+    /// The production lease TTL must actually be usable with fencing on,
+    /// or the flag could never be enabled.
+    #[test]
+    fn the_production_lease_ttl_supports_fencing() {
+        fenced(30)
+            .validate_fencing_timescales()
+            .expect("LEASE_TTL=30 must support fencing with derived timeouts");
+    }
+
+    #[test]
+    fn a_lease_ttl_too_short_for_fencing_is_rejected() {
+        assert!(fenced(5).validate_fencing_timescales().is_err());
+    }
+
+    #[test]
+    fn an_override_that_can_outlive_the_fence_is_rejected() {
+        let mut config = fenced(30);
+        config.fencing_txn_timeout_ms = 60_000;
+        assert!(config.validate_fencing_timescales().is_err());
+    }
+
+    #[test]
+    fn an_override_librdkafka_would_reject_is_caught() {
+        let mut config = fenced(30);
+        config.fencing_txn_timeout_ms = 1_000;
+        config.fencing_message_timeout_ms = 2_000;
+        let err = config
+            .validate_fencing_timescales()
+            .expect_err("must reject");
+        assert!(err.contains("librdkafka"), "got: {err}");
     }
 }

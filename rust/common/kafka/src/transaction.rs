@@ -67,7 +67,13 @@ impl<C: ClientContext> TransactionalProducer<C> {
                 "queue.buffering.max.messages",
                 config.kafka_producer_queue_messages.to_string(),
             )
-            .set("transactional.id", transactional_id);
+            .set("transactional.id", transactional_id)
+            // Bound how long a broker holds an abandoned transaction
+            // open. Until it expires, the partition's last-stable-offset
+            // does not advance and every read_committed consumer of that
+            // partition stalls behind it, so the default (60s) is far
+            // longer than any owner should be able to strand a reader.
+            .set("transaction.timeout.ms", timeout.as_millis().to_string());
 
         if config.kafka_tls {
             client_config
@@ -78,11 +84,11 @@ impl<C: ClientContext> TransactionalProducer<C> {
         debug!("rdkafka configuration: {:?}", client_config);
         let api: FutureProducer<C> = client_config.create_with_context(context)?;
 
-        // "Ping" the Kafka brokers by requesting metadata
-        match api
-            .client()
-            .fetch_metadata(None, std::time::Duration::from_secs(15))
-        {
+        // "Ping" the Kafka brokers by requesting metadata, bounded by
+        // the caller's timeout: this runs on the partition-acquisition
+        // path, where an unbounded stall holds a warm slot and delays a
+        // handoff.
+        match api.client().fetch_metadata(None, timeout) {
             Ok(metadata) => {
                 info!(
                     "Successfully connected to Kafka brokers. Found {} topics.",

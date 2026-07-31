@@ -719,10 +719,45 @@ impl PersonHogLeader for PersonHogLeaderService {
                         partition,
                         "changelog producer fenced; rejecting write as stale owner"
                     );
+                    // The broker has proven a newer owner exists, which
+                    // is earlier and firmer evidence than the lease
+                    // keepalive can offer. Drop the partition so this pod
+                    // stops answering reads out of a cache the real owner
+                    // is already mutating; re-acquiring it goes through a
+                    // handoff, which re-warms.
+                    //
+                    // Unless the fence that failed was this pod's own
+                    // superseded producer — a write in flight across a
+                    // re-acquire is rejected by an epoch this pod
+                    // installed itself, and giving up the partition then
+                    // would take a partition it still owns out of
+                    // service.
+                    if !fenced.holds(partition) {
+                        self.cache.drop_partition(partition);
+                        counter!("personhog_leader_fenced_partition_drops_total").increment(1);
+                    }
                     return Err(Status::failed_precondition(format!(
                         "partition ownership fenced: {e}"
                     )));
                 }
+                // This pod holds no producer for the partition — an
+                // ownership statement, in the same vocabulary the
+                // admission fence uses, so the router bounces and
+                // re-resolves instead of surfacing a hard error.
+                Err(e @ FencedProduceError::NotAcquired) => {
+                    tracing::warn!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        "no changelog fence held for partition; rejecting write"
+                    );
+                    return Err(Status::failed_precondition(format!(
+                        "partition fence not held: {e}"
+                    )));
+                }
+                // The window aborted, so no record became visible: the
+                // write is safe to retry, and ABORTED is the code the
+                // clients actually retry on.
                 Err(e) => {
                     tracing::error!(
                         team_id = cache_key.team_id,
@@ -730,7 +765,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                         error = %e,
                         "failed to produce person state changelog (fenced path)"
                     );
-                    return Err(Status::internal(format!(
+                    return Err(Status::aborted(format!(
                         "failed to durably store person state: {e}"
                     )));
                 }

@@ -23,7 +23,7 @@
 //! aborted records (consumers run `read_committed`), so the coupling is
 //! visible only as grouped retryable errors.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{fmt, mem};
 
@@ -32,9 +32,10 @@ use common_kafka::transaction::TransactionalProducer;
 use dashmap::DashMap;
 use metrics::{counter, histogram};
 use prost::Message as ProtoMessage;
+use rdkafka::client::ClientContext;
 use rdkafka::error::{KafkaError, RDKafkaErrorCode};
-use rdkafka::producer::{FutureRecord, Producer};
-use tokio::sync::{oneshot, Mutex, Notify};
+use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use tokio::sync::{oneshot, Notify};
 use tokio::task::spawn_blocking;
 use tokio::time::sleep;
 use tracing::{error, warn};
@@ -96,6 +97,9 @@ struct Gate {
 
 struct PartitionFence {
     producer: TransactionalProducer,
+    /// A std mutex, deliberately: every critical section is a handful of
+    /// field updates with no await inside, and `WindowSlot`'s `Drop` must
+    /// be able to release its seat synchronously.
     gate: Mutex<Gate>,
     /// Signalled when `in_flight` reaches zero.
     sends_settled: Notify,
@@ -103,6 +107,91 @@ struct PartitionFence {
     /// writers open the next one.
     window_closed: Notify,
     commit_timeout: Duration,
+}
+
+/// One seat in the open window, released on drop.
+///
+/// A request can vanish at any await — tonic drops the handler future
+/// when the client's deadline expires or its stream resets — and the
+/// seat has to come back even then, or the committer waits on an
+/// in-flight count that never reaches zero and every later write on the
+/// partition parks forever behind it.
+struct WindowSlot {
+    fence: Arc<PartitionFence>,
+    released: bool,
+}
+
+impl WindowSlot {
+    /// Take a seat in a window already counted as in-flight.
+    fn held(fence: Arc<PartitionFence>) -> Self {
+        Self {
+            fence,
+            released: false,
+        }
+    }
+
+    /// Release the seat, optionally poisoning the window, and report
+    /// whether the window is now settled.
+    fn release_inner(&mut self, poison: bool) -> bool {
+        let mut gate = self.fence.gate.lock().unwrap();
+        gate.in_flight -= 1;
+        if poison {
+            gate.poisoned = true;
+        }
+        let settled = gate.in_flight == 0;
+        drop(gate);
+        if settled {
+            self.fence.sends_settled.notify_waiters();
+        }
+        self.released = true;
+        settled
+    }
+
+    /// Subscribe to the window's commit outcome and release the seat in
+    /// one critical section. Both must be atomic: if the committer could
+    /// take the waiter list between them, this write's record would be
+    /// committed with no one left to tell.
+    fn subscribe(mut self) -> oneshot::Receiver<Result<(), FencedProduceError>> {
+        let (tx, rx) = oneshot::channel();
+        let mut gate = self.fence.gate.lock().unwrap();
+        gate.waiters.push(tx);
+        gate.in_flight -= 1;
+        let settled = gate.in_flight == 0;
+        drop(gate);
+        if settled {
+            self.fence.sends_settled.notify_waiters();
+        }
+        self.released = true;
+        rx
+    }
+
+    /// Release the seat after a failed send: the window aborts, failing
+    /// this write and its window-mates together.
+    fn poison(mut self) {
+        self.release_inner(true);
+    }
+}
+
+impl Drop for WindowSlot {
+    fn drop(&mut self) {
+        if !self.released {
+            // A cancelled request: release the seat but do not poison.
+            // Its record may already be enqueued and will ride the
+            // commit; nobody is waiting for the ack, and failing the
+            // window would punish the writes that are still waiting.
+            //
+            // The record therefore becomes durable without ever being
+            // acked, and if the partition is handed off before it
+            // commits it can land above the new owner's warm cutoff.
+            // That is safe in the direction that matters — the acked ⇒
+            // durable invariant is untouched, and the writer's
+            // version-guarded upsert refuses to regress state — but it
+            // does mean releasing a partition is not by itself a promise
+            // that no further record will appear on it.
+            counter!("personhog_leader_fence_slots_abandoned_total").increment(1);
+            self.release_inner(false);
+        }
+    }
 }
 
 /// Per-partition fenced producers for the changelog. Constructed once
@@ -188,11 +277,15 @@ impl FencedChangelogProducers {
         partition: u32,
         person: &Person,
     ) -> Result<i64, FencedProduceError> {
+        let durable_start = Instant::now();
         let fence = self
             .partitions
             .get(&partition)
             .map(|f| Arc::clone(&f))
-            .ok_or(FencedProduceError::NotAcquired)?;
+            .ok_or_else(|| {
+                counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+                FencedProduceError::NotAcquired
+            })?;
 
         // Join the open window, or open one. A window mid-commit admits
         // no joiners; wait for it to close and retry.
@@ -204,7 +297,7 @@ impl FencedChangelogProducers {
             tokio::pin!(closed);
             closed.as_mut().enable();
             {
-                let mut gate = fence.gate.lock().await;
+                let mut gate = fence.gate.lock().unwrap();
                 if gate.open {
                     gate.in_flight += 1;
                     break false;
@@ -212,11 +305,10 @@ impl FencedChangelogProducers {
                 if !gate.committing && gate.in_flight == 0 && gate.waiters.is_empty() {
                     // Idle: open a new window. BeginTxn is a local
                     // librdkafka state transition, safe inline.
-                    fence
-                        .producer
-                        .inner()
-                        .begin_transaction()
-                        .map_err(|e| self.classify(&fence, partition, e))?;
+                    fence.producer.inner().begin_transaction().map_err(|e| {
+                        counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+                        self.classify(&fence, partition, e)
+                    })?;
                     gate.open = true;
                     gate.in_flight = 1;
                     gate.poisoned = false;
@@ -229,7 +321,10 @@ impl FencedChangelogProducers {
         // is time parked behind a draining or committing window — the
         // queueing term of the fencing tax, and the first thing to grow
         // if commits slow down.
-        histogram!("personhog_leader_fence_window_wait_ms")
+        // From here the window counts this write as in flight; the slot
+        // returns the seat on every exit, including cancellation.
+        let slot = WindowSlot::held(Arc::clone(&fence));
+        histogram!("personhog_leader_fence_window_wait_ms", "partition" => partition.to_string())
             .record(join_start.elapsed().as_secs_f64() * 1000.0);
 
         if opened {
@@ -256,7 +351,7 @@ impl FencedChangelogProducers {
         let offset = match delivery {
             Ok(fut) => match fut.await {
                 Ok(Ok((_, offset))) => {
-                    histogram!("personhog_leader_kafka_produce_duration_ms")
+                    histogram!("personhog_leader_fence_send_ms")
                         .record(produce_start.elapsed().as_secs_f64() * 1000.0);
                     Ok(offset)
                 }
@@ -280,14 +375,8 @@ impl FencedChangelogProducers {
         // rejection must surface as `Fenced`, not as the window's
         // generic abort.
         if let Err(send_err) = offset {
-            {
-                let mut gate = fence.gate.lock().await;
-                gate.in_flight -= 1;
-                gate.poisoned = true;
-                if gate.in_flight == 0 {
-                    fence.sends_settled.notify_waiters();
-                }
-            }
+            counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+            slot.poison();
             return Err(match send_err {
                 Some(e) => self.classify(&fence, partition, e),
                 None => FencedProduceError::Failed("send cancelled (timeout)".to_string()),
@@ -295,15 +384,7 @@ impl FencedChangelogProducers {
         }
         let offset = offset.expect("checked above");
 
-        let (tx, rx) = oneshot::channel();
-        {
-            let mut gate = fence.gate.lock().await;
-            gate.in_flight -= 1;
-            gate.waiters.push(tx);
-            if gate.in_flight == 0 {
-                fence.sends_settled.notify_waiters();
-            }
-        }
+        let rx = slot.subscribe();
 
         // The record exists but is invisible until the window commits;
         // the ack must wait for the commit outcome. Together with the
@@ -311,17 +392,37 @@ impl FencedChangelogProducers {
         // decomposition of a fenced produce.
         let ack_wait_start = Instant::now();
         let outcome = rx.await;
-        histogram!("personhog_leader_fence_ack_wait_ms")
+        histogram!("personhog_leader_fence_ack_wait_ms", "partition" => partition.to_string())
             .record(ack_wait_start.elapsed().as_secs_f64() * 1000.0);
         match outcome {
             Ok(Ok(())) => {
                 counter!("personhog_leader_kafka_produces_total").increment(1);
+                // The same series the unfenced path records: time from
+                // entering produce to a durable record, so the two flag
+                // arms stay comparable.
+                histogram!("personhog_leader_kafka_produce_duration_ms")
+                    .record(durable_start.elapsed().as_secs_f64() * 1000.0);
                 Ok(offset)
             }
-            Ok(Err(e)) => Err(e),
-            Err(_) => Err(FencedProduceError::Failed(
-                "commit task dropped".to_string(),
-            )),
+            Ok(Err(e)) => {
+                counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+                // The commit reported the fence, so the eviction has to
+                // happen here: `commit_window_after` runs detached and
+                // holds no handle to the fence map. Without this the dead
+                // producer stays installed, later writes discover the
+                // fence one failed `begin_transaction` at a time, and
+                // `holds()` reports authority this pod no longer has.
+                if matches!(e, FencedProduceError::Fenced) {
+                    self.forget_fence(partition, &fence);
+                }
+                Err(e)
+            }
+            Err(_) => {
+                counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+                Err(FencedProduceError::Failed(
+                    "commit task dropped".to_string(),
+                ))
+            }
         }
     }
 
@@ -332,23 +433,64 @@ impl FencedChangelogProducers {
     /// producer's fatal error is consulted alongside the surface error.
     fn classify(
         &self,
-        fence: &PartitionFence,
+        fence: &Arc<PartitionFence>,
         partition: u32,
         e: KafkaError,
     ) -> FencedProduceError {
         if is_fenced(&e) || producer_fenced(fence.producer.inner()) {
-            counter!("personhog_leader_produce_fenced_total").increment(1);
+            counter!(
+                "personhog_leader_produce_fenced_total",
+                "partition" => partition.to_string()
+            )
+            .increment(1);
             error!(
                 partition,
                 error = %e,
                 "changelog producer fenced by a newer owner — this pod's claim is stale"
             );
-            self.partitions.remove(&partition);
+            self.forget_fence(partition, fence);
             FencedProduceError::Fenced
         } else {
             FencedProduceError::Failed(e.to_string())
         }
     }
+
+    /// Drop a fence that the broker rejected, but only if it is still the
+    /// one installed: a write can be in flight across a release and a
+    /// re-acquire, and the stale producer's failure must not evict its
+    /// live replacement.
+    fn forget_fence(&self, partition: u32, fence: &Arc<PartitionFence>) {
+        self.partitions
+            .remove_if(&partition, |_, installed| Arc::ptr_eq(installed, fence));
+    }
+
+    /// Whether this pod currently holds a fence for the partition.
+    ///
+    /// A `Fenced` error does not by itself prove this pod lost the
+    /// partition: its own re-acquire supersedes the previous producer,
+    /// so a write in flight across that boundary is rejected by an epoch
+    /// this pod itself installed. Callers that react to staleness by
+    /// giving up the partition must consult this, or a self-inflicted
+    /// fence would take a partition this pod still owns out of service.
+    pub fn holds(&self, partition: u32) -> bool {
+        self.partitions.contains_key(&partition)
+    }
+}
+
+/// How many times a retriable abort is re-attempted before the producer
+/// is declared unusable.
+const ABORT_RETRIES: usize = 3;
+
+/// Transaction errors librdkafka documents as safe to re-attempt.
+fn retriable_txn_error(code: RDKafkaErrorCode) -> bool {
+    matches!(
+        code,
+        RDKafkaErrorCode::OperationTimedOut
+            | RDKafkaErrorCode::RequestTimedOut
+            | RDKafkaErrorCode::NotCoordinator
+            | RDKafkaErrorCode::CoordinatorNotAvailable
+            | RDKafkaErrorCode::CoordinatorLoadInProgress
+    )
 }
 
 fn is_fenced(e: &KafkaError) -> bool {
@@ -362,10 +504,7 @@ fn is_fenced(e: &KafkaError) -> bool {
 /// newer owner initializes the transactional id, librdkafka marks this
 /// client fatal and individual operations report local symptoms (purged
 /// queues, aborted transactions) rather than the fence itself.
-fn producer_fenced<C: rdkafka::client::ClientContext>(
-    producer: &rdkafka::producer::FutureProducer<C>,
-) -> bool {
-    use rdkafka::producer::Producer;
+fn producer_fenced<C: ClientContext>(producer: &FutureProducer<C>) -> bool {
     producer
         .client()
         .fatal_error()
@@ -393,7 +532,7 @@ async fn commit_window_after(
     // committing flag holds until the commit finishes so no writer can
     // begin the next transaction while this one is still resolving.
     {
-        let mut gate = fence.gate.lock().await;
+        let mut gate = fence.gate.lock().unwrap();
         gate.open = false;
         gate.committing = true;
     }
@@ -404,7 +543,7 @@ async fn commit_window_after(
         tokio::pin!(settled);
         settled.as_mut().enable();
         {
-            let gate = fence.gate.lock().await;
+            let gate = fence.gate.lock().unwrap();
             if gate.in_flight == 0 {
                 break;
             }
@@ -413,10 +552,11 @@ async fn commit_window_after(
     }
 
     let (waiters, poisoned) = {
-        let mut gate = fence.gate.lock().await;
+        let mut gate = fence.gate.lock().unwrap();
         (mem::take(&mut gate.waiters), gate.poisoned)
     };
-    histogram!("personhog_leader_fence_window_writes").record(waiters.len() as f64);
+    histogram!("personhog_leader_fence_window_writes", "partition" => partition.to_string())
+        .record(waiters.len() as f64);
 
     // Commit and abort block up to the transaction timeout; keep them
     // off the runtime threads.
@@ -425,11 +565,23 @@ async fn commit_window_after(
     let commit_start = Instant::now();
     let result = spawn_blocking(move || {
         if poisoned {
-            // The abort's own failure is secondary — the window already
-            // failed; a producer that cannot abort surfaces on the next
-            // begin.
-            if let Err(e) = producer.abort_transaction(timeout) {
-                warn!(error = %e, "abort of a poisoned window failed");
+            // Retry a retriable abort: leaving the producer in its
+            // abortable state would fail every later `begin_transaction`
+            // with an error no path re-acquires from, stranding the
+            // partition until the next handoff.
+            let mut abort = producer.abort_transaction(timeout);
+            for _ in 0..ABORT_RETRIES {
+                match &abort {
+                    Err(e) if e.rdkafka_error_code().is_some_and(retriable_txn_error) => {
+                        warn!(error = %e, "abort of a poisoned window failed; retrying");
+                        abort = producer.abort_transaction(timeout);
+                    }
+                    _ => break,
+                }
+            }
+            if let Err(e) = &abort {
+                counter!("personhog_leader_fence_abort_exhausted_total").increment(1);
+                error!(error = %e, "abort of a poisoned window failed; producer left unusable");
             }
             Err((
                 KafkaError::Canceled,
@@ -445,14 +597,24 @@ async fn commit_window_after(
 
     let outcome: Result<(), FencedProduceError> = match result {
         Ok(Ok(())) => {
-            histogram!("personhog_leader_fence_commit_ms")
+            histogram!("personhog_leader_fence_commit_ms", "outcome" => "committed")
                 .record(commit_start.elapsed().as_secs_f64() * 1000.0);
             Ok(())
         }
         Ok(Err((e, context))) => {
-            counter!("personhog_leader_fence_aborts_total").increment(1);
+            histogram!("personhog_leader_fence_commit_ms", "outcome" => "failed")
+                .record(commit_start.elapsed().as_secs_f64() * 1000.0);
             if is_fenced(&e) || producer_fenced(fence.producer.inner()) {
-                counter!("personhog_leader_produce_fenced_total").increment(1);
+                // A poisoned window's fence was already classified and
+                // counted where the send failed; counting again here
+                // would report two fences for one event.
+                if !poisoned {
+                    counter!(
+                        "personhog_leader_produce_fenced_total",
+                        "partition" => partition.to_string()
+                    )
+                    .increment(1);
+                }
                 error!(
                     partition,
                     topic,
@@ -461,6 +623,11 @@ async fn commit_window_after(
                 );
                 Err(FencedProduceError::Fenced)
             } else {
+                counter!(
+                    "personhog_leader_fence_aborts_total",
+                    "partition" => partition.to_string()
+                )
+                .increment(1);
                 error!(partition, topic, error = %e, context, "changelog window failed");
                 Err(FencedProduceError::Failed(format!("{context}: {e}")))
             }
@@ -473,7 +640,7 @@ async fn commit_window_after(
         // nothing to deliver.
         waiter.send(clone_outcome(&outcome)).ok();
     }
-    fence.gate.lock().await.committing = false;
+    fence.gate.lock().unwrap().committing = false;
     fence.window_closed.notify_waiters();
 }
 
@@ -482,17 +649,22 @@ async fn commit_window_after(
 /// first-increment lazy registration — fence acquisition in particular
 /// fires exactly during deploys. A touched histogram renders with zero
 /// count until its first sample.
-pub fn preregister_fencing_metrics() {
+pub fn preregister_fencing_metrics(partitions: u32) {
     for outcome in ["ok", "error"] {
         counter!("personhog_leader_fence_init_total", "outcome" => outcome).increment(0);
     }
-    counter!("personhog_leader_fence_aborts_total").increment(0);
-    counter!("personhog_leader_produce_fenced_total").increment(0);
-    histogram!("personhog_leader_fence_init_ms");
-    histogram!("personhog_leader_fence_window_writes");
-    histogram!("personhog_leader_fence_commit_ms");
-    histogram!("personhog_leader_fence_window_wait_ms");
-    histogram!("personhog_leader_fence_ack_wait_ms");
+    counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
+    counter!("personhog_leader_fence_abort_exhausted_total").increment(0);
+    counter!("personhog_leader_fenced_partition_drops_total").increment(0);
+    counter!("personhog_leader_kafka_produce_errors_total").increment(0);
+    for partition in 0..partitions {
+        let p = partition.to_string();
+        counter!("personhog_leader_fence_aborts_total", "partition" => p.clone()).increment(0);
+        counter!("personhog_leader_produce_fenced_total", "partition" => p).increment(0);
+    }
+    // Histograms are deliberately absent: the Prometheus exporter
+    // renders one only once it has a sample, so there is nothing a
+    // startup call can materialize.
 }
 
 /// `FencedProduceError` holds a String and cannot derive Clone cheaply
