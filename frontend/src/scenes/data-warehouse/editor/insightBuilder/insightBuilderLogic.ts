@@ -111,10 +111,12 @@ export interface insightBuilderLogicActions {
         insight?:
             | QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>>
             | undefined,
-        draft?: DataWarehouseSavedQueryDraft | undefined
+        draft?: DataWarehouseSavedQueryDraft | undefined,
+        metricName?: string | undefined
     ) => {
         draft: DataWarehouseSavedQueryDraft | undefined
         insight: QueryBasedInsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | undefined
+        metricName: string | undefined
         query: string | undefined
         view: DataWarehouseSavedQuery | undefined
     } // sqlEditorLogic

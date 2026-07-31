@@ -510,6 +510,9 @@ export interface sqlEditorLogicValues {
     activeQueryOffset: number
     activeQueryText: string | null
     activeTab: QueryTab | null
+    baseDataLogicKey: string
+    baseExportContext: ExportContext | undefined
+    basePreviewSource: HogQLQuery | null
     changesToSave: boolean
     currentDraft: DataWarehouseSavedQueryDraft | null | undefined
     dashboardId: number | null
@@ -517,9 +520,6 @@ export interface sqlEditorLogicValues {
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
     editingInsight: QueryBasedInsightModel | null
-    baseDataLogicKey: string
-    baseExportContext: ExportContext | undefined
-    basePreviewSource: HogQLQuery | null
     editingMetricName: string | null
     editingView: DataWarehouseSavedQuery | undefined
     editorKey: string
@@ -755,9 +755,6 @@ export interface sqlEditorLogicActions {
     _setSuggestionPayload: (payload: SuggestionPayload | null) => {
         payload: SuggestionPayload | null
     }
-    ensureBasePreview: (force?: boolean) => {
-        force: boolean | undefined
-    }
     closeAccessControlModal: () => {
         value: true
     }
@@ -802,6 +799,9 @@ export interface sqlEditorLogicActions {
     }
     enforceConnectionRawQueryMode: () => {
         value: true
+    }
+    ensureBasePreview: (force?: boolean) => {
+        force: boolean | undefined
     }
     initialize: () => {
         value: true
@@ -2572,7 +2572,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     content: (
                         <>
                             <LemonField name="name">
-                                <LemonInput data-attr="insight-name" placeholder="Name this insight" autoFocus />
+                                <LemonInput
+                                    data-attr="insight-name"
+                                    placeholder="Please enter the new name"
+                                    autoFocus
+                                />
                             </LemonField>
                             {isBuilderInsight ? (
                                 insightPreview(currentVisualizationQuery.source.query)

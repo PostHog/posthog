@@ -73,7 +73,8 @@ test.describe('SQL editor insight builder', () => {
         await test.step('Visualization replaces the editor with the builder canvas', async () => {
             await page.getByTestId('sql-builder-scene-tabs').getByText('Visualization').click()
             await expect(page.getByTestId('sql-builder-canvas')).toBeVisible()
-            await expect(page.getByTestId('hogql-query-editor')).toHaveCount(0)
+            // The query pane stays mounted (Monaco keeps its model across tab flips) but hidden
+            await expect(page.getByTestId('hogql-query-editor')).toBeHidden()
         })
 
         await test.step('clicking a field compiles and runs a chart', async () => {
