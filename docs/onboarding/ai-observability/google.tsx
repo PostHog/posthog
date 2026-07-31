@@ -17,18 +17,11 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             See the complete
                             [Node.js](https://github.com/PostHog/posthog-js/tree/main/examples/example-ai-gemini) and
                             [Python](https://github.com/PostHog/posthog-python/tree/main/examples/example-ai-gemini)
-                            examples on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see
-                            the [Node.js
-                            wrapper](https://github.com/PostHog/posthog-js/tree/e08ff1be/examples/example-ai-gemini) and
-                            [Python
-                            wrapper](https://github.com/PostHog/posthog-python/tree/0fdbc2e9/examples/example-ai-gemini)
-                            examples.
+                            examples on GitHub.
                         </Markdown>
                     </CalloutBox>
 
-                    <Markdown>
-                        Install the OpenTelemetry SDK, the Google Gen AI instrumentation, and the Google Gen AI SDK.
-                    </Markdown>
+                    <Markdown>Install the PostHog SDK and the Google Gen AI SDK.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -36,14 +29,14 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install google-genai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-google-generativeai
+                                    pip install posthog google-genai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install @google/genai @posthog/ai @opentelemetry/sdk-node @opentelemetry/resources @traceloop/instrumentation-google-generativeai
+                                    npm install @posthog/ai posthog-node @google/genai
                                 `,
                             },
                         ]}
@@ -52,14 +45,11 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             ),
         },
         {
-            title: 'Set up OpenTelemetry tracing',
+            title: 'Configure PostHog',
             badge: 'required',
             content: (
                 <>
-                    <Markdown>
-                        Configure OpenTelemetry to auto-instrument Google Gen AI SDK calls and export traces to PostHog.
-                        PostHog converts `gen_ai.*` spans into `$ai_generation` events automatically.
-                    </Markdown>
+                    <Markdown>Create a PostHog client, then swap in PostHog's Google Gen AI wrapper.</Markdown>
 
                     <CodeBlock
                         blocks={[
@@ -67,54 +57,30 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from opentelemetry import trace
-                                    from opentelemetry.sdk.trace import TracerProvider
-                                    from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-                                    from posthog.ai.otel import PostHogSpanProcessor
-                                    from opentelemetry.instrumentation.google_generativeai import GoogleGenerativeAiInstrumentor
+                                    from posthog import Posthog
+                                    from posthog.ai.gemini import Client
 
-                                    resource = Resource(attributes={
-                                        SERVICE_NAME: "my-app",
-                                        "posthog.distinct_id": "user_123", # optional: identifies the user in PostHog
-                                        "foo": "bar", # custom properties are passed through
-                                    })
+                                    posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    provider = TracerProvider(resource=resource)
-                                    provider.add_span_processor(
-                                        PostHogSpanProcessor(
-                                            api_key="<ph_project_token>",
-                                            host="<ph_client_api_host>",
-                                        )
+                                    client = Client(
+                                        api_key="your_gemini_api_key",
+                                        posthog_client=posthog,
                                     )
-                                    trace.set_tracer_provider(provider)
-
-                                    GoogleGenerativeAiInstrumentor().instrument()
                                 `,
                             },
                             {
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { NodeSDK } from '@opentelemetry/sdk-node'
-                                    import { resourceFromAttributes } from '@opentelemetry/resources'
-                                    import { PostHogSpanProcessor } from '@posthog/ai/otel'
-                                    import { GenAIInstrumentation } from '@traceloop/instrumentation-google-generativeai'
+                                    import { GoogleGenAI } from '@posthog/ai/gemini'
+                                    import { PostHog } from 'posthog-node'
 
-                                    const sdk = new NodeSDK({
-                                      resource: resourceFromAttributes({
-                                        'service.name': 'my-app',
-                                        'posthog.distinct_id': 'user_123', // optional: identifies the user in PostHog
-                                        foo: 'bar', // custom properties are passed through
-                                      }),
-                                      spanProcessors: [
-                                        new PostHogSpanProcessor({
-                                          apiKey: '<ph_project_token>',
-                                          host: '<ph_client_api_host>',
-                                        }),
-                                      ],
-                                      instrumentations: [new GenAIInstrumentation()],
+                                    const posthog = new PostHog('<ph_project_token>', { host: '<ph_client_api_host>' })
+
+                                    const client = new GoogleGenAI({
+                                      apiKey: 'your_gemini_api_key',
+                                      posthog,
                                     })
-                                    sdk.start()
                                 `,
                             },
                         ]}
@@ -128,8 +94,8 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        Now, when you use the Google Gen AI SDK to call Gemini, PostHog automatically captures
-                        `$ai_generation` events via the OpenTelemetry instrumentation.
+                        Now, when you use the wrapped client to call Gemini, PostHog automatically captures
+                        `$ai_generation` events.
                     </Markdown>
 
                     <CodeBlock
@@ -138,13 +104,11 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    from google import genai
-
-                                    client = genai.Client(api_key="your_gemini_api_key")
-
                                     response = client.models.generate_content(
                                         model="gemini-2.5-flash",
                                         contents=[{"role": "user", "parts": [{"text": "Tell me a fun fact about hedgehogs"}]}],
+                                        posthog_distinct_id="user_123",
+                                        posthog_properties={"$ai_session_id": "conversation-abc"},
                                     )
 
                                     print(response.text)
@@ -154,13 +118,11 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    import { GoogleGenAI } from '@google/genai'
-
-                                    const client = new GoogleGenAI({ apiKey: 'your_gemini_api_key' })
-
                                     const response = await client.models.generateContent({
                                       model: 'gemini-2.5-flash',
                                       contents: 'Tell me a fun fact about hedgehogs',
+                                      posthogDistinctId: 'user_123',
+                                      posthogProperties: { $ai_session_id: 'conversation-abc' },
                                     })
 
                                     console.log(response.text)
@@ -172,15 +134,15 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     <Blockquote>
                         <Markdown>
                             {dedent`
-                                **Note:** This integration also works with Vertex AI via Google Cloud Platform. Initialize the Google Gen AI client with \`vertexai=True, project=..., location=...\` (Python) or \`{ vertexai: true, project: '...', location: '...' }\` (Node) and the OpenTelemetry instrumentation will capture those calls the same way.
+                                **Note:** This integration also works with Vertex AI via Google Cloud Platform. Initialize the Google Gen AI client with \`vertexai=True, project=..., location=...\` (Python) or \`{ vertexai: true, project: '...', location: '...' }\` (Node) and the PostHog wrapper will capture those calls the same way.
                             `}
                         </Markdown>
                     </Blockquote>
 
                     <Blockquote>
                         <Markdown>
-                            **Note:** If you want to capture LLM events anonymously, omit the `posthog.distinct_id`
-                            resource attribute. See our docs on [anonymous vs identified
+                            **Note:** If you want to capture LLM events anonymously, omit `posthog_distinct_id` from the
+                            call. See our docs on [anonymous vs identified
                             events](https://posthog.com/docs/data/anonymous-vs-identified-events) to learn more.
                         </Markdown>
                     </Blockquote>
@@ -192,6 +154,11 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
+
+                    <Markdown>
+                        Pass the same `$ai_session_id` across every call in a conversation to group them into one
+                        session, and `posthog_trace_id` to group several calls into one trace.
+                    </Markdown>
                 </>
             ),
         },
@@ -201,8 +168,8 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
             content: (
                 <>
                     <Markdown>
-                        PostHog can also capture embedding generations as `$ai_embedding` events. The OpenTelemetry
-                        instrumentation automatically captures these when you use the `embed_content` API:
+                        PostHog can also capture embedding generations as `$ai_embedding` events. The wrapped client
+                        captures these automatically when you use the `embed_content` API:
                     </Markdown>
 
                     <CodeBlock
