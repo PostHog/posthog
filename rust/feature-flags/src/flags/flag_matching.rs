@@ -181,6 +181,13 @@ impl FlagEvaluationState {
         }
     }
 
+    /// True when person-property DB prep never ran (neither fetched nor deliberately
+    /// skipped in favor of overrides). Distinct from `Skipped`, where overrides are
+    /// known to cover every property the batch needs — see `PersonPropertyState`.
+    pub(crate) fn person_properties_pending(&self) -> bool {
+        matches!(self.person_property_state, PersonPropertyState::Pending)
+    }
+
     pub fn get_group_properties(&self) -> &HashMap<GroupTypeIndex, HashMap<String, Value>> {
         &self.group_properties
     }
@@ -1652,7 +1659,18 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    if !match_property(filter, props, false, self.timezone).unwrap_or(false) {
+                    // Person properties that were never fetched (DB prep didn't run for this
+                    // evaluation, e.g. a transient failure elsewhere in the batch) must not be
+                    // treated as "person has no properties" — an absent key would otherwise
+                    // make negative operators (is_not, not_icontains, ...) match by accident.
+                    // partial_props forces match_property to report missing keys as
+                    // inconclusive rather than matching, so the condition fails closed.
+                    // Skipped (overrides cover every needed key) stays exempt since the
+                    // override merge already guarantees the key is present.
+                    let partial_props = filter.prop_type != PropertyType::Group
+                        && self.flag_evaluation_state.person_properties_pending();
+                    if !match_property(filter, props, partial_props, self.timezone).unwrap_or(false)
+                    {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }
