@@ -107,6 +107,10 @@ class TableSizes(TypedDict):
 
 CH_BILLING_SETTINGS = {
     "max_execution_time": 5 * 60,  # 5 minutes
+}
+
+GATEWAY_SPONSORSHIP_QUERY_SETTINGS = {
+    **CH_BILLING_SETTINGS,
     "max_memory_usage": 4 * 1024 * 1024 * 1024,
 }
 
@@ -1563,7 +1567,7 @@ def get_teams_with_ai_event_count_in_period(
                 "sponsor_end": end + GATEWAY_SPONSORSHIP_LOOKAROUND,
             },
             workload=Workload.OFFLINE,
-            settings=CH_BILLING_SETTINGS,
+            settings=GATEWAY_SPONSORSHIP_QUERY_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
         )
 

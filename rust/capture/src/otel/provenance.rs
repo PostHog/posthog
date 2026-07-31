@@ -10,6 +10,7 @@ use super::fan_out::SpanEvent;
 
 const SIGNATURE_SCOPE: &str = "otel-v1";
 const RELAY_PROPERTY: &str = "$ai_gateway_relay";
+const REQUEST_ID_PROPERTY: &str = "$ai_gateway_request_id";
 const PROVENANCE_METRIC: &str = "capture_ai_otel_gateway_provenance";
 pub use crate::gateway_provenance::Provenance;
 
@@ -31,6 +32,11 @@ pub fn verify(
     let Some(signed_at) = shared::header_str(headers, shared::SIGNED_AT_HEADER) else {
         return Provenance::Invalid;
     };
+    let Some(request_id) =
+        shared::header_str(headers, shared::REQUEST_ID_HEADER).filter(|value| !value.is_empty())
+    else {
+        return Provenance::Invalid;
+    };
 
     let body_digest = hex::encode(Sha256::digest(body));
     let message = shared::canonical(&[
@@ -39,12 +45,18 @@ pub fn verify(
         content_type,
         content_encoding,
         &body_digest,
+        &request_id,
         &signed_at,
     ]);
     shared::verify(secret.as_bytes(), &message, &signature, &signed_at, now)
 }
 
-pub fn apply(span_events: &mut [SpanEvent], provenance: Provenance, signature_present: bool) {
+pub fn apply(
+    span_events: &mut [SpanEvent],
+    provenance: Provenance,
+    signature_present: bool,
+    request_id: Option<&str>,
+) {
     let trusted = provenance == Provenance::Verified;
     let reason = match provenance {
         Provenance::Verified => "verified",
@@ -61,6 +73,12 @@ pub fn apply(span_events: &mut [SpanEvent], provenance: Provenance, signature_pr
         if trusted {
             properties.insert(shared::VERIFIED_PROPERTY.to_string(), Value::Bool(true));
             properties.insert(RELAY_PROPERTY.to_string(), Value::Bool(true));
+            if let Some(request_id) = request_id {
+                properties.insert(
+                    REQUEST_ID_PROPERTY.to_string(),
+                    Value::String(request_id.to_string()),
+                );
+            }
         }
     }
     counter!(PROVENANCE_METRIC, "reason" => reason).increment(1);
@@ -74,7 +92,8 @@ mod tests {
     const SECRET: &str = "test-signing-secret";
     const TOKEN: &str = "phc_test";
     const SIGNED_AT: &str = "2026-07-16T12:34:56.12Z";
-    const SIGNATURE: &str = "2253e5d860360f04d6532ec1b40fdd467ba9ce33a7be93b3fa612fa452bbd47a";
+    const REQUEST_ID: &str = "req-123";
+    const SIGNATURE: &str = "158b5ca0acb887eafbcfce9c871bfb6c11b0ccd58837f9f3346b88dd952ead89";
     const BODY: &[u8] = &[0x0a, 0x02, 0x01, 0x02];
 
     fn now() -> DateTime<Utc> {
@@ -87,6 +106,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert(shared::SIGNATURE_HEADER, SIGNATURE.parse().unwrap());
         headers.insert(shared::SIGNED_AT_HEADER, SIGNED_AT.parse().unwrap());
+        headers.insert(shared::REQUEST_ID_HEADER, REQUEST_ID.parse().unwrap());
         headers
     }
 
@@ -151,7 +171,7 @@ mod tests {
             timestamp: None,
         }];
 
-        apply(&mut events, Provenance::Verified, true);
+        apply(&mut events, Provenance::Verified, true, Some(REQUEST_ID));
 
         let properties = events[0].properties.as_object().unwrap();
         assert_eq!(
@@ -159,7 +179,10 @@ mod tests {
             Some(&Value::Bool(true))
         );
         assert_eq!(properties.get(RELAY_PROPERTY), Some(&Value::Bool(true)));
-        assert!(!properties.contains_key("$ai_gateway_request_id"));
+        assert_eq!(
+            properties.get("$ai_gateway_request_id"),
+            Some(&json!(REQUEST_ID))
+        );
         assert_eq!(properties.get("$ai_trace_id"), Some(&json!("trace-1")));
     }
 
@@ -172,7 +195,7 @@ mod tests {
             timestamp: None,
         }];
 
-        apply(&mut events, Provenance::Invalid, true);
+        apply(&mut events, Provenance::Invalid, true, None);
 
         let properties = events[0].properties.as_object().unwrap();
         assert!(!properties.contains_key(shared::VERIFIED_PROPERTY));

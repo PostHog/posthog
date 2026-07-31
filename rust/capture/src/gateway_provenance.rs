@@ -7,6 +7,7 @@ type HmacSha256 = Hmac<Sha256>;
 
 pub const SIGNATURE_HEADER: &str = "PostHog-Ai-Gateway-Signature";
 pub const SIGNED_AT_HEADER: &str = "PostHog-Ai-Gateway-Signed-At";
+pub const REQUEST_ID_HEADER: &str = "PostHog-Ai-Gateway-Request-Id";
 pub const GATEWAY_PREFIX: &str = "$ai_gateway";
 pub const VERIFIED_PROPERTY: &str = "$ai_gateway_verified";
 pub const FRESHNESS_WINDOW_SECS: i64 = 5 * 60;
