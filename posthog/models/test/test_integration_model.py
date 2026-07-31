@@ -43,6 +43,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     GoogleAdsIntegration,
+    GoogleAdsTransportError,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
@@ -3334,6 +3335,27 @@ class TestGoogleAdsIntegrationModel(BaseTest):
         accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
 
         assert accounts == []
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_raises_retryable_error_when_listing_times_out(self, mock_request):
+        mock_request.side_effect = requests.exceptions.ReadTimeout("timed out")
+
+        with self.assertRaises(GoogleAdsTransportError):
+            GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+    @override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+    @patch("posthog.models.integration.requests.request")
+    def test_accessible_accounts_keeps_accounts_walked_before_a_hierarchy_timeout(self, mock_request):
+        accessible = MagicMock(status_code=200)
+        accessible.json.return_value = {"resourceNames": ["customers/1234567890", "customers/6501924158"]}
+        first_walk = MagicMock(status_code=200)
+        first_walk.json.return_value = [{"results": [self._customer_client("1234567890", "Direct account")]}]
+        mock_request.side_effect = [accessible, first_walk, requests.exceptions.ReadTimeout("timed out")]
+
+        accounts = GoogleAdsIntegration(self._integration()).list_google_ads_accessible_accounts()
+
+        assert [account["id"] for account in accounts] == ["1234567890"]
 
 
 class TestPinterestAdsIntegrationDisplayName(BaseTest):

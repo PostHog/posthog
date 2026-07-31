@@ -21,6 +21,7 @@ from posthog.schema import (
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
+    GoogleAdsTransportError,
     Integration,
     OauthIntegration,
     google_ads_hierarchy_level,
@@ -311,6 +312,10 @@ class GoogleAdsSource(
 
         try:
             accounts = GoogleAdsIntegration(integration).list_google_ads_accessible_accounts()
+        except GoogleAdsTransportError as e:
+            raise IntegrationAccountListingError(
+                "Google Ads didn't respond in time. Please try again in a moment."
+            ) from e
         except ValidationError as e:
             # Raised only for a 401/403 from Google: revoked credentials, or the connected account
             # lost access.

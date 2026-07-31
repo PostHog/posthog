@@ -1931,6 +1931,10 @@ def google_ads_hierarchy_level(account: dict) -> int:
     return int(account.get("level") or 0)
 
 
+class GoogleAdsTransportError(ValidationError):
+    """Google Ads was unreachable or too slow. A ValidationError so DRF renders a 400, not a 500."""
+
+
 class GoogleAdsIntegration:
     integration: Integration
 
@@ -1990,16 +1994,24 @@ class GoogleAdsIntegration:
     # Google Ads manager accounts can have access to other accounts (including other manager accounts).
     # Filter out duplicates where a user has direct access and access through a manager account, while prioritizing direct access.
     def list_google_ads_accessible_accounts(self) -> list[dict[str, Any]]:
-        response = requests.request(
-            "GET",
-            "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
-            },
-            timeout=10,
-        )
+        try:
+            response = requests.request(
+                "GET",
+                "https://googleads.googleapis.com/v24/customers:listAccessibleCustomers",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                    "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                },
+                timeout=10,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                "GoogleAdsIntegration: Transport error listing accessible accounts",
+                error=str(e),
+                integration_id=self.integration.id,
+            )
+            raise GoogleAdsTransportError("Google Ads didn't respond in time. Please try again in a moment.")
 
         if response.status_code == 401:
             logger.warning(
@@ -2030,20 +2042,33 @@ class GoogleAdsIntegration:
         def dfs(account_id, accounts=None, parent_id=None) -> list[dict]:
             if accounts is None:
                 accounts = []
-            response = requests.request(
-                "POST",
-                f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
-                json={
-                    "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
-                    "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
-                    **({"login-customer-id": parent_id} if parent_id else {}),
-                },
-                timeout=10,
-            )
+            try:
+                response = requests.request(
+                    "POST",
+                    f"https://googleads.googleapis.com/v24/customers/{account_id}/googleAds:searchStream",
+                    json={
+                        "query": "SELECT customer_client.descriptive_name, customer_client.client_customer, customer_client.level, customer_client.manager, customer_client.status FROM customer_client WHERE customer_client.level <= 5"
+                    },
+                    headers={
+                        "Content-Type": "application/json",
+                        "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                        "developer-token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
+                        **({"login-customer-id": parent_id} if parent_id else {}),
+                    },
+                    # Walking a five-level hierarchy is the slow call here, so it gets more headroom
+                    # than the plain listing above.
+                    timeout=30,
+                )
+            except requests.exceptions.RequestException as e:
+                # Degrade like the non-200 branch below: one slow manager account shouldn't drop
+                # every account already walked.
+                logger.warning(
+                    "GoogleAdsIntegration: Transport error walking account hierarchy",
+                    error=str(e),
+                    account_id=account_id,
+                    integration_id=self.integration.id,
+                )
+                return accounts
 
             if response.status_code != 200:
                 return accounts

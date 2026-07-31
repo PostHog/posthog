@@ -22,8 +22,11 @@ from google.auth import exceptions as google_auth_exceptions
 
 from posthog.schema import SourceFieldOauthConfig
 
-from posthog.models.integration import Integration
+from posthog.models.integration import GoogleAdsTransportError, Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsIsMccAccountConfig,
     GoogleAdsSourceConfig,
@@ -1202,6 +1205,26 @@ class TestGetOAuthAccountsCaching:
         walk.assert_called_once()
         assert [account.value for account in first] == ["123-456-7890"]
         assert [account.value for account in second] == ["987-654-3210"]
+
+    def test_slow_google_response_surfaces_as_a_retryable_listing_error(self):
+        # A timeout talking to googleads.googleapis.com used to escape this method entirely and become a
+        # 500 in the source setup wizard; it must arrive through the friendly listing-error channel.
+        cache.clear()
+        source = GoogleAdsSource()
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.side_effect = GoogleAdsTransportError(
+                "Google Ads didn't respond in time. Please try again in a moment."
+            )
+
+            with pytest.raises(IntegrationAccountListingError, match="respond in time"):
+                source.get_oauth_accounts(1, 2)
 
 
 class TestGoogleAdsQueryConstruction:
