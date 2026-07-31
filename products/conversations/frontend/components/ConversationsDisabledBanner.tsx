@@ -1,10 +1,18 @@
+import { useActions, useValues } from 'kea'
+
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { SupportHeroHog } from 'lib/components/hedgehogs'
-import { urls } from 'scenes/urls'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { supportSettingsLogic } from '../scenes/settings/supportSettingsLogic'
 
 export function ConversationsDisabledBanner(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { setConversationsEnabledLoading } = useActions(supportSettingsLogic)
+    const { conversationsEnabledLoading } = useValues(supportSettingsLogic)
+
     return (
         <LemonBanner type="info" hideIcon={true}>
             <div className="flex gap-8 p-8 lg:flex-row justify-center flex-wrap">
@@ -36,7 +44,14 @@ export function ConversationsDisabledBanner(): JSX.Element {
                         </li>
                     </ul>
                     <div className="flex items-center gap-x-4 gap-y-2 flex-wrap">
-                        <LemonButton className="hidden @md:flex" type="primary" to={urls.supportSettings()}>
+                        <LemonButton
+                            type="primary"
+                            loading={conversationsEnabledLoading}
+                            onClick={() => {
+                                setConversationsEnabledLoading(true)
+                                updateCurrentTeam({ conversations_enabled: true })
+                            }}
+                        >
                             Enable
                         </LemonButton>
                         <LemonButton
