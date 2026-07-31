@@ -1,12 +1,13 @@
-"""Post-import Temporal workflow for V3 data imports.
+"""Post-import Temporal workflow for data imports.
 
-On V3 the `external-data-job` workflow ends at extraction: batches land on S3 and a
-separate load consumer writes them into Delta Lake. The post-import steps that read the
-loaded table (signal emission, semantic enrichment, column statistics, table size,
-DuckLake copy) therefore can't run from that workflow without racing the load — the V3
-load consumer starts this workflow after the final batch is loaded and the job is
-completed (see pipelines/pipeline_v3/load/processor.py). V2 keeps running the same
-steps inline from `external-data-job`.
+The single home for the post-import steps that read the loaded table (signal emission,
+semantic enrichment, column statistics, table size, DuckLake copy). On V3 the
+`external-data-job` workflow ends at extraction: batches land on S3 and a separate load
+consumer writes them into Delta Lake, so these steps can't run from that workflow
+without racing the load — the load consumer starts this workflow after the final batch
+is loaded and the job is completed (see pipelines/pipeline_v3/load/processor.py). On V2
+(and zero-batch V3), `external-data-job` starts this workflow after writing the
+COMPLETED job status.
 """
 
 import json
