@@ -149,12 +149,8 @@ class GroupTypeMapping(RootTeamMixin, models.Model):
                 fields=("project", "group_type_index"), name="unique event column indexes for project"
             ),
             models.CheckConstraint(
-                # 0-4: matches the fixed group0_*-group4_* columns on the ClickHouse events table
-                # (posthog/models/event/sql.py) and $group_4 as HogQL's highest group index. Ingestion
-                # enforces this same ceiling (MAX_GROUP_TYPES_PER_TEAM in
-                # nodejs/src/common/groups/group-type-manager.ts), so index 5 was never reachable in practice.
-                condition=models.Q(group_type_index__lte=4),
-                name="group_type_index is less than or equal 4",
+                condition=models.Q(group_type_index__lte=5),
+                name="group_type_index is less than or equal 5",
             ),
             models.CheckConstraint(
                 name="group_type_project_id_is_not_null",
