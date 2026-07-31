@@ -1,3 +1,5 @@
+use std::str::from_utf8;
+
 use assignment_coordination::store::EtcdStore;
 use etcd_client::{Compare, CompareOp, DeleteOptions, PutOptions, Txn, TxnOp, WatchStream};
 
@@ -168,6 +170,11 @@ impl PersonhogStore {
     pub async fn watch_routers(&self) -> Result<WatchStream> {
         let key = self.key(StoreKey::RoutersPrefix);
         Ok(self.inner.watch(&key).await?)
+    }
+
+    pub async fn watch_routers_from(&self, start_revision: i64) -> Result<WatchStream> {
+        let key = self.key(StoreKey::RoutersPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
     }
 
     // ── Assignment operations ───────────────────────────────────
@@ -671,7 +678,7 @@ impl PersonhogStore {
             .get_raw(&key)
             .await?
             .ok_or_else(|| Error::NotFound(key))?;
-        let s = std::str::from_utf8(&bytes)
+        let s = from_utf8(&bytes)
             .map_err(|e| Error::invalid_state(format!("non-utf8 total_partitions: {e}")))?;
         s.parse::<u32>()
             .map_err(|e| Error::invalid_state(format!("invalid total_partitions: {e}")))

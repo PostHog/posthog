@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::str::from_utf8;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex, RwLock as StdRwLock};
 use std::time::{Duration, Instant};
 
@@ -29,8 +30,10 @@ pub trait StashHandler: Send + Sync {
 
     /// Drain stashed writes to the given target and resume normal routing.
     /// `cancel` requests a cooperative stop: implementations yield at a
-    /// batch boundary, leaving any remaining stash intact for a successor
-    /// drain.
+    /// request boundary, putting anything they had taken back so the full
+    /// remaining stash stays parked, in order, for a successor drain.
+    /// Cancellation is a routing decision, never a request outcome — no
+    /// client-visible failure may result from it.
     async fn drain_stash(
         &self,
         partition: u32,
@@ -68,9 +71,13 @@ pub trait StashHandler: Send + Sync {
 /// live), and the new drain starts only after the old one has fully
 /// stopped, so two drains can never interleave batches toward different
 /// targets. A request toward the same target is absorbed by the running
-/// drain, whose loop already covers later arrivals. Lane entries are
-/// retained after completion — the map is bounded by the partition count,
-/// and a finished lane costs one no-op cancel and an immediate join on the
+/// drain, whose loop already covers later arrivals. Observing a
+/// non-terminal handoff phase pauses the lane: the running drain is
+/// cancelled with no successor, so the partition stops forwarding until
+/// the next `Complete` names a target — the ownership state, not the
+/// drain, decides where parked requests go. Lane entries are retained
+/// after completion — the map is bounded by the partition count, and a
+/// finished lane costs one no-op cancel and an immediate join on the
 /// next request.
 struct DrainLanes {
     /// Parent of every drain token, so cancelling it stops all drains on
@@ -107,12 +114,10 @@ impl DrainLanes {
         let task_token = token.clone();
         let mut lanes = self.lanes.lock().expect("drain lanes lock poisoned");
         // A drain already running toward the same target covers everything
-        // this request would: its loop keeps taking batches until it
-        // observes the queue empty, including arrivals after this point.
-        // Restarting it would only fail the requests it has in flight —
-        // which the routine post-`Complete` handoff cleanup would do on
-        // every healthy handoff, since its deletion event drains back to
-        // the owner the table already flipped to.
+        // this request would: its loop keeps taking runs until it observes
+        // the queue fully settled, including arrivals after this point.
+        // Restarting it would only churn — cancel, put back, re-take the
+        // same backlog — for no coverage gain.
         if let Some(prev) = lanes.get(&partition) {
             if prev.target == target && !prev.token.is_cancelled() && !prev.handle.is_finished() {
                 return;
@@ -146,6 +151,38 @@ impl DrainLanes {
                 target,
             },
         );
+    }
+
+    /// Pause the drain for `partition`, if one is running: cancel its
+    /// token without starting a successor. The drain puts anything it
+    /// had taken back and exits, leaving the stash parked. Called when a
+    /// non-terminal handoff phase is observed — the partition is
+    /// (re-)entering a stash window, and nothing may be forwarded until
+    /// the next `Complete` names the target. Idempotent; a later
+    /// `request` supersedes the paused lane.
+    fn pause(&self, partition: u32) {
+        let lanes = self.lanes.lock().expect("drain lanes lock poisoned");
+        if let Some(lane) = lanes.get(&partition) {
+            lane.token.cancel();
+        }
+    }
+
+    /// Cancel every lane and await the drains' termination. Runs during
+    /// teardown, after the watch loop (the only source of new requests)
+    /// has stopped and before the router's lease is revoked: the lease
+    /// must outlive the last forward. Joining is quick — cancellation
+    /// stops each drain within one in-flight request — and joining the
+    /// newest handle per partition transitively joins its predecessors,
+    /// which each successor task awaits before starting.
+    async fn shutdown(&self) {
+        self.cancel.cancel();
+        let handles: Vec<JoinHandle<()>> = {
+            let mut lanes = self.lanes.lock().expect("drain lanes lock poisoned");
+            lanes.drain().map(|(_, lane)| lane.handle).collect()
+        };
+        for handle in handles {
+            drop(handle.await);
+        }
     }
 }
 
@@ -185,6 +222,14 @@ pub struct RoutingTableConfig {
     /// (freeze-ack re-assertion, yielded-drain re-requests, address
     /// refresh).
     pub reconcile_failure_budget: u32,
+    /// How many consecutive coordination-attempt failures the run
+    /// supervisor tolerates before giving up and letting the process
+    /// restart. An attempt that ran healthily before failing resets the
+    /// count, so the budget bounds crash loops, not lifetime failures.
+    pub run_retry_budget: u32,
+    /// Base backoff between coordination attempts; doubles per
+    /// consecutive failure up to a fixed cap.
+    pub run_retry_backoff: Duration,
 }
 
 impl Default for RoutingTableConfig {
@@ -200,6 +245,8 @@ impl Default for RoutingTableConfig {
             participant_stall_threshold: Some(Duration::from_secs(60)),
             reconcile_interval: Duration::from_secs(5),
             reconcile_failure_budget: 12,
+            run_retry_budget: 10,
+            run_retry_backoff: Duration::from_millis(500),
         }
     }
 }
@@ -239,6 +286,14 @@ pub struct RoutingTable {
 
 impl RoutingTable {
     pub fn new(store: Arc<PersonhogStore>, config: RoutingTableConfig) -> Self {
+        let renewal_margin = Duration::from_secs(config.lease_ttl.max(0) as u64).mul_f64(2.0 / 3.0);
+        assert!(
+            config.heartbeat_interval < renewal_margin,
+            "heartbeat_interval ({:?}) must be well under the keepalive renewal margin \
+             (2/3 of lease_ttl = {renewal_margin:?}): the post-renewal sleep alone would \
+             exhaust the margin and the router would deregister against healthy etcd",
+            config.heartbeat_interval,
+        );
         Self {
             store,
             config,
@@ -271,44 +326,150 @@ impl RoutingTable {
         Arc::clone(&self.addresses)
     }
 
-    /// Run the routing table. Registers with etcd, loads the initial state,
-    /// then watches the handoffs keyspace. Blocks until cancelled. Routing
-    /// changes flow exclusively through handoff Complete events; there is
-    /// no separate assignment watch.
+    /// Run the routing table, supervising the coordination loop across
+    /// etcd failures. Each attempt registers with etcd, loads the
+    /// initial state, and watches the handoffs keyspace; when an attempt
+    /// fails (a broken watch stream, a failed etcd write, an exhausted
+    /// reconcile budget), the failure is contained here instead of
+    /// killing the process: the data plane keeps serving from the
+    /// last-known routing table and the stash keeps its parked clients
+    /// while the coordination layer rebuilds in place through the same
+    /// bootstrap that recovers a restarted process.
     ///
-    /// The `handler` implements stashing and drain. It's invoked on handoff
-    /// phase transitions: `begin_stash` at Freezing, `drain_stash` at Complete.
-    /// Accepting it here (rather than in the constructor) lets callers build
-    /// the handler after the routing table, avoiding circular-dependency
-    /// workarounds like `OnceCell`.
+    /// Serving while disconnected is safe because ownership cannot move
+    /// while etcd is unreachable — the coordinator cannot advance
+    /// handoffs — and once etcd recovers, any handoff created before we
+    /// re-register excludes us from its freeze quorum, so the old owner
+    /// fences before a new owner warms and our stale forwards bounce
+    /// into the drain/retry machinery rather than landing.
+    ///
+    /// Retries back off exponentially and are budgeted by consecutive
+    /// failures (an attempt that made real progress — a reconcile pass
+    /// completed, a handoff event applied — resets the count); past the
+    /// budget the last error is returned and the process-restart path
+    /// takes over as the backstop.
     pub async fn run(
         &self,
         cancel: CancellationToken,
         handler: Arc<dyn StashHandler>,
     ) -> Result<()> {
+        const BACKOFF_CAP: Duration = Duration::from_secs(15);
+
+        let mut consecutive_failures: u32 = 0;
+        // Set by the coordination loop whenever it does real work;
+        // consumed by each failure note to decide crash-loop vs fresh
+        // failure. Arc because the watch loop runs as a spawned task.
+        let progress = Arc::new(AtomicBool::new(false));
+        loop {
+            let result = self
+                .run_once(cancel.clone(), Arc::clone(&handler), &progress)
+                .await;
+            if cancel.is_cancelled() {
+                return result;
+            }
+            let err = match result {
+                Ok(()) => return Ok(()),
+                Err(e) => e,
+            };
+
+            if !util::note_run_failure(
+                &mut consecutive_failures,
+                &progress,
+                self.config.run_retry_budget,
+                "router",
+                &self.config.router_name,
+                &err,
+            ) {
+                return Err(err);
+            }
+
+            let backoff = self
+                .config
+                .run_retry_backoff
+                .saturating_mul(2u32.saturating_pow(consecutive_failures.saturating_sub(1)))
+                .min(BACKOFF_CAP);
+            tokio::select! {
+                _ = cancel.cancelled() => return Ok(()),
+                _ = tokio::time::sleep(backoff) => {}
+            }
+        }
+    }
+
+    /// One coordination attempt: register, load initial state, watch.
+    /// Runs its own teardown on every exit path — tasks joined, drains
+    /// joined, lease revoked best-effort (an unreachable etcd lets it
+    /// lapse by TTL, which quorums already treat as departure) — so the
+    /// supervisor above can always start the next attempt from a clean
+    /// slate.
+    ///
+    /// The `handler` implements stashing and drain. It's invoked on handoff
+    /// phase transitions: `begin_stash` at Freezing, `drain_stash` at Complete.
+    async fn run_once(
+        &self,
+        cancel: CancellationToken,
+        handler: Arc<dyn StashHandler>,
+        progress: &Arc<AtomicBool>,
+    ) -> Result<()> {
+        // How long the registered-but-not-yet-watching bootstrap may
+        // take. Registration makes this router count in freeze quorums,
+        // so a bootstrap that hangs past this must tear down rather than
+        // stall every handoff frozen in the meantime.
+        const BOOTSTRAP_DEADLINE: Duration = Duration::from_secs(30);
+
         // Register this router so the coordinator can count it for ack quorum
+        let granted_at = Instant::now();
         let lease_id = self.store.grant_lease(self.config.lease_ttl).await?;
         self.register_router(lease_id).await?;
 
-        let (snapshot_revision, pods_revision) = self.load_initial(&handler).await?;
+        // From here to the supervised select below, this router is
+        // registered — counted in every freeze quorum — but not yet
+        // acking. Every bootstrap failure must therefore deregister on
+        // the way out: returning with the lease intact would leave a
+        // never-acking quorum member, re-registered afresh by every
+        // supervisor retry. The same reasoning bounds the bootstrap and
+        // races it against shutdown; nothing here is supervised yet (the
+        // keepalive and watchdog tasks spawn only after it succeeds).
+        let bootstrap = async {
+            let (snapshot_revision, pods_revision) = self.load_initial(&handler).await?;
 
-        // The pod watch anchors strictly after the pod snapshot, exactly
-        // like the handoff watch below: nothing older than the snapshot
-        // is ever replayed, so a registration installed by the snapshot
-        // can never be regressed by a replayed predecessor. (Anchoring
-        // before the snapshot — the coordinator's pattern — is only safe
-        // for CAS-guarded consumers; this map is last-writer-wins.)
-        let pods_stream = self.store.watch_pods_from(pods_revision + 1).await?;
+            // The pod watch anchors strictly after the pod snapshot, exactly
+            // like the handoff watch below: nothing older than the snapshot
+            // is ever replayed, so a registration installed by the snapshot
+            // can never be regressed by a replayed predecessor. (Anchoring
+            // before the snapshot — the coordinator's pattern — is only safe
+            // for CAS-guarded consumers; this map is last-writer-wins.)
+            let pods_stream = self.store.watch_pods_from(pods_revision + 1).await?;
 
-        // Anchor the handoff watch to the snapshot's revision: every event
-        // at or before it was handled by `load_initial`, every later one
-        // is replayed by the watch regardless of when it attaches. Without
-        // the anchor, an event landing between the snapshot read and the
-        // watch attaching is in neither and is never redelivered.
-        let handoff_stream = self
-            .store
-            .watch_handoffs_from(snapshot_revision + 1)
-            .await?;
+            // Anchor the handoff watch to the snapshot's revision: every event
+            // at or before it was handled by `load_initial`, every later one
+            // is replayed by the watch regardless of when it attaches. Without
+            // the anchor, an event landing between the snapshot read and the
+            // watch attaching is in neither and is never redelivered.
+            let handoff_stream = self
+                .store
+                .watch_handoffs_from(snapshot_revision + 1)
+                .await?;
+            Ok::<_, Error>((pods_stream, handoff_stream))
+        };
+        let (pods_stream, handoff_stream) = tokio::select! {
+            _ = cancel.cancelled() => {
+                drop(self.store.revoke_lease(lease_id).await);
+                return Ok(());
+            }
+            r = tokio::time::timeout(BOOTSTRAP_DEADLINE, bootstrap) => match r {
+                Ok(Ok(streams)) => streams,
+                Ok(Err(e)) => {
+                    drop(self.store.revoke_lease(lease_id).await);
+                    return Err(e);
+                }
+                Err(_) => {
+                    drop(self.store.revoke_lease(lease_id).await);
+                    return Err(Error::invalid_state(format!(
+                        "router bootstrap exceeded {BOOTSTRAP_DEADLINE:?} while registered"
+                    )));
+                }
+            },
+        };
 
         // Run heartbeat and handoff watch concurrently
         let mut tasks = tokio::task::JoinSet::new();
@@ -329,9 +490,13 @@ impl RoutingTable {
         {
             let store = Arc::clone(&self.store);
             let interval = self.config.heartbeat_interval;
+            let lease_ttl = self.config.lease_ttl;
             let token = cancel.child_token();
             tasks.spawn(async move {
-                util::run_lease_keepalive(store, lease_id, interval, token).await
+                util::run_lease_keepalive(
+                    store, lease_id, interval, lease_ttl, granted_at, "router", token,
+                )
+                .await
             });
         }
 
@@ -371,12 +536,13 @@ impl RoutingTable {
             });
         }
 
-        // Drain lanes get their own token, cancelled in the teardown below:
-        // drains must wind down on any exit path — including an error
-        // teardown, where the caller's token was never cancelled — rather
-        // than outliving the run as orphans forwarding for a deregistered
-        // router.
-        let lanes_cancel = cancel.child_token();
+        // Drain lanes get their own token, torn down below: drains must
+        // wind down on any exit path — including an error teardown, where
+        // the caller's token was never cancelled — rather than outliving
+        // the run as orphans forwarding for a deregistered router. The
+        // handle is held here, not just inside the watch loop, so the
+        // teardown can join the lane tasks rather than merely signal them.
+        let lanes = Arc::new(DrainLanes::new(cancel.child_token()));
 
         {
             let store = Arc::clone(&self.store);
@@ -384,11 +550,12 @@ impl RoutingTable {
             let addresses = Arc::clone(&self.addresses);
             let handler = Arc::clone(&handler);
             let router_name = self.config.router_name.clone();
-            let lanes = Arc::new(DrainLanes::new(lanes_cancel.clone()));
+            let lanes = Arc::clone(&lanes);
             let last_progress = Arc::clone(&last_progress);
             let reconcile_interval = self.config.reconcile_interval;
             let reconcile_failure_budget = self.config.reconcile_failure_budget;
             let token = cancel.child_token();
+            let progress = Arc::clone(progress);
             tasks.spawn(async move {
                 Self::watch_handoffs_loop(
                     store,
@@ -404,6 +571,7 @@ impl RoutingTable {
                     stamp_interval,
                     reconcile_interval,
                     reconcile_failure_budget,
+                    progress,
                 )
                 .await
             });
@@ -416,16 +584,52 @@ impl RoutingTable {
             }
         };
 
-        // Abort and await all remaining tasks for clean shutdown, and stop
-        // any in-flight drains at their next batch boundary.
+        // Abort and await all remaining tasks first — the watch loop is
+        // the only source of new drain requests, so once it is gone the
+        // lane set is final and can be joined.
         tasks.shutdown().await;
-        lanes_cancel.cancel();
+
+        // Cancel and JOIN every drain before touching the lease: the
+        // lease must outlive the last forward, so anything a drain
+        // delivered happened while this router was still a legitimately
+        // registered participant. Signalling without joining would let
+        // drains keep forwarding past deregistration, stretching the
+        // zombie-router window beyond the lease bound the protocol's
+        // residual analysis relies on.
+        lanes.shutdown().await;
 
         // Deregister so freeze quorums stop counting this router
         // immediately. Left to lease expiry, every handoff frozen in the
         // next TTL window stalls waiting for a freeze ack this router
-        // will never write.
-        drop(self.store.revoke_lease(lease_id).await);
+        // will never write. Still best-effort — an unreachable etcd lets
+        // the lease lapse by TTL — but loudly so: this line is the proof
+        // a graceful shutdown reached its deregistration.
+        match self.store.revoke_lease(lease_id).await {
+            Ok(()) => {
+                metrics::counter!(
+                    "personhog_coordination_router_deregistered_total",
+                    "outcome" => "revoked"
+                )
+                .increment(1);
+                tracing::info!(
+                    router = %self.config.router_name,
+                    "router deregistered, freeze quorums no longer count it"
+                );
+            }
+            Err(e) => {
+                metrics::counter!(
+                    "personhog_coordination_router_deregistered_total",
+                    "outcome" => "revoke_failed"
+                )
+                .increment(1);
+                tracing::warn!(
+                    router = %self.config.router_name,
+                    error = %e,
+                    "router lease revoke failed; registration lapses by TTL and \
+                     freezes created meanwhile stall on it"
+                );
+            }
+        }
 
         result
     }
@@ -579,6 +783,7 @@ impl RoutingTable {
         stamp_interval: Duration,
         reconcile_interval: Duration,
         reconcile_failure_budget: u32,
+        progress: Arc<AtomicBool>,
     ) -> Result<()> {
         let mut consecutive_reconcile_failures: u32 = 0;
         // The stamp arm can only run while the loop is free to iterate —
@@ -597,6 +802,11 @@ impl RoutingTable {
             tokio::time::Instant::now() + reconcile_interval,
             reconcile_interval,
         );
+        // Banked ticks after a slow event handler would fire back to
+        // back, each failing fast during an outage and burning the
+        // failure budget in milliseconds instead of one tick of real
+        // staleness per count.
+        reconcile_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
@@ -626,7 +836,10 @@ impl RoutingTable {
                     )
                     .await
                     {
-                        Ok(()) => consecutive_reconcile_failures = 0,
+                        Ok(()) => {
+                            progress.store(true, Ordering::SeqCst);
+                            consecutive_reconcile_failures = 0;
+                        }
                         Err(e) => {
                             consecutive_reconcile_failures += 1;
                             metrics::counter!(
@@ -652,7 +865,7 @@ impl RoutingTable {
                     for event in resp.events() {
                         match event.event_type() {
                             EventType::Put => {
-                                Self::handle_handoff_put(
+                                if Self::handle_handoff_put(
                                     event,
                                     store.as_ref(),
                                     &table,
@@ -660,7 +873,10 @@ impl RoutingTable {
                                     &handler,
                                     &lanes,
                                     &router_name,
-                                ).await?;
+                                ).await?
+                                {
+                                    progress.store(true, Ordering::SeqCst);
+                                }
                             }
                             EventType::Delete => {
                                 // A handoff record is never deleted while
@@ -675,7 +891,7 @@ impl RoutingTable {
                                 // disposal from durable state and drains it
                                 // to the assignment owner.
                                 let Some(kv) = event.kv() else { continue };
-                                let key = std::str::from_utf8(kv.key()).unwrap_or("");
+                                let key = from_utf8(kv.key()).unwrap_or("");
                                 let Some(partition) = store::extract_partition_from_key(key) else {
                                     continue
                                 };
@@ -734,6 +950,7 @@ impl RoutingTable {
             constrained.insert(handoff.partition);
             match handoff.phase {
                 HandoffPhase::Freezing | HandoffPhase::Draining | HandoffPhase::Warming => {
+                    lanes.pause(handoff.partition);
                     handler
                         .begin_stash(handoff.partition, &handoff.new_owner)
                         .await?;
@@ -816,12 +1033,15 @@ impl RoutingTable {
         handler: &Arc<dyn StashHandler>,
         lanes: &Arc<DrainLanes>,
         router_name: &str,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let handoff: HandoffState = match parse_watch_value(event) {
             Ok(h) => h,
             Err(e) => {
                 tracing::error!(error = %e, "failed to parse handoff event");
-                return Ok(());
+                // Nothing was applied: an unparseable record must not
+                // count as run-budget progress, or a poison record would
+                // reset the budget on every delivery.
+                return Ok(false);
             }
         };
 
@@ -834,6 +1054,13 @@ impl RoutingTable {
                     phase = ?handoff.phase,
                     "beginning stash"
                 );
+                // A drain still running from the previous ownership era
+                // must stop before this partition re-enters the stash
+                // window: pausing the lane makes the running drain put
+                // its in-flight entries back, so they park behind
+                // nothing and drain to whatever owner the next
+                // `Complete` names.
+                lanes.pause(handoff.partition);
                 handler
                     .begin_stash(handoff.partition, &handoff.new_owner)
                     .await?;
@@ -905,7 +1132,7 @@ impl RoutingTable {
                 );
             }
         }
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -980,10 +1207,10 @@ mod tests {
     }
 
     /// A request toward the target already being drained must not restart
-    /// the drain: the running loop covers all arrivals, and restarting
-    /// would fail its in-flight requests — on every healthy handoff, since
-    /// post-`Complete` cleanup deletion drains back to the same owner the
-    /// table just flipped to.
+    /// the drain: the running loop covers all arrivals — including the
+    /// routine post-`Complete` cleanup deletion that drains back to the
+    /// same owner the table just flipped to — and restarting it would
+    /// only churn the same backlog.
     #[tokio::test]
     async fn a_same_target_request_does_not_supersede_the_running_drain() {
         let (lanes, handler, mut rx) = parking_lanes();
@@ -998,6 +1225,54 @@ mod tests {
         // duplicate "a" drain in between.
         lanes.request(handler, "r".into(), 0, "b".into());
         assert_eq!(rx.recv().await.unwrap(), "stop:a");
+        assert_eq!(rx.recv().await.unwrap(), "start:b");
+    }
+
+    /// Teardown must JOIN drains, not merely signal them: `shutdown`
+    /// returns only after every lane task has observed cancellation and
+    /// exited, so the caller can revoke the router's lease knowing no
+    /// forward happens after it. Signalling without joining would leave
+    /// detached drains forwarding for a deregistered router.
+    #[tokio::test]
+    async fn shutdown_joins_running_drains_before_returning() {
+        let (lanes, handler, mut rx) = parking_lanes();
+
+        lanes.request(Arc::clone(&handler), "r".into(), 0, "a".into());
+        lanes.request(handler, "r".into(), 1, "b".into());
+        let starts = [rx.recv().await.unwrap(), rx.recv().await.unwrap()];
+        assert!(starts.contains(&"start:a".to_string()));
+        assert!(starts.contains(&"start:b".to_string()));
+
+        lanes.shutdown().await;
+
+        // Both drains exited before shutdown returned — their stop
+        // events must already be in the channel, no further waiting.
+        let mut stops = [rx.try_recv().unwrap(), rx.try_recv().unwrap()];
+        stops.sort();
+        assert_eq!(stops, ["stop:a".to_string(), "stop:b".to_string()]);
+    }
+
+    /// Observing a non-terminal handoff phase pauses the lane: the
+    /// running drain is cancelled with no successor, so nothing forwards
+    /// while the partition re-enters its stash window. Only the next
+    /// `Complete`'s request may start a fresh drain, toward whatever
+    /// owner it names.
+    #[tokio::test]
+    async fn a_pause_stops_the_drain_without_starting_a_successor() {
+        let (lanes, handler, mut rx) = parking_lanes();
+
+        lanes.request(Arc::clone(&handler), "r".into(), 0, "a".into());
+        assert_eq!(rx.recv().await.unwrap(), "start:a");
+
+        lanes.pause(0);
+        assert_eq!(rx.recv().await.unwrap(), "stop:a");
+        assert!(
+            rx.try_recv().is_err(),
+            "pause must not start a successor drain"
+        );
+
+        // The next Complete re-requests; the paused lane is superseded.
+        lanes.request(handler, "r".into(), 0, "b".into());
         assert_eq!(rx.recv().await.unwrap(), "start:b");
     }
 }

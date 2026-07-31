@@ -892,6 +892,20 @@ export type DataWarehouseSavedQueryApiQuery = {
 
 export type DataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
 
+export interface SavedQuerySuspensionApi {
+    /** When materialization was suspended. */
+    at: string
+    /** Error from the materialization run that tripped suspension. */
+    reason: string
+    /** Materialization job that tripped suspension. */
+    job_id: string
+}
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type DataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
+
 /**
  * * `never` - never
  * * `15min` - 15min
@@ -1017,6 +1031,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended: DataWarehouseSavedQueryApiSuspended
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -1035,6 +1051,11 @@ export type PatchedDataWarehouseSavedQueryApiQuery = {
 }
 
 export type PatchedDataWarehouseSavedQueryApiColumnsItem = { [key: string]: unknown }
+
+/**
+ * Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed.
+ */
+export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQuerySuspensionApi }
 
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
@@ -1135,6 +1156,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
+    readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
 }
 
 export interface SavedQueryResumeApi {
@@ -2513,6 +2536,24 @@ export interface CredentialApi {
  * * `DuckLake` - DuckLake
  * * `Starburst` - Starburst
  * * `Easybill` - Easybill
+ * * `Bexio` - Bexio
+ * * `Umami` - Umami
+ * * `Manychat` - Manychat
+ * * `Kickstarter` - Kickstarter
+ * * `Typesense` - Typesense
+ * * `FirstPromoter` - FirstPromoter
+ * * `Zero` - Zero
+ * * `Inth` - Inth
+ * * `BCMS` - BCMS
+ * * `Convonite` - Convonite
+ * * `Hookdeck` - Hookdeck
+ * * `Billit` - Billit
+ * * `Moxie` - Moxie
+ * * `TripleWhale` - TripleWhale
+ * * `Directus` - Directus
+ * * `Clay` - Clay
+ * * `TradableBits` - TradableBits
+ * * `Swan` - Swan
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3772,6 +3813,24 @@ export const ExternalDataSourceTypeEnumApi = {
     DuckLake: 'DuckLake',
     Starburst: 'Starburst',
     Easybill: 'Easybill',
+    Bexio: 'Bexio',
+    Umami: 'Umami',
+    Manychat: 'Manychat',
+    Kickstarter: 'Kickstarter',
+    Typesense: 'Typesense',
+    FirstPromoter: 'FirstPromoter',
+    Zero: 'Zero',
+    Inth: 'Inth',
+    Bcms: 'BCMS',
+    Convonite: 'Convonite',
+    Hookdeck: 'Hookdeck',
+    Billit: 'Billit',
+    Moxie: 'Moxie',
+    TripleWhale: 'TripleWhale',
+    Directus: 'Directus',
+    Clay: 'Clay',
+    TradableBits: 'TradableBits',
+    Swan: 'Swan',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

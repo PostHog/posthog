@@ -5,7 +5,7 @@ import structlog
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlepagespeedinsights import (
     GooglePageSpeedInsightsSourceConfig,
 )
@@ -113,6 +113,21 @@ class TestGooglePageSpeedInsightsSource:
         # exhausted, this must stay classified as retryable so it doesn't get tracked as noise.
         retryable_errors = self.source.get_retryable_errors()
         assert any(pattern in error_message for pattern in retryable_errors)
+
+    def test_transport_timeout_is_retryable_not_terminal(self):
+        # A read timeout / connection reset to the API host exhausts `_fetch`'s internal retries and
+        # re-raises as a urllib3 `HTTPSConnectionPool(...)` message (key already redacted). It is
+        # transient and self-recovering, so it must classify as retryable and never match the
+        # auth-failure patterns that would permanently stop the sync.
+        error_message = (
+            "HTTPSConnectionPool(host='pagespeedonline.googleapis.com', port=443): Max retries exceeded "
+            "with url: /pagespeedonline/v5/runPagespeed?url=https%3A%2F%2Fexample.com&strategy=DESKTOP&key=REDACTED "
+            "(Caused by ReadTimeoutError(\"HTTPSConnectionPool(host='pagespeedonline.googleapis.com', port=443): "
+            'Read timed out. (read timeout=120)"))'
+        )
+
+        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
+        assert not any(pattern in error_message for pattern in self.source.get_non_retryable_errors())
 
     def test_documented_tables_render_without_credentials(self):
         # Exercises the public-docs path: a credential-free placeholder config must list every table.

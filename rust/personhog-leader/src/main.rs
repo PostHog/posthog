@@ -3,17 +3,20 @@ use std::time::Duration;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
-use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
 use dashmap::DashMap;
 use envconfig::Envconfig;
+use k8s_awareness::{K8sAwareness, PodInfo};
+use kube::Client;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tokio::time::timeout;
+use tokio_util::sync::CancellationToken;
 use tonic::codec::CompressionEncoding;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -31,7 +34,7 @@ use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::{
-    fetch_writer_committed_offsets, WarmingConfig, WarmingRetryPolicy,
+    fetch_writer_committed_offsets, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
 };
 use personhog_leader::warnings::WarningsProducer;
 
@@ -39,6 +42,14 @@ common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Install a process-wide rustls CryptoProvider before any TLS use. kube's
+    // HTTPS client (controller discovery) uses rustls 0.23, which can't
+    // auto-pick a provider with both aws-lc-rs and ring compiled in — it
+    // panics. Matches personhog-router / cymbal / ingestion-consumer.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring CryptoProvider");
+
     let config = Config::init_from_env().expect("Invalid configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
@@ -76,7 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // stop in phase 1, only after the drain finishes — signalling them
     // together with coordination black-holed every partition for the whole
     // drain (dead server, still the registered owner). The coordination
-    // graceful window must exceed the pod's drain timeout (30s), and the
+    // graceful window must exceed the pod's drain timeout (30s) plus the pre-revoke fence's short bound (3s), and the
     // global timeout must fit both phases.
     let mut manager = Manager::builder("personhog-leader")
         .with_global_shutdown_timeout(Duration::from_secs(60))
@@ -219,6 +230,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         warnings.clone(),
     );
 
+    let warm_pools = Arc::new(WarmClientPools::new(
+        &config.kafka,
+        &config.pod_name,
+        &config.writer_consumer_group,
+    ));
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
@@ -242,24 +258,77 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_backoff: Duration::from_millis(config.warm_retry_max_backoff_ms),
             },
         },
+        Arc::clone(&warm_pools),
     );
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
             .expect("Invalid advertise address configuration");
     tracing::info!(%advertise_address, "advertising gRPC address for routing");
 
-    let pod = PodHandle::new(
-        store,
-        PodConfig {
-            pod_name: config.pod_name.clone(),
-            lease_ttl: config.lease_ttl,
-            heartbeat_interval: config.heartbeat_interval(),
-            advertise_address: Some(advertise_address),
-            ..Default::default()
-        },
-        Arc::new(handler),
-        None,
-    );
+    // Discover this pod's owning controller and generation so the
+    // coordinator can steer placement away from old-generation pods
+    // during rollouts. Fail-open, and bounded: this runs before the pod
+    // handle and gRPC server exist, so an unresponsive API server must
+    // cost a few seconds of startup at worst — never availability.
+    let (controller, generation, k8s_awareness) = if config.k8s_awareness_enabled {
+        let discovery = discover_own_controller(&config, coordination_handle.shutdown_token());
+        match timeout(K8S_DISCOVERY_TIMEOUT, discovery).await {
+            Ok(Ok((awareness, info))) => {
+                tracing::info!(
+                    controller = %info.controller,
+                    generation = %info.generation,
+                    "K8s awareness enabled; controller discovered"
+                );
+                (Some(info.controller), info.generation, Some(awareness))
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(
+                    error = %e,
+                    "K8s awareness enabled but controller discovery failed; \
+                     registering without rollout awareness"
+                );
+                (None, String::new(), None)
+            }
+            Err(_) => {
+                tracing::warn!(
+                    timeout = ?K8S_DISCOVERY_TIMEOUT,
+                    "K8s awareness enabled but controller discovery timed out; \
+                     registering without rollout awareness"
+                );
+                (None, String::new(), None)
+            }
+        }
+    } else {
+        (None, String::new(), None)
+    };
+
+    let pod_config = PodConfig {
+        pod_name: config.pod_name.clone(),
+        generation,
+        controller,
+        lease_ttl: config.lease_ttl,
+        heartbeat_interval: config.heartbeat_interval(),
+        advertise_address: Some(advertise_address),
+        ..Default::default()
+    };
+
+    // Open connections up front: warms cluster in deploy bursts, and a
+    // cold pool would make every burst's first operations pay the client
+    // setup the pool exists to amortize. Sized from the pod's actual
+    // configured warm concurrency — the bound the semaphore enforces —
+    // so the pool and the concurrency limit cannot drift apart; the
+    // offsets pool also serves the dirty-index prune tick. Best-effort:
+    // a failure only defers the cost.
+    {
+        let pools = Arc::clone(&warm_pools);
+        let warm_slots = pod_config.warm_concurrency;
+        tokio::spawn(async move {
+            pools.offsets.warm_up(2).await;
+            pools.warming.warm_up(warm_slots).await;
+        });
+    }
+
+    let pod = PodHandle::new(store, pod_config, Arc::new(handler), k8s_awareness);
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
@@ -282,9 +351,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(run_dirty_index_prune_loop(
         Arc::clone(&dirty_index),
-        config.kafka.clone(),
+        Arc::clone(&warm_pools),
         config.kafka_person_state_topic.clone(),
-        config.writer_consumer_group.clone(),
         Duration::from_secs(config.warm_committed_offsets_timeout_secs),
         Duration::from_secs(config.dirty_index_prune_interval_secs.max(1)),
     ));
@@ -372,13 +440,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Periodically drop dirty-index marks the writer has applied to PG, and
 /// export the dirty-count and writer-lag gauges as a side effect. One
-/// batched OffsetFetch covers every partition with marks, so each tick
-/// costs a single short-lived consumer.
+/// batched OffsetFetch covers every partition with marks, on a pooled
+/// client — each tick reuses the connection instead of rebuilding one.
 async fn run_dirty_index_prune_loop(
     dirty_index: Arc<DirtyIndex>,
-    kafka: KafkaConfig,
+    pools: Arc<WarmClientPools>,
     topic: String,
-    writer_group: String,
     offsets_timeout: Duration,
     prune_interval: Duration,
 ) {
@@ -396,8 +463,7 @@ async fn run_dirty_index_prune_loop(
             continue;
         }
         let committed_offsets = match fetch_writer_committed_offsets(
-            &kafka,
-            &writer_group,
+            &pools.offsets,
             &topic,
             &partitions,
             offsets_timeout,
@@ -435,4 +501,28 @@ async fn run_dirty_index_prune_loop(
             .set(lag as f64);
         }
     }
+}
+
+/// How long startup may spend on controller discovery before falling
+/// open. Generous against a healthy API server (three small reads);
+/// tight against an unresponsive one, which must not delay serving.
+const K8S_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Build a K8s awareness client and discover this pod's owning controller
+/// and generation. The awareness handle is returned alongside so the pod
+/// can also classify its own departure at drain time.
+async fn discover_own_controller(
+    config: &Config,
+    cancel: CancellationToken,
+) -> Result<(Arc<K8sAwareness>, PodInfo), String> {
+    let namespace = config.resolve_k8s_namespace()?;
+    let client = Client::try_default()
+        .await
+        .map_err(|e| format!("failed to create K8s client: {e}"))?;
+    let awareness = Arc::new(K8sAwareness::new(client, namespace, cancel));
+    let info = awareness
+        .discover_controller(&config.pod_name)
+        .await
+        .map_err(|e| format!("controller discovery failed: {e}"))?;
+    Ok((awareness, info))
 }
