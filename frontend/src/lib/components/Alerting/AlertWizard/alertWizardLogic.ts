@@ -53,6 +53,18 @@ export interface WizardTrigger {
     description: string
 }
 
+// A "Connect to Slack"-style OAuth redirect is a full-page navigation, so any in-memory wizard
+// state is gone by the time the user lands back. This is how long a snapshot taken right before
+// that redirect stays valid — matches the TTL used for unsaved hog function configuration.
+const REDIRECT_SNAPSHOT_TTL = 1000 * 60 * 5
+
+interface WizardRedirectSnapshot {
+    timestamp: number
+    step: WizardStep
+    destinationKey: string | null
+    inputValues: Record<string, CyclotronJobInputType>
+}
+
 export interface AlertWizardLogicProps {
     logicKey: string
     subTemplateIds: HogFunctionSubTemplateIdType[]
@@ -218,6 +230,12 @@ export interface alertWizardLogicValues {
     extraDestinations: WizardDestination[]
     inputValues: Record<string, CyclotronJobInputType>
     primaryDestinations: WizardDestination[]
+    redirectSnapshot: {
+        timestamp: number
+        step: WizardStep
+        destinationKey: string | null
+        inputValues: Record<string, CyclotronJobInputType>
+    } | null
     requiredInputsSchema: CyclotronJobInputSchemaType[]
     selectedDestinationKey: string | null
     selectedKinds: string[] | null
@@ -267,8 +285,14 @@ export interface alertWizardLogicActions {
         selectedTemplate: HogFunctionTemplateType
         payload?: string
     }
+    persistForUnload: () => {
+        value: true
+    }
     resetWizard: () => {
         value: true
+    }
+    restoreInputValues: (values: Record<string, CyclotronJobInputType>) => {
+        values: Record<string, CyclotronJobInputType>
     }
     restoreWizardState: (state: {
         destinationKey: string | null
@@ -299,6 +323,21 @@ export interface alertWizardLogicActions {
             templating?: 'hog' | 'liquid' | undefined
             value: any
         }
+    }
+    setRedirectSnapshot: (
+        snapshot: {
+            destinationKey: string | null
+            inputValues: Record<string, CyclotronJobInputType>
+            step: WizardStep
+            timestamp: number
+        } | null
+    ) => {
+        snapshot: {
+            destinationKey: string | null
+            inputValues: Record<string, CyclotronJobInputType>
+            step: WizardStep
+            timestamp: number
+        } | null
     }
     setStep: (step: WizardStep) => {
         step: WizardStep
@@ -397,6 +436,9 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             destinationKey: string | null
             triggerKey: HogFunctionSubTemplateIdType | null
         }) => ({ state }),
+        restoreInputValues: (values: Record<string, CyclotronJobInputType>) => ({ values }),
+        setRedirectSnapshot: (snapshot: WizardRedirectSnapshot | null) => ({ snapshot }),
+        persistForUnload: true,
         resetWizard: true,
         createAlertSuccess: true,
         submitConfiguration: true,
@@ -460,9 +502,19 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             {} as Record<string, CyclotronJobInputType>,
             {
                 setInputValue: (state, { key, value }) => ({ ...state, [key]: value }),
+                restoreInputValues: (_, { values }) => values,
                 resetWizard: () => ({}),
                 setDestinationKey: () => ({}),
                 setTriggerKey: () => ({}),
+            },
+        ],
+        redirectSnapshot: [
+            null as WizardRedirectSnapshot | null,
+            { persist: true },
+            {
+                setRedirectSnapshot: (_, { snapshot }) => snapshot,
+                resetWizard: () => null,
+                createAlertSuccess: () => null,
             },
         ],
         submitting: [
@@ -631,6 +683,19 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             if (view === AlertCreationView.Wizard) {
                 actions.loadExistingAlerts()
             }
+        },
+
+        // Called right before a full-page OAuth redirect (e.g. "Connect to Slack"). The redirect
+        // discards all in-memory state, so stash what's needed to pick back up where the user
+        // left off. The connected integration itself doesn't need saving here — IntegrationChoice
+        // auto-selects the newly created integration once it remounts with an empty value.
+        persistForUnload: () => {
+            actions.setRedirectSnapshot({
+                timestamp: Date.now(),
+                step: values.currentStep,
+                destinationKey: values.selectedDestinationKey,
+                inputValues: values.inputValues,
+            })
         },
 
         restoreWizardState: ({ state }) => {
@@ -871,7 +936,24 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values, props: logicProps }) => {
         actions.loadExistingAlerts()
+
+        const snapshot = values.redirectSnapshot
+        if (snapshot && Date.now() - snapshot.timestamp < REDIRECT_SNAPSHOT_TTL) {
+            // With URL sync enabled, step/destination/trigger already round-tripped through the
+            // URL and urlToAction restores them — only the input values need restoring here.
+            // Without URL sync (e.g. the error tracking recommendations modal), nothing else
+            // brings the wizard back to where it was, so restore the full position too.
+            if (logicProps.disableUrlSync) {
+                actions.restoreWizardState({
+                    step: snapshot.step,
+                    destinationKey: snapshot.destinationKey,
+                    triggerKey: logicProps.presetTriggerKey ?? null,
+                })
+            }
+            actions.restoreInputValues(snapshot.inputValues)
+        }
+        actions.setRedirectSnapshot(null)
     }),
 ])

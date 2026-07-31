@@ -14,6 +14,10 @@ export interface AlertWizardProps {
     onSwitchToTraditional: () => void
     hideTriggerStep?: boolean
     hideCloseButton?: boolean
+    /** Called right before a "Connect to X" full-page OAuth redirect fires, in addition to the
+     * wizard's own state persistence. Lets a caller that gates this wizard behind ephemeral UI
+     * state (e.g. a modal) persist what's needed to reopen it once the user lands back. */
+    onIntegrationRedirect?: () => void
 }
 
 export function AlertWizard({
@@ -21,6 +25,7 @@ export function AlertWizard({
     onSwitchToTraditional,
     hideTriggerStep,
     hideCloseButton,
+    onIntegrationRedirect,
 }: AlertWizardProps): JSX.Element {
     const { currentStep } = useValues(alertWizardLogic)
     const { setStep } = useActions(alertWizardLogic)
@@ -47,7 +52,9 @@ export function AlertWizard({
             <div className="max-w-lg mx-auto flex-1 w-full mt-4">
                 {currentStep === WizardStep.Destination && <DestinationStep />}
                 {currentStep === WizardStep.Trigger && !hideTriggerStep && <TriggerStep />}
-                {currentStep === WizardStep.Configure && <ConfigureStep />}
+                {currentStep === WizardStep.Configure && (
+                    <ConfigureStep onIntegrationRedirect={onIntegrationRedirect} />
+                )}
             </div>
 
             <p className="text-center text-xs text-muted mt-6">

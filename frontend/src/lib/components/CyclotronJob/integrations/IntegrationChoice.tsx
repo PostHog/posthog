@@ -2,10 +2,10 @@
 import './integrationSetups'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconExternal, IconTrash, IconX } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -39,6 +39,11 @@ export function IntegrationChoice({
     const { newGoogleCloudKey, openNewIntegrationModal, closeNewIntegrationModal, deleteIntegration } =
         useActions(integrationsLogic)
     const kind = integration
+
+    // Full-page navigation to the OAuth authorize endpoint takes a beat to kick in, during
+    // which the menu item looks inert. Track it locally so a second click can't fire a second
+    // redirect while the browser is still on this page.
+    const [isRedirecting, setIsRedirecting] = useState(false)
 
     const integrationsOfKind = integrations?.filter((x) => x.kind === kind)
     const integrationKind = findIntegrationByFormValue(integrationsOfKind, value)
@@ -106,7 +111,12 @@ export function IntegrationChoice({
           : {
                 to: api.integrations.authorizeUrl({ kind, next: redirectUrl }),
                 disableClientSideRouting: true,
-                onClick: beforeRedirect,
+                onClick: () => {
+                    setIsRedirecting(true)
+                    beforeRedirect?.()
+                },
+                disabledReason: isRedirecting ? 'Redirecting…' : undefined,
+                icon: isRedirecting ? <Spinner /> : undefined,
                 label: integrationsOfKind?.length
                     ? `Connect to a different integration for ${kindName}`
                     : `Connect to ${kindName}`,

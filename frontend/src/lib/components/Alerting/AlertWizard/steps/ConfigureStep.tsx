@@ -11,10 +11,10 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { alertWizardLogic } from '../alertWizardLogic'
 
-export function ConfigureStep(): JSX.Element {
+export function ConfigureStep({ onIntegrationRedirect }: { onIntegrationRedirect?: () => void }): JSX.Element {
     const { requiredInputsSchema, configuration, selectedTemplateLoading, submitting, testing } =
         useValues(alertWizardLogic)
-    const { setInputValue, submitConfiguration, testConfiguration } = useActions(alertWizardLogic)
+    const { setInputValue, submitConfiguration, testConfiguration, persistForUnload } = useActions(alertWizardLogic)
 
     if (selectedTemplateLoading) {
         return (
@@ -42,6 +42,10 @@ export function ConfigureStep(): JSX.Element {
                             onChange={(val) => setInputValue(schema.key, { value: val })}
                             configuration={configuration}
                             onInputChange={setInputValue}
+                            persistForUnload={() => {
+                                persistForUnload()
+                                onIntegrationRedirect?.()
+                            }}
                         />
                     </LemonField.Pure>
                 ))}
@@ -65,12 +69,14 @@ function SchemaInput({
     onChange,
     configuration,
     onInputChange,
+    persistForUnload,
 }: {
     schema: CyclotronJobInputSchemaType
     value: any
     onChange: (value: any) => void
     configuration: { inputs_schema: CyclotronJobInputSchemaType[]; inputs: Record<string, any> | null }
     onInputChange: (key: string, value: any) => void
+    persistForUnload: () => void
 }): JSX.Element {
     if (schema.type === 'integration') {
         return (
@@ -85,6 +91,7 @@ function SchemaInput({
                         })
                     onChange(newValue)
                 }}
+                persistForUnload={persistForUnload}
             />
         )
     }

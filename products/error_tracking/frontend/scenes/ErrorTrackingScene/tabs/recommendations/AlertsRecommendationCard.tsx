@@ -124,14 +124,21 @@ function AlertsRecommendationWizardModal({
     return (
         <LemonModal isOpen onClose={onClose} width={560} simple>
             <BindLogic logic={alertWizardLogic} props={wizardProps}>
-                <AlertsRecommendationWizardContent onClose={onClose} />
+                <AlertsRecommendationWizardContent triggerKey={triggerKey} onClose={onClose} />
             </BindLogic>
         </LemonModal>
     )
 }
 
-function AlertsRecommendationWizardContent({ onClose }: { onClose: () => void }): JSX.Element {
+function AlertsRecommendationWizardContent({
+    triggerKey,
+    onClose,
+}: {
+    triggerKey: HogFunctionSubTemplateIdType
+    onClose: () => void
+}): JSX.Element {
     const { setAlertCreationView, resetWizard } = useActions(alertWizardLogic)
+    const { persistWizardRedirect } = useActions(recommendationsTabLogic)
 
     return (
         <div className="p-4">
@@ -151,6 +158,7 @@ function AlertsRecommendationWizardContent({ onClose }: { onClose: () => void })
                     onClose()
                     router.actions.push(errorTrackingConfigurationSettingUrl('error-tracking-alerting'))
                 }}
+                onIntegrationRedirect={() => persistWizardRedirect(triggerKey)}
             />
         </div>
     )
