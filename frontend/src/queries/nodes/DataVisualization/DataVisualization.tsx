@@ -306,9 +306,12 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     const rowLimitNoticeLimit = isChartVisualization && hasMoreData ? dataLimit : null
 
     if (props.embedded) {
+        if (!rowLimitNoticeLimit) {
+            return <div className="DataVisualization InsightCard__viz">{component}</div>
+        }
         return (
-            <div className="DataVisualization InsightCard__viz flex flex-col">
-                {rowLimitNoticeLimit && <SqlInsightRowLimitNotice dataLimit={rowLimitNoticeLimit} />}
+            <div className="DataVisualization InsightCard__viz">
+                <SqlInsightRowLimitNotice dataLimit={rowLimitNoticeLimit} />
                 <div className="flex-1 min-h-0">{component}</div>
             </div>
         )
@@ -393,14 +396,16 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <LemonDivider vertical className="h-full" />
                         </>
                     )}
-                    <div className="w-full h-full flex-1 overflow-auto flex flex-col">
-                        {rowLimitNoticeLimit && (
+                    {rowLimitNoticeLimit ? (
+                        <div className="w-full h-full flex-1 overflow-auto flex flex-col">
                             <div className="flex justify-end">
                                 <SqlInsightRowLimitNotice dataLimit={rowLimitNoticeLimit} />
                             </div>
-                        )}
-                        <div className="flex-1 min-h-0">{component}</div>
-                    </div>
+                            <div className="flex-1 min-h-0">{component}</div>
+                        </div>
+                    ) : (
+                        <div className="w-full h-full flex-1 overflow-auto">{component}</div>
+                    )}
                 </div>
             </div>
         </div>
