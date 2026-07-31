@@ -1,7 +1,11 @@
 import gc
 import warnings
+from contextlib import ExitStack
 
 import pytest
+
+# Session-scoped patches that pytest_configure opens and pytest_unconfigure closes.
+_session_patches = ExitStack()
 
 # Test-session boot — plugin imports and importing every collected test module —
 # allocates almost exclusively permanent objects, so automatic cyclic GC during that
@@ -206,12 +210,32 @@ def _cheapen_freezegun_module_hash() -> None:
     api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
 
 
+def pytest_addoption(parser) -> None:
+    parser.addoption(
+        "--simplifier-canary",
+        action="store_true",
+        default=False,
+        help=(
+            "Force the HogQL type-aware simplifier on for the whole session. The resulting snapshot "
+            "diff is the change report for enabling typeAwareCastSimplification in production. "
+            "Do not commit the churned snapshots."
+        ),
+    )
+
+
 def pytest_configure(config) -> None:
     _cache_reverse_rel_identity()
     _cache_select_masks()
     _cache_drf_field_info()
     _cache_url_resolution()
     _cheapen_freezegun_module_hash()
+
+    if config.getoption("--simplifier-canary"):
+        from posthog.hogql.test.simplifier_canary import (  # noqa: PLC0415 — only imported when the flag is set
+            type_aware_simplification_forced,
+        )
+
+        _session_patches.enter_context(type_aware_simplification_forced())
 
 
 def pytest_collection_finish() -> None:
@@ -226,6 +250,8 @@ def pytest_runtestloop() -> None:
 
 
 def pytest_unconfigure() -> None:
+    _session_patches.close()
+
     # Frozen objects skip the final cyclic collections of interpreter shutdown, so their
     # finalizers run in the late teardown phase where extension modules may already be
     # gone — observed as exit code 139 (SIGSEGV) on the Temporal CI shards. Restore the

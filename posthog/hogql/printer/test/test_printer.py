@@ -57,6 +57,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.simplifier_canary import type_aware_simplification_forced
 from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client.execute import sync_execute
@@ -868,6 +869,26 @@ class TestPrinter(BaseTest):
 
         assert "assumeNotNull(" in sql
         assert "toString(" in sql
+
+    def test_simplifier_canary_forces_the_simplifier_on_and_restores_it(self):
+        # The canary's entire value is the snapshot diff it produces. If it silently stops forcing
+        # the simplifier the diff comes back empty, which reads as "nothing changes, safe to flip" —
+        # the exact wrong conclusion. The restore half matters just as much: a patch that leaked
+        # would enable the simplifier for every later test in the session.
+        query = "SELECT assumeNotNull(1) AS a, toString('x') AS b FROM events"
+
+        def print_query() -> str:
+            return self._select(query, HogQLContext(team_id=self.team.pk, enable_select_queries=True))
+
+        with type_aware_simplification_forced():
+            forced_sql = print_query()
+
+        assert "assumeNotNull(" not in forced_sql
+        assert "toString(" not in forced_sql
+
+        restored_sql = print_query()
+        assert "assumeNotNull(" in restored_sql
+        assert "toString(" in restored_sql
 
     def test_hogql_properties(self):
         self.assertEqual(
