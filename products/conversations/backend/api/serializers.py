@@ -89,7 +89,10 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
         required=False,
         min_length=64,
         max_length=64,
-        help_text="HMAC-SHA256 of 'identity_distinct_id:identity_email' using team secret_api_token",
+        help_text=(
+            "HMAC-SHA256 of 'widget-email\\0{identity_distinct_id}\\0{identity_email}' (NUL-separated) "
+            "using team secret_api_token"
+        ),
     )
 
     def validate(self, data):

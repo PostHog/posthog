@@ -845,6 +845,19 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, expected_status)
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 0)
 
+    def test_email_claim_hash_is_not_a_valid_identity_hash(self):
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "identity_distinct_id": f"{self.distinct_id}:{self.identity_email}",
+                "identity_hash": self.identity_email_hash,
+                "message": "Hello",
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Ticket.objects.filter(team=self.team).count(), 0)
+
     def test_email_claim_without_identity_rejected(self):
         response = self.client.post(
             "/api/conversations/v1/widget/message",

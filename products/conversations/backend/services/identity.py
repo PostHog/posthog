@@ -18,10 +18,15 @@ def verify_identity_hash(distinct_id: str, hash_value: str, secret: str) -> bool
 
 
 def compute_identity_email_hash(distinct_id: str, email: str, secret: str) -> str:
-    """Compute HMAC-SHA256 of an email claim bound to a distinct_id."""
+    """Compute HMAC-SHA256 of an email claim bound to a distinct_id.
+
+    The purpose prefix and NUL separators domain-separate this from identity
+    hashes, so an email-claim signature can never double as an identity
+    signature for a crafted distinct_id (or vice versa).
+    """
     return hmac.new(
         secret.encode(),
-        f"{distinct_id}:{email}".encode(),
+        b"widget-email\0" + distinct_id.encode() + b"\0" + email.encode(),
         hashlib.sha256,
     ).hexdigest()
 
