@@ -257,17 +257,7 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
                 # instead of collapsing into one grouped row (see `groupKey` on the client).
                 resource_id=str(track.key),
                 priority=Priority.NORMAL,
-                # `achievements=open` makes the inbox card land on the achievements modal rather than
-                # the bare dashboard, which is the whole point of clicking through.
-                source_url=f"/project/{ctx.team.id}/web?achievements=open",
-                metadata={
-                    "track_key": str(track.key),
-                    "track_name": track.display_name,
-                    "stage": stage,
-                    "stage_name": stage_name,
-                    "total_stages": len(track.stages),
-                    "scope": str(track.scope),
-                },
+                source_url=f"/project/{ctx.team.id}/web",
             )
         )
     except Exception as e:

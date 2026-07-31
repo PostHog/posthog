@@ -145,9 +145,8 @@ export function NotificationRow({
 
     const otherProjectName = projectNameForNotification(notification)
     const describer = getNotificationDescriber(notification)
-    const rich = !!describer?.takesOverRow?.(notification)
-    const customBody =
-        rich && describer ? <describer.Component notification={notification} onNavigate={onNavigate} /> : null
+    const customBody = describer ? <describer.Component notification={notification} onNavigate={onNavigate} /> : null
+    const rich = !!describer?.takesOverRow && !!notification.metadata
 
     const hasNavigationTarget = !!sourcePathForNotification(notification)
     const handleOpen = (): void => {
@@ -176,12 +175,9 @@ export function NotificationRow({
         handleOpen()
     }
 
-    // Only a rich card can promise where its action goes ("View achievements"), since older payloads
-    // predate the deep link — everything else falls back to the resource type
-    const actionLabel = rich ? describer?.actionLabel : undefined
-    const resourceLabel =
-        actionLabel ??
-        (notification.resource_type ? `View ${notification.resource_type.replace(/_/g, ' ')}` : 'Go to source')
+    const resourceLabel = notification.resource_type
+        ? `View ${notification.resource_type.replace(/_/g, ' ')}`
+        : 'Go to source'
 
     return (
         <div
@@ -194,7 +190,7 @@ export function NotificationRow({
             <div className="flex-1 min-w-0">
                 <NotificationTitle
                     notificationType={notification.notification_type}
-                    title={rich ? (describer?.title ?? notification.title) : notification.title}
+                    title={rich ? 'Web analytics digest' : notification.title}
                 />
                 {rich
                     ? customBody

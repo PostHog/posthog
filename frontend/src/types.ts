@@ -483,18 +483,6 @@ export interface WebAnalyticsDigestMetadata {
     top_sources: WebAnalyticsDigestListItem[]
 }
 
-export interface WebAnalyticsAchievementMetadata {
-    track_key: string
-    track_name: string
-    stage: number
-    stage_name: string
-    total_stages: number
-    scope: string
-}
-
-/** Per-notification-type rich payload. Narrow it with a guard before rendering — old rows have none. */
-export type InAppNotificationMetadata = WebAnalyticsDigestMetadata | WebAnalyticsAchievementMetadata
-
 export interface InAppNotification {
     id: string
     team_id: number | null
@@ -511,7 +499,7 @@ export interface InAppNotification {
     source_url: string
     source_type: string | null
     source_id: string | null
-    metadata: InAppNotificationMetadata | null
+    metadata: WebAnalyticsDigestMetadata | null
     created_at: string
 }
 
