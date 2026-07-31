@@ -2,6 +2,7 @@ from typing import Any, cast
 
 import pytest
 
+import httpx
 from google.genai.errors import APIError
 from pydantic import BaseModel
 
@@ -274,8 +275,8 @@ class TestMissionAttempts:
 
 class TestRunPass:
     """Which retry layer owns a cached-run failure. Transients belong to the Temporal activity retry (it backs
-    off across the quota window); only cache-shaped failures get the one inline fallback. Blanket inline retries
-    here multiplied with the other layers into many video re-sends per observation."""
+    off across the quota window); only cache-shaped failures get the one inline fallback. A blanket inline retry
+    here would multiply with the other layers into many video re-sends per observation."""
 
     class _Cache:
         name = "cache-1"
@@ -293,10 +294,16 @@ class TestRunPass:
         return run, calls
 
     @pytest.mark.asyncio
-    async def test_transient_provider_error_is_not_retried_inline(self) -> None:
-        error = APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}})
+    @pytest.mark.parametrize(
+        "error",
+        [
+            APIError(429, {"error": {"message": "quota", "status": "RESOURCE_EXHAUSTED"}}),
+            httpx.ConnectError("connection reset by peer"),
+        ],
+    )
+    async def test_transient_provider_error_is_not_retried_inline(self, error: Exception) -> None:
         run, calls = self._cached_run_failing_with(error)
-        with pytest.raises(APIError):
+        with pytest.raises(type(error)):
             await _run_pass(run=run, cache=self._Cache(), model="m")
         assert calls == ["cache-1"]
 
@@ -305,7 +312,7 @@ class TestRunPass:
         "error",
         [
             APIError(403, {"error": {"message": "CachedContent not found"}}),
-            ValueError("unrecognized transport failure"),
+            ValueError("unrecognized SDK failure"),
         ],
     )
     async def test_cache_shaped_failure_falls_back_inline_once(self, error: Exception) -> None:

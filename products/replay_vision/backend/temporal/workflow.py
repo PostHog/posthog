@@ -106,18 +106,22 @@ _ENSURE_ASSET_RETRY = common.RetryPolicy(
 )
 
 # Deterministic failures opt out via ScannerFailureError's non_retryable flag; only transient kinds re-run.
+# Attempts land at ~0s/15s/75s so the third clears a per-minute provider quota window.
 _UPLOAD_RETRY = common.RetryPolicy(
-    initial_interval=dt.timedelta(seconds=2),
+    initial_interval=dt.timedelta(seconds=15),
+    backoff_coefficient=4.0,
     maximum_interval=dt.timedelta(seconds=60),
     maximum_attempts=3,
 )
 
 # Workflow-level retries only cover transient transport failures; schema/semantic errors are non-retryable.
 # A provider rate limit or 5xx arrives classified (see `classify_gemini_error`), which is what makes these attempts
-# reachable at all. The interval ceiling buys coverage across a quota window; `schedule_to_close` on the call site
-# keeps four long attempts from eating the whole workflow budget.
+# reachable at all. The spacing must outlast a per-minute quota window: attempts land at ~0s/15s/75s/135s, so the
+# last two run in later windows instead of burning out inside the one that rate-limited us. `schedule_to_close`
+# on the call site keeps four long attempts from eating the whole workflow budget.
 _PROVIDER_CALL_RETRY = common.RetryPolicy(
-    initial_interval=dt.timedelta(seconds=2),
+    initial_interval=dt.timedelta(seconds=15),
+    backoff_coefficient=4.0,
     maximum_interval=dt.timedelta(seconds=60),
     maximum_attempts=4,
 )

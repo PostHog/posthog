@@ -18,4 +18,13 @@ class Migration(migrations.Migration):
                 help_text="Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned.",
             ),
         ),
+        migrations.AlterField(
+            model_name="replayobservation",
+            name="triggered_by",
+            field=models.CharField(
+                choices=[("schedule", "Schedule"), ("on_demand", "On demand"), ("retry", "Retry")],
+                help_text="What started this observation: a per-scanner schedule fire, an explicit /observe/ call, or a retry of a failed or ineligible observation.",
+                max_length=16,
+            ),
+        ),
     ]

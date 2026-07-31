@@ -43,6 +43,9 @@ describe('retry guidance', () => {
                 true,
                 false,
             ],
+            // no_ai_consent offers a retry too: consent can be turned on after the scan, and without the
+            // button the unique (scanner, session) row would lock the session out permanently.
+            ['an ineligible observation without AI consent', 'ineligible', 'no_ai_consent:consent off', true, false],
             ['a deterministic ineligibility gate', 'ineligible', 'too_short:12s long', false, false],
             ['an unknown ineligible kind', 'ineligible', 'future_gate:msg', false, false],
             ['a succeeded observation', 'succeeded', '', false, false],

@@ -10,6 +10,8 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
 
+import httpx
+import aiohttp
 import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai.errors import APIError
@@ -2298,6 +2300,18 @@ class TestClassifyGeminiError:
     def test_maps_api_error_status_codes(self, _label: str, code: int, expected: FailureKind) -> None:
         assert classify_gemini_error(APIError(code, {"error": {"message": "boom"}})) is expected
 
+    @parameterized.expand(
+        [
+            ("httpx_connect", httpx.ConnectError("connection reset by peer")),
+            ("httpx_read_timeout", httpx.ReadTimeout("timed out")),
+            ("aiohttp_disconnected", aiohttp.ServerDisconnectedError()),
+        ]
+    )
+    def test_maps_transport_errors_to_provider_transient(self, _label: str, error: Exception) -> None:
+        # These carry no HTTP response, so the status-code mapping can't see them; an unreachable provider is
+        # the same user story as a 5xx and must not land as internal_error.
+        assert classify_gemini_error(error) is FailureKind.PROVIDER_TRANSIENT
+
     def test_leaves_non_provider_exceptions_unclassified(self) -> None:
         # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
         # and for the transient kinds it would burn the retry budget before failing anyway.
@@ -2340,6 +2354,24 @@ class TestGeminiErrorRedaction:
                 await ActivityEnvironment().run(upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=1))
         assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
         assert exc_info.value.message == "The AI provider returned HTTP 429 RESOURCE_EXHAUSTED"
+
+    @pytest.mark.asyncio
+    async def test_provider_activity_classifies_transport_errors_as_transient(self) -> None:
+        # A dropped connection has no HTTP response, so it would otherwise escape unclassified and land as
+        # internal_error with contact-support copy for what is a retryable provider outage.
+        with patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._call_scanner_provider",
+            side_effect=httpx.ConnectError("connection reset by peer"),
+        ):
+            with pytest.raises(ScannerFailureError) as exc_info:
+                await ActivityEnvironment().run(
+                    call_scanner_provider_activity,
+                    CallScannerProviderInputs(
+                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                    ),
+                )
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.message == "PostHog could not reach the AI provider (ConnectError)"
 
 
 class TestWorkflowErrorHelpers:

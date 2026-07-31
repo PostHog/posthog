@@ -43964,7 +43964,7 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
+      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.
        *
        * * `schedule` - Schedule
        * * `on_demand` - On demand

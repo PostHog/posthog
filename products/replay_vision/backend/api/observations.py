@@ -40,6 +40,7 @@ from products.replay_vision.backend.api.trigger import (
     start_apply_scanner_workflow,
 )
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
@@ -165,7 +166,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
     triggered_by = serializers.ChoiceField(
         choices=ObservationTrigger.choices,
         read_only=True,
-        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.",
+        help_text="Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.",
     )
     triggered_by_user = UserBasicSerializer(
         read_only=True,
@@ -878,6 +879,13 @@ class ReplayObservationViewSet(
         # UNIQUE(scanner, session_id) row would lock the session out of that scanner forever.
         if observation.status not in (ObservationStatus.FAILED, ObservationStatus.INELIGIBLE):
             raise ValidationError("Only failed or ineligible observations can be retried.")
+        # Gate consent before deleting the row: the replacement workflow fails closed at create time when
+        # consent is off, and the sweep never revisits past sessions, so the delete would leave nothing behind.
+        if not is_ai_data_processing_approved(self.team.id):
+            raise ValidationError(
+                "AI data processing is turned off for this organization, so the scan can't run. "
+                "An organization admin can turn it on in organization settings."
+            )
         check_observation_quota(self.team.organization_id, observation_credits_for_model(scanner.model))
         check_team_in_flight_capacity(self.team.id)
         session_id = observation.session_id

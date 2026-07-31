@@ -81,6 +81,8 @@ const INELIGIBLE_KINDS: Record<IneligibleKind, IneligibleKindInfo> = {
         label: 'AI analysis not allowed',
         description:
             'AI data processing is turned off for this organization, so this recording was not analyzed. An organization admin can turn it on in organization settings.',
+        retryable: true,
+        retryHint: 'If AI data processing has been turned on since, retry the scan.',
     },
 }
 
@@ -192,8 +194,9 @@ export type ObservationRetryOffer = { show: boolean; worthwhile: boolean; hint: 
 
 /**
  * Whether and how to offer a retry for an observation. Failed observations always offer it, because the user can
- * know things we don't (that they just rewrote the scanner prompt, say). Ineligible ones offer it only where the
- * gate can be a timing artifact rather than a property of the session, matching what the retry endpoint accepts.
+ * know things we don't (that they just rewrote the scanner prompt, say). The retry endpoint accepts any failed or
+ * ineligible observation; the UI additionally narrows ineligible offers to kinds whose outcome can change (late
+ * snapshots, consent turned on), so deterministic gates like too_short don't grow a pointless button.
  */
 export function observationRetryOffer(
     status: ReplayObservationApi['status'],

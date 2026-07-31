@@ -20,7 +20,6 @@ from google.genai import (
     Client as GoogleGenAIClient,
     types,
 )
-from google.genai.errors import APIError
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
@@ -84,18 +83,17 @@ async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> S
     async with Heartbeater(factor=4):
         try:
             return await _call_scanner_provider(inputs)
-        except APIError as e:
+        except Exception as e:
             # Classify at the activity boundary, not inside the mission, so the cached-run fallback below can
             # inspect the raw provider error and decide which layer owns the retry.
             kind = classify_gemini_error(e)
             if kind is None:
                 raise
-            # The raw body can quote request content, so it goes to logs, never into the user-visible error_reason.
+            # The raw error can quote request content, so it goes to logs, never into the user-visible error_reason.
             logger.warning(
                 "replay_vision.call_scanner_provider.provider_error",
-                code=e.code,
-                status=e.status,
                 kind=kind.value,
+                error_type=type(e).__name__,
                 error=str(e)[:2000],
             )
             raise ScannerFailureError(describe_gemini_error(e), kind=kind) from e
@@ -304,7 +302,7 @@ async def _run_pass(*, run: Any, cache: Any | None, model: str) -> dict[str, Bas
     except Exception as exc:
         # Transient provider errors belong to the Temporal activity retry, which backs off across the quota
         # window; an immediate inline re-run would just re-spend the video tokens against a provider that is
-        # still rate-limiting or down, and it multiplied with the other retry layers.
+        # still rate-limiting or down, and would multiply with the other retry layers.
         if classify_gemini_error(exc) is FailureKind.PROVIDER_TRANSIENT:
             raise
         # The cached request failed some other way (a stale cache reference, an unrecognized error), so retry

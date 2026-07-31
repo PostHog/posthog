@@ -11,7 +11,6 @@ from google.genai import (
     Client as RawGenAIClient,
     types,
 )
-from google.genai.errors import APIError
 from temporalio import activity
 
 from posthog.storage import object_storage
@@ -39,16 +38,15 @@ async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> 
     async with Heartbeater(factor=4):
         try:
             return await _upload_video(inputs)
-        except APIError as e:
+        except Exception as e:
             kind = classify_gemini_error(e)
             if kind is None:
                 raise
-            # The raw body can quote request content, so it goes to logs, never into the user-visible error_reason.
+            # The raw error can quote request content, so it goes to logs, never into the user-visible error_reason.
             logger.warning(
                 "replay_vision.upload_video_to_gemini.provider_error",
-                code=e.code,
-                status=e.status,
                 kind=kind.value,
+                error_type=type(e).__name__,
                 error=str(e)[:2000],
             )
             raise ScannerFailureError(describe_gemini_error(e), kind=kind) from e

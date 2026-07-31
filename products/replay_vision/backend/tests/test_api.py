@@ -2074,6 +2074,22 @@ class TestRetryActions(_VisionAPITestCase):
         args, _kwargs = start_workflow.call_args
         self.assertEqual(args[1].triggered_by, ObservationTrigger.RETRY)
 
+    def test_retry_keeps_row_when_ai_consent_is_off(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The replacement workflow fails closed at create time when consent is off, so letting the retry
+        # delete the row first would leave the recording looking unscanned with no way to get a row back.
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-no-consent")
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+        start_workflow.assert_not_called()
+
     def test_retry_rejects_non_terminal_statuses(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
