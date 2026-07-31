@@ -18,6 +18,14 @@ These merged PRs show different migration shapes. Read the relevant diff before 
 
 - [#72770: route selected sandbox products to the AI gateway](https://github.com/PostHog/posthog/pull/72770) treats migration as more than a client change. It pairs URL and product rollout settings, reserves them against user overrides, updates both egress enforcement layers, validates configured hostnames, extends startup diagnostics, and keeps rollback to clearing either setting.
 
+## Other PostHog repositories
+
+- [PostHog/code #3354: route PR review through the AI gateway](https://github.com/PostHog/code/pull/3354) shows a standalone Claude Agent SDK migration. It validates paired settings, strips `/v1` before the SDK restores its messages path, sets both Anthropic auth variables, avoids duplicate capture by bypassing the traced wrapper in gateway mode, and keeps direct-provider fallback.
+- [PostHog/code #3659: route selected products to the AI gateway](https://github.com/PostHog/code/pull/3659) selects a gateway per sandbox request instead of per process. It requires both the Go URL and an allowlist, keeps unlisted products on Python, converts attribution to one bounded ASCII-safe JSON header, and gives each workload a distinct product tag.
+- [PostHog/SherlockHog #104: route the agent through the slugless AI gateway](https://github.com/PostHog/SherlockHog/pull/104) covers a TypeScript Claude Agent SDK service. The paired Go settings take precedence, the old settings remain available for rollback, and tests pin partial-configuration fallback and base URL translation.
+- [PostHog/SherlockHog #112: tag the AI product through `X-PostHog-Properties`](https://github.com/PostHog/SherlockHog/pull/112) is a warning example. The initial cutover reused Python's per-property headers, so traffic reached Go without product attribution. The follow-up keeps each gateway's metadata format separate and verifies that the Go route no longer emits the legacy form.
+- [PostHog/charts #13131: repoint worker deployments to the AI gateway](https://github.com/PostHog/charts/pull/13131) demonstrates that merged client support does not move traffic by itself. It wires the regional URL and app-specific secret into every deployment that runs the migrated caller, with removal of either setting as rollback.
+
 ## Post-migration parity checks
 
 - [#74249: send a stable team trace ID to the Go gateway](https://github.com/PostHog/posthog/pull/74249) fixes trace fragmentation found after a migration. It matches Python's existing trace derivation, sends the dedicated Go header, and pins cross-gateway compatibility with fixed expected IDs.
