@@ -1064,9 +1064,23 @@ export class ApiClient {
                     const insight = insights[0]
 
                     if (insights.length === 0 || !insight) {
+                        // Synthesize a typed 404 rather than a plain Error: the list
+                        // endpoint returns HTTP 200 with an empty `results` for a
+                        // stale/typo'd short_id, so there's no HTTP error path to
+                        // route through `buildApiError`. Callers rely on
+                        // `PostHogApiError` surviving in the `cause` chain (see
+                        // `findRecoverableApiError`) to classify this as recoverable
+                        // agent input rather than capturing it as an exception.
                         return {
                             success: false,
-                            error: new Error(`No insight found with short_id: ${insightId}`),
+                            error: new PostHogApiError({
+                                status: 404,
+                                statusText: 'Not Found',
+                                body: `No insight found with short_id: ${insightId}`,
+                                url,
+                                method: 'GET',
+                                message: `No insight found with short_id: ${insightId}`,
+                            }),
                         }
                     }
 

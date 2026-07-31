@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
+import { PostHogApiError } from '@/lib/errors'
 
 describe('ApiClient', () => {
     it('should create ApiClient with required config', () => {
@@ -304,6 +305,26 @@ describe('ApiClient', () => {
             expect(url).toContain('short_id=abc12345')
             expect(url).toContain(`variables_override=${encodeURIComponent(variablesOverride)}`)
             expect(url).not.toContain('filters_override')
+
+            vi.unstubAllGlobals()
+        })
+
+        it('returns a typed PostHogApiError, not a plain Error, when a short_id matches nothing', async () => {
+            const { client, mockFetch } = setupClient()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+
+            const result = await client.insights({ projectId: '1' }).get({ insightId: 'abc12345' })
+
+            // The list endpoint returns HTTP 200 with an empty `results` for a
+            // stale/typo'd short_id — there's no HTTP error status to route through
+            // `buildApiError`. Callers rely on this error surviving as a typed
+            // `PostHogApiError` (via `findRecoverableApiError`) to classify it as
+            // recoverable agent input instead of capturing it as an exception.
+            expect(result.success).toBe(false)
+            if (!result.success) {
+                expect(result.error).toBeInstanceOf(PostHogApiError)
+                expect((result.error as PostHogApiError).status).toBe(404)
+            }
 
             vi.unstubAllGlobals()
         })
