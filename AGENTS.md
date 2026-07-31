@@ -190,6 +190,8 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
 - Python: do not create empty `__init__.py` files
+- Python: when returning or passing multiple values, prefer a small dataclass over a tuple whenever elements share a type (silently swappable) or there are 3+ of them. Use `@frozen` from `posthog.dataclasses` (frozen, `kw_only`, `slots` by default; every flag overridable, e.g. `@frozen(slots=False)` for `cached_property`). A bare `@dataclass` without an explicit `frozen=` choice fails the ratchet in `posthog/test/test_dataclass_defaults.py`
+- Python: consume dataclass results with dot notation (`result.field`), never by unpacking into positional locals (`a, b = result.a, result.b`), which reintroduces the swap hazard the dataclass exists to prevent. Mark secret fields with `field(repr=False)`
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
 - Tests must earn their place: every new test has to catch a realistic regression no existing test already catches (if you can't name it, don't add it), assert observable behavior through the public interface rather than implementation details, and stay cheap — deterministic, isolated, and at the lowest level that catches the bug (see `/writing-tests`)
