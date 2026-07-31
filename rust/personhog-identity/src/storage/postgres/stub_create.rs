@@ -1,4 +1,4 @@
-//! The stub-creation transaction: one transaction, six steps, each a
+//! The stub-creation transaction: one transaction, four steps, each a
 //! function below, called in order by [`create_person_stubs`]:
 //!
 //! 1. [`insert_or_revive_persons`] — multi-row person insert; a conflict
@@ -6,14 +6,10 @@
 //!    for step 2.
 //! 2. [`fetch_conflict_winners`] — fresh-snapshot fetch of the committed
 //!    rows behind live conflicts (concurrent winners).
-//! 3. [`claim_personless_extras`] — mark extra distinct ids' personless rows
-//!    merged, remembering exactly what changed.
-//! 4. [`insert_distinct_id_mappings`] — multi-row distinct id insert;
+//! 3. [`insert_distinct_id_mappings`] — multi-row distinct id insert;
 //!    tombstoned mappings revive, live conflicts keep the existing row.
-//! 5. [`resolve_stub_outcomes`] — decide Committed/LostRace per stub and
+//! 4. [`resolve_stub_outcomes`] — decide Committed/LostRace per stub and
 //!    undo the rows of stubs that lost their primary mapping.
-//! 6. [`revert_unused_personless_marks`] — revert step 3's marks for stubs
-//!    whose rows were undone.
 //!
 //! Cross-cutting invariants:
 //! - Every multi-row statement binds arrays sorted by its conflict key —
@@ -87,12 +83,8 @@ pub(super) async fn create_person_stubs(
 
     let mut persons = insert_or_revive_persons(&mut tx, stubs, &team_ids, &uuids).await?;
     fetch_conflict_winners(&mut tx, stubs, &team_ids, &uuids, &mut persons).await?;
-    let personless_fresh = claim_personless_extras(&mut tx, stubs).await?;
-    let mapping =
-        insert_distinct_id_mappings(&mut tx, stubs, &uuids, &persons, &personless_fresh).await?;
-    let (outcomes, released) =
-        resolve_stub_outcomes(&mut tx, stubs, &uuids, &persons, &mapping).await?;
-    revert_unused_personless_marks(&mut tx, stubs, &released, personless_fresh).await?;
+    let mapping = insert_distinct_id_mappings(&mut tx, stubs, &uuids, &persons).await?;
+    let outcomes = resolve_stub_outcomes(&mut tx, stubs, &uuids, &persons, &mapping).await?;
 
     tx.commit().await?;
     Ok(outcomes)
@@ -241,65 +233,12 @@ async fn fetch_conflict_winners(
     Ok(())
 }
 
-/// Step 3: extra distinct ids carry personless history forward: a distinct
-/// id already used personless needs its mapping row at version 1 so
-/// ClickHouse emits an override re-pointing those events. The upsert also
-/// marks the personless row merged so concurrent personless events
-/// re-resolve.
-///
-/// The update is conditional on is_merged = false so RETURNING captures
-/// exactly what this transaction changed (insert vs flip), which step 6
-/// reverts for stubs whose rows are undone; already-merged rows return
-/// nothing and are never touched.
-///
-/// Returns (team_id, distinct_id) → freshly-inserted (true) vs flipped from
-/// unmerged (false); pre-existing merged rows are absent.
-async fn claim_personless_extras(
-    tx: &mut Tx<'_>,
-    stubs: &[PersonStub],
-) -> StorageResult<HashMap<(i64, String), bool>> {
-    // Deduped across stubs — DO UPDATE errors on same-command duplicates.
-    let mut personless_seen: HashSet<(i64, &str)> = HashSet::new();
-    let mut personless_pairs: Vec<(i32, String)> = Vec::new();
-    for stub in stubs {
-        for extra in &stub.extra_distinct_ids {
-            if personless_seen.insert((stub.team_id, extra.as_str())) {
-                personless_pairs.push((stub.team_id as i32, extra.clone()));
-            }
-        }
-    }
-    personless_pairs.sort();
-    let (personless_teams, personless_dids): (Vec<i32>, Vec<String>) =
-        personless_pairs.into_iter().unzip();
-
-    let mut personless_fresh: HashMap<(i64, String), bool> = HashMap::new();
-    if personless_dids.is_empty() {
-        return Ok(personless_fresh);
-    }
-
-    let rows = sqlx::query!(
-        r#"
-        INSERT INTO posthog_personlessdistinctid (distinct_id, is_merged, created_at, team_id)
-        SELECT d, true, now(), t FROM unnest($1::int[], $2::text[]) AS u(t, d)
-        ON CONFLICT (team_id, distinct_id) DO UPDATE SET is_merged = true
-            WHERE posthog_personlessdistinctid.is_merged = false
-        RETURNING team_id::bigint as "team_id!", distinct_id, (xmax = 0) as "inserted!"
-        "#,
-        &personless_teams,
-        &personless_dids
-    )
-    .fetch_all(&mut **tx)
-    .await?;
-    for row in rows {
-        personless_fresh.insert((row.team_id, row.distinct_id), row.inserted);
-    }
-    Ok(personless_fresh)
-}
-
-/// Step 4: multi-row distinct id insert. The primary distinct id derives the
-/// person uuid, so personless events already used the same uuid — always
-/// version 0. Extras get version 1 when the distinct id has personless
-/// history (its personless row pre-existed), else version 0.
+/// Step 3: multi-row distinct id insert. The primary distinct id derives the
+/// person uuid, so any events it sent before the person existed already used
+/// the same uuid — always version 0. Extras always get version 1: without
+/// the personless table there is no proof the distinct id never sent events,
+/// and version 1 is safe either way (the override it emits is a transient
+/// no-op when no events exist).
 ///
 /// A conflict with a tombstoned mapping is a revival: repoint it at the new
 /// person and bump the version above the tombstone. Conflicts with live
@@ -311,13 +250,12 @@ async fn insert_distinct_id_mappings(
     stubs: &[PersonStub],
     uuids: &[Uuid],
     persons: &PersonsByKey,
-    personless_fresh: &HashMap<(i64, String), bool>,
 ) -> StorageResult<MappingOutcome> {
     // (team_id, distinct_id, person_id, version)
     let mut pdi_rows: Vec<(i32, String, i64, i64)> = Vec::new();
     for (i, stub) in stubs.iter().enumerate() {
         let Some(resolved) = persons.get(&(stub.team_id, uuids[i])) else {
-            continue; // winner vanished; resolved to LostRace in step 5
+            continue; // winner vanished; resolved to LostRace in step 4
         };
         pdi_rows.push((
             stub.team_id as i32,
@@ -326,18 +264,7 @@ async fn insert_distinct_id_mappings(
             0,
         ));
         for extra in &stub.extra_distinct_ids {
-            // Missing from the map = the personless row pre-existed already
-            // merged, so the distinct id has history: version 1.
-            let fresh = personless_fresh
-                .get(&(stub.team_id, extra.clone()))
-                .copied()
-                .unwrap_or(false);
-            pdi_rows.push((
-                stub.team_id as i32,
-                extra.clone(),
-                resolved.person.id,
-                if fresh { 0 } else { 1 },
-            ));
+            pdi_rows.push((stub.team_id as i32, extra.clone(), resolved.person.id, 1));
         }
     }
     // Stable sort + dedup: batch order picks the winner among duplicate keys
@@ -391,28 +318,21 @@ async fn insert_distinct_id_mappings(
     Ok(mapping)
 }
 
-/// Step 5: per-stub outcomes. A stub is Committed when its primary distinct
+/// Step 4: per-stub outcomes. A stub is Committed when its primary distinct
 /// id maps to its person; a stub whose primary mapping went elsewhere is a
 /// lost race, and if this transaction created its person, the rows are
 /// undone (created this transaction, so nothing can reference them) so the
 /// stub doesn't linger orphaned.
-///
-/// The returned `released` flags mark stubs that leave no distinct id
-/// mappings behind (undone or never inserted), so step 6 can revert their
-/// personless marks. Lost races that keep a pre-existing person keep their
-/// extra mappings and are not released.
 async fn resolve_stub_outcomes(
     tx: &mut Tx<'_>,
     stubs: &[PersonStub],
     uuids: &[Uuid],
     persons: &PersonsByKey,
     mapping: &MappingOutcome,
-) -> StorageResult<(Vec<StubOutcome>, Vec<bool>)> {
+) -> StorageResult<Vec<StubOutcome>> {
     let mut outcomes = Vec::with_capacity(stubs.len());
-    let mut released = vec![false; stubs.len()];
     for (i, stub) in stubs.iter().enumerate() {
         let Some(resolved) = persons.get(&(stub.team_id, uuids[i])) else {
-            released[i] = true;
             outcomes.push(StubOutcome::LostRace);
             continue;
         };
@@ -426,7 +346,6 @@ async fn resolve_stub_outcomes(
         }
         if resolved.created_by_us {
             undo_created_person(tx, stub.team_id, resolved, mapping).await?;
-            released[i] = true;
             outcomes.push(StubOutcome::LostRace);
             continue;
         }
@@ -448,7 +367,7 @@ async fn resolve_stub_outcomes(
             outcomes.push(StubOutcome::LostRace);
         }
     }
-    Ok((outcomes, released))
+    Ok(outcomes)
 }
 
 /// Undo one lost-race stub's rows: its distinct id mappings, then its person
@@ -510,80 +429,6 @@ async fn undo_created_person(
             "DELETE FROM posthog_person WHERE team_id = $1 AND id = $2",
             team_id as i32,
             resolved.person.id
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
-    Ok(())
-}
-
-/// Step 6: step 3 marked every extra distinct id merged, but a released
-/// stub's merge never happened. Revert exactly what this transaction changed
-/// (delete rows it inserted, unflip rows it flipped — the row lock held
-/// since step 3 guarantees the prior value was false), unless a surviving
-/// stub shares the extra: its mapping stands, so the mark must too.
-async fn revert_unused_personless_marks(
-    tx: &mut Tx<'_>,
-    stubs: &[PersonStub],
-    released: &[bool],
-    mut personless_fresh: HashMap<(i64, String), bool>,
-) -> StorageResult<()> {
-    let mut kept_extras: HashSet<(i64, &str)> = HashSet::new();
-    for (i, stub) in stubs.iter().enumerate() {
-        if !released[i] {
-            for extra in &stub.extra_distinct_ids {
-                kept_extras.insert((stub.team_id, extra.as_str()));
-            }
-        }
-    }
-    let mut delete_teams: Vec<i32> = Vec::new();
-    let mut delete_dids: Vec<String> = Vec::new();
-    let mut unmark_teams: Vec<i32> = Vec::new();
-    let mut unmark_dids: Vec<String> = Vec::new();
-    for (i, stub) in stubs.iter().enumerate() {
-        if !released[i] {
-            continue;
-        }
-        for extra in &stub.extra_distinct_ids {
-            if kept_extras.contains(&(stub.team_id, extra.as_str())) {
-                continue;
-            }
-            match personless_fresh.remove(&(stub.team_id, extra.clone())) {
-                Some(true) => {
-                    delete_teams.push(stub.team_id as i32);
-                    delete_dids.push(extra.clone());
-                }
-                Some(false) => {
-                    unmark_teams.push(stub.team_id as i32);
-                    unmark_dids.push(extra.clone());
-                }
-                None => {} // pre-existed merged; step 3 changed nothing
-            }
-        }
-    }
-    if !delete_dids.is_empty() {
-        sqlx::query!(
-            r#"
-            DELETE FROM posthog_personlessdistinctid pl
-            USING unnest($1::int[], $2::text[]) AS u(t, d)
-            WHERE pl.team_id = u.t AND pl.distinct_id = u.d
-            "#,
-            &delete_teams,
-            &delete_dids
-        )
-        .execute(&mut **tx)
-        .await?;
-    }
-    if !unmark_dids.is_empty() {
-        sqlx::query!(
-            r#"
-            UPDATE posthog_personlessdistinctid pl
-            SET is_merged = false
-            FROM unnest($1::int[], $2::text[]) AS u(t, d)
-            WHERE pl.team_id = u.t AND pl.distinct_id = u.d
-            "#,
-            &unmark_teams,
-            &unmark_dids
         )
         .execute(&mut **tx)
         .await?;

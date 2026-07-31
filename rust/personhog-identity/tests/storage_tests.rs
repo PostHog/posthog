@@ -10,21 +10,6 @@ use personhog_identity::storage::{IdentityStorage, PersonStub, StubOutcome};
 
 /// Storage-assertion helpers used only by this test binary.
 impl TestContext {
-    async fn insert_personless_distinct_id(&self, distinct_id: &str, is_merged: bool) {
-        sqlx::query(
-            r#"
-            INSERT INTO posthog_personlessdistinctid (distinct_id, is_merged, created_at, team_id)
-            VALUES ($1, $2, now(), $3)
-            "#,
-        )
-        .bind(distinct_id)
-        .bind(is_merged)
-        .bind(self.team_id as i32)
-        .execute(&self.pool)
-        .await
-        .expect("Failed to insert personless distinct id");
-    }
-
     async fn distinct_id_version(&self, distinct_id: &str) -> Option<i64> {
         sqlx::query_scalar(
             "SELECT version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2",
@@ -35,17 +20,6 @@ impl TestContext {
         .await
         .expect("Failed to fetch distinct id version")
         .flatten()
-    }
-
-    async fn personless_is_merged(&self, distinct_id: &str) -> Option<bool> {
-        sqlx::query_scalar(
-            "SELECT is_merged FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2",
-        )
-        .bind(self.team_id as i32)
-        .bind(distinct_id)
-        .fetch_optional(&self.pool)
-        .await
-        .expect("Failed to fetch personless row")
     }
 
     async fn person_count(&self) -> i64 {
@@ -229,27 +203,24 @@ async fn retried_create_returns_existing_person_without_duplicating() {
 }
 
 #[tokio::test]
-async fn extra_distinct_ids_carry_personless_history_as_version_one() {
+async fn extra_distinct_ids_always_get_version_one() {
     let ctx = TestContext::new().await;
-    // "seen-before" was used personless; "fresh" was not.
-    ctx.insert_personless_distinct_id("seen-before", false)
-        .await;
 
     let outcomes = ctx
         .storage
-        .create_person_stubs(&[stub(&ctx, "primary", &["seen-before", "fresh"])])
+        .create_person_stubs(&[stub(&ctx, "primary", &["extra-a", "extra-b"])])
         .await
         .expect("create should succeed");
     let [StubOutcome::Committed { created: true, .. }] = &outcomes[..] else {
         panic!("expected created outcome");
     };
 
+    // The primary derives the person uuid, so its history is correct by
+    // construction: version 0. Extras can't be proven history-free, so they
+    // always get version 1 and let ClickHouse emit an override.
     assert_eq!(ctx.distinct_id_version("primary").await, Some(0));
-    assert_eq!(ctx.distinct_id_version("seen-before").await, Some(1));
-    assert_eq!(ctx.distinct_id_version("fresh").await, Some(0));
-    // Both extras are marked merged so concurrent personless events re-resolve.
-    assert_eq!(ctx.personless_is_merged("seen-before").await, Some(true));
-    assert_eq!(ctx.personless_is_merged("fresh").await, Some(true));
+    assert_eq!(ctx.distinct_id_version("extra-a").await, Some(1));
+    assert_eq!(ctx.distinct_id_version("extra-b").await, Some(1));
 
     ctx.cleanup().await.ok();
 }
@@ -285,25 +256,18 @@ async fn create_loses_race_when_distinct_id_is_mapped_to_another_person() {
 }
 
 #[tokio::test]
-async fn lost_race_undo_reverts_only_the_personless_marks_it_made() {
+async fn lost_race_undo_keeps_extras_shared_with_a_committed_stub() {
     let ctx = TestContext::new().await;
     // The loser's primary distinct id is already mapped elsewhere, so its
-    // whole stub rolls back — including the step that marked its extras
-    // merged. One extra per prior state: no row, unmerged row, merged row.
+    // whole stub rolls back — but an extra shared with a committed stub was
+    // written under the winner's person and must survive the undo.
     ctx.insert_person_with_distinct_id("undo-taken").await;
-    ctx.insert_personless_distinct_id("undo-flipped", false)
-        .await;
-    ctx.insert_personless_distinct_id("undo-merged", true).await;
 
     let outcomes = ctx
         .storage
         .create_person_stubs(&[
             stub(&ctx, "undo-winner", &["undo-shared"]),
-            stub(
-                &ctx,
-                "undo-taken",
-                &["undo-fresh", "undo-flipped", "undo-merged", "undo-shared"],
-            ),
+            stub(&ctx, "undo-taken", &["undo-own", "undo-shared"]),
         ])
         .await
         .expect("create should not error");
@@ -318,13 +282,9 @@ async fn lost_race_undo_reverts_only_the_personless_marks_it_made() {
         "expected committed + lost race, got {outcomes:?}"
     );
 
-    // The undone stub's marks are reverted to their prior state…
-    assert_eq!(ctx.personless_is_merged("undo-fresh").await, None);
-    assert_eq!(ctx.personless_is_merged("undo-flipped").await, Some(false));
-    assert_eq!(ctx.personless_is_merged("undo-merged").await, Some(true));
-    // …but an extra shared with a committed stub keeps its mapping and mark.
-    assert_eq!(ctx.personless_is_merged("undo-shared").await, Some(true));
-    assert_eq!(ctx.distinct_id_version("undo-shared").await, Some(0));
+    // The undone stub's own rows are gone, the shared extra's mapping stands.
+    assert_eq!(ctx.distinct_id_version("undo-own").await, None);
+    assert_eq!(ctx.distinct_id_version("undo-shared").await, Some(1));
 
     ctx.cleanup().await.ok();
 }
