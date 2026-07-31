@@ -1,10 +1,28 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 
-import { Link } from './Link'
+import { Link, LinkPrimitive } from './Link'
 
 describe('Link', () => {
+    it('opens target="_blank" links via window.open instead of the anchor default action', () => {
+        // A link inside a menu that closes (and unmounts the anchor) on click can have its
+        // native default action silently dropped by the browser - see LinkPrimitive's onClick.
+        const openSpy = jest.spyOn(window, 'open').mockImplementation(() => null)
+
+        render(
+            <LinkPrimitive to="/insights/new" target="_blank" disableClientSideRouting>
+                open insight
+            </LinkPrimitive>
+        )
+
+        fireEvent.click(screen.getByText('open insight'))
+
+        expect(openSpy).toHaveBeenCalledWith('/insights/new', '_blank', 'noopener,noreferrer')
+
+        openSpy.mockRestore()
+    })
+
     it('never resolves a javascript: target to an executable href, even with client-side routing disabled', () => {
         // disableClientSideRouting short-circuits the routing rewrite that would otherwise neutralize the
         // scheme, so the scheme block must hold regardless of it (e.g. if the flag is set via prototype pollution).

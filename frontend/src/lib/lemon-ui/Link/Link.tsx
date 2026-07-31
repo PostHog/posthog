@@ -151,6 +151,7 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
     ) => {
         const externalLink = isExternalLink(to)
         const { elementProps: draggableProps } = useLinkDrag(typeof to === 'string' ? to : undefined)
+        const href = resolveHref(to, disableClientSideRouting)
 
         const onClick = (event: React.MouseEvent<HTMLElement>): void => {
             if (event.metaKey || event.ctrlKey) {
@@ -174,6 +175,12 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
                         router.actions.push(to)
                     }
                 }
+            } else if (target === '_blank' && href && href !== '#' && !preventClick) {
+                // Navigate explicitly instead of relying on the anchor's native default action:
+                // if this link sits inside a menu/popover that closes (and unmounts the anchor)
+                // on click, the browser can drop the default action before it completes.
+                event.preventDefault()
+                window.open(href, target, 'noopener,noreferrer')
             }
         }
 
@@ -193,7 +200,6 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
         }
 
         const rel = typeof to === 'string' && isPostHogDomain(to) ? 'noopener' : 'noopener noreferrer'
-        const href = resolveHref(to, disableClientSideRouting)
         const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
 
         return (

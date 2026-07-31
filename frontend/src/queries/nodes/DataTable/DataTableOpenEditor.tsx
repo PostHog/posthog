@@ -4,6 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -17,12 +19,14 @@ interface DataTableOpenEditorProps {
 
 export function DataTableOpenEditor({ query }: DataTableOpenEditorProps): JSX.Element | null {
     const { response } = useValues(dataTableLogic)
+    const disabledReason = getProductAccessDisabledReason({ sceneKey: Scene.Insight, displayLabel: 'Insights' })
 
     return (
         <LemonButton
             type="secondary"
             icon={<IconTableChart />}
-            to={urls.insightNew({ query })}
+            to={disabledReason ? undefined : urls.insightNew({ query })}
+            disabledReason={disabledReason}
             sideAction={
                 response && 'hogql' in response && response.hogql
                     ? {

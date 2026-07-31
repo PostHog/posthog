@@ -6,9 +6,11 @@ import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRec
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightUrlForEvent } from 'scenes/insights/utils'
+import { Scene } from 'scenes/sceneTypes'
 import { ArchiveSurveyButton } from 'scenes/surveys/components/ArchiveSurveyButton'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -45,6 +47,10 @@ export function EventRowActions({
 
 function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
     const insightUrl = insightUrlForEvent(event)
+    const insightAccessDisabledReason = getProductAccessDisabledReason({
+        sceneKey: Scene.Insight,
+        displayLabel: 'Insights',
+    })
 
     return (
         <>
@@ -92,7 +98,13 @@ function EventRowActionsDropdown({ event }: { event: EventType }): JSX.Element {
                 </LemonButton>
             ) : null}
             {insightUrl && (
-                <LemonButton to={insightUrl} fullWidth data-attr="events-table-usage" targetBlank>
+                <LemonButton
+                    to={insightAccessDisabledReason ? undefined : insightUrl}
+                    disabledReason={insightAccessDisabledReason}
+                    fullWidth
+                    data-attr="events-table-usage"
+                    targetBlank
+                >
                     Try out in Insights
                 </LemonButton>
             )}
