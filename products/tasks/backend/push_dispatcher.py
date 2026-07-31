@@ -118,10 +118,10 @@ def _notify_task_thread_message(message: TaskThreadMessage, mentioned_user_ids: 
     visible_task = Task.objects.for_team(message.team_id).filter(  # type: ignore[attr-defined]  # fail-closed manager is attached dynamically
         task_visibility_q(cast(int, OuterRef("id"))), id=message.task_id
     )
-    recipients = (
-        User.objects.filter(id__in=recipient_ids, teams__id=message.team_id).filter(Exists(visible_task)).distinct()
-    )
+    recipients = User.objects.filter(id__in=recipient_ids).filter(Exists(visible_task))
     for user in recipients:
+        if not user.teams.filter(id=message.team_id).exists():
+            continue
         action = "mentioned you" if user.id in mentioned else "replied"
         try:
             _enqueue_user(
