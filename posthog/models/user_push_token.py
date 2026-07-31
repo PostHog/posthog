@@ -23,6 +23,7 @@ class UserPushToken(UUIDModel):
         related_name="push_tokens",
     )
     token = models.TextField(
+        unique=True,
         help_text="Opaque push token issued by the platform push service (e.g. Expo push token).",
     )
     platform = models.CharField(

@@ -275,6 +275,22 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         # The author wasn't mentioned, so their own feed stays empty.
         self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
 
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_thread_message_notifies_creator_and_mentions_only(self, mock_delay, _flag):
+        mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
+        unmentioned = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(mentioned, unmentioned)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            message = self._post_message(self.peer_client, "ping @[Mina](mentioned@example.com)")
+
+        calls_by_user_id = {call.args[0]: call.args for call in mock_delay.call_args_list}
+        self.assertEqual(set(calls_by_user_id), {self.author.id, mentioned.id})
+        self.assertEqual(calls_by_user_id[self.author.id][3]["messageId"], message["id"])
+        self.assertIn("replied", calls_by_user_id[self.author.id][2])
+        self.assertIn("mentioned you", calls_by_user_id[mentioned.id][2])
+
     def test_mentions_resolve_case_insensitively(self):
         self._post_message(self.author_client, "cc @[Bob](Peer@Example.COM)")
         self.assertEqual(len(self.peer_client.get(self._mentions_url()).json()), 1)

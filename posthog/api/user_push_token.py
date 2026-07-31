@@ -126,14 +126,11 @@ class UserPushTokenViewSet(viewsets.GenericViewSet):
         # model's `auto_now=True`) because `update_or_create` passes
         # `defaults.keys()` as `update_fields` on the update path — fields not
         # listed there won't be written even though `pre_save` ran for them.
-        push_token, created = UserPushToken.objects.update_or_create(
-            user=user,
+        push_token, _ = UserPushToken.objects.update_or_create(
             token=token,
-            defaults={"platform": platform, "last_seen_at": django_timezone.now()},
+            defaults={"user": user, "platform": platform, "last_seen_at": django_timezone.now()},
         )
-
-        if created:
-            self._enforce_per_user_cap(user)
+        self._enforce_per_user_cap(user)
 
         return Response(UserPushTokenItemSerializer(push_token).data)
 

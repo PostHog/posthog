@@ -83,7 +83,7 @@ class TestUserPushTokenEndpoints(APIBaseTest):
         self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists())
         self.assertTrue(UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists())
 
-    def test_register_does_not_leak_across_users(self):
+    def test_register_transfers_token_between_users(self):
         other_user = self._create_user("other@example.com")
         UserPushToken.objects.create(user=other_user, token="ExponentPushToken[abc]", platform="ios")
 
@@ -93,8 +93,8 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Both users now own a row for that token (unique together is per-user).
-        self.assertEqual(UserPushToken.objects.filter(token="ExponentPushToken[abc]").count(), 2)
+        token = UserPushToken.objects.get(token="ExponentPushToken[abc]")
+        self.assertEqual(token.user, self.user)
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
