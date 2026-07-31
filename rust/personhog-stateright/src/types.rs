@@ -62,21 +62,19 @@ pub struct WarmState {
     pub accepted: u8,
 }
 
-/// A warm in progress under `Variant::EpochFenced`, between its two
-/// steps. Which value is already frozen is exactly what distinguishes
-/// the two orderings of `warm_partition`: acquiring the fence first
-/// leaves the cutoff open (writes landing before the read are still
-/// captured), while reading first freezes the cutoff before the fence
-/// exists (a still-unfenced zombie can commit an acked write the warm
-/// will never see).
+/// A warm caught between its two steps, under the rejected read-first
+/// ordering: the changelog read is taken while the fence — and with it
+/// the rejection of a stale owner's write — does not exist yet, so a
+/// write can be acked into the gap and sit above the cutoff forever.
+///
+/// Fence-first needs no such state. Its epoch bump precedes the read and
+/// an append requires an installed warm carrying the current epoch, so
+/// nothing can append between the two steps and the model installs the
+/// warm atomically.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum PendingWarm {
-    /// `init_transactions` done, changelog read not yet taken (the
-    /// shipped ordering).
-    FenceAcquired { epoch: u8 },
-    /// Changelog read taken, fence not yet acquired (the rejected
-    /// ordering, kept checkable).
-    CutoffCaptured { cutoff: u8 },
+pub struct PendingWarm {
+    /// The changelog length captured before the fence existed.
+    pub cutoff: u8,
 }
 
 /// One leader pod. `registered` is the etcd lease-bound registration key;

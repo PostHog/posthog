@@ -216,9 +216,24 @@ impl HandoffModel {
         partition: Partition,
         for_handoff: Option<HandoffId>,
     ) {
-        if self.variant == Variant::Current {
+        // Both orderings are two steps in production, but only one of
+        // them is *observably* two steps. Acquiring the fence first bumps
+        // the epoch before the read, and an append requires an installed
+        // warm carrying the current epoch — which no pod has during the
+        // gap, this one included. The changelog therefore cannot grow
+        // between the two steps, so the cutoff read at acquire time and
+        // at install time are the same value and no interleaving can tell
+        // them apart. Collapsing that case keeps the state space at the
+        // size it had before the decomposition; `ReadFirst`, where the
+        // gap is the entire point, stays split.
+        let observable_gap =
+            self.variant == Variant::EpochFenced && self.warm_order == WarmOrder::ReadFirst;
+        if !observable_gap {
             let warm = {
-                let log = &state.changelogs[&partition];
+                let log = state.changelogs.get_mut(&partition).unwrap();
+                if self.variant == Variant::EpochFenced {
+                    log.epoch = log.epoch.wrapping_add(1);
+                }
                 WarmState {
                     for_handoff,
                     epoch: log.epoch,
@@ -233,23 +248,11 @@ impl HandoffModel {
         }
         match state.pods[&x].pending_warm.get(&partition).copied() {
             None => {
-                let pending = match self.warm_order {
-                    WarmOrder::FenceFirst => {
-                        // `fenced.acquire`: `init_transactions` bumps the
-                        // broker epoch, fencing every earlier producer.
-                        let log = state.changelogs.get_mut(&partition).unwrap();
-                        log.epoch = log.epoch.wrapping_add(1);
-                        PendingWarm::FenceAcquired { epoch: log.epoch }
-                    }
-                    WarmOrder::ReadFirst => {
-                        // The rejected ordering: the changelog read runs
-                        // to the current HWM while the fence — and thus
-                        // the write-rejection of a zombie — does not
-                        // exist yet.
-                        PendingWarm::CutoffCaptured {
-                            cutoff: state.changelogs[&partition].len,
-                        }
-                    }
+                // The rejected ordering: the changelog read runs to the
+                // current HWM while the fence — and thus the rejection of
+                // a zombie's write — does not exist yet.
+                let pending = PendingWarm {
+                    cutoff: state.changelogs[&partition].len,
                 };
                 state
                     .pods
@@ -258,28 +261,17 @@ impl HandoffModel {
                     .pending_warm
                     .insert(partition, pending);
             }
-            Some(pending) => {
-                let warm = match pending {
-                    // The fence held since step one froze the changelog
-                    // to older producers, so reading to the present HWM
-                    // captures everything any fenced writer ever acked.
-                    PendingWarm::FenceAcquired { epoch } => WarmState {
+            Some(PendingWarm { cutoff }) => {
+                // The cutoff predates the fence: anything committed in
+                // the gap sits beyond it, invisible forever.
+                let warm = {
+                    let log = state.changelogs.get_mut(&partition).unwrap();
+                    log.epoch = log.epoch.wrapping_add(1);
+                    WarmState {
                         for_handoff,
-                        epoch,
-                        cutoff: state.changelogs[&partition].len,
+                        epoch: log.epoch,
+                        cutoff,
                         accepted: 0,
-                    },
-                    // The cutoff predates the fence: anything committed
-                    // in the gap sits beyond it, invisible forever.
-                    PendingWarm::CutoffCaptured { cutoff } => {
-                        let log = state.changelogs.get_mut(&partition).unwrap();
-                        log.epoch = log.epoch.wrapping_add(1);
-                        WarmState {
-                            for_handoff,
-                            epoch: log.epoch,
-                            cutoff,
-                            accepted: 0,
-                        }
                     }
                 };
                 let pod = state.pods.get_mut(&x).unwrap();
@@ -305,10 +297,7 @@ impl HandoffModel {
         let pod = &state.pods[&h.new_owner];
         match pod.warmed.get(&partition) {
             Some(w) => w.for_handoff == Some(h.id),
-            None => matches!(
-                pod.pending_warm.get(&partition),
-                Some(PendingWarm::CutoffCaptured { .. })
-            ),
+            None => pod.pending_warm.contains_key(&partition),
         }
     }
 
@@ -318,11 +307,7 @@ impl HandoffModel {
     /// taken mid-warm read freezes it.
     fn owner_cutoff_frozen(&self, state: &SystemState, x: PodId, partition: Partition) -> bool {
         let pod = &state.pods[&x];
-        pod.warmed.contains_key(&partition)
-            || matches!(
-                pod.pending_warm.get(&partition),
-                Some(PendingWarm::CutoffCaptured { .. })
-            )
+        pod.warmed.contains_key(&partition) || pod.pending_warm.contains_key(&partition)
     }
 
     /// Serve a strong read at pod `x`, if it can (running, partition
