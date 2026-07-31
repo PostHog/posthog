@@ -242,22 +242,41 @@ async def test_post_import_fork(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "steps_mode",
+    [
+        # New runs dispatch from the step list the resolve activity recorded.
+        pytest.param("activity", id="activity_step_list"),
+        # In-flight pre-deploy runs have a context without `steps`; the legacy fallback
+        # must reproduce the old command sequence or their replay breaks on deploy.
+        pytest.param("legacy", id="legacy_fallback"),
+    ],
+)
+@pytest.mark.parametrize(
     "gates_on",
     [
         pytest.param(True, id="all_steps_gated_on"),
         pytest.param(False, id="gated_steps_skipped"),
     ],
 )
-async def test_post_import_workflow_runs_moved_steps(gates_on: bool):
-    # If a moved step is dropped from data-import-post-import, V3 syncs silently lose it
-    # (there is no other place it runs); if the gates are ignored, disabled products run.
+async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode: str):
+    # If a step is dropped from the registry, V3 syncs silently lose it (there is no
+    # other place it runs); if the gates are ignored, disabled products run. Both
+    # dispatch paths must issue the same commands for the same gating.
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        DUCKLAKE_COPY_STEP,
+        EMIT_SIGNALS_STEP,
+        SEMANTIC_ENRICHMENT_STEP,
+        TABLE_SIZE_STEP,
+        TABLE_STATISTICS_STEP,
         PostImportContext,
         PostImportWorkflow,
         PostImportWorkflowInputs,
     )
 
     executed: list[str] = []
+
+    gated_steps = [EMIT_SIGNALS_STEP, SEMANTIC_ENRICHMENT_STEP, TABLE_STATISTICS_STEP] if gates_on else []
+    steps = None if steps_mode == "legacy" else [*gated_steps, TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
 
     @activity.defn(name="resolve_post_import_context_activity")
     async def resolve_context(inputs: PostImportWorkflowInputs) -> PostImportContext:
@@ -268,6 +287,7 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool):
             emit_signals_enabled=gates_on,
             enrichment_needed=gates_on,
             statistics_needed=gates_on,
+            steps=steps,
         )
 
     @activity.defn(name="calculate_table_size_activity")
@@ -351,6 +371,8 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
 
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        DUCKLAKE_COPY_STEP,
+        TABLE_SIZE_STEP,
         PostImportWorkflowInputs,
         resolve_post_import_context_activity,
     )
@@ -372,13 +394,18 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
     assert ctx.source_type == "Stripe"
     assert ctx.schema_name == "Customer"
     assert ctx.last_synced_at == pre_sync
+    # The always-on steps must be recorded for a completed job (feature-gated steps are
+    # off in the test environment); a None here would send new runs down the legacy path.
+    assert ctx.steps is not None
+    assert ctx.steps[-2:] == [TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("case", ["job_deleted", "job_not_completed"])
 def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team, case, _no_close_old_connections):
     # A cancelled job (Completed write suppressed after the final batch) or a deleted job
-    # must not fan out signals/enrichment — the resolve activity returns the skip-all context.
+    # must not fan out any step — steps=[] rather than None, or the workflow's legacy
+    # fallback would still run table size and the DuckLake copy for it.
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
         PostImportContext,
@@ -398,4 +425,4 @@ def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team,
         PostImportWorkflowInputs(team_id=team.pk, job_id=job_id, schema_id=str(schema.id), source_id=str(source.id))
     )
 
-    assert ctx == PostImportContext()
+    assert ctx == PostImportContext(steps=[])
