@@ -1,7 +1,8 @@
 # Live widgets (self-updating tiles)
 
 A **live** widget seeds once from `run_widgets`, then self-updates client-side — it does not rely on the dashboard refresh loop for freshness.
-This doc is the paved path for building one. The first consumer, web analytics live widgets, lands in a separate PR — references to it below show how the platform is meant to be used, not code that ships here.
+This doc is the paved path for building one.
+Examples below reference web analytics live widgets, the first consumer of the platform — they show how it is meant to be used rather than code the platform itself ships.
 
 ## The contract
 
@@ -58,6 +59,6 @@ On top of the normal [new-type checklist](checklist-new-widget-type.md):
 3. Catalog: `headerMeta: { showDateRange: false }`; optionally gate the group out of the picker pre-release via `DASHBOARD_WIDGET_GROUP_FEATURE_FLAGS` ([availability-and-gating.md](availability-and-gating.md)).
 4. One unkeyed shared logic on `liveWidgetStream` + `LiveWidgetSlidingWindow` (or your own windowing if minute buckets don't fit — keep the idempotent-seed rule).
 5. Components: `useLiveWidgetSeed(payload, seedAction, guard)`, render from selectors, `LiveWidgetEmptyState` when the window is empty.
-6. `hogli build:widget-types` (regenerates the manifest; preflight fails on `dateRange`), then the normal verify suite.
+6. `hogli build:widget-types` (regenerates the manifest; preflight fails on `dateRange` or `filterTestAccounts`), then the normal verify suite.
 
-The first consumer to follow this recipe end to end will be web analytics live widgets (`products/dashboards/frontend/widgets/web_analytics/`), landing in a separate PR.
+Web analytics live widgets (`products/dashboards/frontend/widgets/web_analytics/`) are the first consumer to follow this recipe end to end.

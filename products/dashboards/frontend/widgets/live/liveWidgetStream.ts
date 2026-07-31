@@ -1,4 +1,4 @@
-import { connect, events } from 'kea'
+import { connect, events, listeners } from 'kea'
 import type { BuiltLogic, Logic, LogicBuilder } from 'kea'
 
 import { createStreamConnection } from 'lib/api-stream'
@@ -40,6 +40,11 @@ export interface LiveWidgetStreamOptions {
  * and pauses while the tab is hidden (reconnecting on show). The dropped span is healed by the
  * next run_widgets re-seed — live seeds are idempotent by contract (see `LiveWidgetSeedPayload`).
  *
+ * Connecting is re-evaluated on mount and whenever `currentTeam` resolves, because a tile can mount
+ * before teamLogic has loaded the team (scenes render as soon as the user is known) — without that
+ * the widget would sit on its seed forever. teamLogic also reloads the team on a poll, so the
+ * connection is keyed by token + URL and only rebuilt when one of them actually changes.
+ *
  * The builder only adds `connect`/`events` wiring — kea-typegen cannot see builder-injected
  * symbols, so the consuming logic declares its own actions/reducers/selectors and this builder
  * dispatches into them through the callbacks.
@@ -48,67 +53,82 @@ export function liveWidgetStream<L extends Logic = Logic>(options: LiveWidgetStr
     const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS
 
     return (logic) => {
-        connect(() => ({ values: [teamLogic, ['currentTeam']] }))(logic)
-        events(({ cache }) => ({
-            afterMount: () => {
-                const team = teamLogic.values.currentTeam
-                const token = team?.live_events_token
-                const host = liveEventsHostOrigin()
-                if (!team || !token || !host) {
-                    return
-                }
-                const spec = options.getStreamSpec(team)
-                if (!spec) {
-                    return
-                }
+        connect(() => ({
+            values: [teamLogic, ['currentTeam']],
+            actions: [teamLogic, ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess']],
+        }))(logic)
 
-                const url = new URL(`${host}/events`)
-                if (spec.eventType) {
-                    url.searchParams.append('eventType', spec.eventType)
-                }
-                if (spec.columns?.length) {
-                    url.searchParams.append('columns', spec.columns.join(','))
-                }
+        const syncConnection = (): void => {
+            const { cache } = logic
+            const team = teamLogic.values.currentTeam
+            const token = team?.live_events_token
+            const host = liveEventsHostOrigin()
+            if (!team || !token || !host) {
+                return
+            }
+            const spec = options.getStreamSpec(team)
+            if (!spec) {
+                return
+            }
 
-                let batch: LiveEvent[] = []
+            const url = new URL(`${host}/events`)
+            if (spec.eventType) {
+                url.searchParams.append('eventType', spec.eventType)
+            }
+            if (spec.columns?.length) {
+                url.searchParams.append('columns', spec.columns.join(','))
+            }
 
-                // pauseOnPageHidden (default) aborts the stream when the tab hides and reconnects on show.
-                cache.disposables.add(() => {
-                    batch = []
-                    const connection = createStreamConnection({
-                        url,
-                        token,
-                        onMessage: (data) => {
-                            try {
-                                batch.push(JSON.parse(data) as LiveEvent)
-                            } catch (error) {
-                                console.error('Failed to parse live widget event:', error)
-                            }
-                        },
-                        onError: (error) => {
-                            console.error('Live widget stream error:', error)
-                        },
-                    })
-                    return () => connection.abort()
-                }, 'liveWidgetStream.connection')
+            const connectionKey = `${token}::${url.toString()}`
+            if (cache.liveWidgetStreamKey === connectionKey) {
+                return
+            }
+            cache.liveWidgetStreamKey = connectionKey
 
-                cache.disposables.add(() => {
-                    const intervalId = setInterval(() => {
-                        if (batch.length) {
-                            options.onEvents(batch, logic)
-                            batch = []
+            let batch: LiveEvent[] = []
+
+            // pauseOnPageHidden (default) aborts the stream when the tab hides and reconnects on show.
+            cache.disposables.add(() => {
+                batch = []
+                const connection = createStreamConnection({
+                    url,
+                    token,
+                    onMessage: (data) => {
+                        try {
+                            batch.push(JSON.parse(data) as LiveEvent)
+                        } catch (error) {
+                            console.error('Failed to parse live widget event:', error)
                         }
-                    }, flushIntervalMs)
-                    return () => clearInterval(intervalId)
-                }, 'liveWidgetStream.flush')
+                    },
+                    onError: (error) => {
+                        console.error('Live widget stream error:', error)
+                    },
+                })
+                return () => connection.abort()
+            }, 'liveWidgetStream.connection')
 
-                if (options.onMinuteTick) {
-                    cache.disposables.add(() => {
-                        const intervalId = setInterval(() => options.onMinuteTick?.(logic), MINUTE_TICK_INTERVAL_MS)
-                        return () => clearInterval(intervalId)
-                    }, 'liveWidgetStream.tick')
-                }
-            },
+            cache.disposables.add(() => {
+                const intervalId = setInterval(() => {
+                    if (batch.length) {
+                        options.onEvents(batch, logic)
+                        batch = []
+                    }
+                }, flushIntervalMs)
+                return () => clearInterval(intervalId)
+            }, 'liveWidgetStream.flush')
+
+            if (options.onMinuteTick) {
+                cache.disposables.add(() => {
+                    const intervalId = setInterval(() => options.onMinuteTick?.(logic), MINUTE_TICK_INTERVAL_MS)
+                    return () => clearInterval(intervalId)
+                }, 'liveWidgetStream.tick')
+            }
+        }
+
+        events(() => ({ afterMount: syncConnection }))(logic)
+        listeners(() => ({
+            loadCurrentTeamSuccess: syncConnection,
+            updateCurrentTeamSuccess: syncConnection,
         }))(logic)
     }
 }

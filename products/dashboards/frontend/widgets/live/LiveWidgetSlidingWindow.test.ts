@@ -83,6 +83,32 @@ describe('LiveWidgetSlidingWindow', () => {
         expect(window.breakdownTotals('paths')).toEqual([{ value: '/docs', views: 3 }])
     })
 
+    it('does not let a stale out-of-order re-seed reopen the gate on events a newer seed covered', () => {
+        const window = makeWindow()
+        const staleGeneratedAt = relativeTime(-2 * MINUTE)
+
+        window.mergeCountSeed([{ minute: relativeTime(-1 * MINUTE), count: 3 }], relativeTime(0))
+        window.mergeBreakdownSeed(
+            'paths',
+            [{ minute: relativeTime(-1 * MINUTE), value: '/docs', views: 3 }],
+            relativeTime(0)
+        )
+
+        // An earlier run_widgets response lands after the newer one — it must not lower the watermark.
+        window.mergeCountSeed([{ minute: relativeTime(-1 * MINUTE), count: 1 }], staleGeneratedAt)
+        window.mergeBreakdownSeed(
+            'paths',
+            [{ minute: relativeTime(-1 * MINUTE), value: '/docs', views: 1 }],
+            staleGeneratedAt
+        )
+
+        // Already covered by the newer seed, so it must still be gated out.
+        window.addEvent(pageview(relativeTime(-1 * MINUTE), { $pathname: '/docs' }))
+
+        expect(window.totalCount()).toBe(3)
+        expect(window.breakdownTotals('paths')).toEqual([{ value: '/docs', views: 3 }])
+    })
+
     it('keeps domain seeds independent: seeding one domain does not clear counts or other domains', () => {
         const window = makeWindow()
         window.mergeCountSeed([{ minute: relativeTime(-2 * MINUTE), count: 3 }], relativeTime(0))

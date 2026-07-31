@@ -22,7 +22,8 @@ const toMinuteBucket = (seconds: number): number => Math.floor(seconds / 60) * 6
  *
  * Each domain can be re-seeded independently because each widget's run_widgets result arrives
  * separately. A domain's seed carries a `generatedAt` server timestamp; streamed events at or
- * before it are dropped for that domain so a re-seed never double counts.
+ * before it are dropped for that domain so a re-seed never double counts. That watermark only ever
+ * advances, so seeds arriving out of order cannot reopen the gate on events a newer seed covered.
  *
  * Seeds arrive once per domain from the dashboard's initial run_widgets fetch (and again on manual
  * tile refresh), then the stream keeps the window moving. Seeds MERGE via per-bucket max rather
@@ -80,7 +81,7 @@ export class LiveWidgetSlidingWindow<D extends string = string> {
             merged.set(minute, Math.max(merged.get(minute) ?? 0, count))
         }
         this.countsByMinute = merged
-        this.newerThan.counts = toEpochSeconds(generatedAt) ?? this.newerThan.counts
+        this.newerThan.counts = Math.max(this.newerThan.counts, toEpochSeconds(generatedAt) ?? 0)
     }
 
     mergeBreakdownSeed(domain: D, buckets: LiveWidgetSeedBucket[], generatedAt: string): void {
@@ -103,7 +104,7 @@ export class LiveWidgetSlidingWindow<D extends string = string> {
             merged.set(minute, mergedByValue)
         }
         this.breakdowns[domain] = merged
-        this.newerThan[domain] = toEpochSeconds(generatedAt) ?? this.newerThan[domain]
+        this.newerThan[domain] = Math.max(this.newerThan[domain], toEpochSeconds(generatedAt) ?? 0)
     }
 
     prune(nowSeconds: number = Date.now() / 1000): void {

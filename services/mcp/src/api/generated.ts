@@ -2081,6 +2081,8 @@ export namespace Schemas {
       readonly config_schema: ActivityEventsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -21135,6 +21137,8 @@ export namespace Schemas {
       readonly config_schema: ErrorTrackingListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -23530,6 +23534,8 @@ export namespace Schemas {
       readonly config_schema: ExperimentResultsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -23713,6 +23719,8 @@ export namespace Schemas {
       readonly config_schema: ExperimentsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -31106,6 +31114,8 @@ export namespace Schemas {
       readonly config_schema: LogsListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -51404,6 +51414,8 @@ export namespace Schemas {
       readonly config_schema: SessionReplayListWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
@@ -55058,6 +55070,8 @@ export namespace Schemas {
       readonly config_schema: SurveyResultsWidgetConfig;
       /** @nullable */
       required_product_access?: string | null;
+      /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+      live: boolean;
     }
 
     /**
