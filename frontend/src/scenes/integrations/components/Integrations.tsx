@@ -3,11 +3,11 @@ import { PropsWithChildren, useMemo, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -105,24 +105,18 @@ export function GitHubInstallationLink({
     }
 
     return (
-        <DropdownMenu>
-            <DropdownMenuTrigger
-                render={<LemonButton type="secondary" loading={loading} sideIcon={<IconChevronDown />} />}
-            >
+        <LemonMenu
+            items={installations.map((installation) => ({
+                key: installation.installation_id,
+                label: installation.account_name ?? `Installation ${installation.installation_id}`,
+                disabledReason: loading ? 'Linking an installation' : undefined,
+                onClick: () => onLink(installation.installation_id),
+            }))}
+        >
+            <LemonButton type="secondary" loading={loading} sideIcon={<IconChevronDown />}>
                 Link existing installation
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-64 max-w-96">
-                {installations.map((installation) => (
-                    <DropdownMenuItem
-                        key={installation.installation_id}
-                        disabled={loading}
-                        onClick={() => onLink(installation.installation_id)}
-                    >
-                        {installation.account_name ?? `Installation ${installation.installation_id}`}
-                    </DropdownMenuItem>
-                ))}
-            </DropdownMenuContent>
-        </DropdownMenu>
+            </LemonButton>
+        </LemonMenu>
     )
 }
 
