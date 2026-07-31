@@ -644,6 +644,25 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if installation.scope == "shared" and installation.user_id != self.request.user.id:
             raise PermissionDenied("Only the credential owner can modify a shared server.")
 
+    def _reset_recycled_installation(self, installation: MCPServerInstallation, *, auth_type: str = "") -> None:
+        """Freshen a row that get_or_create matched instead of creating.
+
+        Installs are keyed on (team, url, scope), so removing a server and
+        adding it back reuses the original row. Removing a gateway server
+        disables its installations rather than deleting them, so without this
+        the re-added server comes back switched off. An explicit install means
+        the user wants it on.
+        """
+        update_fields = []
+        if auth_type and installation.auth_type != auth_type:
+            installation.auth_type = auth_type
+            update_fields.append("auth_type")
+        if not installation.is_enabled:
+            installation.is_enabled = True
+            update_fields.append("is_enabled")
+        if update_fields:
+            installation.save(update_fields=[*update_fields, "updated_at"])
+
     def _is_project_admin(self) -> bool:
         """True for organization admins/owners, or users explicitly granted
         admin on this project via access controls.
@@ -1057,6 +1076,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         # A pre-existing shared row may belong to another member; block hijacking its creds.
         if not created:
             self._assert_shared_mutation_allowed(installation)
+            self._reset_recycled_installation(installation)
         # Re-link in case a previous install pointed elsewhere (e.g. post-migration reconnect).
         if installation.template_id != template.id:
             installation.template = template
@@ -1352,9 +1372,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         # from swapping its DCR client / clearing its tokens via reinstall.
         if not created:
             self._assert_shared_mutation_allowed(installation)
-        if not created and installation.auth_type != "oauth":
-            installation.auth_type = "oauth"
-            installation.save(update_fields=["auth_type", "updated_at"])
+            self._reset_recycled_installation(installation, auth_type="oauth")
 
         try:
             metadata = discover_oauth_metadata(mcp_url)

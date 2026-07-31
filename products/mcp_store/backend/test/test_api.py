@@ -2786,6 +2786,41 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         row = MCPOAuthState.objects.get(token_hash=hashlib.sha256(state_token.encode("utf-8")).hexdigest())
         assert row.created_by_id == self.user.id
 
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        return_value=("dcr-client-id", None, "none"),
+    )
+    def test_install_custom_reenables_recycled_installation(self, _mock_dcr, mock_discover, _allow):
+        """Removing a gateway server disables its rows; reinstalling must switch them back on."""
+        mock_discover.return_value = {
+            "issuer": "https://auth.example.com",
+            "authorization_endpoint": "https://auth.example.com/authorize",
+            "token_endpoint": "https://auth.example.com/token",
+            "registration_endpoint": "https://auth.example.com/register",
+        }
+        url = "https://mcp.recycled.com/mcp"
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url=url,
+            display_name="srv",
+            auth_type="oauth",
+            scope="personal",
+            is_enabled=False,
+        )
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={"name": "srv", "url": url, "auth_type": "oauth"},
+            format="json",
+        )
+        assert resp.status_code == status.HTTP_200_OK, resp.content
+
+        installation.refresh_from_db()
+        assert installation.is_enabled is True
+
 
 class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _create_template(self, **overrides) -> MCPServerTemplate:
