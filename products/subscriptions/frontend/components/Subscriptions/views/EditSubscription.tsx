@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronLeft } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -474,7 +474,7 @@ function EditSubscriptionForm({
                             </LemonField>
                             <LemonField name="enabled" className="pb-2">
                                 {({ value, onChange }) => (
-                                    <LemonCheckbox
+                                    <LemonSwitch
                                         checked={value !== false}
                                         onChange={onChange}
                                         data-attr="subscription-enabled"

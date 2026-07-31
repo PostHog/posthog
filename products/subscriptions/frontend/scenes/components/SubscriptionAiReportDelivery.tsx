@@ -1,4 +1,4 @@
-import { LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -73,15 +73,231 @@ function diagnosticsSummary(diagnostics: readonly AIReportQueryDiagnosticApi[]):
 const failedIndexes = (diagnostics: readonly AIReportQueryDiagnosticApi[]): number[] =>
     diagnostics.map((d, i) => (d.ok === false ? i : -1)).filter((i) => i >= 0)
 
-/** Whether a delivery row has any AI-generated detail to expand: an AI summary, the generating prompt,
- * the delivered report, or per-query diagnostics. Single source of truth for the table's `rowExpandable`
- * and `ExpandedDeliveryRow`'s early return, so the two can't disagree on which rows are expandable. */
+/* ------------------------------------------------------------------ */
+/* Per-recipient results                                              */
+/* ------------------------------------------------------------------ */
+
+type DeliveryRecipientStatus = 'success' | 'failed' | 'partial'
+
+interface DeliveryRecipientResult {
+    recipient: string
+    status: DeliveryRecipientStatus
+    error: { message?: string } | null
+    /** Owner-safe failure reason from the backend; never the raw exception text in `error.message`. */
+    human_readable_error: string | null
+}
+
+/** Narrow the API's untyped `recipient_results` JSON into a typed list. Anything that doesn't match the
+ * expected shape is dropped rather than erroring, so a partially-formed payload still shows what it can. */
+function parseRecipientResults(raw: SubscriptionDeliveryApi['recipient_results']): DeliveryRecipientResult[] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    return raw
+        .map((r): DeliveryRecipientResult | null => {
+            if (typeof r !== 'object' || r === null) {
+                return null
+            }
+            const recipient = typeof (r as any).recipient === 'string' ? (r as any).recipient : null
+            const status = (r as any).status
+            if (!recipient || (status !== 'success' && status !== 'failed' && status !== 'partial')) {
+                return null
+            }
+            const error = typeof (r as any).error === 'object' && (r as any).error !== null ? (r as any).error : null
+            const humanReadable =
+                typeof (r as any).human_readable_error === 'string' ? (r as any).human_readable_error : null
+            return { recipient, status, error, human_readable_error: humanReadable }
+        })
+        .filter((r): r is DeliveryRecipientResult => r !== null)
+}
+
+/** What to show for a failed recipient: the backend's safe human_readable_error when present, else a
+ * generic note. We deliberately never surface the raw exception text in error.message. */
+function recipientFailureReason(r: Pick<DeliveryRecipientResult, 'human_readable_error'>): string {
+    return r.human_readable_error || 'Delivery to this destination failed due to an internal error.'
+}
+
+function recipientStatusTag(status: DeliveryRecipientStatus): JSX.Element {
+    if (status === 'success') {
+        return <LemonTag type="success">Success</LemonTag>
+    }
+    if (status === 'failed') {
+        return <LemonTag type="danger">Failed</LemonTag>
+    }
+    return <LemonTag type="warning">Partial</LemonTag>
+}
+
+/** Summary line for a recipients list. Null when every row shares one status — a green "Success" tag per row
+ * already says that, so a count would be redundant. Only the mixed outcome spells out the split. */
+function recipientResultsSummary(results: readonly DeliveryRecipientResult[]): string | null {
+    const total = results.length
+    const succeeded = results.filter((r) => r.status === 'success').length
+    const failed = results.filter((r) => r.status === 'failed').length
+    const noun = total === 1 ? 'recipient' : 'recipients'
+    if (failed === 0 || succeeded === 0) {
+        return null
+    }
+    return `${total} ${noun} · ${succeeded} succeeded · ${failed} failed`
+}
+
+// Success first, then partial, then failed — so failures sink to the bottom where they're easy to act on.
+const RECIPIENT_STATUS_ORDER: Record<DeliveryRecipientStatus, number> = { success: 0, partial: 1, failed: 2 }
+
+function DeliveryRecipients({ results }: { results: readonly DeliveryRecipientResult[] }): JSX.Element {
+    const sorted = [...results].sort((a, b) => RECIPIENT_STATUS_ORDER[a.status] - RECIPIENT_STATUS_ORDER[b.status])
+    const summary = recipientResultsSummary(results)
+    return (
+        <div className="flex flex-col gap-2">
+            {summary ? <div className="text-secondary">{summary}</div> : null}
+            <div className="flex flex-col divide-y rounded border bg-bg-light">
+                {sorted.map((r, index) => (
+                    // Index in the key: the abort path can legitimately record two results for one recipient
+                    // (planner-rejection detail + disable reason), so recipient alone isn't unique.
+                    <div key={`${r.recipient}-${index}`} className="flex flex-col gap-1 px-3 py-2">
+                        <div className="flex items-center gap-2">
+                            {recipientStatusTag(r.status)}
+                            <span className="font-medium break-all">{r.recipient}</span>
+                        </div>
+                        {r.status === 'failed' || r.status === 'partial' ? (
+                            <div className={r.status === 'failed' ? 'text-danger text-xs' : 'text-warning text-xs'}>
+                                {recipientFailureReason(r)}
+                            </div>
+                        ) : null}
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+/* ------------------------------------------------------------------ */
+/* Per-insight items (dashboard / insight exports)                    */
+/* ------------------------------------------------------------------ */
+
+interface DeliveryInsightItem {
+    key: string
+    name: string
+    /** True only when a query_error is present. Absence of query_error AND query_results means the item is a
+     * pre-execution skeleton (a stuck/interrupted run) that never computed — rendered as pending, not success. */
+    failed: boolean
+    /** True when neither results nor an error were recorded, so the query never ran. */
+    pending: boolean
+    /** Owner-safe failure reason from the backend (never the raw exception text). */
+    humanReadableError: string | null
+}
+
+/** Narrow the API's untyped `content_snapshot.insights[]` into a typed list. Each insight entry carries an
+ * id/short_id/name plus an optional `query_error` marking that specific item's failure. */
+function parseContentSnapshotInsights(raw: SubscriptionDeliveryApi['content_snapshot']): DeliveryInsightItem[] {
+    if (typeof raw !== 'object' || raw === null) {
+        return []
+    }
+    const insights = (raw as any).insights
+    if (!Array.isArray(insights)) {
+        return []
+    }
+    return insights
+        .map((ins, index): DeliveryInsightItem | null => {
+            if (typeof ins !== 'object' || ins === null) {
+                return null
+            }
+            const name =
+                typeof ins.name === 'string' && ins.name
+                    ? ins.name
+                    : typeof ins.short_id === 'string' && ins.short_id
+                      ? ins.short_id
+                      : `Insight ${index + 1}`
+            const queryError = typeof ins.query_error === 'object' && ins.query_error !== null ? ins.query_error : null
+            const hasResults = typeof ins.query_results === 'object' && ins.query_results !== null
+            const humanReadableError =
+                queryError && typeof queryError.human_readable_error === 'string'
+                    ? queryError.human_readable_error
+                    : null
+            const key =
+                ins.id != null
+                    ? `id:${ins.id}`
+                    : typeof ins.short_id === 'string'
+                      ? `short:${ins.short_id}`
+                      : `idx:${index}`
+            return { key, name, failed: queryError !== null, pending: queryError === null && !hasResults, humanReadableError }
+        })
+        .filter((i): i is DeliveryInsightItem => i !== null)
+}
+
+/** Summary line for a content list. Null when there's nothing to break down (no failures and no pending items —
+ * the per-item tags already say "Computed"). Only surfaces when some item didn't cleanly compute. */
+function insightItemsSummary(items: readonly DeliveryInsightItem[]): string | null {
+    const total = items.length
+    const failed = items.filter((i) => i.failed).length
+    const pending = items.filter((i) => i.pending).length
+    const computed = total - failed - pending
+    if (failed === 0 && pending === 0) {
+        return null
+    }
+    const noun = total === 1 ? 'item' : 'items'
+    const parts: string[] = []
+    if (computed > 0) {
+        parts.push(`${computed} computed`)
+    }
+    if (pending > 0) {
+        parts.push(`${pending} did not run`)
+    }
+    if (failed > 0) {
+        parts.push(`${failed} failed to compute`)
+    }
+    return `${total} ${noun} · ${parts.join(' · ')}`
+}
+
+// Computed first, then pending, then failed — actionable failures sink to the bottom.
+const INSIGHT_ITEM_ORDER = (item: DeliveryInsightItem): number => (item.failed ? 2 : item.pending ? 1 : 0)
+
+function insightItemTag(item: DeliveryInsightItem): JSX.Element {
+    if (item.failed) {
+        return <LemonTag type="danger">Failed</LemonTag>
+    }
+    if (item.pending) {
+        return <LemonTag type="default">Did not run</LemonTag>
+    }
+    return <LemonTag type="success">Computed</LemonTag>
+}
+
+function DeliveryInsightItems({ items }: { items: readonly DeliveryInsightItem[] }): JSX.Element {
+    const sorted = [...items].sort((a, b) => INSIGHT_ITEM_ORDER(a) - INSIGHT_ITEM_ORDER(b))
+    const summary = insightItemsSummary(items)
+    return (
+        <div className="flex flex-col gap-2">
+            {summary ? <div className="text-secondary">{summary}</div> : null}
+            <div className="flex flex-col divide-y rounded border bg-bg-light">
+                {sorted.map((item) => (
+                    <div key={item.key} className="flex flex-col gap-1 px-3 py-2">
+                        <div className="flex items-center gap-2">
+                            {insightItemTag(item)}
+                            <span className="font-medium break-all">{item.name}</span>
+                        </div>
+                        {item.failed ? (
+                            <div className="text-danger text-xs">
+                                {item.humanReadableError || 'This item failed to run due to an internal error.'}
+                            </div>
+                        ) : null}
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+/** Whether a delivery row has any detail to expand: AI-generated content (summary, prompt, report, per-query
+ * diagnostics) or per-item delivery detail (recipients / exported insights). Single source of truth for the
+ * table's `rowExpandable` and `ExpandedDeliveryRow`'s early return, so the two can't disagree on which rows
+ * are expandable. */
 export function deliveryRowHasExpandableContent(row: SubscriptionDeliveryApi): boolean {
     return (
         Boolean(row.change_summary) ||
         Boolean(row.ai_report) ||
         Boolean(row.ai_report_prompt) ||
-        (row.ai_report_diagnostics ?? []).length > 0
+        (row.ai_report_diagnostics ?? []).length > 0 ||
+        parseRecipientResults(row.recipient_results).length > 0 ||
+        parseContentSnapshotInsights(row.content_snapshot).length > 0
     )
 }
 
@@ -127,17 +343,50 @@ function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQuery
     )
 }
 
-/** Expanded detail for a delivery row: the AI summary, the prompt at generation time, the delivered report,
- * and the per-query accordion. Returns null when there's nothing AI-generated to show. */
+/** One-line reconciliation for rows whose overall status is Failed but parts still succeeded — content attaches
+ * to a run marked Failed reads as contradictory without it. Null when there's nothing surprising to explain. */
+function deliveryOutcomeNote(
+    row: Pick<SubscriptionDeliveryApi, 'status'>,
+    recipients: readonly DeliveryRecipientResult[],
+    insights: readonly DeliveryInsightItem[]
+): string | null {
+    if (row.status !== SubscriptionDeliveryStatusEnumApi.Failed) {
+        return null
+    }
+    const delivered = recipients.filter((r) => r.status === 'success').length
+    const computed = insights.filter((i) => !i.failed && !i.pending).length
+    if (delivered === 0 && computed === 0) {
+        return null
+    }
+    const parts: string[] = []
+    if (computed > 0) {
+        parts.push(`${computed} ${computed === 1 ? 'item' : 'items'} still computed`)
+    }
+    if (delivered > 0) {
+        parts.push(`delivery reached ${delivered} ${delivered === 1 ? 'destination' : 'destinations'}`)
+    }
+    return `This run failed overall, but ${parts.join(' and ')} before the failure.`
+}
+
+/** Expanded detail for a delivery row: AI summary, prompt at generation time, delivered report, per-query
+ * accordion, plus per-recipient and per-insight delivery outcomes. Returns null when there's nothing to show. */
 export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
     const diagnostics = row.ai_report_diagnostics ?? []
     const report = row.ai_report
     const prompt = row.ai_report_prompt
+    const recipients = parseRecipientResults(row.recipient_results)
+    const insights = parseContentSnapshotInsights(row.content_snapshot)
     if (!deliveryRowHasExpandableContent(row)) {
         return null
     }
+    const outcomeNote = deliveryOutcomeNote(row, recipients, insights)
     return (
         <div className="px-4 py-3 text-sm flex flex-col gap-4">
+            {outcomeNote ? (
+                <LemonBanner type="warning" className="text-xs">
+                    {outcomeNote}
+                </LemonBanner>
+            ) : null}
             {row.change_summary ? (
                 <div className="whitespace-pre-wrap">
                     <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
@@ -160,6 +409,18 @@ export function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): 
                             request (tracking pixel / IP leak / internal-address probe) when a teammate opens this. */}
                         <LemonMarkdown disableImages>{report}</LemonMarkdown>
                     </div>
+                </div>
+            ) : null}
+            {recipients.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Delivery</div>
+                    <DeliveryRecipients results={recipients} />
+                </div>
+            ) : null}
+            {insights.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Content</div>
+                    <DeliveryInsightItems items={insights} />
                 </div>
             ) : null}
             {diagnostics.length > 0 ? (

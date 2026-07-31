@@ -240,6 +240,7 @@ async def validate_subscription_for_delivery(subscription_id: int) -> Subscripti
             recipient=subscription.target_value,
             status="failed",
             error={"message": reason.description, "type": reason.key},
+            human_readable_error=reason.description,
         )
     )
 
@@ -464,6 +465,7 @@ async def _deliver_insight_dashboard_subscription(
                 recipient=subscription.target_value,
                 status="failed",
                 error={"message": NO_ASSETS_REASON, "type": "no_assets"},
+                human_readable_error=NO_ASSETS_REASON,
             )
         )
         # Plain Exception — `_capture_delivery_failed_event` only reads `str(e)` and

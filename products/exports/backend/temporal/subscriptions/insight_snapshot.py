@@ -29,6 +29,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.delivery_common import strip_null_bytes
+from products.exports.backend.temporal.subscriptions.types import safe_error_message
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
@@ -207,8 +208,13 @@ def _execute_and_serialize_insight_query(
         return {
             "query_results": None,
             "cache_key": None,
-            # str(e) can echo offending query data, so scrub it like the result payload.
-            "query_error": {"type": type(e).__name__, "message": strip_null_bytes(str(e))},
+            # str(e) can echo offending query data, so scrub it like the result payload. The UI
+            # renders human_readable_error (safe subset) instead of message.
+            "query_error": {
+                "type": type(e).__name__,
+                "message": strip_null_bytes(str(e)),
+                "human_readable_error": safe_error_message(e),
+            },
         }
 
     if isinstance(insight_result, NothingInCacheResult):

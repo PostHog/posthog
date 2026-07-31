@@ -15,7 +15,6 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     _arequest_hogql_fix,
     _plan_to_freeze,
     _run_steps,
-    _safe_error_message,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -30,6 +29,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     ReportWindow,
     StoredPlanInvalidError,
 )
+from products.exports.backend.temporal.subscriptions.types import safe_error_message
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
@@ -399,7 +399,26 @@ def _wrap(
     ],
 )
 def test_safe_error_message_only_surfaces_query_structure_errors(exc, expected):
-    assert _safe_error_message(exc) == expected
+    assert safe_error_message(exc) == expected
+
+
+def test_safe_error_message_respects_suppressed_context():
+    # `raise ... from None` (__suppress_context__) is the author explicitly severing the chain — an
+    # internal error they meant to hide must not surface via the wider insight-snapshot path.
+    inner = ResolutionError("internal resolution detail")
+    try:
+        try:
+            raise inner
+        except ResolutionError:
+            raise ValueError("sanitized outer") from None
+    except ValueError as outer:
+        assert safe_error_message(outer) is None
+
+
+def test_safe_error_message_strips_null_bytes():
+    # Persisted to jsonb, which rejects NUL — the safe field gets the same scrub as the raw message.
+    exc = ExposedHogQLError("bad\x00field")
+    assert safe_error_message(exc) == "badfield"
 
 
 def _frozen_plan() -> dict:

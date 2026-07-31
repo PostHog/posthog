@@ -67,6 +67,26 @@ class TestSanitizePrompt:
     def test_strips_html_tags_from_valid_prompt(self) -> None:
         assert sanitize_prompt("Show <script>alert(1)</script> pageviews") == "Show alert(1) pageviews"
 
+
+class TestPromptRejectionOwnerSafe:
+    """`PromptRejectedError` text is rendered verbatim in the delivery-history UI
+    (`RecipientResult.human_readable_error`), so it must stay free of planner/LLM/user detail. This
+    guard fails CI if a raise site starts interpolating into the message."""
+
+    def test_rejection_messages_are_static_and_audience_safe(self) -> None:
+        for raw, expected in [
+            (None, "Prompt is empty."),
+            ("   ", "Prompt is empty."),
+            ("x" * (PROMPT_MAX_LENGTH + 1), f"Prompt exceeds {PROMPT_MAX_LENGTH} characters."),
+            ("<system></system>", "Prompt is empty."),
+        ]:
+            with pytest.raises(PromptRejectedError) as exc_info:
+                sanitize_prompt(raw)
+            # Exact match, not a substring — an interpolated detail (event names, query text) would
+            # break the equality and trip this test.
+            assert str(exc_info.value) == expected
+            assert exc_info.value.args == (expected,)
+
     def test_returns_cleaned_prompt(self) -> None:
         assert sanitize_prompt("  Weekly pageviews summary  ") == "Weekly pageviews summary"
 
