@@ -17,6 +17,7 @@ import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
+import { trendSeriesTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -150,7 +151,7 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
                         : showPersonsModal && resultSeries.aggregated_value != null && !hasDataWarehouseSeries // != is intentional to catch undefined too
                           ? () => {
                                 openPersonsModal({
-                                    title: resultSeries.label,
+                                    title: trendSeriesTitle(resultSeries.label),
                                     query: {
                                         kind: NodeKind.InsightActorsQuery,
                                         source: querySource!,
@@ -246,7 +247,7 @@ function BoldNumberComparison({
                                     context.onDataPointClick({ compare: 'previous' }, currentPeriodSeries)
                                 } else {
                                     openPersonsModal({
-                                        title: previousPeriodSeries.label,
+                                        title: trendSeriesTitle(previousPeriodSeries.label),
                                         query: {
                                             kind: NodeKind.InsightActorsQuery,
                                             source: querySource!,

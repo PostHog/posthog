@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
+import { trendSeriesTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -177,7 +178,7 @@ const WorldMapSVG = React.memo(
                             onClick = () => {
                                 if (showPersonsModal && countrySeries) {
                                     openPersonsModal({
-                                        title: countrySeries.label,
+                                        title: trendSeriesTitle(countrySeries.label),
                                         query: {
                                             kind: NodeKind.InsightActorsQuery,
                                             source: querySource!,

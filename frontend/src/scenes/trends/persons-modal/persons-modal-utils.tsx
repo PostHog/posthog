@@ -2,7 +2,12 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
-import { BREAKDOWN_BASELINE_STRING_LABEL } from 'scenes/insights/utils'
+import {
+    BREAKDOWN_BASELINE_STRING_LABEL,
+    getDisplayNameFromEntityFilter,
+    isNullBreakdown,
+    isOtherBreakdown,
+} from 'scenes/insights/utils'
 
 import {
     BreakdownItem,
@@ -13,7 +18,45 @@ import {
 } from '~/queries/schema/schema-general'
 import { isTrendsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { StepOrderValue } from '~/types'
+import { FunnelStep, StepOrderValue } from '~/types'
+
+/**
+ * Resolve a funnel step's display label. The raw event name is kept as-is so the taxonomy can render it,
+ * and a step without one (an all-events step) falls back to the same name the insight itself shows.
+ */
+export const funnelStepLabel = (step: {
+    action_id: FunnelStep['action_id'] | null
+    name: FunnelStep['name'] | null
+    custom_name?: FunnelStep['custom_name']
+    type: FunnelStep['type']
+}): string => {
+    if (step.custom_name?.trim()) {
+        return step.custom_name.trim()
+    }
+    if (step.name?.trim()) {
+        return step.name.trim()
+    }
+    return (
+        getDisplayNameFromEntityFilter({
+            id: step.action_id,
+            name: step.name,
+            custom_name: step.custom_name,
+            type: step.type,
+        }) ?? ''
+    )
+}
+
+/** Render a trend series label through the event taxonomy, so `$pageview` reads as "Pageview". */
+export const trendSeriesTitle = (label: string | undefined | null): JSX.Element | string => {
+    if (!label) {
+        return ''
+    }
+    // Breakdown sentinels stay raw strings so the modal can swap in its own readable label
+    if (isOtherBreakdown(label) || isNullBreakdown(label)) {
+        return label
+    }
+    return <PropertyKeyInfo value={label} disablePopover type={TaxonomicFilterGroupType.Events} />
+}
 
 export const funnelTitle = (props: {
     converted: boolean

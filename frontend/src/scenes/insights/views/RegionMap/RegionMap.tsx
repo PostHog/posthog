@@ -11,6 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
+import { trendSeriesTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -199,7 +200,7 @@ const RegionMapContent = React.memo(
                                                 : showPersonsModal && regionSeries
                                                   ? () => {
                                                         openPersonsModal({
-                                                            title: regionSeries.label,
+                                                            title: trendSeriesTitle(regionSeries.label),
                                                             query: {
                                                                 kind: NodeKind.InsightActorsQuery,
                                                                 source: querySource!,

@@ -3,7 +3,7 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, sele
 import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { funnelStepLabel, funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import {
@@ -178,7 +178,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             const title = funnelTitle({
                 converted,
                 step: stepNo,
-                label: step.name,
+                label: funnelStepLabel(step),
                 seriesId: step.order,
                 order_type: values.funnelsFilter?.funnelOrderType,
             })
@@ -203,7 +203,7 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             const title = funnelTitle({
                 converted,
                 step: stepNo,
-                label: step.name,
+                label: funnelStepLabel(step),
                 seriesId: step.order,
                 order_type: values.funnelsFilter?.funnelOrderType,
             })

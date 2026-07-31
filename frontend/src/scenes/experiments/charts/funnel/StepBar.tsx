@@ -11,7 +11,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { EXPOSURE_DEFAULT_EVENT } from '~/scenes/experiments/exposureContract'
 import { getExperimentVariants, getVariantColor } from '~/scenes/experiments/utils'
-import { funnelTitle } from '~/scenes/trends/persons-modal/persons-modal-utils'
+import { funnelStepLabel, funnelTitle } from '~/scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from '~/scenes/trends/persons-modal/PersonsModal'
 import type { Experiment } from '~/types'
 import { FunnelStepWithConversionMetrics } from '~/types'
@@ -60,7 +60,7 @@ function openExperimentPersonsModalForSeries({
         converted,
         step: stepNo,
         breakdown_value: variantKey,
-        label: step.name,
+        label: funnelStepLabel(step),
         order_type: experimentQuery.metric.funnel_order_type,
     })
 

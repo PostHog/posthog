@@ -15,6 +15,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
+import { trendSeriesTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
@@ -173,7 +174,7 @@ export function TrendsPieChart({
                 return
             }
             openPersonsModal({
-                title: label || '',
+                title: trendSeriesTitle(label),
                 query: datasetToActorsQuery({
                     dataset: {
                         action: result.action,
