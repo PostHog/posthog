@@ -106,7 +106,7 @@ ONE_GB = 1024 * 1024 * 1024
 
 class QueryLogArchiveExportConfig(dagster.Config):
     max_threads: int = pydantic.Field(
-        default=24,
+        default=12,
         ge=1,
         description="ClickHouse max_threads for the export scan. Must be ≥ 1 (0 means auto/all-cores in ClickHouse and will re-enable the OOM risk).",
     )
@@ -139,6 +139,9 @@ def export_query_log_archive_day(
     leaf_sums = ",\n        ".join(f"sum(`{column}`) AS `leaf_{column}`" for column in LEAF_SUM_COLUMNS)
     leaf_columns = ",\n    ".join(f"`leaf_{column}`" for column in LEAF_SUM_COLUMNS)
     # Leaf rows of a query straddling midnight land on the next event_date, hence the two-day window.
+    # The rollup GROUP BY holds millions of initial_query_id keys and the join builds a hash table of
+    # them, sharing the query memory cap with the log_comment-heavy scan; both must spill to disk or
+    # the query exceeds the cap.
     query = f"""
 INSERT INTO FUNCTION s3('{s3_url}', 'Parquet')
 SELECT
@@ -168,7 +171,9 @@ LEFT JOIN
     WHERE event_date >= toDate('{day}') AND event_date <= toDate('{day}') + 1 AND NOT is_initial_query
     GROUP BY leaf_initial_query_id
 ) AS leaf ON initial_rows.query_id = leaf.leaf_initial_query_id
-SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads}
+SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads},
+    join_algorithm = 'grace_hash', max_bytes_in_join = 1500000000,
+    max_bytes_before_external_group_by = 2000000000
 """
 
     def run(client: Client) -> str:

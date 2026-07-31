@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
@@ -54,6 +54,7 @@ from posthog.permissions import (
     APIScopePermission,
     TeamMemberAccessPermission,
     TeamMemberAdminManagementPermission,
+    is_service_auth,
 )
 from posthog.rate_limit import (
     CustomSourceAIBuilderBurstThrottle,
@@ -61,7 +62,7 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderSustainedThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
@@ -1756,6 +1757,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             if obj.is_system_managed:
                 raise PermissionDenied("This source is managed by PostHog and cannot be changed through this API.")
 
+    def _assert_can_write_schemas(self, schemas: Iterable[ExternalDataSchema]) -> None:
+        """Per-table gate for source-level endpoints that write or sync schemas.
+
+        Editor on the source isn't enough: a table can be locked below that, and these endpoints
+        never resolve a schema through DRF's object permissions, so nothing else checks it. Each
+        schema resolves like the schema viewset's permission: through its table, which falls back
+        to the source via RESOURCE_FALLBACK_MAP.
+        """
+        # Service credentials are synthetic users UserAccessControl can't evaluate; they're gated by
+        # API scope + project membership. Mirror AccessControlPermission.
+        if is_service_auth(self.request):
+            return
+        uac = self.user_access_control
+        for schema in schemas:
+            level = uac.get_user_access_level(schema.table or schema.source)
+            if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+                raise PermissionDenied("You do not have editor access to every table in this source.")
+
     def dangerously_get_permissions(self):
         # The account picker enumerates every account/site the connected provider exposes, so require
         # manage access even though it's a GET — a read-only member shouldn't discover unrelated
@@ -2727,6 +2746,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             .all()
         )
 
+        # Deleting the source deletes every table it synced, so it needs editor on each of them.
+        self._assert_can_write_schemas(schemas)
+
         # Soft-delete source, schemas, tables, and companion _cdc tables atomically
         # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
@@ -2818,6 +2840,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if instance.is_direct_query:
             return self.refresh_schemas(request, *args, **kwargs)
+
+        # Syncs every enabled schema, so it needs editor on each - a table locked below the source
+        # would otherwise be refreshed here, and for a full refresh that drops and reloads it.
+        self._assert_can_write_schemas(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, source_id=instance.id, should_sync=True)
+            .exclude(deleted=True)
+            .select_related("source", "table")
+        )
 
         if is_any_external_data_schema_paused(self.team_id):
             return Response(
@@ -4894,6 +4924,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         if len(source_schemas_by_id) != len(schema_ids):
             raise ValidationError("One or more schemas could not be found for this source")
+
+        # Reject up front rather than per-schema, so a batch touching a locked table writes nothing.
+        self._assert_can_write_schemas(source_schemas_by_id.values())
 
         # Items that ask for sync defaults on a not-yet-configured schema get them discovered and
         # filled in up front. Tables that can't get defaults (dropped from the source, webhook-only)

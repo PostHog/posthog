@@ -22,7 +22,6 @@ from posthog.models import Team
 
 from products.managed_warehouse.backend.facade.api import (
     duckgres_data_imports_schema,
-    duckgres_data_imports_table_name,
     get_duckgres_config_for_org,
     setup_duckgres_session,
 )
@@ -605,7 +604,14 @@ def _duckgres_schema_name(team_id: int) -> str:
 
 
 def _duckgres_table_name(schema: ExternalDataSchema) -> str:
-    return duckgres_data_imports_table_name(schema)
+    source_type = schema.source.source_type
+    normalized_name = schema.normalized_name
+    raw_name = (
+        f"{source_type}_{schema.source.prefix}_{normalized_name}"
+        if schema.source.prefix
+        else f"{source_type}_{normalized_name}"
+    )
+    return NamingConvention.normalize_identifier(raw_name, max_length=63)
 
 
 def _should_replace_table(batch: PendingBatch) -> bool:

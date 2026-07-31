@@ -43,6 +43,7 @@ from posthog.security.url_validation import is_url_allowed
 
 from ..models import MCPOAuthState, MCPServerInstallation, MCPServerInstallationTool, MCPServerTemplate, SensitiveConfig
 from ..oauth import (
+    DcrClientRegistration,
     OAuthAuthorizeURLError,
     OAuthTokenExchangeError,
     discover_oauth_metadata,
@@ -575,7 +576,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
     def _register_dcr_client_or_raise(
         self, metadata: dict, redirect_uri: str, *, server_url: str = ""
-    ) -> tuple[str, str | None, str]:
+    ) -> DcrClientRegistration:
         log_context = {"error": ""} if not server_url else {"server_url": server_url, "error": ""}
         try:
             return register_dcr_client(metadata, redirect_uri)
@@ -871,7 +872,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
 
             try:
-                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
+                registration = self._register_dcr_client_or_raise(
                     metadata,
                     redirect_uri,
                     server_url=template.url,
@@ -887,6 +888,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 if created:
                     installation.delete()
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            client_id = registration.client_id
 
             # Cache the discovered metadata and minted per-user client on the
             # installation so reconnect/refresh can reuse them. Nothing is
@@ -894,9 +896,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             sensitive = dict(installation.sensitive_configuration or {})
             sensitive["dcr_client_id"] = client_id
             sensitive["dcr_is_user_provided"] = False
-            sensitive["dcr_token_endpoint_auth_method"] = token_endpoint_auth_method
-            if dcr_client_secret:
-                sensitive["dcr_client_secret"] = dcr_client_secret
+            sensitive["dcr_token_endpoint_auth_method"] = registration.token_endpoint_auth_method
+            if registration.client_secret:
+                sensitive["dcr_client_secret"] = registration.client_secret
             else:
                 sensitive.pop("dcr_client_secret", None)
             installation.oauth_metadata = metadata
@@ -921,7 +923,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             # _template_uses_dcr guarantees client_id is present here.
             client_id = template.oauth_credentials["client_id"]
 
-        code_verifier, code_challenge = generate_pkce()
+        pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -929,7 +931,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             token,
             install_source,
             posthog_code_callback_url,
-            pkce_verifier=code_verifier,
+            pkce_verifier=pkce.code_verifier,
             template=template,
         )
 
@@ -939,7 +941,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
-                code_challenge=code_challenge,
+                code_challenge=pkce.code_challenge,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(
@@ -1132,9 +1134,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 )
         else:
             try:
-                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
-                    metadata, redirect_uri, server_url=mcp_url
-                )
+                registration = self._register_dcr_client_or_raise(metadata, redirect_uri, server_url=mcp_url)
             except DCRNotSupportedError:
                 if created:
                     installation.delete()
@@ -1146,6 +1146,9 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 if created:
                     installation.delete()
                 return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
+            client_id = registration.client_id
+            dcr_client_secret = registration.client_secret
+            token_endpoint_auth_method = registration.token_endpoint_auth_method
             dcr_is_user_provided = False
 
         # Cache the (non-secret) discovery metadata and the per-user creds on
@@ -1182,7 +1185,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             ]
         )
 
-        code_verifier, code_challenge = generate_pkce()
+        pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1190,7 +1193,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             token,
             install_source,
             posthog_code_callback_url,
-            pkce_verifier=code_verifier,
+            pkce_verifier=pkce.code_verifier,
             template=None,
         )
 
@@ -1200,7 +1203,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
-                code_challenge=code_challenge,
+                code_challenge=pkce.code_challenge,
             )
         except OAuthAuthorizeURLError:
             if created:
@@ -1316,7 +1319,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             client_id = template.oauth_credentials["client_id"]
 
         redirect_uri = _get_oauth_redirect_uri()
-        code_verifier, code_challenge = generate_pkce()
+        pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1324,7 +1327,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             token,
             install_source,
             posthog_code_callback_url,
-            pkce_verifier=code_verifier,
+            pkce_verifier=pkce.code_verifier,
             template=template,
         )
         try:
@@ -1333,7 +1336,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
-                code_challenge=code_challenge,
+                code_challenge=pkce.code_challenge,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(
@@ -1399,7 +1402,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             )
 
         redirect_uri = _get_oauth_redirect_uri()
-        code_verifier, code_challenge = generate_pkce()
+        pkce = generate_pkce()
         token = secrets.token_urlsafe(32)
         _create_oauth_state(
             request,
@@ -1407,7 +1410,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             token,
             install_source,
             posthog_code_callback_url,
-            pkce_verifier=code_verifier,
+            pkce_verifier=pkce.code_verifier,
             template=None,
         )
         try:
@@ -1416,7 +1419,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 client_id=client_id,
                 redirect_uri=redirect_uri,
                 state_token=token,
-                code_challenge=code_challenge,
+                code_challenge=pkce.code_challenge,
             )
         except OAuthAuthorizeURLError:
             return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)

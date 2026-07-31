@@ -51,18 +51,19 @@ or address known yet — nothing sent), or a transport failure *bounces* with no
 outcome. There is no blind inner retry layer; retry policy lives in exactly
 two places, both of which re-check routing state between attempts:
 
-- **Live path** (`forward_or_stash`): a bounced request is held in its handler
+- **Direct path** (`forward_or_stash`): a bounced request is held in its handler
   task and the loop re-enters from the stash check after a short backoff — so
   by the re-attempt it parks if a handoff opened a stash window, re-resolves
-  if the table flipped, or re-sends if nothing changed. After a few
-  consecutive bounces it fails with a definitive `UNAVAILABLE` (a router with
-  a dead watch must not hold requests forever — the client's own retry can
-  reach a healthier router). A transport bounce marks the request
-  possibly-applied; any further forward of it is an at-least-once replay,
-  counted by `personhog_router_stash_replayed_total` and covered by the
-  redelivery contract in `personhog-leader`'s README. Clients never see
-  `FAILED_PRECONDITION` from the leader path.
-- **Drain path**: the wave loop described below, with put-back for position
+  if the table flipped, or re-sends if nothing changed. Each re-attempt is
+  counted by `personhog_router_forward_retries_total` under the reason that
+  caused it. After a few consecutive bounces it fails with a definitive
+  `UNAVAILABLE`, counted by `personhog_router_forward_retries_exhausted_total`
+  (a router with a dead watch must not hold requests forever — the client's
+  own retry can reach a healthier router). A transport bounce marks the
+  request possibly-applied; any further forward of it is an at-least-once
+  replay, covered by the redelivery contract in `personhog-leader`'s README.
+  Clients never see `FAILED_PRECONDITION` from the leader path.
+- **Stash path**: the drain's wave loop described below, with put-back for position
   and the reconcile pass as its outer driver.
 
 #### Stash and drain during partition handoffs
@@ -133,9 +134,12 @@ client-visible error. The policies layered on the mechanism:
    fence: the owner resuming after a reaffirm, or the new owner's
    cutover), an unroutable target, or a transport failure (a pod
    mid-restart or briefly unreachable) — puts the bounced request and
-   the rest of its key run back, backs off briefly, and retries; after
-   a few consecutive bounced waves the drain yields its lane and the
-   reconcile pass re-requests it on the next tick. Clients never see a
+   the rest of its key run back (the interrupted attempt counts toward
+   `personhog_router_forward_retries_total` as a stash-path retry under
+   the reason that cut it short; the never-attempted tail goes back
+   uncounted), backs off briefly, and retries; after a few consecutive
+   bounced waves the drain yields its lane and the reconcile pass
+   re-requests it on the next tick. Clients never see a
    bounce — their requests stay parked until the condition clears or
    the per-request deadline expires. A transport bounce marks the
    request possibly-applied: re-forwarding it is an at-least-once

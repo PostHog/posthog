@@ -2547,6 +2547,17 @@ export interface CredentialApi {
  * * `BCMS` - BCMS
  * * `Convonite` - Convonite
  * * `Hookdeck` - Hookdeck
+ * * `Billit` - Billit
+ * * `Moxie` - Moxie
+ * * `TripleWhale` - TripleWhale
+ * * `Directus` - Directus
+ * * `Clay` - Clay
+ * * `TradableBits` - TradableBits
+ * * `Swan` - Swan
+ * * `Hyros` - Hyros
+ * * `Odoo` - Odoo
+ * * `Airbridge` - Airbridge
+ * * `Snovio` - Snovio
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3817,6 +3828,17 @@ export const ExternalDataSourceTypeEnumApi = {
     Bcms: 'BCMS',
     Convonite: 'Convonite',
     Hookdeck: 'Hookdeck',
+    Billit: 'Billit',
+    Moxie: 'Moxie',
+    TripleWhale: 'TripleWhale',
+    Directus: 'Directus',
+    Clay: 'Clay',
+    TradableBits: 'TradableBits',
+    Swan: 'Swan',
+    Hyros: 'Hyros',
+    Odoo: 'Odoo',
+    Airbridge: 'Airbridge',
+    Snovio: 'Snovio',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
