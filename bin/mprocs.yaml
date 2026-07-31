@@ -576,6 +576,17 @@ procs:
             layer: Product services
             tech: Python
 
+    secure-connections-demo:
+        shell: 'bin/hogli secure-connections:demo run'
+        capability: secure_connections_demo
+        autostart: false
+        autostart_when_resolved: true
+        ready_pattern: 'Secure connections demo is ready.'
+        stop: SIGTERM
+        groups:
+            layer: Product services
+            tech: Docker
+
     migrate-postgres:
         shell: 'bin/wait-for-docker && bin/hogli db:restore-schema-if-fresh && bin/migrate --scope=postgres'
         capability: core_infra

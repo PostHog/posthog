@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -56,13 +57,32 @@ def run_demo_command(burrow_repo: Path, action: str) -> None:
         "start": "demo",
         "test": "demo-test",
         "env": "demo-env",
+        "logs": "demo-logs",
         "stop": "demo-down",
     }[action]
     subprocess.run(["make", make_target], cwd=burrow_repo, check=True)
 
 
+def run_managed_demo(burrow_repo: Path, env_file: Path) -> None:
+    def stop_demo(_signum: int, _frame: object) -> None:
+        raise KeyboardInterrupt
+
+    previous_sigterm_handler = signal.signal(signal.SIGTERM, stop_demo)
+    try:
+        update_demo_environment(env_file, enabled=True)
+        run_demo_command(burrow_repo, "start")
+        click.echo("Secure connections demo is ready.")
+        run_demo_command(burrow_repo, "logs")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        signal.signal(signal.SIGTERM, previous_sigterm_handler)
+        run_demo_command(burrow_repo, "stop")
+        update_demo_environment(env_file, enabled=False)
+
+
 @click.command(name="secure-connections:demo")
-@click.argument("action", type=click.Choice(["start", "test", "env", "stop"]), default="start")
+@click.argument("action", type=click.Choice(["start", "run", "test", "env", "stop"]), default="start")
 @click.option(
     "--burrow-path",
     type=click.Path(path_type=Path, file_okay=False),
@@ -71,6 +91,10 @@ def run_demo_command(burrow_repo: Path, action: str) -> None:
 def secure_connections_demo(action: str, burrow_path: Path | None) -> None:
     """Run the local secure connections demo stack."""
     repo = find_burrow_repo(burrow_path)
+    if action == "run":
+        run_managed_demo(repo, REPO_ROOT / ".env.local")
+        return
+
     run_demo_command(repo, action)
 
     if action == "start":

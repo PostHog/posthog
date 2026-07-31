@@ -929,6 +929,19 @@ class TestMprocsGeneratorRegression:
         assert "property-defs-rs" in config.procs
         assert "docker-compose" in config.procs
 
+    def test_secure_connections_demo_only_autostarts_for_its_intent(self) -> None:
+        intent_map = load_intent_map()
+        registry = create_mprocs_registry()
+        resolver = IntentResolver(intent_map, registry)
+
+        default_config = MprocsGenerator(registry).generate(resolver.resolve(["product_analytics"]))
+        secure_connections_config = MprocsGenerator(registry).generate(resolver.resolve(["secure_connections"]))
+
+        assert "secure-connections-demo" not in default_config.procs
+        assert "secure-connections-demo" in secure_connections_config.procs
+        assert "autostart" not in secure_connections_config.procs["secure-connections-demo"]
+        assert "autostart_when_resolved" not in secure_connections_config.procs["secure-connections-demo"]
+
 
 class TestMprocsGeneratorPreservesCapability:
     """Generated procs retain `capability:` so phrocs can group by capability.

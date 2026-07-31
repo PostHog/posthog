@@ -24,12 +24,20 @@ Enable the `secure-connections` feature flag for projects that should access the
 Clone `PostHog/burrow` next to this repository, then run:
 
 ```bash
-hogli secure-connections:demo
+hogli dev:setup
+hogli start
 ```
 
-The command starts the sibling repository's full demo and adds a managed block to `.env.local`.
-Restart PostHog, then open `/settings/project/secure-connections`.
+Choose **Secure connections** during setup.
+The normal local stack then includes a `secure-connections-demo` process that starts the sibling repository's full demo and adds a managed block to `.env.local`.
+Once PostHog has started, open `/settings/project/secure-connections`.
 The page uses the demo's preloaded Acme tenant, lists its HTTP and Postgres services, and returns a successful connection check.
+
+You can also start the demo without changing your saved development setup:
+
+```bash
+hogli secure-connections:demo
+```
 
 Use these commands while iterating:
 

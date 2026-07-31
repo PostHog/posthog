@@ -1,9 +1,11 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from unittest.mock import call, patch
+
 from django.test import SimpleTestCase
 
-from products.secure_connections.cli import ENV_BLOCK_END, ENV_BLOCK_START, update_demo_environment
+from products.secure_connections.cli import ENV_BLOCK_END, ENV_BLOCK_START, run_managed_demo, update_demo_environment
 
 
 class TestSecureConnectionsDemoEnvironment(SimpleTestCase):
@@ -33,3 +35,19 @@ class TestSecureConnectionsDemoEnvironment(SimpleTestCase):
         update_demo_environment(env_file, enabled=False)
 
         assert env_file.read_text() == "OTHER_SECRET=keep-me\n"
+
+    @patch("products.secure_connections.cli.signal.signal")
+    @patch("products.secure_connections.cli.run_demo_command")
+    def test_managed_demo_cleans_up_when_stopped(self, run_demo_command_mock, _signal_mock) -> None:
+        env_file = Path(self.temporary_directory.name) / ".env.local"
+        burrow_repo = Path(self.temporary_directory.name) / "burrow"
+        run_demo_command_mock.side_effect = [None, KeyboardInterrupt, None]
+
+        run_managed_demo(burrow_repo, env_file)
+
+        assert run_demo_command_mock.call_args_list == [
+            call(burrow_repo, "start"),
+            call(burrow_repo, "logs"),
+            call(burrow_repo, "stop"),
+        ]
+        assert not env_file.exists() or env_file.read_text() == ""
