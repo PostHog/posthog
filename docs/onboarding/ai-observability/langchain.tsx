@@ -30,14 +30,14 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'bash',
                                 file: 'Python',
                                 code: dedent`
-                                    pip install posthog langchain langchain-core langchain-openai
+                                    pip install posthog "langchain>=1.0" langchain-core langchain-openai
                                 `,
                             },
                             {
                                 language: 'bash',
                                 file: 'Node',
                                 code: dedent`
-                                    npm install posthog-node @posthog/ai langchain @langchain/core @langchain/openai zod
+                                    npm install posthog-node @posthog/ai langchain@^1.0 @langchain/core @langchain/openai zod
                                 `,
                             },
                         ]}
@@ -200,6 +200,18 @@ export const getLangChainSteps = (ctx: OnboardingComponentsContext): StepDefinit
                             with its real execution duration, nested under the trace, without any extra code.
                         `}
                     </Markdown>
+
+                    <Blockquote>
+                        <Markdown>
+                            {dedent`
+                                **Using LangChain 0.x?** Agents were built with \`AgentExecutor\` before 1.0. Everything
+                                else on this page is the same on either version, including the handler and the
+                                properties it sets. See LangChain's
+                                [migration guide](https://docs.langchain.com/oss/python/migrate/langchain-v1) to move
+                                to \`create_agent\`.
+                            `}
+                        </Markdown>
+                    </Blockquote>
 
                     <Markdown>
                         {dedent`
