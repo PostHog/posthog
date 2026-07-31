@@ -2,10 +2,12 @@ import json
 from datetime import UTC, datetime
 from typing import Optional
 
+from django.conf import settings
 from django.http import HttpResponse
 from django.utils.html import escape
 
 import structlog
+from prometheus_client import Counter
 from rest_framework import status
 
 from posthog.exceptions import generate_exception_response
@@ -14,6 +16,12 @@ from posthog.sampling import sample_on_property
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
+
+CSP_REPORT_REJECTED = Counter(
+    "csp_report_rejected",
+    "CSP reports rejected before processing, by reason.",
+    labelnames=["reason"],
+)
 
 CSP_REPORT_TYPES_MAPPING_TABLE = """
 | Normalized Key             | report-to format                     | report-uri format                  |
@@ -122,6 +130,10 @@ def is_csp_violation(data: dict) -> bool:
     return "type" in data and data["type"] == "csp-violation"
 
 
+class CSPReportTooLarge(Exception):
+    pass
+
+
 def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
     props = {f"$csp_{k}": v for k, v in props.items()}
 
@@ -163,7 +175,21 @@ def process_csp_report(request):
             )
             return None, None
 
+        body_size = len(request.body)
+        if body_size > settings.CSP_REPORT_MAX_BODY_BYTES:
+            CSP_REPORT_REJECTED.labels(reason="body_too_large").inc()
+            raise CSPReportTooLarge(f"CSP report body of {body_size} bytes exceeds the limit")
+
         csp_data = json.loads(request.body)
+
+        # A reports+json bundle can carry other Reporting API types (deprecation, intervention, ...)
+        # alongside csp-violation entries; only the latter become events, so bound on that count
+        # rather than the raw bundle length to avoid rejecting legitimate mixed-type batches.
+        if isinstance(csp_data, list):
+            violation_count = sum(1 for item in csp_data if is_csp_violation(item))
+            if violation_count > settings.CSP_REPORT_MAX_REPORTS:
+                CSP_REPORT_REJECTED.labels(reason="too_many_reports").inc()
+                raise CSPReportTooLarge(f"CSP report bundle of {violation_count} violations exceeds the limit")
 
         distinct_id = request.GET.get("distinct_id") or str(uuid7())
         session_id = request.GET.get("session_id") or str(uuid7())
@@ -231,6 +257,17 @@ def process_csp_report(request):
         else:
             raise ValueError("Invalid CSP report")
 
+    except CSPReportTooLarge as e:
+        logger.warning("CSP report rejected - too large", reason=str(e))
+        return None, cors_response(
+            request,
+            generate_exception_response(
+                "capture",
+                "CSP report too large",
+                code="csp_report_too_large",
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            ),
+        )
     except json.JSONDecodeError as e:
         logger.exception("Invalid CSP report JSON format", error=e)
         return None, cors_response(
