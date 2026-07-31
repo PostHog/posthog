@@ -13,7 +13,7 @@ behavior change, not a contract improvement.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import UUID
@@ -27,11 +27,44 @@ __all__ = [
     "DuckgresSinkStateRecord",
     "DuckLakeQueryResult",
     "DuckLakeTableResult",
+    "ManagedWarehouseBackfillState",
+    "ManagedWarehouseTableNames",
+    "ManagedWarehouseTeamMembership",
 ]
 
 
 class CPUnavailableError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseTableNames:
+    """Resolved per-team table and schema names owned by the control plane."""
+
+    events_table: str
+    persons_table: str
+    data_imports_schema: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseTeamMembership:
+    """A team's managed-warehouse membership as read from the control plane."""
+
+    team_id: int
+    organization_id: str
+    schema_name: str
+    enabled: bool
+    backfill_enabled: bool
+    table_names: ManagedWarehouseTableNames
+    earliest_event_date: date | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseBackfillState:
+    """The existing warehouse-status backfill shape, represented at the facade boundary."""
+
+    has_backfill: bool
+    table_suffix: str | None
 
 
 @dataclass

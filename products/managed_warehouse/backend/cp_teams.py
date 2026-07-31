@@ -30,6 +30,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 
+from django.conf import settings
+
+import requests as http_requests
+
+from posthog.security.outbound_proxy import internal_requests
+
 logger = logging.getLogger(__name__)
 
 # TTL for the process-local cache below. Monkeypatchable in tests; sized so sensor
@@ -148,29 +154,72 @@ def _cached_rows(
     return rows
 
 
-def _fetch_org_rows(organization_id: str) -> list[dict] | None:
-    # Deferred: keeps the DRF-importing adapter (and the products presentation stack)
-    # off this module's import path.
-    from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+def _rows_from_response(response: object) -> list[dict] | None:
+    """Extract the control-plane team payload without importing DRF presentation code."""
+    status_code = getattr(response, "status_code", None)
+    if not isinstance(status_code, int) or not 200 <= status_code < 300:
+        return None
+    try:
+        data = response.json()  # type: ignore[union-attr]
+    except (AttributeError, ValueError):
+        return None
+    if isinstance(data, dict):
+        data = data.get("teams")
+    if not isinstance(data, list):
+        return None
+    return [row for row in data if isinstance(row, dict)]
+
+
+def _fetch_rows(*, organization_id: str | None) -> list[dict] | None:
+    """Read team rows directly from the control plane using the approved internal transport.
+
+    This deliberately mirrors the data-warehouse adapter's request construction and
+    fallback behavior, but returns only its private read-side payload rather than a
+    DRF ``Response``. The caller's cache remains responsible for retry behavior.
+    """
+    base_url = getattr(settings, "DUCKGRES_API_URL", None)
+    if not base_url:
+        logger.warning("cp_teams_request_rejected_api_not_configured (organization_id=%s)", organization_id)
+        return None
+
+    if organization_id is None:
+        url = f"{base_url.rstrip('/')}/api/v1/teams"
+    else:
+        url = f"{base_url.rstrip('/')}/api/v1/orgs/{organization_id}/teams"
+
+    headers: dict[str, str] = {}
+    token = getattr(settings, "DUCKGRES_INTERNAL_SECRET", None)
+    if token:
+        headers["X-Duckgres-Internal-Secret"] = token
 
     try:
-        resp = managed_warehouse.list_teams(organization_id, require_enabled=False)
-        return managed_warehouse._teams_from_response(resp)
-    except Exception:
-        logger.exception("cp_teams_list_org_teams_failed (organization_id=%s)", organization_id)
+        response = internal_requests.request("GET", url, json=None, params=None, headers=headers, timeout=30)
+    except http_requests.Timeout:
+        logger.warning("cp_teams_list_request_timed_out (organization_id=%s)", organization_id)
         return None
+    except http_requests.ConnectionError:
+        logger.warning("cp_teams_list_request_unreachable (organization_id=%s)", organization_id)
+        return None
+    except Exception:
+        logger.exception("cp_teams_list_request_failed (organization_id=%s)", organization_id)
+        return None
+
+    if response.status_code >= 400:
+        logger.warning(
+            "cp_teams_list_request_error (organization_id=%s, status_code=%s, response_body=%s)",
+            organization_id,
+            response.status_code,
+            response.text[:500],
+        )
+    return _rows_from_response(response)
+
+
+def _fetch_org_rows(organization_id: str) -> list[dict] | None:
+    return _fetch_rows(organization_id=organization_id)
 
 
 def _fetch_all_rows() -> list[dict] | None:
-    # Deferred for the same reason as _fetch_org_rows.
-    from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
-
-    try:
-        resp = managed_warehouse.list_all_teams()
-        return managed_warehouse._teams_from_response(resp)
-    except Exception:
-        logger.exception("cp_teams_list_all_teams_failed")
-        return None
+    return _fetch_rows(organization_id=None)
 
 
 def list_org_teams(organization_id: str, *, use_cache: bool = True) -> list[CPTeam] | None:

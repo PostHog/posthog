@@ -16,7 +16,6 @@ from temporalio.testing import WorkflowEnvironment
 
 from posthog.sync import database_sync_to_async
 
-from products.managed_warehouse.backend import cp_teams
 from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationParameter,
     DuckLakeCopyVerificationQuery,
@@ -46,14 +45,14 @@ from products.warehouse_sources.backend.facade.models import (
 
 @pytest.fixture(autouse=True)
 def _cp_no_rows():
-    # The data-imports schema resolves via the team's control-plane row; serve the
-    # no-row (legacy team-id schema) shape so these tests stay CP-independent.
+    # The workflow reads the schema through the typed team-state facade.
     from unittest.mock import patch
 
-    cp_teams.clear_cache()
-    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[]):
+    with patch(
+        "products.managed_warehouse.backend.facade.team_state.data_imports_schema",
+        side_effect=lambda team_id: f"posthog_data_imports_team_{team_id}",
+    ):
         yield
-    cp_teams.clear_cache()
 
 
 class _FakeColumn:

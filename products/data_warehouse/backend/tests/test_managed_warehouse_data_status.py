@@ -23,8 +23,9 @@ from products.managed_warehouse.backend.facade.contracts import (
     DuckgresSinkState,
     DuckgresSinkStateCreateInput,
     DuckgresSinkStateRecord,
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
 )
-from products.managed_warehouse.backend.facade.cp_teams import CPTeam
 from products.managed_warehouse.backend.facade.testing import create_sink_state
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
@@ -103,16 +104,18 @@ class TestDatasetStatus(SimpleTestCase):
             updated_at=datetime(2026, 7, 12, tzinfo=UTC),
         )
 
-    def _backfill(self, earliest_event_date: date | None = date(2026, 3, 14)) -> CPTeam:
-        return CPTeam(
+    def _backfill(self, earliest_event_date: date | None = date(2026, 3, 14)) -> ManagedWarehouseTeamMembership:
+        return ManagedWarehouseTeamMembership(
             team_id=1,
             organization_id="org-a",
             schema_name="prod",
             enabled=True,
             backfill_enabled=True,
-            events_table_name=None,
-            persons_table_name=None,
-            schema_data_imports_name=None,
+            table_names=ManagedWarehouseTableNames(
+                events_table="events_prod",
+                persons_table="persons_prod",
+                data_imports_schema="posthog_data_imports_prod",
+            ),
             earliest_event_date=earliest_event_date,
         )
 

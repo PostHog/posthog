@@ -39,6 +39,7 @@ import calendar
 import dataclasses
 from collections.abc import Callable
 from contextlib import closing
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
@@ -91,7 +92,11 @@ from products.managed_warehouse.backend.facade.api import (
     resolve_team_earliest_event_date,
 )
 from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
-from products.managed_warehouse.backend.facade.team_state import team_state
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
+from products.managed_warehouse.backend.facade.team_state import (
+    list_enabled_backfill_team_memberships,
+    resolve_events_persons_tables,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -218,7 +223,7 @@ def _resolve_table_names(team_id: int) -> tuple[str, str]:
     org-scoped duckling don't merge into the shared `posthog.events` / `posthog.persons`.
     A team without a row (legacy single-team ducklings) keeps the shared table names.
     """
-    events_table, persons_table = team_state.resolve_events_persons_tables(team_id)
+    events_table, persons_table = resolve_events_persons_tables(team_id)
     _validate_identifier(events_table)
     _validate_identifier(persons_table)
     return events_table, persons_table
@@ -2896,7 +2901,7 @@ def duckling_events_daily_backfill_sensor(
     run_requests: list[RunRequest] = []
     catchup_emitted = 0  # older-than-yesterday days created this tick, bounded below
 
-    for backfill in team_state.list_enabled_backfill_rows("events_daily_backfill_sensor"):
+    for backfill in list_enabled_backfill_team_memberships("events_daily_backfill_sensor"):
         for partition_date in current_month_dates:
             date_str = partition_date.strftime("%Y-%m-%d")
             partition_key = f"{backfill.team_id}_{date_str}"
@@ -3010,7 +3015,7 @@ EVENTS_BACKFILL_STATUS_RECONCILE_LIMIT = 25
 _FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
-def _push_earliest_event_date_to_cp(bf: team_state.CPBackfillRow) -> bool:
+def _push_earliest_event_date_to_cp(bf: ManagedWarehouseTeamMembership) -> bool:
     """Persist a freshly resolved earliest_event_date onto the team's duckgres control-plane row.
 
     This push IS the persistence (the CP row is the sensor's read source). Best-effort —
@@ -3024,7 +3029,7 @@ def _push_earliest_event_date_to_cp(bf: team_state.CPBackfillRow) -> bool:
         from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
         return managed_warehouse.push_team_earliest_event_date(
-            bf.server.organization_id, bf.team_id, bf.earliest_event_date
+            bf.organization_id, bf.team_id, bf.earliest_event_date
         )
     except Exception:
         logger.exception("duckling_earliest_event_date_cp_push_failed", team_id=bf.team_id)
@@ -3136,7 +3141,7 @@ def duckling_events_full_backfill_sensor(
     today = timezone.now().date()
     last_month_end = today.replace(day=1) - timedelta(days=1)
 
-    backfills = team_state.list_enabled_backfill_rows("events_full_backfill_sensor")
+    backfills = list_enabled_backfill_team_memberships("events_full_backfill_sensor")
     if not backfills:
         context.log.info("No enabled duckling backfill teams found")
         return SensorResult(run_requests=[])
@@ -3147,8 +3152,10 @@ def duckling_events_full_backfill_sensor(
     #    next tick) can't deterministically occupy the bounded budget and starve later teams.
     unresolved = [bf for bf in backfills if bf.earliest_event_date is None]
     random.shuffle(unresolved)
+    updated_backfills: dict[int, ManagedWarehouseTeamMembership] = {}
     for bf in unresolved[:EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK]:
-        bf.earliest_event_date = resolve_team_earliest_event_date(bf.team_id)
+        bf = replace(bf, earliest_event_date=resolve_team_earliest_event_date(bf.team_id))
+        updated_backfills[bf.team_id] = bf
         if bf.earliest_event_date == NO_HISTORY_SENTINEL:
             context.log.info(f"No events for team_id={bf.team_id}; caching no-history sentinel")
         # This push IS the persistence: the control-plane row is the read source.
@@ -3156,6 +3163,9 @@ def duckling_events_full_backfill_sensor(
             context.log.warning(
                 f"Control plane rejected earliest_event_date persist for team_id={bf.team_id}; retrying next tick"
             )
+
+    # Continue scheduling with the freshly resolved values in this same sensor tick.
+    backfills = [updated_backfills.get(backfill.team_id, backfill) for backfill in backfills]
 
     # 2. Per-team remaining months (oldest first), skipping already-registered partitions.
     existing = set(context.instance.get_dynamic_partitions("duckling_events_backfill"))
@@ -3270,7 +3280,7 @@ def duckling_persons_daily_backfill_sensor(
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
-    for backfill in team_state.list_enabled_backfill_rows("persons_daily_backfill_sensor"):
+    for backfill in list_enabled_backfill_team_memberships("persons_daily_backfill_sensor"):
         partition_key = f"{backfill.team_id}_{yesterday}"
 
         if partition_key not in existing:
@@ -3360,7 +3370,7 @@ def duckling_persons_full_backfill_sensor(
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    backfills = team_state.list_enabled_backfill_rows("persons_full_backfill_sensor")
+    backfills = list_enabled_backfill_team_memberships("persons_full_backfill_sensor")
     if not backfills:
         context.log.info("No enabled duckling backfill teams found")
         return SensorResult(run_requests=[])

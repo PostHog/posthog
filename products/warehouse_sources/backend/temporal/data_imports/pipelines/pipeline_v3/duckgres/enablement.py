@@ -23,7 +23,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.managed_warehouse.backend.facade.api import get_org_id_for_team, is_dev_mode
 from products.managed_warehouse.backend.facade.contracts import CPUnavailableError
-from products.managed_warehouse.backend.facade.cp_teams import cp_teams
+from products.managed_warehouse.backend.facade.cp_teams import list_org_team_memberships, list_team_memberships
 
 logger = structlog.get_logger(__name__)
 
@@ -38,7 +38,7 @@ def is_duckgres_sink_team_member(team_id: int) -> bool:
     control plane can't answer — the caller decides how to degrade.
     """
     organization_id = get_org_id_for_team(team_id)
-    teams = cp_teams.list_org_teams(organization_id, use_cache=False)
+    teams = list_org_team_memberships(organization_id, use_cache=False)
     if teams is None:
         raise RuntimeError(f"duckgres control plane unreachable resolving sink membership for team {team_id}")
     return any(team.team_id == team_id for team in teams)
@@ -79,7 +79,7 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
 
     from products.managed_warehouse.backend.facade.models import DuckgresServer
 
-    rows = cp_teams.list_member_teams(use_cache=False)
+    rows = list_team_memberships(use_cache=False)
     if rows is None:
         raise CPUnavailableError("duckgres control plane unreachable; keeping the previous sink enablement")
 

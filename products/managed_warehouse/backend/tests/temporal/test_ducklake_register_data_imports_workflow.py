@@ -10,7 +10,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
 
-from products.managed_warehouse.backend import cp_teams
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
@@ -36,10 +35,11 @@ from products.warehouse_sources.backend.facade.models import (
 def _cp_no_rows():
     from unittest.mock import patch
 
-    cp_teams.clear_cache()
-    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[]):
+    with patch(
+        "products.managed_warehouse.backend.facade.team_state.data_imports_schema",
+        side_effect=lambda team_id: f"posthog_data_imports_team_{team_id}",
+    ):
         yield
-    cp_teams.clear_cache()
 
 
 @pytest.mark.asyncio

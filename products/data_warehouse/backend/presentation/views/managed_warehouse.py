@@ -327,12 +327,13 @@ def _validate_schema_name(name: str | None) -> str | None:
     return validate_schema_name(name)
 
 
-def team_backfill_state(team_id: int) -> dict:
+def team_backfill_state(team_id: int) -> dict[str, object]:
     """Return the calling team's duckling backfill state for the warehouse-status response."""
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
     from products.managed_warehouse.backend.facade.api import get_team_backfill_state  # noqa: PLC0415
 
-    return get_team_backfill_state(team_id)
+    state = get_team_backfill_state(team_id)
+    return {"has_backfill": state.has_backfill, "table_suffix": state.table_suffix}
 
 
 def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> None:
@@ -545,9 +546,9 @@ def delete_team(organization_id: UUID | str, team_id: int, require_enabled: bool
 
 
 def _invalidate_team_state_cache(organization_id: UUID | str) -> None:
-    from products.managed_warehouse.backend.facade.cp_teams import cp_teams  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.cp_teams import invalidate_team_membership_cache  # noqa: PLC0415
 
-    cp_teams.invalidate_org_cache(str(organization_id))
+    invalidate_team_membership_cache(str(organization_id))
 
 
 def onboard_team(
@@ -716,7 +717,7 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
     # Keep ducklake.team_state (and via it ducklake.common's duckdb dependency) off the
     # API import path.
     from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
-    from products.managed_warehouse.backend.facade.team_state import team_state  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.team_state import backfill_row_exists  # noqa: PLC0415
 
     if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
         return None
@@ -730,7 +731,7 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
             "Deprovision the managed warehouse in Data ops settings, or delete the organization, "
             "before deleting this project."
         )
-    if team_state.backfill_row_exists(team_id, str(organization_id)):
+    if backfill_row_exists(team_id, str(organization_id)):
         return "Could not remove this project from your organization's managed warehouse. Try again in a few minutes."
     # Org has a warehouse but this team has no membership row: almost certainly not
     # onboarded, so a control-plane hiccup must not block its deletion. If a duckgres-only

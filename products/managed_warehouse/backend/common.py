@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
     from posthog.clickhouse.cluster import ClickhouseCluster
 
+    from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseBackfillState
     from products.managed_warehouse.backend.models import DuckgresServer
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
@@ -535,11 +536,11 @@ def duckgres_data_imports_schema(team_id: int) -> str:
     that have already written a team's tables must trigger a re-prime (handled
     by the backfill state machine), not silently switch.
     """
-    # Deferred: team_state imports this module at the top level, so a module-level
-    # import back would be circular.
-    from products.managed_warehouse.backend import team_state  # noqa: PLC0415
+    # The typed facade delegates at call time, avoiding a module-level cycle with
+    # team_state while keeping this internal consumer on the public capability.
+    from products.managed_warehouse.backend.facade.team_state import data_imports_schema  # noqa: PLC0415
 
-    return team_state.data_imports_schema(team_id)
+    return data_imports_schema(team_id)
 
 
 def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
@@ -584,18 +585,18 @@ def validate_schema_name(name: str | None) -> str | None:
     return None
 
 
-def get_team_backfill_state(team_id: int) -> dict[str, object]:
+def get_team_backfill_state(team_id: int) -> ManagedWarehouseBackfillState:
     """Return the team's duckling backfill state for the warehouse-status UI.
 
     ``has_backfill`` distinguishes a team that has never been set up (no row → the enable form is
     safe to show) from one already backfilling (a row exists → show read-only, since the table is
     immutable). ``table_suffix`` is None for legacy teams still on the shared tables.
     """
-    # Deferred: team_state imports this module at the top level, so a module-level
-    # import back would be circular.
-    from products.managed_warehouse.backend import team_state  # noqa: PLC0415
+    # The typed facade delegates at call time, avoiding a module-level cycle with
+    # team_state while keeping this internal consumer on the public capability.
+    from products.managed_warehouse.backend.facade.team_state import team_backfill_state  # noqa: PLC0415
 
-    return team_state.team_backfill_state(team_id)
+    return team_backfill_state(team_id)
 
 
 # Ignore events before this date — pre-2015 data is typically junk timestamps.

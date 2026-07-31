@@ -8,8 +8,12 @@ from django.utils import timezone
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
 from products.managed_warehouse.backend.facade import sink_state
-from products.managed_warehouse.backend.facade.contracts import DuckgresSinkState, DuckgresSinkStateRecord
-from products.managed_warehouse.backend.facade.cp_teams import CPTeam
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresSinkState,
+    DuckgresSinkStateRecord,
+    ManagedWarehouseTeamMembership,
+)
+from products.managed_warehouse.backend.facade.team_state import team_backfill_membership
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 ReadinessState = Literal[
@@ -89,7 +93,7 @@ class ManagedWarehouseDataStatus(TypedDict):
     generated_at: datetime
 
 
-def _event_historical_partition_count(backfill: CPTeam) -> int | None:
+def _event_historical_partition_count(backfill: ManagedWarehouseTeamMembership) -> int | None:
     if backfill.earliest_event_date is None:
         return None
 
@@ -100,7 +104,7 @@ def _event_historical_partition_count(backfill: CPTeam) -> int | None:
 def dataset_status(
     *,
     dataset: Literal["events", "persons"],
-    backfill: CPTeam | None,
+    backfill: ManagedWarehouseTeamMembership | None,
     partitions: list[ManagedWarehouseBackfillPartition],
 ) -> DatasetStatus:
     if backfill is None or not backfill.backfill_enabled:
@@ -360,13 +364,9 @@ def _roll_up_state(states: list[ReadinessState]) -> ReadinessState:
 
 
 def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatus:
-    # Deferred: team_state pulls ducklake.common (and its duckdb dependency) in — keep
-    # that off the API import path.
-    from products.managed_warehouse.backend.facade.team_state import team_state  # noqa: PLC0415
-
-    # Degrades to None (reported not_configured) when the control plane can't answer:
-    # a status read must never 500.
-    backfill = team_state.team_backfill_row(team_id)
+    # A status read degrades to None (reported not_configured) when the control plane
+    # can't answer; it must never 500.
+    backfill = team_backfill_membership(team_id)
     partitions = list(
         ManagedWarehouseBackfillPartition.objects.for_team(team_id)
         .filter(environment_id=team_id)

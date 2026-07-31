@@ -12,6 +12,10 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
     notify_external_data_sync_failures,
 )
 from products.data_warehouse.backend.managed_warehouse_connection import reconcile_managed_warehouse_tables
+from products.managed_warehouse.backend.facade.cp_teams import (
+    get_org_team_membership,
+    list_enabled_backfill_team_memberships,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -100,11 +104,7 @@ def schedule_soft_delete_managed_warehouse_sources(*, organization_id: str | UUI
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.reconcile_all_managed_warehouse_tables")
 @skip_team_scope_audit
 def reconcile_all_managed_warehouse_tables_task() -> None:
-    # Deferred: ducklake pulls duckdb in via common, and that must not load while Celery
-    # imports task modules — keep it off this module's import path.
-    from products.managed_warehouse.backend.facade.cp_teams import cp_teams  # noqa: PLC0415
-
-    rows = cp_teams.list_enabled_backfills()
+    rows = list_enabled_backfill_team_memberships()
     if rows is None:
         # Periodic sweep: an unreachable control plane just skips this run — the next
         # scheduled sweep retries.
@@ -174,10 +174,9 @@ def sync_team_earliest_event_date(team_id: int) -> None:
         get_org_id_for_team,
         resolve_team_earliest_event_date,
     )
-    from products.managed_warehouse.backend.facade.cp_teams import cp_teams  # noqa: PLC0415
 
     organization_id = get_org_id_for_team(team_id)
-    row = cp_teams.get_team(organization_id, team_id)
+    row = get_org_team_membership(organization_id, team_id)
     if row is None:
         logger.info("No duckling team row for team; skipping earliest event date sync", team_id=team_id)
         return

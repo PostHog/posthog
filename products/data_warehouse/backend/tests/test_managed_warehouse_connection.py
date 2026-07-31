@@ -19,7 +19,10 @@ from products.data_warehouse.backend.managed_warehouse_connection import (
 )
 from products.data_warehouse.backend.presentation.views import managed_warehouse
 from products.data_warehouse.backend.tasks import reconcile_all_managed_warehouse_tables_task
-from products.managed_warehouse.backend.facade.cp_teams import cp_teams
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
+)
 from products.managed_warehouse.backend.facade.models import DuckgresServer
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -47,41 +50,55 @@ _CONNECTION: _Connection = {
 # Per-test control-plane membership rows, keyed by org id. The CP is the read source for
 # the periodic sweep's team enumeration, so tests register rows here instead of creating
 # Django rows — the per-team connection itself no longer consults the control plane.
-_MEMBERSHIPS: dict[str, list[dict]] = {}
+_MEMBERSHIPS: dict[str, list[ManagedWarehouseTeamMembership]] = {}
+
+
+def _membership(
+    team_id: int,
+    organization_id: str,
+    schema_name: str,
+    *,
+    legacy_shared: bool = False,
+    backfill_enabled: bool = True,
+) -> ManagedWarehouseTeamMembership:
+    return ManagedWarehouseTeamMembership(
+        team_id=team_id,
+        organization_id=organization_id,
+        schema_name=schema_name,
+        enabled=True,
+        backfill_enabled=backfill_enabled,
+        table_names=ManagedWarehouseTableNames(
+            events_table="events" if legacy_shared else f"events_{schema_name}",
+            persons_table="persons" if legacy_shared else f"persons_{schema_name}",
+            data_imports_schema=f"posthog_data_imports_{schema_name}",
+        ),
+        earliest_event_date=None,
+    )
 
 
 def _add_membership(
     team: Team, schema_name: str = "prod", *, legacy_shared: bool = False, backfill_enabled: bool = True
 ) -> None:
     org_id = str(team.organization_id)
-    row = {
-        "org_id": org_id,
-        "team_id": team.id,
-        "schema_name": f"team_{team.id}" if legacy_shared else schema_name,
-        "enabled": True,
-        "backfill_enabled": backfill_enabled,
-        "events_table_name": "events" if legacy_shared else f"events_{schema_name}",
-        "persons_table_name": "persons" if legacy_shared else f"persons_{schema_name}",
-        "schema_data_imports_name": None,
-        "earliest_event_date": None,
-    }
-    _MEMBERSHIPS.setdefault(org_id, []).append(row)
-    cp_teams.clear_cache()
+    _MEMBERSHIPS.setdefault(org_id, []).append(
+        _membership(
+            team.id,
+            org_id,
+            f"team_{team.id}" if legacy_shared else schema_name,
+            legacy_shared=legacy_shared,
+            backfill_enabled=backfill_enabled,
+        )
+    )
 
 
 def _clear_memberships() -> None:
     _MEMBERSHIPS.clear()
-    cp_teams.clear_cache()
 
 
 @pytest.fixture(autouse=True)
 def _cp_memberships():
     _clear_memberships()
-    with patch(
-        "products.managed_warehouse.backend.cp_teams._fetch_org_rows",
-        side_effect=lambda org_id: list(_MEMBERSHIPS.get(str(org_id), [])),
-    ):
-        yield
+    yield
     _clear_memberships()
 
 
@@ -425,17 +442,14 @@ class TestReconcileManagedWarehouseTables:
         all_rows = _MEMBERSHIPS[str(org.id)] + [
             # Legacy shared-table membership: root-backed sources support it, so the
             # sweep schedules it like any other row.
-            {
-                "org_id": str(org.id),
-                "team_id": team.id + 1,
-                "schema_name": "team_x",
-                "backfill_enabled": True,
-                "events_table_name": "events",
-            }
+            _membership(team.id + 1, str(org.id), "team_x", legacy_shared=True),
         ]
 
         with (
-            patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=all_rows),
+            patch(
+                "products.data_warehouse.backend.tasks.tasks.list_enabled_backfill_team_memberships",
+                return_value=all_rows,
+            ),
             patch(
                 "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
             ) as schedule,
@@ -447,7 +461,10 @@ class TestReconcileManagedWarehouseTables:
 
     def test_periodic_sweep_skips_run_when_control_plane_unreachable(self) -> None:
         with (
-            patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=None),
+            patch(
+                "products.data_warehouse.backend.tasks.tasks.list_enabled_backfill_team_memberships",
+                return_value=None,
+            ),
             patch(
                 "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
             ) as schedule,

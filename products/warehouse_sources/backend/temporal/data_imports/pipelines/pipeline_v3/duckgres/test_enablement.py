@@ -1,9 +1,14 @@
+from dataclasses import replace
+
 import pytest
 from unittest.mock import MagicMock, patch
 
 from posthog.models import Organization, Team
 
-from products.managed_warehouse.backend.facade.cp_teams import cp_teams
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
+)
 from products.managed_warehouse.backend.facade.models import DuckgresServer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import enablement
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
@@ -11,25 +16,25 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 
 
-@pytest.fixture(autouse=True)
-def _reset_cp_cache():
-    cp_teams.clear_cache()
-    yield
-    cp_teams.clear_cache()
+def _cp_row(team: Team, *, backfill_enabled: bool = True) -> ManagedWarehouseTeamMembership:
+    schema_name = f"team_{team.id}"
+    return ManagedWarehouseTeamMembership(
+        team_id=team.id,
+        organization_id=str(team.organization_id),
+        schema_name=schema_name,
+        enabled=True,
+        backfill_enabled=backfill_enabled,
+        table_names=ManagedWarehouseTableNames(
+            events_table=f"events_{schema_name}",
+            persons_table=f"persons_{schema_name}",
+            data_imports_schema=f"posthog_data_imports_{schema_name}",
+        ),
+        earliest_event_date=None,
+    )
 
 
-def _cp_row(team: Team, *, backfill_enabled: bool = True) -> dict:
-    return {
-        "org_id": str(team.organization_id),
-        "team_id": team.id,
-        "schema_name": f"team_{team.id}",
-        "enabled": True,
-        "backfill_enabled": backfill_enabled,
-    }
-
-
-def _patch_all_rows(rows):
-    return patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=rows)
+def _patch_all_rows(rows: list[ManagedWarehouseTeamMembership] | None):
+    return patch.object(enablement, "list_team_memberships", return_value=rows)
 
 
 @pytest.mark.django_db
@@ -130,8 +135,7 @@ def test_duckgres_sink_enablement_ignores_non_uuid_control_plane_org_ids(
     DuckgresServer.objects.create(organization=org, host="h", username="root", password="x")
     mock_feature_enabled.return_value = True
 
-    mismatched_row = _cp_row(team)
-    mismatched_row["org_id"] = "not-a-uuid-slug"
+    mismatched_row = replace(_cp_row(team), organization_id="not-a-uuid-slug")
 
     with _patch_all_rows([_cp_row(team), mismatched_row]):
         result = enablement.duckgres_sink_enablement()
@@ -162,11 +166,10 @@ def test_is_duckgres_sink_team_member_reads_the_control_plane() -> None:
     member = Team.objects.create(organization=org)
     non_member = Team.objects.create(organization=org)
 
-    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[_cp_row(member)]):
+    with patch.object(enablement, "list_org_team_memberships", return_value=[_cp_row(member)]):
         assert is_duckgres_sink_team_member(member.id) is True
         assert is_duckgres_sink_team_member(non_member.id) is False
 
-    cp_teams.clear_cache()
-    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=None):
+    with patch.object(enablement, "list_org_team_memberships", return_value=None):
         with pytest.raises(RuntimeError):
             is_duckgres_sink_team_member(member.id)

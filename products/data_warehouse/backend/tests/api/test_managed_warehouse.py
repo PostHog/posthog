@@ -12,7 +12,7 @@ from rest_framework.response import Response
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.presentation.views import managed_warehouse
-from products.managed_warehouse.backend.facade.cp_teams import cp_teams
+from products.managed_warehouse.backend.facade.cp_teams import clear_team_membership_cache
 from products.managed_warehouse.backend.facade.models import DuckgresServer
 
 
@@ -23,13 +23,13 @@ def _onboarding_side_effects():
     Both are real calls now that they run inline (no dual-write / on_commit), so patch them
     at the facade boundary to keep the control-plane request assertions exact.
     """
-    cp_teams.clear_cache()
+    clear_team_membership_cache()
     with (
         patch("products.data_warehouse.backend.facade.tasks.sync_team_earliest_event_date") as mock_task,
         patch("products.data_warehouse.backend.facade.api.ensure_managed_warehouse_direct_source") as mock_ensure,
     ):
         yield SimpleNamespace(task=mock_task, ensure=mock_ensure)
-    cp_teams.clear_cache()
+    clear_team_membership_cache()
 
 
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.posthoganalytics.feature_enabled")
@@ -861,13 +861,14 @@ def test_block_team_deletion_blocks_last_warehouse_team(mock_delete: MagicMock) 
 @pytest.mark.django_db
 @patch("products.data_warehouse.backend.presentation.views.managed_warehouse.delete_team")
 def test_block_team_deletion_blocks_when_delete_fails_and_membership_possible(
-    _name: str, cp_rows_kind: str | None, mock_delete: MagicMock
+    _name: str, _cp_rows_kind: str | None, mock_delete: MagicMock
 ) -> None:
     org, team, _ = _provisioned_org()
     mock_delete.return_value = Response({"error": "unreachable"}, status=502)
-    rows = [{"org_id": str(org.id), "team_id": team.id, "schema_name": "mine"}] if cp_rows_kind else None
-
-    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=rows):
+    with patch(
+        "products.managed_warehouse.backend.facade.team_state.backfill_row_exists",
+        return_value=True,
+    ):
         reason = managed_warehouse.block_team_deletion(team.id, org.id)
 
     assert reason is not None
@@ -882,7 +883,10 @@ def test_block_team_deletion_lets_unonboarded_team_through_on_control_plane_erro
     org, team, _ = _provisioned_org()
     mock_delete.return_value = Response({"error": "unreachable"}, status=502)
 
-    with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[]):
+    with patch(
+        "products.managed_warehouse.backend.facade.team_state.backfill_row_exists",
+        return_value=False,
+    ):
         assert managed_warehouse.block_team_deletion(team.id, org.id) is None
 
 

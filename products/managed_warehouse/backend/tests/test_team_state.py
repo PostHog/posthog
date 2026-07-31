@@ -8,6 +8,11 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 
 from products.managed_warehouse.backend import cp_teams, team_state
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseBackfillState,
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -110,18 +115,22 @@ class TestEventsPersonsTables:
 class TestTeamBackfillState:
     @parameterized.expand(
         [
-            ("onboarded_row_schema_is_suffix", {}, {"has_backfill": True, "table_suffix": "cp_schema"}),
+            ("onboarded_row_schema_is_suffix", {}, True, "cp_schema"),
             (
                 "grandfathered_shared_row_has_no_suffix",
                 {"events_table_name": "events", "persons_table_name": "persons"},
-                {"has_backfill": True, "table_suffix": None},
+                True,
+                None,
             ),
         ]
     )
-    def test_shapes(self, _name: str, overrides: dict, expected: dict) -> None:
+    def test_shapes(self, _name: str, overrides: dict, has_backfill: bool, table_suffix: str | None) -> None:
         org, team = _team()
         with _patch_org_rows([_cp_row(team, "cp_schema", **overrides)]):
-            assert team_state.team_backfill_state(team.id) == expected
+            assert team_state.team_backfill_state(team.id) == ManagedWarehouseBackfillState(
+                has_backfill=has_backfill,
+                table_suffix=table_suffix,
+            )
 
     @parameterized.expand(
         [
@@ -133,7 +142,10 @@ class TestTeamBackfillState:
     def test_falls_back_to_not_onboarded(self, _name: str, rows) -> None:
         org, team = _team()
         with _patch_org_rows(rows):
-            assert team_state.team_backfill_state(team.id) == {"has_backfill": False, "table_suffix": None}
+            assert team_state.team_backfill_state(team.id) == ManagedWarehouseBackfillState(
+                has_backfill=False,
+                table_suffix=None,
+            )
 
 
 @pytest.mark.django_db
@@ -155,17 +167,26 @@ class TestBackfillRowExists:
 
 @pytest.mark.django_db
 class TestListEnabledBackfillRows:
-    def test_returns_cp_rows_with_server_shim(self) -> None:
+    def test_returns_frozen_membership_contract(self) -> None:
         org, team = _team()
         cp_rows = [_cp_row(team, "cp_schema", earliest_event_date="2020-06-15")]
         with patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=cp_rows):
             rows = team_state.list_enabled_backfill_rows("test")
         assert len(rows) == 1
         row = rows[0]
-        assert row.team_id == team.id
-        assert row.earliest_event_date == date(2020, 6, 15)
-        # The sensors reach the org through the server FK; the CP row must mirror that shape.
-        assert row.server.organization_id == str(org.id)
+        assert row == ManagedWarehouseTeamMembership(
+            team_id=team.id,
+            organization_id=str(org.id),
+            schema_name="cp_schema",
+            enabled=True,
+            backfill_enabled=True,
+            table_names=ManagedWarehouseTableNames(
+                events_table="events_cp_schema",
+                persons_table="persons_cp_schema",
+                data_imports_schema="posthog_data_imports_cp_schema",
+            ),
+            earliest_event_date=date(2020, 6, 15),
+        )
 
     def test_excludes_rows_with_backfill_disabled(self) -> None:
         org, team = _team()

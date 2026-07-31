@@ -22,6 +22,7 @@ from products.managed_warehouse.backend.common import (
     EARLIEST_BACKFILL_DATE,
     NO_HISTORY_SENTINEL,
 )
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseBackfillState
 
 if TYPE_CHECKING:
     import psycopg
@@ -114,7 +115,7 @@ def validate_schema_name(name: str | None) -> str | None:
     return common.validate_schema_name(name)
 
 
-def get_team_backfill_state(team_id: int) -> dict[str, object]:
+def get_team_backfill_state(team_id: int) -> ManagedWarehouseBackfillState:
     return common.get_team_backfill_state(team_id)
 
 

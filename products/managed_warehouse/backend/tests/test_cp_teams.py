@@ -1,6 +1,9 @@
+import logging
 from datetime import date
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -195,3 +198,54 @@ class TestTTLCache:
             teams = cp_teams.list_enabled_backfills()
         assert teams is not None
         assert [team.team_id for team in teams] == [1]
+
+
+class TestControlPlaneTransport:
+    @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
+    def test_org_read_uses_internal_transport_with_the_control_plane_request_shape(self) -> None:
+        response = MagicMock(status_code=200, text="ok")
+        response.json.return_value = {"teams": [_row()]}
+
+        with patch(
+            "products.managed_warehouse.backend.cp_teams.internal_requests.request",
+            return_value=response,
+        ) as request:
+            assert cp_teams._fetch_org_rows("org-1") == [_row()]
+
+        request.assert_called_once_with(
+            "GET",
+            "https://duckgres.example/api/v1/orgs/org-1/teams",
+            json=None,
+            params=None,
+            headers={"X-Duckgres-Internal-Secret": "secret"},
+            timeout=30,
+        )
+
+    @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
+    def test_global_read_preserves_list_payload_shape(self) -> None:
+        response = MagicMock(status_code=200, text="ok")
+        response.json.return_value = [_row()]
+
+        with patch(
+            "products.managed_warehouse.backend.cp_teams.internal_requests.request",
+            return_value=response,
+        ) as request:
+            assert cp_teams._fetch_all_rows() == [_row()]
+
+        request.assert_called_once_with(
+            "GET",
+            "https://duckgres.example/api/v1/teams",
+            json=None,
+            params=None,
+            headers={"X-Duckgres-Internal-Secret": "secret"},
+            timeout=30,
+        )
+
+    @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
+    def test_unusable_response_falls_back_to_none(self, caplog) -> None:
+        caplog.set_level(logging.WARNING, logger="products.managed_warehouse.backend.cp_teams")
+        response = MagicMock(status_code=502, text="upstream unavailable")
+        response.json.return_value = {"teams": [_row()]}
+
+        with patch("products.managed_warehouse.backend.cp_teams.internal_requests.request", return_value=response):
+            assert cp_teams._fetch_org_rows("org-1") is None

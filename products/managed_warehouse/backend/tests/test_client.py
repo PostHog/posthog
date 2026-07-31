@@ -5,7 +5,6 @@ from psycopg import sql as psql
 
 from posthog.schema import HogQLQuery, HogQLVariable
 
-from products.managed_warehouse.backend import cp_teams
 from products.managed_warehouse.backend.client import (
     _SEARCH_PATH_SCHEMAS,
     compile_hogql_to_ducklake_sql,
@@ -15,12 +14,13 @@ from products.managed_warehouse.backend.client import (
 
 @pytest.fixture(autouse=True)
 def _cp_no_rows():
-    # Compilation binds source tables via the team's control-plane row; serve the
-    # no-row (legacy team-id schema) shape so these tests stay CP-independent.
-    cp_teams.clear_cache()
-    with mock.patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[]):
+    # Compilation resolves the data-import schema through the typed team-state facade;
+    # keep these tests independent from the control plane.
+    with mock.patch(
+        "products.managed_warehouse.backend.facade.team_state.data_imports_schema",
+        side_effect=lambda team_id: f"posthog_data_imports_team_{team_id}",
+    ):
         yield
-    cp_teams.clear_cache()
 
 
 pytestmark = [pytest.mark.django_db]
