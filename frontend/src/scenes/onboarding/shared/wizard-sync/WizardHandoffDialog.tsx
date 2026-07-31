@@ -21,6 +21,10 @@ export function WizardHandoffDialog(): JSX.Element {
             title="Setup report"
             description="The agent wrote this report about the run it just finished."
             width={640}
+            // The report is opened from inside the installation-progress modal (WizardSyncDialog),
+            // which sits at the default modal z-index. Lift the handoff above it so the report lands
+            // on top rather than behind — still below popovers/tooltips (1200+).
+            zIndex="1161"
         >
             {/* ph-no-capture: the report describes the customer's codebase (file paths, event
                 names, framework detail) and must not reach autocapture. disableImages: the text is
