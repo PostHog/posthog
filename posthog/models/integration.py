@@ -714,6 +714,13 @@ def _posthog_cross_region_target(region: str | None) -> tuple[str, str, str]:
     return base_url.rstrip("/"), client_id, client_secret
 
 
+def posthog_cross_region_base_url(region: str | None) -> str:
+    """Public base URL of a cross-region target cell (e.g. https://eu.posthog.com), for callers that
+    need to reach its API with a `posthog` integration token. Raises for unknown/unconfigured regions."""
+    base_url, _, _ = _posthog_cross_region_target(region)
+    return base_url
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
