@@ -10,6 +10,9 @@
 ## Commands
 
 - Environment:
+  - This is a full dev environment, not a restricted patch-editing sandbox — it has `node`, `pnpm`, a package mirror, and `apt`, so tools and dependencies that aren't present yet can be installed, and tests, Storybook, and the app can actually be run. A missing `node_modules`, browser binary, or flox usually just means setup hasn't run yet (`pnpm install`, `npx playwright install --with-deps chromium`, or building the nested `@posthog/quill` workspace that `global.scss` imports), rather than that running things is impossible.
+  - So the absence of a tool isn't evidence that a task can't be done — installing it is the first step. The honest signal that something genuinely can't run is an attempt that fails for a specific, nameable reason (no network access, `apt` unavailable, out of memory), which is worth reporting alongside whatever fallback you take.
+  - This matters most for visual and UX work, where reading the code isn't the same as seeing the result. Rendering the affected surface (for example in Storybook via a headless browser) and comparing before and after is what actually confirms such a change, and is usually worth the setup cost.
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
 - Tests:
@@ -25,6 +28,8 @@
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start` or `hogli start` (interactive TUI). Detached mode: `hogli up -d` paired with `hogli wait` / `hogli down`
+    - Cloud task VMs (prebaked dev-stack image): run `bootstrap-dev-stack` first (restores compose host aliases, starts dockerd), then `uv sync`, `source .venv/bin/activate`, `hogli start -y -d`, and `hogli wait` (the detached start returns while the stack is still booting; `hogli wait` blocks until every process is ready) — always detached: the sandbox has no TTY, and phrocs under a pseudo-TTY balloons in memory until OOM-killed
+    - Cloud task VMs, frontend work: `pnpm install --frozen-lockfile --prefer-offline` links from the prebaked pnpm store, and Playwright Chromium is preinstalled; product/Storybook builds still run from source
 - OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
 - New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.

@@ -49,6 +49,8 @@ NEGATIVE_OPERATORS = [
     PropertyOperator.IS_NOT,
     PropertyOperator.NOT_REGEX,
     PropertyOperator.NOT_ICONTAINS,
+    PropertyOperator.NOT_STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH,
     # PropertyOperator.NOT_BETWEEN, # in the schema but not used anywhere
     # PropertyOperator.NOT_IN,  # COHORT operator we don't need to handle it explicitly
 ]
@@ -59,6 +61,8 @@ INVERSE_OPERATOR_FOR = {
     PropertyOperator.NOT_IN: PropertyOperator.IN_,
     PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
     PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+    PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
 }
 

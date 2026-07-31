@@ -251,6 +251,13 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    url = serializers.URLField(
+        required=False,
+        help_text=(
+            "Presigned download URL for the artifact. Populated on the finalize-upload response so "
+            "the caller can link to the file directly; it is time-limited and not persisted on the manifest."
+        ),
+    )
 
 
 class TaskRunDetailSerializer(DataclassSerializer):
@@ -1609,6 +1616,22 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Distinct repositories in use by non-deleted, non-internal tasks for the current team.",
     )
+
+
+class PinnedTaskIdsResponseSerializer(serializers.Serializer):
+    task_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="Visible task IDs pinned by the requester, newest pin first.",
+    )
+
+
+class TaskPinRequestSerializer(serializers.Serializer):
+    pinned = serializers.BooleanField(help_text="Whether the task should be pinned for the requester.")
+
+
+class TaskPinResponseSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task whose pin state was updated.")
+    pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
 
 
 class RepositoryReadinessQuerySerializer(serializers.Serializer):

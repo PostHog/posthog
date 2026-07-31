@@ -335,6 +335,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
         "emit": "emit findings",
+        "pause_reason": "pause reason",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -750,6 +751,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "sync_type_config",
         "latest_error",
         "last_synced_at",
+        # Pipeline-assigned, not user intent. Diffing it resolves the FK through
+        # DataWarehouseTable.objects, whose manager adds two joins and a prefetch on every
+        # schema save (even ones that don't touch this field) — the extra queries have
+        # deadlocked with concurrent DDL in production.
+        "table",
     ],
     "Evaluation": [
         # Reverse relations — auto-managed by FK creates, not user intent.
@@ -759,6 +765,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Run bookkeeping, not user intent — keep it out of change detection even when it
         # rides along with a real change (belt-and-suspenders with signal_exclusions above).
         "last_run_at",
+        # Companion bookkeeping that rides along with every logged `status` change; the
+        # activity log entry itself already carries who and when.
+        "status_changed_at",
+        "status_changed_by",
         # Reverse relations auto-managed by FK creates, not user-initiated config changes.
         "runs",
     ],

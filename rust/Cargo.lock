@@ -2879,6 +2879,7 @@ dependencies = [
  "lz4",
  "metrics",
  "rdkafka",
+ "rstest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3787,7 +3788,7 @@ dependencies = [
 
 [[package]]
 name = "deltalite-python"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "arrow",
  "arrow-array",
@@ -8526,6 +8527,8 @@ dependencies = [
  "envconfig",
  "foyer",
  "health",
+ "k8s-awareness",
+ "kube",
  "lifecycle",
  "metrics",
  "personhog-common",
@@ -8533,6 +8536,7 @@ dependencies = [
  "personhog-proto",
  "prost 0.13.5",
  "rdkafka",
+ "rustls 0.23.37",
  "serde_json",
  "sqlx",
  "tokio",

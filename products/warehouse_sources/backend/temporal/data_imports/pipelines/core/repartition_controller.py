@@ -20,6 +20,7 @@ from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -76,7 +77,7 @@ def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
     from posthog.models import Team
 
     try:
-        team = Team.objects.only("uuid", "organization_id").get(id=schema.team_id)
+        team = retry_on_db_connection_drop(lambda: Team.objects.only("uuid", "organization_id").get(id=schema.team_id))
     except Team.DoesNotExist:
         return False
     try:
