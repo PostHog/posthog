@@ -300,6 +300,13 @@ def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
     return getattr(error, "code", None) == "resource_missing"
 
 
+def _is_expired_api_key_error(error: stripe_lib.StripeError) -> bool:
+    """True for Stripe's ``api_key_expired`` 401 — the token was valid when the sync started but
+    aged out mid-run. Distinct from an outright invalid/revoked key, which reauthenticating with
+    the same credential can never fix."""
+    return getattr(error, "code", None) == "api_key_expired"
+
+
 def _coerce_incremental_cursor(value: Any) -> Optional[int]:
     """Coerce a stored incremental watermark to the Unix-timestamp int that Stripe object
     `created`/`date` fields are. The persisted watermark can come back as a numeric string, so
@@ -591,6 +598,50 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     api_version: str,
     should_use_incremental_field: bool = False,
+    refresh_api_key: Optional[Callable[[], str]] = None,
+):
+    """Sync one Stripe endpoint, transparently re-authenticating once if the token ages out mid-sync.
+
+    ``api_key`` is bound once by the caller before the activity starts, but a long-running nested
+    fan-out (e.g. CustomerPaymentMethod, one call per customer) can easily outlive an OAuth token's
+    lifetime. Without ``refresh_api_key`` a mid-sync expiry surfaces as a hard failure that disables
+    the schema; with it, we rebuild the client with a fresh token and resume from the last saved
+    ``StripeResumeConfig`` instead of losing the rest of the run.
+    """
+    current_api_key = api_key
+    reauthenticated = False
+    while True:
+        try:
+            yield from _get_rows_once(
+                api_key=current_api_key,
+                endpoint=endpoint,
+                account_id=account_id,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+                db_incremental_field_earliest_value=db_incremental_field_earliest_value,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                api_version=api_version,
+                should_use_incremental_field=should_use_incremental_field,
+            )
+            return
+        except stripe_lib.AuthenticationError as e:
+            if refresh_api_key is None or reauthenticated or not _is_expired_api_key_error(e):
+                raise
+            reauthenticated = True
+            logger.debug("Stripe: API key expired mid-sync, refreshing token and resuming")
+            current_api_key = refresh_api_key()
+
+
+def _get_rows_once(
+    api_key: str,
+    endpoint: str,
+    account_id: Optional[str],
+    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_earliest_value: Optional[Any],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
+    api_version: str,
+    should_use_incremental_field: bool = False,
 ):
     client = StripeClient(
         api_key,
@@ -797,6 +848,7 @@ def stripe_source(
     webhook_source_manager: WebhookSourceManager,
     api_version: str,
     should_use_incremental_field: bool = False,
+    refresh_api_key: Optional[Callable[[], str]] = None,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -828,6 +880,7 @@ def stripe_source(
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
             api_version=api_version,
+            refresh_api_key=refresh_api_key,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the

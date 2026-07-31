@@ -187,6 +187,88 @@ class TestStripeGetRowsIncrementalCursor:
         assert len(tables) > 1
 
 
+class TestStripeGetRowsMidSyncReauth:
+    # A long-running nested fan-out (e.g. CustomerPaymentMethod) can outlive an OAuth token bound
+    # at sync start. Without recovery this raised "Expired API Key provided" mid-sync, which
+    # get_non_retryable_errors matches and permanently disables the schema.
+
+    def test_recovers_from_expired_token_mid_sync_by_refreshing_and_resuming(self):
+        objects = [{"id": "ch_1", "created": 1700000000}]
+        calls = {"n": 0}
+
+        def method(params):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise stripe_lib.AuthenticationError(
+                    "Expired API Key provided: rk_live_***abcd", code="api_key_expired"
+                )
+            return cast(ListObject[Any], _FakeStripeList(objects))
+
+        resource = StripeResource(method=method)
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+        refresh_api_key = mock.MagicMock(return_value="sk_test_refreshed")
+
+        with mock.patch.object(stripe_module, "_build_resources", return_value={"charge": resource}):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_expired",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                    should_use_incremental_field=False,
+                    refresh_api_key=refresh_api_key,
+                )
+            )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["ch_1"]
+        refresh_api_key.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("no_refresh_callback", "api_key_expired", False),
+            ("non_expiry_auth_error", "invalid_api_key", True),
+        ]
+    )
+    def test_does_not_retry_when_recovery_is_not_applicable(self, _name, error_code, pass_refresh_callback):
+        # A refresh callback only helps a token that aged out mid-run — it can't fix a key that was
+        # never valid, so a different auth error code must still raise and must never call refresh.
+        def method(params):
+            raise stripe_lib.AuthenticationError("Invalid API Key provided", code=error_code)
+
+        resource = StripeResource(method=method)
+        resumable_source_manager = mock.MagicMock()
+        resumable_source_manager.can_resume.return_value = False
+        refresh_api_key = mock.MagicMock(return_value="sk_test_refreshed") if pass_refresh_callback else None
+
+        with (
+            mock.patch.object(stripe_module, "_build_resources", return_value={"charge": resource}),
+            pytest.raises(stripe_lib.AuthenticationError),
+        ):
+            list(
+                get_rows(
+                    api_key="sk_test_bad",
+                    endpoint="charge",
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                    should_use_incremental_field=False,
+                    refresh_api_key=refresh_api_key,
+                )
+            )
+
+        if refresh_api_key is not None:
+            refresh_api_key.assert_not_called()
+
+
 class TestStripeSource:
     def setup_method(self):
         self.source = StripeSource()

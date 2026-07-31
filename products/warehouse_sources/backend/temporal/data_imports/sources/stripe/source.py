@@ -498,4 +498,8 @@ If automatic creation failed due to a permissions error and you're using a restr
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
+            # OAuth tokens are bound once above but only last ~1 hour; a slow nested fan-out
+            # (e.g. CustomerPaymentMethod) can outlive that. Re-resolving re-checks expiry and
+            # refreshes if needed, so a mid-sync 401 can recover instead of disabling the schema.
+            refresh_api_key=lambda: self._get_api_key(config, inputs.team_id),
         )
