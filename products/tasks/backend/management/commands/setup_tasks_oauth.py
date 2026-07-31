@@ -2,16 +2,18 @@ from django.core.management.base import BaseCommand
 
 from posthog.models import OAuthApplication
 from posthog.models.oauth import OAuthApplicationAuthBrand
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, POSTHOG_AI_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_ID_DEV,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    POSTHOG_AI_APP_ID_DEV,
+)
 from posthog.utils import get_instance_region
 
 ARRAY_REDIRECT_URIS = "http://localhost:8237/callback http://localhost:8239/callback"
 POSTHOG_AI_REDIRECT_URIS = "http://localhost:8000/authorize"
 
-# The apps created here carry the *_DEV client IDs, which `posthog.temporal.oauth` only ever
-# looks up outside the production regions. Creating them in US/EU would add unused OAuth
-# clients with localhost redirect URIs to a production database, so those regions are skipped
-# rather than failed — `bin/migrate` runs this on every deploy.
+# Skipped rather than failed, so the unconditional call in bin/migrate is safe.
 PRODUCTION_REGIONS = frozenset({"US", "EU"})
 
 
@@ -27,6 +29,7 @@ class Command(BaseCommand):
         self._setup_app(
             ARRAY_APP_CLIENT_ID_DEV,
             {
+                "id": ARRAY_APP_ID_DEV,
                 "name": "Array Dev App",
                 "client_type": OAuthApplication.CLIENT_PUBLIC,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
@@ -37,6 +40,7 @@ class Command(BaseCommand):
         self._setup_app(
             POSTHOG_AI_APP_CLIENT_ID_DEV,
             {
+                "id": POSTHOG_AI_APP_ID_DEV,
                 "name": "PostHog AI Dev App",
                 "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
@@ -59,5 +63,14 @@ class Command(BaseCommand):
         )
         if created:
             self.stdout.write(self.style.SUCCESS(f"Created OAuthApplication '{app.name}' (client_id={app.client_id})"))
-        else:
-            self.stdout.write(self.style.SUCCESS(f"OAuthApplication '{app.name}' already exists"))
+            return
+
+        self.stdout.write(self.style.SUCCESS(f"OAuthApplication '{app.name}' already exists"))
+        # Not repaired here: changing the pk means deleting the row, cascading to its tokens.
+        if str(app.id) != defaults["id"]:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"  '{app.name}' has id {app.id}, expected {defaults['id']}. The LLM gateway "
+                    "authorizes by application id, so tokens minted under it will be rejected."
+                )
+            )
