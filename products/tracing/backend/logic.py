@@ -12,6 +12,8 @@ import datetime as dt
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansQueryResponse,
@@ -173,14 +175,20 @@ def translate_span_filter(span_filter: SpanPropertyFilter) -> None:
             span_filter.value = _normalise_to_base64(str(span_filter.value))
 
     if span_filter.key == "duration":
-        # Key flips to `duration_nano` after first pass, so this block is unreachable
-        # on subsequent invocations.
-        span_filter.key = "duration_nano"
+        # Key flips to `duration_nano` only once the value is confirmed numeric, so a
+        # non-numeric value never ends up compared against the UInt64 column (which
+        # ClickHouse rejects with a 500) and a mixed list never silently loses entries.
+        # This also keeps the block unreachable on subsequent invocations, since the key
+        # has already flipped.
         if isinstance(span_filter.value, list):
-            span_filter.value = [
-                str(int(decimal.Decimal(str(v)) * 1000000)) for v in span_filter.value if _is_number(str(v))
-            ]
-        elif _is_number(str(span_filter.value)):
+            if not all(_is_number(str(v)) for v in span_filter.value):
+                raise ValidationError(f"Duration filter values must be numeric, got: {span_filter.value!r}")
+            span_filter.key = "duration_nano"
+            span_filter.value = [str(int(decimal.Decimal(str(v)) * 1000000)) for v in span_filter.value]
+        else:
+            if not _is_number(str(span_filter.value)):
+                raise ValidationError(f"Duration filter value must be numeric, got: {span_filter.value!r}")
+            span_filter.key = "duration_nano"
             span_filter.value = str(int(decimal.Decimal(str(span_filter.value)) * 1000000))
 
     if span_filter.key == "kind" and span_filter.value is not None:

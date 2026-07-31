@@ -1,6 +1,7 @@
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
 
@@ -62,6 +63,30 @@ class TestTranslateSpanFilter(SimpleTestCase):
         translate_span_filter(span_filter)
         self.assertEqual(span_filter.key, "duration_nano")
         self.assertEqual(span_filter.value, ["1000000", "2000000000000000"])
+
+    @parameterized.expand(
+        [
+            # A non-numeric scalar must reject the filter rather than keep the `duration_nano`
+            # key rewrite with an unconverted value — that combination compares a String against
+            # ClickHouse's UInt64 column and 500s the query.
+            ("suffixed_string", "1s"),
+            ("non_numeric_string", "abc"),
+            ("none", None),
+        ]
+    )
+    def test_duration_scalar_rejects_non_numeric_value(self, _name, value):
+        span_filter = _span_filter("duration", value)
+        with self.assertRaises(ValidationError):
+            translate_span_filter(span_filter)
+        self.assertEqual(span_filter.key, "duration")
+
+    def test_duration_list_rejects_mixed_numeric_and_non_numeric_values(self):
+        # A mixed list used to silently drop the bad entry instead of rejecting the filter,
+        # which can collapse a filter to `[]` and return results the user didn't ask for.
+        span_filter = _span_filter("duration", ["1s", 5])
+        with self.assertRaises(ValidationError):
+            translate_span_filter(span_filter)
+        self.assertEqual(span_filter.key, "duration")
 
     @parameterized.expand(
         [
