@@ -381,6 +381,8 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
 
 @temporalio.activity.defn
 async def deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSubscriptionResult:
+    # TODO(2026-08-14): After workflows started before 2026-07-31 have drained, remove this v1 activity,
+    # rename deliver_subscription_v2 to deliver_subscription, and remove the workflow patch.
     return await _deliver_subscription(inputs)
 
 
