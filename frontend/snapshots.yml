@@ -2068,6 +2068,14 @@ snapshots:
         hash: v1.k794b7964.2ff7288bc0a83e48485c4bd195b0cbceb06d5fd2218264cf63c49a72a90f00dd.tsDphOLaTwWpwAxmLc9dw4zQw9og1WJG5vjOGij2UeE
     data-warehouse-query-history-modal--with-history--light:
         hash: v1.k794b7964.e72700e47a962bf542a5cb857bc6bd98e4d0ca8e280db1ce01c144d3d1b818ef.naPm1iXreZerb2g6MdHDraZEtV7nGY8bi_60zMzf70s
+    data-warehouse-update-view-modal--materialized-view--dark:
+        hash: v1.k794b7964.484118a0f3b9f68fa104d4a2affe6e2cc38f9fd33b19f0f3fdc79b460554308e.ZDszejWQxW0XVFuH6JMoLEbfyXx1nfJdQTCvVcwJ9-0
+    data-warehouse-update-view-modal--materialized-view--light:
+        hash: v1.k794b7964.f29b4edd9b3815617a9cd1324affdc621afafbcfb518a37dc240c41f0cc675e6.bQUdmNORiMs0ZuDjNfyV2Z9NsBZHuVFnIX2jnup99yA
+    data-warehouse-update-view-modal--view--dark:
+        hash: v1.k794b7964.84b7a1ce57b27550f57c99e9f5ba451044eece12d5cbc482b62fe667026df473.bIT8x7Hs-c8j6L11l2bCm4F2B6qbfTIe_5zSyxw2xks
+    data-warehouse-update-view-modal--view--light:
+        hash: v1.k794b7964.1cbd42b7cf27246c2db3d47531b1f606e9bab8aff8186fa6985f6da033dabc12.1Mizi0a2xqSMG0SPNCetfommUEb-9dgWJuG9jQaAqao
     endpoints-usagetrendschart--breakdown--dark:
         hash: v1.k794b7964.6208639286f719664a10bbed7943a4d9e26551c81d96c6d29dd4693615bba40a.G3aYDRH-W4ZH-sMwz6EGaohscTEBxY5-XKWvkSKjTTs
     endpoints-usagetrendschart--breakdown--light:
