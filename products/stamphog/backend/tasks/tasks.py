@@ -20,6 +20,7 @@ import structlog
 from celery import shared_task
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.models.instance_setting import get_instance_setting
 
 from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
@@ -127,6 +128,42 @@ def _is_bot_authored(pr: dict[str, Any]) -> bool:
     return user.get("type") == "Bot" or "[bot]" in (user.get("login") or "")
 
 
+def _self_driving_pr_author_login() -> str | None:
+    """The GitHub login that authors genuine self-driving PRs on this instance.
+
+    Signal-report implementation runs push with ``PrAuthorshipMode.BOT``, so the PR is opened by the
+    team's PostHog Code GitHub App installation and authored by its machine user, ``<slug>[bot]``.
+    ``None`` when the App slug isn't configured — callers then fail closed rather than trust an
+    identity they can't verify (mirrors stamphog's own ``allow_any_bot=False`` approval-write posture).
+    """
+    slug = get_instance_setting("GITHUB_APP_SLUG")
+    return f"{slug}[bot]" if slug else None
+
+
+def _is_self_driving_pr(pr: dict[str, Any], repo: str) -> bool:
+    """Server-attested identity of a genuine self-driving inbox PR.
+
+    The task->PR link the carve-out rides on (``TaskRun.output.pr_url``) is writable by any team
+    member through the task-run APIs, so before granting the bot/fork/mode/write bypass we confirm two
+    facts only GitHub can attest and no member can forge: the PR was opened by THIS instance's PostHog
+    Code App machine user, and its head is repo-native — never a fork (mirrors ``tasks/webhooks.py``,
+    where a fork head.ref is attacker-controlled while ``repository.full_name`` stays the base repo).
+    Without this a member could point a signal-report run at any bot-authored PR (dependabot, another
+    repo's App PR) and win an approve-first review past every gate. Fails closed when the App slug is
+    unconfigured, since the identity then can't be positively established.
+    """
+    user = pr.get("user") or {}
+    if user.get("type") != "Bot":
+        return False
+    head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name") or ""
+    if head_repo.strip().lower() != repo.strip().lower():
+        return False
+    expected_login = _self_driving_pr_author_login()
+    if expected_login is None:
+        return False
+    return (user.get("login") or "").lower() == expected_login.lower()
+
+
 @dataclass(frozen=True)
 class _InboxCarveOut:
     """Resolution of the self-driving re-review carve-out for one webhook delivery.
@@ -170,17 +207,17 @@ def _inbox_rereview_carve_out(
         # Self-driving PRs are always bot-authored (authorship is forced to the team's GitHub
         # App machine user) — skip the DB work for every human PR on this path.
         return _InboxCarveOut()
-    # Fork-safety (mirrors tasks/webhooks.py): on a fork PR head.ref is attacker-controlled
-    # while repository.full_name stays the base repo, so a branch-keyed task match could bind
-    # an unrelated fork PR to a run. Self-driving PRs always push repo-native branches.
-    head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name") or ""
-    if head_repo.strip().lower() != repo.strip().lower():
-        return _InboxCarveOut()
-    # Fail closed before any DB / tasks-facade work when review_hog isn't installed to answer the
-    # toggle question: a missing resolver forces the empty carve-out regardless, so resolving it
-    # up-front spares every bot-authored head-changing delivery the config + facade lookups.
+    # Fail closed before any DB / tasks-facade / App-identity work when review_hog isn't installed to
+    # answer the toggle question: a missing resolver forces the empty carve-out regardless, so
+    # resolving it up-front spares every bot-authored head-changing delivery the lookups below.
     resolver = get_inbox_acting_reviewer_resolver()
     if resolver is None:
+        return _InboxCarveOut()
+    # Positive, server-attested identity: opened by THIS instance's PostHog Code App machine user on a
+    # repo-native head. The task->PR link the facade match keys on (output.pr_url) is caller-writable,
+    # so this is what stops a member pointing a signal-report run at an unrelated bot PR (dependabot,
+    # another repo's App PR) to win the bypass. Subsumes the fork-safety check (mirrors tasks/webhooks.py).
+    if not _is_self_driving_pr(pr, repo):
         return _InboxCarveOut()
     repo_config = _resolve_repo_config(installation_id, repo)
     if (
@@ -1173,6 +1210,15 @@ def process_inbox_pr_review(
     if not head_sha:
         # The head-keyed dedupe below would collide every refire on "", so bail rather than guess.
         logger.warning("stamphog_inbox_pr_missing_head_sha", repository=repository, pr_number=pr_number)
+        return
+    # The task->PR link that routed us here (TaskRun.output.pr_url) is writable by any team member, so
+    # re-verify from the fetched PR — server-attested — that this is genuinely a PostHog Code
+    # self-driving PR (App machine-user author, repo-native head) before stamping inbox provenance.
+    # Without it a member could point a signal-report run at any open PR in a configured repo and win
+    # an approve-first review past the bot/fork/mode/write gates. repo_config.repository is GitHub's
+    # own casing, so it's the fork-safety anchor (the parsed URL slug is tasks-lowercased).
+    if not _is_self_driving_pr(pr, repo_config.repository):
+        logger.warning("stamphog_inbox_pr_not_self_driving", repository=repository, pr_number=pr_number)
         return
 
     inbox_review = {
