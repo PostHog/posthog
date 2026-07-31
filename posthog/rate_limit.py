@@ -1271,6 +1271,21 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
         return super().get_cache_key(request, view)
 
 
+class PostHogConnectionForwardThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Rate limit the synchronous PostHog-connection forward proxy. Each forward holds an API worker
+    # open while it round-trips to another cell, so a burst of concurrent forwards to a slow target
+    # can tie workers up. Inheriting PersonalApiKeyOrUserRateThrottle throttles every auth method this
+    # endpoint accepts (session, personal API key, OAuth), not just personal keys. Keyed per
+    # connection so one connection's traffic can't starve another the same user created.
+    scope = "posthog_connection_forward"
+    rate = "60/minute"
+
+    def get_cache_key(self, request, view):
+        ident = request.user.pk if request.user and request.user.is_authenticated else self.get_ident(request)
+        pk = view.kwargs.get("pk")
+        return self.cache_format % {"scope": self.scope, "ident": f"{ident}:{pk}"}
+
+
 class HealthIssueRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     scope = "health_issue_refresh"
     rate = "1/5minutes"
