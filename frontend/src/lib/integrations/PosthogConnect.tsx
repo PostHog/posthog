@@ -140,7 +140,7 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                 </LemonButton>
             }
         >
-            <div className="deprecated-space-y-2">
+            <div className="flex flex-col gap-2 h-[60vh]">
                 <div className="flex flex-col gap-1">
                     <label className="font-semibold">PostHog region</label>
                     <LemonSelect<PosthogConnectRegion>
@@ -149,7 +149,7 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                         options={REGION_OPTIONS}
                     />
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 flex-1 min-h-0">
                     <div className="flex items-center justify-between gap-2">
                         <label className="font-semibold">Access to grant</label>
                         <LemonSelect
@@ -173,7 +173,7 @@ function ConnectModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                         onChange={setSearchTerm}
                         size="small"
                     />
-                    <div className="max-h-[50vh] overflow-y-auto">
+                    <div className="flex-1 min-h-0 overflow-y-auto">
                         {filteredScopes.length === 0 ? (
                             <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
                         ) : (
