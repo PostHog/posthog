@@ -52,3 +52,57 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         shallow=True,
         branch=expected_branch,
     )
+
+
+def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(mocker, activity_environment):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=123,
+        repository="posthog/posthog",
+        distinct_id="distinct-id",
+        state={"resume_from_run_id": "previous-run-id"},
+        _branch="branch-from-a-sibling-repository",
+    )
+    sandbox = mocker.Mock()
+    sandbox.clone_repository.side_effect = [
+        ExecutionResult(
+            stdout="",
+            stderr=(
+                "warning: Could not find remote branch branch-from-a-sibling-repository to clone.\n"
+                "fatal: Remote branch branch-from-a-sibling-repository not found in upstream origin"
+            ),
+            exit_code=128,
+        ),
+        ExecutionResult(stdout="", stderr="", exit_code=0),
+    ]
+    mocker.patch.object(Sandbox, "get_by_id", return_value=sandbox)
+
+    async_to_sync(activity_environment.run)(
+        clone_repository_in_sandbox,
+        CloneRepositoryInSandboxInput(
+            context=context,
+            sandbox_id="sandbox-id",
+            repository="posthog/posthog",
+            github_token="github-token",
+            shallow_clone=True,
+        ),
+    )
+
+    assert sandbox.clone_repository.call_args_list == [
+        mocker.call(
+            "posthog/posthog",
+            github_token="github-token",
+            shallow=True,
+            branch="branch-from-a-sibling-repository",
+        ),
+        mocker.call(
+            "posthog/posthog",
+            github_token="github-token",
+            shallow=True,
+            branch=None,
+        ),
+    ]
