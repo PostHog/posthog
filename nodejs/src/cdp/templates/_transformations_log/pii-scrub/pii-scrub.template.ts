@@ -21,7 +21,7 @@ if (r.body == null) {
 let patterns := [
     '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}',
     '(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{8,}',
-    '[Bb]earer[ ]+[A-Za-z0-9._-]{10,}'
+    '[Bb]earer[ ]+[A-Za-z0-9._~+/-]{10,}[=]*'
 ]
 
 for (let _, pattern in patterns) {

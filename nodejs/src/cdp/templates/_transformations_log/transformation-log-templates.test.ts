@@ -65,6 +65,17 @@ describe('transformation_log templates', () => {
             expect(record.body).toEqual('login [REDACTED] key [REDACTED] auth [REDACTED] done')
         })
 
+        it('redacts a base64 bearer token, whose alphabet includes + / and =', async () => {
+            // Standard base64 credentials are the common case and were surviving: the
+            // token pattern stopped at the first character outside its class, leaving too
+            // few characters to meet the length floor, so nothing matched at all.
+            const body = 'auth Bearer YWJjZGVm+Z2hpamts/bW5vcHFy== done'
+            const { record } = await run(logPiiScrubTemplate.code, createRecord({ body }), {
+                replacement: '[REDACTED]',
+            })
+            expect(record.body).toEqual('auth [REDACTED] done')
+        })
+
         it('honors a custom replacement value', async () => {
             const { record } = await run(logPiiScrubTemplate.code, createRecord({ body: 'x jane@example.com y' }), {
                 replacement: '***',
