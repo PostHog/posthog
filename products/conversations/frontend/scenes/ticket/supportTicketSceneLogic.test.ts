@@ -9,7 +9,12 @@ import type { CommentType } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import type { Ticket, TicketStatus } from '../../types'
-import { EmailReplyBlockedReason, getEmailReplyBlockedReason, supportTicketSceneLogic } from './supportTicketSceneLogic'
+import {
+    draftStorageKey,
+    EmailReplyBlockedReason,
+    getEmailReplyBlockedReason,
+    supportTicketSceneLogic,
+} from './supportTicketSceneLogic'
 
 const FEEDBACK_STORAGE_KEY = 'conversations_ai_reply_feedback'
 
@@ -289,7 +294,8 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
 
     beforeEach(async () => {
         initKeaTests()
-        // draftContent/draftIsPrivate persist to local storage, so isolate cases from each other.
+        // The draft persists to sessionStorage and feedback to localStorage, so isolate cases.
+        sessionStorage.clear()
         localStorage.clear()
         commentsCreateMock.mockReset().mockResolvedValue(undefined)
         ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
@@ -363,6 +369,29 @@ describe('supportTicketSceneLogic sendMessage with statusAfterSend', () => {
         expect(logic.values.hasPendingWork).toBe(false)
         logic.actions.setDraftContent(draft)
         expect(logic.values.hasPendingWork).toBe(expected)
+    })
+
+    // The draft must persist to sessionStorage (session-scoped, keyed by user), NOT origin-wide
+    // localStorage, and be restored when the ticket is reopened in the same session.
+    it('persists the draft session-scoped and restores it when the ticket is reopened', () => {
+        const draft: JSONContent = {
+            type: 'doc',
+            content: [{ type: 'paragraph', content: [{ type: 'text', text: 'hi' }] }],
+        }
+        const userUuid = logic.values.user?.uuid
+
+        // Typing stores the draft in sessionStorage, not origin-wide localStorage
+        logic.actions.setDraftContent(draft)
+        const key = draftStorageKey(userUuid, 42)
+        expect(sessionStorage.getItem(key)).not.toBeNull()
+        expect(localStorage.getItem(key)).toBeNull()
+
+        // Reopening the ticket (a fresh mount) restores the stored draft
+        sessionStorage.setItem(draftStorageKey(userUuid, 99), JSON.stringify({ content: draft, isPrivate: true }))
+        const reopened = supportTicketSceneLogic({ id: 99 })
+        reopened.mount()
+        expect(reopened.values.draftContent).toEqual(draft)
+        expect(reopened.values.draftIsPrivate).toBe(true)
     })
 
     // Overlapping updates must serialize: the second PATCH waits for the first and carries the

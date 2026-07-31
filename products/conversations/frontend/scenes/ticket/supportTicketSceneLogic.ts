@@ -451,6 +451,41 @@ export type supportTicketSceneLogicType = MakeLogicType<
     supportTicketSceneLogicMeta
 >
 
+interface StoredDraft {
+    content: JSONContent | null
+    isPrivate: boolean
+}
+
+// Drafts are kept in sessionStorage, scoped to the logged-in user, so they are bound to the
+// PostHog session: they survive reloads and in-app navigation but not the browser session ending,
+// and a draft (which can contain a private note) never leaks to another account on the same device.
+export function draftStorageKey(userUuid: string | undefined, ticketId: string | number): string {
+    return `conversations_ticket_draft.${userUuid ?? 'anonymous'}.${ticketId}`
+}
+
+function readStoredDraft(userUuid: string | undefined, ticketId: string | number): StoredDraft | null {
+    try {
+        const raw = sessionStorage.getItem(draftStorageKey(userUuid, ticketId))
+        return raw ? (JSON.parse(raw) as StoredDraft) : null
+    } catch {
+        return null
+    }
+}
+
+function writeStoredDraft(userUuid: string | undefined, ticketId: string | number, draft: StoredDraft): void {
+    try {
+        const key = draftStorageKey(userUuid, ticketId)
+        // An empty editor normalizes content to null, so clear the entry rather than storing a blank.
+        if (draft.content === null) {
+            sessionStorage.removeItem(key)
+        } else {
+            sessionStorage.setItem(key, JSON.stringify(draft))
+        }
+    } catch {
+        // sessionStorage may be unavailable (e.g. privacy settings); drafts just won't persist then.
+    }
+}
+
 export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'ticket', 'supportTicketSceneLogic']),
     props({ id: 'new' as string | number }),
@@ -517,8 +552,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadKnowledgeGaps: true,
         dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
 
-        // Draft message state (persisted to local storage, so it survives tab switches,
-        // reloads, and closing/reopening the tab)
+        // Draft message state (persisted to sessionStorage per logged-in user, so it survives tab
+        // switches, in-app navigation, and reloads within the session)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
         // Per-ticket draft mode override, seeded from the browser-local default on open
@@ -745,18 +780,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setMessageSending: (_, { sending }) => sending,
             },
         ],
-        // persist: true keys on the logic path, which includes the ticket id, so each ticket
-        // keeps its own draft in local storage and it is not lost on reload or tab close.
+        // In-memory here; persistence is handled via sessionStorage in afterMount/listeners so it
+        // can be scoped to the logged-in user (see draftStorageKey).
         draftContent: [
             null as JSONContent | null,
-            { persist: true },
             {
                 setDraftContent: (_, { content }) => content,
             },
         ],
         draftIsPrivate: [
             false,
-            { persist: true },
             {
                 setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
             },
@@ -993,6 +1026,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         ],
     }),
     listeners(({ actions, values, props, cache }) => ({
+        setDraftContent: () => {
+            writeStoredDraft(values.user?.uuid, props.id, {
+                content: values.draftContent,
+                isPrivate: values.draftIsPrivate,
+            })
+        },
+        setDraftIsPrivate: () => {
+            writeStoredDraft(values.user?.uuid, props.id, {
+                content: values.draftContent,
+                isPrivate: values.draftIsPrivate,
+            })
+        },
         loadTicket: async () => {
             if (props.id === 'new') {
                 actions.setTicket(null)
@@ -1225,6 +1270,11 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     })),
     afterMount(({ actions, props, values }) => {
         actions.setDraftModeEnabled(values.draftModeDefault)
+        const storedDraft = readStoredDraft(values.user?.uuid, props.id)
+        if (storedDraft?.content) {
+            actions.setDraftContent(storedDraft.content)
+            actions.setDraftIsPrivate(storedDraft.isPrivate)
+        }
         if (props.id !== 'new') {
             actions.loadTicket()
         }
@@ -1244,7 +1294,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             if (newLocation && newLocation.pathname === router.values.location.pathname) {
                 return false
             }
-            // The draft is persisted to local storage, so in-app navigation keeps it and there's
+            // The draft is persisted for the session, so in-app navigation keeps it and there's
             // nothing to warn about — only unsaved ticket metadata (which isn't persisted) still
             // guards a route change. A real tab close (no newLocation) always warns about the draft.
             if (newLocation && !values.hasUnsavedChanges) {
@@ -1256,7 +1306,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         onConfirm: () => {
             // Re-sync local form reducers to the last-known server ticket so hasUnsavedChanges
             // recomputes to false and the prompt does not re-fire on the next navigation. The
-            // draft is deliberately left intact: it is persisted to local storage, so it must
+            // draft is deliberately left intact: it is persisted for the session, so it must
             // survive the user leaving rather than be discarded here.
             if (values.ticket) {
                 actions.setTicket(values.ticket)
