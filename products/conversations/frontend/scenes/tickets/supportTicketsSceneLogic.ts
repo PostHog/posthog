@@ -239,15 +239,15 @@ export interface supportTicketsSceneLogicActions {
     applyViewFilters: (filters: TicketViewFilters) => {
         filters: TicketViewFilters
     }
+    bulkDeleteTickets: (ids: string[]) => {
+        ids: string[]
+    }
     bulkUpdateStatus: (
         ids: string[],
         status: TicketStatus
     ) => {
         ids: string[]
         status: TicketStatus
-    }
-    bulkDeleteTickets: (ids: string[]) => {
-        ids: string[]
     }
     clearActiveView: () => {
         value: true

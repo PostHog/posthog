@@ -44,12 +44,11 @@ import {
 import { signalsReportsList } from 'products/signals/frontend/generated/api'
 import type { SignalReportApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { conversationsTicketsDestroy } from '../../generated/api'
-
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 import type { UserType } from '../../../../../frontend/src/types'
 import { assigneeSelectLogic } from '../../components/Assignee'
 import type { Assignee, TicketAssignee } from '../../components/Assignee'
+import { conversationsTicketsDestroy } from '../../generated/api'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
 import { priorityOptions } from '../../types'
 import type {
@@ -214,9 +213,9 @@ export interface supportTicketSceneLogicValues {
     status: TicketStatus | null
     tags: string[]
     ticket: Ticket | null
+    ticketDeleting: boolean
     ticketLoading: boolean
     ticketUpdating: boolean
-    ticketDeleting: boolean
     unsavedTicketChanges: string[]
 }
 
@@ -226,6 +225,9 @@ export interface supportTicketSceneLogicActions {
         value: true
     } // supportTicketsSceneLogic
     loadTags: () => any // tagsModel
+    deleteTicket: () => {
+        value: true
+    }
     dismissKnowledgeGap: (suggestionId: string) => {
         suggestionId: string
     }
@@ -406,9 +408,6 @@ export interface supportTicketSceneLogicActions {
         rating: AiReplyFeedbackRating
     }
     updateTicket: () => {
-        value: true
-    }
-    deleteTicket: () => {
         value: true
     }
 }

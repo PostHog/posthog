@@ -5,7 +5,7 @@ import time
 import uuid
 from collections.abc import Sequence
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.db.models import CharField, F, OrderBy, Q, QuerySet, Sum
@@ -34,7 +34,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import OrganizationMembership
+from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
@@ -675,6 +675,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
     def perform_destroy(self, instance: Ticket) -> None:
         ticket_id = str(instance.id)
         ticket_number = instance.ticket_number
+        # Authenticated endpoint (IsAuthenticated), so the user is always a real User.
+        user = cast(User, self.request.user)
 
         with transaction.atomic():
             # Comments are linked to the ticket by (scope, item_id), not a foreign key, so they
@@ -691,7 +693,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
-                user=self.request.user,
+                user=user,
                 was_impersonated=is_impersonated(self.request),
                 item_id=ticket_id,
                 scope="Ticket",
@@ -702,7 +704,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             capture_exception(e, {"ticket_id": ticket_id})
 
         try:
-            report_user_action(self.request.user, "support ticket deleted", {"ticket_id": ticket_id})
+            report_user_action(user, "support ticket deleted", {"ticket_id": ticket_id})
         except Exception as e:
             capture_exception(e, {"ticket_id": ticket_id})
 
