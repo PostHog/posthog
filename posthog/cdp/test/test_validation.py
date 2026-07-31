@@ -414,6 +414,46 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
     @parameterized.expand(
         [
+            ("string_input", "string", "person.properties.email"),
+            (
+                "dictionary_input",
+                "dictionary",
+                {"firstname": "person.properties.firstname", "lastname": "{person.properties.lastname}"},
+            ),
+        ]
+    )
+    def test_unbraced_template_path_in_required_input_is_rejected(self, _name, item_type, value):
+        # Forgetting the `{...}` around a template placeholder compiles the bare dotted path as a
+        # literal string with no error - the destination silently receives e.g. the text
+        # "person.properties.email" instead of the person's email. This is the mirror image of the
+        # liquid-style {{ }} mistake caught above, and just as silent without this guard.
+        inputs_schema = [{"key": "field", "type": item_type, "required": True}]
+        inputs = {"field": {"value": value}}
+
+        with pytest.raises(ValidationError) as ctx:
+            validate_inputs(inputs_schema, inputs)
+        message = str(ctx.value.detail)
+        assert "person.properties.email" in message or "person.properties.firstname" in message
+        assert "curly braces" in message
+
+    def test_braced_template_path_in_required_input_is_accepted(self):
+        inputs_schema = [{"key": "field", "type": "string", "required": True}]
+        inputs = {"field": {"value": "{person.properties.email}"}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["field"]["value"] == "{person.properties.email}"
+
+    def test_unbraced_non_global_literal_is_accepted(self):
+        # A literal that happens to contain dots but doesn't start with a known template global
+        # root (person/event/groups/source) is legitimate user data, not a forgotten placeholder.
+        inputs_schema = [{"key": "field", "type": "string", "required": True}]
+        inputs = {"field": {"value": "example.com"}}
+
+        validated = validate_inputs(inputs_schema, inputs)
+        assert validated["field"]["value"] == "example.com"
+
+    @parameterized.expand(
+        [
             ("person", "{person?.id}"),
             ("groups", "{groups.organization.id}"),
             ("source", "{source.name}"),

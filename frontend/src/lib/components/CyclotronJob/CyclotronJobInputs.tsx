@@ -390,7 +390,7 @@ function DictionaryField({
 
                     <CyclotronJobTemplateInput
                         className="overflow-hidden flex-2"
-                        placeholder="Value"
+                        placeholder={templating ? 'Value, e.g. {person.properties.email}' : 'Value'}
                         input={{ ...input, value: val }}
                         onChange={(val) => {
                             if (val.templating) {

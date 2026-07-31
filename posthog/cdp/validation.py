@@ -293,6 +293,39 @@ def _contains_liquid_style_syntax(value: Any) -> bool:
     return False
 
 
+# Roots that resolve to something at template-evaluation time. A bare dotted path built from
+# one of these (e.g. `person.properties.email`) compiles fine as a plain string literal when the
+# author forgot to wrap it in `{...}` - no error, no warning, the destination just receives the
+# literal text.
+_TEMPLATE_GLOBAL_ROOTS = ("person", "event", "groups", "source")
+_BARE_TEMPLATE_PATH_RE = re.compile(r"^(?:" + "|".join(_TEMPLATE_GLOBAL_ROOTS) + r")(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
+
+
+def _find_unbraced_template_path(value: Any) -> Optional[str]:
+    """Find a bare dotted path like `person.properties.email` that's missing the surrounding
+    `{...}` this templating syntax requires. Mirrors `_contains_liquid_style_syntax`, but for the
+    opposite mistake: forgetting braces entirely rather than doubling them.
+    """
+    if isinstance(value, str):
+        stripped = value.strip()
+        if "{" not in stripped and _BARE_TEMPLATE_PATH_RE.match(stripped):
+            return stripped
+        return None
+    if isinstance(value, dict):
+        for v in value.values():
+            found = _find_unbraced_template_path(v)
+            if found:
+                return found
+        return None
+    if isinstance(value, list):
+        for v in value:
+            found = _find_unbraced_template_path(v)
+            if found:
+                return found
+        return None
+    return None
+
+
 @extend_schema_field({"oneOf": [{"type": "boolean"}, {"type": "string", "enum": ["hog", "liquid"]}]})
 class _TemplatingChoiceField(serializers.ChoiceField):
     """drf-spectacular 0.29 crashes on sorted() with mixed bool/str choice keys."""
@@ -375,6 +408,19 @@ class InputsItemSerializer(serializers.Serializer):
 
         if not value:
             return attrs
+
+        if schema.get("required") and schema.get("templating", True):
+            unbraced_path = _find_unbraced_template_path(value)
+            if unbraced_path:
+                raise serializers.ValidationError(
+                    {
+                        "input": (
+                            f"'{unbraced_path}' looks like a template placeholder missing its curly "
+                            f"braces. Wrap it as '{{{unbraced_path}}}' to insert the value at send time "
+                            f"- otherwise the literal text '{unbraced_path}' will be sent."
+                        )
+                    }
+                )
 
         # Validate each type
         if item_type == "string":
