@@ -7,8 +7,9 @@ from django.utils import timezone
 
 from products.data_warehouse.backend.logic.backfill_status import historical_backfill_months
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
+from products.managed_warehouse.backend.facade import sink_state
+from products.managed_warehouse.backend.facade.contracts import DuckgresSinkState, DuckgresSinkStateRecord
 from products.managed_warehouse.backend.facade.cp_teams import CPTeam
-from products.managed_warehouse.backend.facade.models import DuckgresSinkSchemaState
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 ReadinessState = Literal[
@@ -180,7 +181,7 @@ def dataset_status(
     }
 
 
-def source_table_readiness(state: DuckgresSinkSchemaState) -> tuple[ReadinessState, str]:
+def source_table_readiness(state: DuckgresSinkStateRecord) -> tuple[ReadinessState, str]:
     """Readiness derived purely from events the sink jobs recorded at the time of the work.
 
     There is deliberately no liveness inference here (no pending counts, no staleness
@@ -188,14 +189,11 @@ def source_table_readiness(state: DuckgresSinkSchemaState) -> tuple[ReadinessSta
     the last live apply is stamped by the sink at apply time — the UI reports what ran
     and when, nothing more.
     """
-    if (
-        state.state == DuckgresSinkSchemaState.State.NEEDS_RESYNC
-        or state.consecutive_failures >= PERSISTENT_BACKFILL_FAILURES
-    ):
+    if state.state == DuckgresSinkState.NEEDS_RESYNC or state.consecutive_failures >= PERSISTENT_BACKFILL_FAILURES:
         return "needs_attention", "This table needs a fresh warehouse copy before imports can continue."
-    if state.state == DuckgresSinkSchemaState.State.PENDING_BACKFILL:
+    if state.state == DuckgresSinkState.PENDING_BACKFILL:
         return "waiting", "Waiting to copy existing rows into the warehouse."
-    if state.state == DuckgresSinkSchemaState.State.BACKFILLING:
+    if state.state == DuckgresSinkState.BACKFILLING:
         if state.chunk_count:
             return "backfilling", f"Copied {state.chunks_applied} of {state.chunk_count} backfill chunks."
         return "backfilling", "Existing rows are being copied into the warehouse."
@@ -209,7 +207,7 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
     per-source detail lookup (one source's schemas, for the drill-down modal) so the readiness
     computation and the visibility rules never drift between the two views.
     """
-    states = list(DuckgresSinkSchemaState.objects.filter(team_id=team_id).order_by("schema_id"))
+    states = sink_state.list_sink_states_for_team(team_id)
     if not states:
         return []
 
@@ -253,7 +251,7 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
                 "table_name": schema.name,
                 "readiness_state": readiness_state,
                 "detail": detail,
-                "backfilled": state.state == DuckgresSinkSchemaState.State.PRIMED,
+                "backfilled": state.state == DuckgresSinkState.PRIMED,
                 "completed_chunks": state.chunks_applied,
                 "total_chunks": state.chunk_count,
                 "last_applied_at": state.queue_last_applied_at,
