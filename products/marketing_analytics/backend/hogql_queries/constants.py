@@ -103,7 +103,7 @@ ROAS_COLUMN = MarketingAnalyticsConstants.ROAS.value
 # prefix makes it inherit the currency / higher-is-worse formatting the cost-per columns use.
 # It counts each customer goal's conversions as customers, which holds when that goal marks a
 # once-per-person conversion moment; see the aggregator for the assumption.
-CAC_COLUMN_SUFFIX = "customer"
+CAC_COLUMN_SUFFIX = MarketingAnalyticsConstants.CUSTOMER.value
 
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"

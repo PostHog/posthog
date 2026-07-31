@@ -6637,6 +6637,7 @@ export enum MarketingAnalyticsConstants {
     Goal = 'Goal',
     CostPer = 'Cost per',
     Roas = 'ROAS',
+    Customer = 'customer',
     ConstantValuePrefix = 'const:',
 }
 
