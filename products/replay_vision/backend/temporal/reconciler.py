@@ -14,7 +14,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.replay_vision.backend.temporal.constants import (
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
+    REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
     REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
+    REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT,
     RECONCILE_SCHEDULE_OP_TIMEOUT,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
@@ -39,6 +41,7 @@ with workflow.unsafe.imports_passed_through():
         list_enabled_scanners_activity,
         list_scanner_schedules_activity,
         reap_orphaned_observations_activity,
+        reap_stuck_vision_action_runs_activity,
         upsert_scanner_schedule_activity,
     )
 
@@ -50,15 +53,28 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileScannerSchedulesInputs) -> ReconcileScannerSchedulesResult:
-        # Best-effort and first: a schedule-sync failure below must not starve the reaper, and vice versa.
+        # Best-effort and first: a schedule-sync failure below must not starve the reapers, and vice versa.
         try:
             await workflow.execute_activity(
                 reap_orphaned_observations_activity,
                 start_to_close_timeout=REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
+                # The activity heartbeats between phases, so a stalled pass is cut loose before it burns
+                # the whole tick budget.
+                heartbeat_timeout=REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
+
+        if workflow.patched("reap-stuck-vision-action-runs-2026-07"):
+            try:
+                await workflow.execute_activity(
+                    reap_stuck_vision_action_runs_activity,
+                    start_to_close_timeout=REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                workflow.logger.exception("replay_vision.reap_stuck_vision_action_runs_failed")
 
         # A scanner toggled between the two listings recovers on the next tick.
         enabled_entries, existing_entries = await asyncio.gather(

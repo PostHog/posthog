@@ -55,7 +55,7 @@ def validate_prompt_config_value(value: Any) -> Any:
         return None
     if not isinstance(value, dict):
         raise serializers.ValidationError(
-            'Config must be a JSON object, e.g. {"model": "gpt-4o", "temperature": 0}.',
+            'Config must be a JSON object, e.g. {"model": "your-model-name", "temperature": 0}.',
             code="invalid_config",
         )
     return validate_prompt_payload_size(value, field_label="Config")

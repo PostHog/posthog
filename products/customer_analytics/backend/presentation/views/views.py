@@ -404,6 +404,8 @@ class CustomPropertyDefinitionViewSet(
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
+        except api.CanonicalCustomPropertyReadOnlyError as e:
+            raise ValidationError(str(e))
         except api.InvalidCustomPropertyOptions as e:
             raise ValidationError({"options": str(e)})
         if definition is None:

@@ -62,6 +62,7 @@ from products.customer_analytics.backend.logic.custom_property_definitions impor
     coerce_is_big_number,
     normalize_options,
 )
+from products.customer_analytics.backend.logic.custom_property_sync import sync_custom_properties_for_account
 from products.customer_analytics.backend.logic.event_stream_destination import (
     archive_event_stream_destination,
     send_test_slack_message as send_test_slack_message,
@@ -75,6 +76,7 @@ from products.customer_analytics.backend.logic.usage_spike_notifications import 
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
 from products.customer_analytics.backend.models import (
+    CANONICAL_DISPLAY_TYPE_BY_NAME,
     Account,
     AccountChannelSummary,
     AccountRelationship,
@@ -408,6 +410,8 @@ def create_external_account(
     whether it was created; an existing account is returned untouched. The name comes from the
     matching group's ``name`` property (fallback: the external id). Attribution goes to the
     originating workflow (activity-log trigger) — there is no acting user on this path.
+    On workflow-originated creates, warehouse-backed custom properties are synced inline
+    (best-effort) so the response already carries them.
     Raises ``AccountPropertiesValidationError`` / ``AccountConflictError`` (concurrent create)."""
     existing = _get_external_account_by_external_id(team.pk, external_id)
     if existing is not None:
@@ -416,6 +420,11 @@ def create_external_account(
     account = create_account(
         team=team, name=_account_name_from_group(team, external_id), external_id=external_id, trigger=trigger
     )
+    if workflow_id is not None:
+        # Synchronous so the workflow can read the values in its next step; best-effort inside —
+        # a sync failure never fails the creation. Workflow-only to keep the per-request warehouse
+        # fan-out off the general create path.
+        sync_custom_properties_for_account(team_id=team.pk, external_id=external_id)
     return _to_external_account(account), True
 
 
@@ -695,6 +704,12 @@ class CustomPropertyDefinitionConflictError(Exception):
     """Raised when a custom property definition violates the per-team unique name constraint."""
 
 
+class CanonicalCustomPropertyReadOnlyError(Exception):
+    """Raised when an update would change a field PostHog owns on a canonical custom property —
+    its name or display type. Both are what the write path matches on, so a user editing them
+    would silently stop the values from being recorded (→ 400)."""
+
+
 class ResourceForbiddenError(Exception):
     """Raised when the caller passes resource/object access checks at the team level but
     lacks the object-level access required for the action — the view maps this to 403,
@@ -958,6 +973,7 @@ def _to_custom_property_definition_view(
         target_type=definition.target_type,
         group_type_index=definition.group_type_index,
         is_big_number=definition.is_big_number,
+        is_canonical=definition.name in CANONICAL_DISPLAY_TYPE_BY_NAME,
         created_at=definition.created_at,
         created_by=definition.created_by_id,
         updated_at=definition.updated_at,
@@ -1124,6 +1140,21 @@ def create_custom_property_definition(
     return _to_custom_property_definition_view(definition)
 
 
+def _assert_canonical_fields_unchanged(definition: CustomPropertyDefinition, fields: dict[str, Any]) -> None:
+    """Refuse a rename or a type change on a canonical property — PostHog owns both.
+
+    Everything else on the definition (description, position in a view) stays editable. Deleting
+    it is allowed: the next recorded value recreates it.
+    """
+    if definition.name not in CANONICAL_DISPLAY_TYPE_BY_NAME:
+        return
+    for attr in ("name", "display_type"):
+        if attr in fields and fields[attr] != getattr(definition, attr):
+            raise CanonicalCustomPropertyReadOnlyError(
+                f"'{definition.name}' is set by PostHog, so its {attr.replace('_', ' ')} can't be changed."
+            )
+
+
 def update_custom_property_definition(
     *,
     team_id: int,
@@ -1139,6 +1170,7 @@ def update_custom_property_definition(
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
     if definition is None:
         return None
+    _assert_canonical_fields_unchanged(definition, fields)
     previous = CustomPropertyDefinition.objects.get(pk=definition.pk)
     for attr, value in fields.items():
         setattr(definition, attr, value)
@@ -2339,6 +2371,7 @@ def _to_channel_summary_view(summary: AccountChannelSummary) -> contracts.Accoun
         period_end=summary.period_end,
         content=summary.content,
         message_count=summary.message_count,
+        messages=summary.messages,
         generated_at=summary.generated_at,
     )
 
@@ -2416,9 +2449,13 @@ def record_channel_summary(
     period_end: datetime,
     content: str,
     message_count: int,
+    messages: list[dict] | None = None,
     model_name: str = "",
 ) -> str | None:
     """Store a finished channel summary pushed in by the conversations pipeline.
+
+    ``messages`` is the per-message audit metadata ([{author, sent_at, permalink}]),
+    never message text.
 
     Idempotent on ``(team, account, cadence, period_start)``: a retry or overlapping run
     resolves to the existing row's id instead of double-writing. Returns None when the
@@ -2439,6 +2476,7 @@ def record_channel_summary(
                 period_end=period_end,
                 content=content,
                 message_count=message_count,
+                messages=messages or [],
                 model_name=model_name,
             )
     except IntegrityError:
@@ -2695,6 +2733,17 @@ def set_custom_property_value(
         actor=actor,
     )
     return _to_custom_property_value(row)
+
+
+def record_last_slack_message_at(*, team_id: int, account_id: str | UUID, timestamp: datetime) -> bool:
+    """Record when a customer last messaged in the Slack channel bound to `account_id`.
+
+    For conversations, which sees the messages. Throttled and self-creating — see the logic
+    function. Returns whether the stored value moved.
+    """
+    return _custom_property_values_logic.record_last_slack_message_at(
+        team_id=team_id, account_id=account_id, timestamp=timestamp
+    )
 
 
 def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> list[contracts.CustomPropertyValue]:

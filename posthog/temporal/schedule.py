@@ -20,6 +20,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
     should_register_checkpoint_compaction_schedule,
@@ -103,6 +104,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
@@ -382,7 +384,16 @@ async def create_sync_events_retention_schedule(client: Client):
     sync_events_retention_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "sync-events-retention",
-            SyncEventsRetentionInput(dry_run=False),
+            SyncEventsRetentionInput(
+                dry_run=False,
+                slo=SloConfig(
+                    operation=SloOperation.SYNC_EVENTS_RETENTION,
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    team_id=0,
+                    resource_id="sync-events-retention",
+                    distinct_id="sync-events-retention",
+                ),
+            ),
             id="sync-events-retention-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
@@ -840,6 +851,7 @@ schedules = [
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
     create_github_job_logs_coordinator_schedule,
+    create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
 ]
 

@@ -4,7 +4,9 @@ Runs inside `ExternalDataJobWorkflow` after the pipeline lock is held and before
 the sole writer for the schema (the schedule's OnlyOne overlap policy + the v3 pipeline lock guarantee
 no concurrent sync). Acting on a pending target *before* the merge means the merge that follows in the
 same run uses the new, memory-safe layout. A repartition failure never fails the workflow — the sync
-just proceeds on the old layout (status quo) and the table is retried on a later run.
+just proceeds on the old layout (status quo) and the table is retried on a later run. The one nuance:
+a transient infra error during an admin-staged rewrite re-raises retryable so the activity's retry
+policy re-runs it in this run (the workflow swallows the failure if retries exhaust).
 """
 
 import time
@@ -20,14 +22,19 @@ from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    DeltaTableHelper,
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (
     RepartitionSupersededError,
     RepartitionTarget,
@@ -155,9 +162,15 @@ def _maybe_flag_pre_extraction(
             return None
         async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger, enabled=enabled)
     except Exception as e:
-        # Detection is best-effort; a failure here must not block the sync.
-        logger.warning("repartition: pre-extraction detection failed", exc_info=True)
-        capture_exception(e)
+        # Detection is best-effort; a failure here must not block the sync. `get_delta_table` re-raises
+        # transient object-store blips (S3/credential-provider timeouts) rather than swallowing them —
+        # see its own docstring — so this is the layer that must apply is_transient_object_store_error
+        # before reporting, same as the other best-effort call sites around this table.
+        if is_transient_object_store_error(e):
+            logger.warning("repartition: pre-extraction detection failed with a transient object-store error")
+        else:
+            logger.warning("repartition: pre-extraction detection failed", exc_info=True)
+            capture_exception(e)
         return None
     return schema.repartition_pending
 
@@ -186,7 +199,9 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
 
 def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: FilteringBoundLogger) -> None:
     try:
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        schema = retry_on_db_connection_drop(
+            lambda: ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        )
     except ExternalDataSchema.DoesNotExist:
         logger.warning(
             f"repartition: schema not found, skipping activity schema_id={inputs.schema_id}",
@@ -233,7 +248,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         return
 
     try:
-        job = ExternalDataJob.objects.get(id=inputs.job_id)
+        job = retry_on_db_connection_drop(lambda: ExternalDataJob.objects.get(id=inputs.job_id))
     except ExternalDataJob.DoesNotExist:
         logger.warning(
             f"repartition: job not found, skipping activity job_id={inputs.job_id}",
@@ -241,7 +256,12 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         )
         return
 
-    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
+    # `resolved_s3_folder_name` is authoritative for the Delta folder, not the row's own name: a row
+    # renamed during the multi-schema migration keeps its folder pinned to the original path (name
+    # `public.users`, folder `users`), and the pipeline writes there too. Deriving the folder from
+    # `name` alone probes a path that was never written and the repartition skips as `no_delta_table`.
+    resource_name = schema.resolved_s3_folder_name or schema.name
+    helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=logger)
 
     if pending is None and swap is None:
         # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
@@ -326,11 +346,25 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         if _is_transient_infra_error(e):
             # Transient infra noise mid-repartition (app-DB pooler drop, S3 rate limit, credential
             # timeout) — not a repartition bug. The rewrite/swap is idempotent via the swap marker, so
-            # the next sync retries cleanly. Don't consume an attempt or emit a failure event —
-            # capture for visibility and move on.
+            # retrying is always safe. Don't consume an attempt or emit a failure event.
+            DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
+            if trigger_reason == "admin":
+                # An operator staged this rewrite precisely because syncing on the old layout is
+                # pathological (e.g. a badly over-partitioned table merging one commit per partition
+                # for hours). Deferring to the next sync would run that crawl first, so re-raise
+                # retryable and let the activity's retry policy re-run the rewrite now; the claim
+                # fencing handles any zombie, and if attempts exhaust the workflow still swallows the
+                # failure and syncs on the old layout. No capture_exception here and the error type is
+                # exempted in EXPECTED_CONTROL_FLOW_ERROR_TYPES: retries are expected control flow,
+                # and error-tracking events here would spam (and can trigger automated remediation);
+                # the log line and the transient metric carry the visibility.
+                logger.warning("repartition: transient infra error, re-raising for activity retry", exc_info=True)
+                raise ApplicationError(
+                    f"Transient infra error during admin-staged repartition: {e}",
+                    type="TransientRepartitionError",
+                ) from e
             logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
             capture_exception(e)
-            DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="transient").inc()
             return
         failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()

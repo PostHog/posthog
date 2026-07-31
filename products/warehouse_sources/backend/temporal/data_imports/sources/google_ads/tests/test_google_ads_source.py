@@ -13,6 +13,7 @@ from django.db import OperationalError
 
 import grpc
 import pyarrow as pa
+import requests
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
@@ -24,6 +25,9 @@ from posthog.schema import SourceFieldOauthConfig
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleads import (
     GoogleAdsIsMccAccountConfig,
     GoogleAdsSourceConfig,
@@ -445,6 +449,26 @@ class TestValidateCredentials:
         assert ok is False
         assert "try again" in (message or "")
         assert "Internal error encountered" not in (message or "")
+
+    def test_invalid_argument_returns_actionable_message(self):
+        # A malformed request surfaces as a raw gRPC INVALID_ARGUMENT dump (with a per-request peer IP)
+        # at validate time. Surface a clean, actionable prompt rather than leaking the protobuf dump.
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        client = mock.Mock()
+        client.get_service.return_value.list_accessible_customers.side_effect = Exception(
+            'status = StatusCode.INVALID_ARGUMENT\n\tdetails = "Request contains an invalid argument."\n\t'
+            'debug_error_string = "peer_address:ipv4:172.217.112.4:443"'
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.google_ads_client",
+            return_value=client,
+        ):
+            ok, message = GoogleAdsSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert "customer ID" in (message or "")
+        assert "172.217.112.4" not in (message or "")
+        assert "StatusCode" not in (message or "")
 
 
 def _google_ads_exception(request_error: int) -> GoogleAdsException:
@@ -1182,6 +1206,34 @@ class TestGetOAuthAccountsCaching:
         walk.assert_called_once()
         assert [account.value for account in first] == ["123-456-7890"]
         assert [account.value for account in second] == ["987-654-3210"]
+
+
+class TestGetOAuthAccountsNetworkErrorHandling:
+    @pytest.mark.parametrize(
+        "network_error",
+        [
+            requests.exceptions.ReadTimeout("read timed out"),
+            requests.exceptions.ConnectionError("connection reset"),
+        ],
+    )
+    def test_transient_network_error_becomes_actionable(self, network_error):
+        # list_google_ads_accessible_accounts retries a transient blip internally, so this exception means
+        # every attempt failed. Previously nothing here caught it, so it propagated as an unhandled 500
+        # instead of the same actionable error the credential-rejection path already raises.
+        cache.clear()
+        source = GoogleAdsSource()
+        integration = mock.Mock(errors=None)
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(f"{_SOURCE_MODULE}.GoogleAdsIntegration") as mock_google_ads,
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+            mock_google_ads.return_value.list_google_ads_accessible_accounts.side_effect = network_error
+
+            with pytest.raises(IntegrationAccountListingError):
+                source.get_oauth_accounts(1, 2)
 
 
 class TestGoogleAdsQueryConstruction:

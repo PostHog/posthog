@@ -1,6 +1,7 @@
 import os
 import uuid
 import asyncio
+from datetime import timedelta
 from typing import Any, Literal
 
 import pytest
@@ -10,7 +11,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.ai.slack_app import derive_mention_workflow_id
+from posthog.temporal.ai.slack_app import derive_mention_workflow_id, slack_app_mention
 from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
 from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 from posthog.temporal.ai.slack_app.types import (
@@ -48,6 +49,8 @@ class _Recorder:
         self.processing_marked: list[str] = []
         # ts per forwarded followup, in execution order.
         self.forwarded: list[str] = []
+        # ts per internal-error notice posted back to the thread, in execution order.
+        self.internal_errors: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
         self.forward_results: dict[str, bool] = {}
         # ts -> cascade mode; missing means "auto" with a fixed repository.
@@ -188,7 +191,7 @@ def _fake_activities(rec: _Recorder) -> list:
 
     @activity.defn(name="post_posthog_code_internal_error_activity")
     async def internal_error(inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
-        return None
+        rec.internal_errors.append(inputs.event["ts"])
 
     @activity.defn(name="resolve_posthog_code_slack_user_activity")
     async def resolve_user(
@@ -405,6 +408,27 @@ async def test_repo_picker_signal_resolves_and_queue_continues():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/picked"), ("1.2", "org/auto-repo")]
+
+
+@pytest.mark.asyncio
+async def test_hung_child_times_out_and_queue_continues(monkeypatch):
+    # A child that never finishes used to stall the conversation forever: the queue
+    # awaits it serially, so every later message in the thread sat behind it with no
+    # reply and no explanation. Shortened here so the time-skipping server reaches the
+    # execution timeout before the child's own 15-minute picker wait.
+    monkeypatch.setattr(slack_app_mention, "SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT", timedelta(minutes=5))
+    rec = _Recorder()
+    rec.cascade_modes["1.1"] = "agent_needed"
+
+    async with _Harness(rec) as h:
+        handle = await _signal_with_start(h.env, h.task_queue, f"wf-{uuid.uuid4()}", _message("1.1"))
+        # The first message parks on the repo picker and is never answered.
+        await asyncio.wait_for(rec.picker_posted.wait(), timeout=30)
+        await handle.signal(SlackAppMentionWorkflow.new_message, _message("1.2"))
+        await asyncio.wait_for(handle.result(), timeout=60)
+
+    assert rec.created == [("1.2", "org/auto-repo")]
+    assert rec.internal_errors == ["1.1"]
 
 
 @pytest.mark.asyncio

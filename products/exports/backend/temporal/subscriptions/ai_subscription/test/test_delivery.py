@@ -357,7 +357,7 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
             SubscriptionTriggerType.MANUAL, SubscriptionDelivery.Status.COMPLETED, scheduled_at + timedelta(days=1)
         )
         self._delivery(
-            SubscriptionTriggerType.TARGET_CHANGE,
+            SubscriptionTriggerType.SUBSCRIPTION_CHANGE,
             SubscriptionDelivery.Status.COMPLETED,
             scheduled_at + timedelta(days=2),
         )
