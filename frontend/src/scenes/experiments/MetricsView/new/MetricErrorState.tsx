@@ -12,7 +12,7 @@ import { ExperimentMetric } from '~/queries/schema/schema-general'
 
 type MetricErrorStateProps = {
     error: {
-        detail: string | object | any
+        detail?: string | null
         statusCode?: number
         queryId?: string
     }

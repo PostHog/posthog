@@ -169,5 +169,5 @@ export function LegacyErrorChecklist({ error, metric }: { error: any; metric: an
     }
 
     // Other unexpected errors
-    return <div>{error.detail}</div>
+    return <div>{typeof error.detail === 'string' ? error.detail : 'An unexpected error occurred'}</div>
 }

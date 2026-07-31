@@ -72,9 +72,10 @@ export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
  * This function safely extracts the message and code, falling back to the
  * original string if parsing fails.
  */
-export function parseErrorMessage(errorMessage: string | undefined): { message: string; code: string | null } {
+export function parseErrorMessage(errorMessage: string | null | undefined): { message: string; code: string | null } {
     if (!errorMessage || typeof errorMessage !== 'string') {
-        return { message: errorMessage || '', code: null }
+        // Never hand back a non-string: callers render this straight into JSX.
+        return { message: typeof errorMessage === 'string' ? errorMessage : '', code: null }
     }
 
     // Try to match list format: [ErrorDetail(string='...', code='...')]

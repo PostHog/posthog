@@ -273,7 +273,7 @@ export function InstallationProgressContent({
                     </div>
                 )}
 
-            {phase === 'error' && error?.detail && (
+            {phase === 'error' && typeof error?.detail === 'string' && (
                 <div className="text-sm text-danger bg-danger-highlight rounded p-2">{error.detail}</div>
             )}
 

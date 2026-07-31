@@ -6,6 +6,10 @@ export function isAccessDeniedError(error: { status?: number; code?: string | nu
     return error.status === 403 && error.code === 'permission_denied'
 }
 
+function asString(value: unknown): string | null {
+    return typeof value === 'string' && value ? value : null
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
@@ -27,11 +31,13 @@ export class ApiError extends Error {
     ) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
-        this.statusText = data?.statusText || null
-        this.detail = data?.detail || null
-        this.code = data?.code || null
-        this.link = data?.link || null
-        this.attr = data?.attr || null
+        // Only keep string values: these fields are declared `string | null` and consumers render them
+        // directly into JSX, so a non-string body value would crash React. The raw body stays on `data`.
+        this.statusText = asString(data?.statusText)
+        this.detail = asString(data?.detail)
+        this.code = asString(data?.code)
+        this.link = asString(data?.link)
+        this.attr = asString(data?.attr)
     }
 
     /**

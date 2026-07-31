@@ -2,7 +2,7 @@ import './EmptyStates.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { isValidElement, useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
@@ -699,6 +699,9 @@ export function InsightErrorState({
         </Link>
     )
 
+    // `title` is often fed straight from an API error body, so fall back rather than trust the declared type
+    const renderableTitle = typeof title === 'string' || isValidElement(title) ? title : null
+
     return (
         <div
             data-attr="insight-empty-state"
@@ -709,7 +712,7 @@ export function InsightErrorState({
             <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
                 {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
-                {title || <span>There was a problem completing this query</span>}
+                {renderableTitle || <span>There was a problem completing this query</span>}
             </h2>
 
             {!excludeDetail && !supportOnly && (

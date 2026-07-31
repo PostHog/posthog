@@ -202,8 +202,12 @@ export const extractValidationError = (error: Error | Record<string, any> | null
     if (hasValidationErrorStatus(error)) {
         // Async queries put the error message on data.error_message, while synchronous ones use detail
         const anyError = error as Record<string, any>
+        const message = anyError.detail || anyError.data?.error_message
+        if (typeof message !== 'string') {
+            return null
+        }
         // Add unbreakable space for better line breaking
-        return (anyError.detail || anyError.data?.error_message)?.replace('Try ', 'Try\u00A0') ?? null
+        return message.replace('Try ', 'Try\u00A0')
     }
 
     return null
