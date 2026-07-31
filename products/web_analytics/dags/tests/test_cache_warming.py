@@ -20,6 +20,7 @@ from products.web_analytics.dags import cache_warming
 from products.web_analytics.dags.cache_warming import (
     WarmQueriesConfig,
     build_replay_runner,
+    canonicalize_lazy_replay_json,
     deepen_to_widest_warmable_range,
     get_warmable_queries_op,
     maybe_expand_warming_date_range,
@@ -260,6 +261,112 @@ class TestBuildReplayRunner(BaseTest):
         self.assertIsNotNone(runner)
         self.assertFalse(lazy_eligible)
         self.assertEqual(used_json["dateRange"]["date_from"], "-7d")
+
+    @parameterized.expand(
+        [
+            # A snapshot rotation that flips the representative to a sibling
+            # variant — compare toggled, a different sub-30d preset — must not
+            # rotate the staleness cache key; before canonicalization every such
+            # flip re-warmed the shape even though its buckets were fresh.
+            (
+                "overview_compare_and_preset_variant",
+                {"kind": "WebOverviewQuery", "properties": []},
+                {"dateRange": {"date_from": "wStart"}, "compareFilter": {"compare": True}},
+            ),
+            (
+                "stats_limit_variant",
+                {"kind": "WebStatsTableQuery", "properties": [], "breakdownBy": "Browser"},
+                {"dateRange": {"date_from": "dStart"}, "limit": 50},
+            ),
+        ]
+    )
+    def test_representative_variants_share_one_cache_key(self, _name: str, shape: dict, variant_extra: dict) -> None:
+        base = {**shape, "useWebAnalyticsPrecompute": True, "dateRange": {"date_from": "-7d"}}
+        variant = {**base, **variant_extra}
+
+        base_runner, _, base_eligible = build_replay_runner(self.team, base, ["-7d"])
+        variant_runner, _, variant_eligible = build_replay_runner(self.team, variant, ["-7d"])
+
+        assert base_runner is not None and variant_runner is not None
+        self.assertTrue(base_eligible)
+        self.assertTrue(variant_eligible)
+        self.assertEqual(base_runner.get_cache_key(), variant_runner.get_cache_key())
+
+
+class TestCanonicalizeLazyReplay(BaseTest):
+    @parameterized.expand(
+        [
+            ("steps_up_to_next_multiple", "-31d", "-45d"),
+            ("on_step_unchanged", "-45d", "-45d"),
+            ("weeks_convert_then_step", "-6w", "-45d"),
+            ("cap_holds", "-90d", "-90d"),
+        ]
+    )
+    def test_lookback_steps(self, _name: str, date_from: str, expected: str) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": {"date_from": date_from},
+        }
+
+        self.assertEqual(canonicalize_lazy_replay_json(query)["dateRange"]["date_from"], expected)
+
+    def test_variant_fields_dropped_shape_fields_kept(self) -> None:
+        query = {
+            "kind": "WebStatsTableQuery",
+            "useWebAnalyticsPrecompute": True,
+            "properties": [{"key": "$host", "value": "posthog.com", "type": "event"}],
+            "breakdownBy": "Browser",
+            "filterTestAccounts": True,
+            "dateRange": {"date_from": "-30d"},
+            "compareFilter": {"compare": True},
+            "limit": 50,
+            "modifiers": {"sessionTableVersion": "v2"},
+            "version": 2,
+        }
+
+        canonical = canonicalize_lazy_replay_json(query)
+
+        for dropped in ("compareFilter", "limit", "modifiers", "version"):
+            self.assertNotIn(dropped, canonical)
+        self.assertEqual(canonical["properties"], query["properties"])
+        self.assertEqual(canonical["breakdownBy"], "Browser")
+        self.assertIs(canonical["filterTestAccounts"], True)
+        self.assertIs(canonical["useWebAnalyticsPrecompute"], True)
+
+    @parameterized.expand(
+        [
+            (
+                "non_lazy_kind",
+                {"kind": "WebExternalClicksTableQuery", "useWebAnalyticsPrecompute": True, "compareFilter": {}},
+            ),
+            ("opted_out", {"kind": "WebOverviewQuery", "useWebAnalyticsPrecompute": False, "compareFilter": {}}),
+        ]
+    )
+    def test_off_lazy_path_is_untouched(self, _name: str, query: dict) -> None:
+        self.assertIs(canonicalize_lazy_replay_json(query), query)
+
+    @parameterized.expand(
+        [
+            # A bounded span keeps its faithful range for the same reason
+            # deepening skips it, and non-exact forms have no monotonic depth
+            # to step — both still shed the variant fields.
+            ("bounded_range", {"date_from": "-7d", "date_to": "-1d"}),
+            ("month_start", {"date_from": "mStart"}),
+        ]
+    )
+    def test_unsteppable_ranges_keep_span_but_shed_variant_fields(self, _name: str, date_range: dict) -> None:
+        query = {
+            "kind": "WebOverviewQuery",
+            "useWebAnalyticsPrecompute": True,
+            "dateRange": date_range,
+            "compareFilter": {"compare": True},
+        }
+
+        canonical = canonicalize_lazy_replay_json(query)
+
+        self.assertEqual(canonical["dateRange"], date_range)
+        self.assertNotIn("compareFilter", canonical)
 
 
 class TestSplitWarmableQueries(BaseTest):

@@ -246,6 +246,55 @@ def maybe_expand_warming_date_range(query_json: dict) -> dict:
     return {**query_json, "dateRange": {**date_range, "date_from": WARMING_EXPANDED_DATE_FROM}}
 
 
+# The canonical lazy replay drops every field the bucket namespace ignores —
+# except the two it still needs: the opt-in flag (the eligibility gates read it)
+# and the date range (canonicalized below rather than dropped).
+_CANONICAL_REPLAY_DROPPED_FIELDS: frozenset[str] = SHAPE_CAP_KEY_IGNORED_QUERY_FIELDS - {
+    "useWebAnalyticsPrecompute",
+    "dateRange",
+}
+
+# The deepened lookback rounds UP to the next multiple of this step. Without it
+# the replay's depth tracks the deepest variant in the rolling demand window
+# exactly, so a -44d/-46d drift alone rotates the cache key. A step trades at
+# most (step - 1) days of extra immutable-bucket depth for a key that only moves
+# when demand genuinely crosses a step boundary.
+_CANONICAL_LOOKBACK_STEP_DAYS = 15
+
+
+def canonicalize_lazy_replay_json(query_json: dict) -> dict:
+    """Collapse a lazy-path replay to its shape's canonical variant.
+
+    The warm/cold + staleness discriminator is the replayed runner's result-cache
+    key, but the replayed variant is the demand snapshot's most-requested RAW
+    variant. Fields the bucket namespace ignores (compareFilter, limit, modifiers,
+    …) and small drifts in the deepest observed lookback flip that variant on
+    every snapshot rotation, rotating the cache key — the warmer then re-warms a
+    shape whose buckets are already fresh. Measured before this: ~90% of the
+    fleet re-warmed on every 6h rotation. Dropping the ignored fields and
+    stepping the lookback makes the replay a pure function of the normalized
+    shape, so the discriminator survives rotations.
+
+    Confined to the lazy path, mirroring the deepen/expand gates: a raw replay's
+    exact result-cache row is the whole value of warming it, so its variant must
+    stay faithful. A bounded range (date_to) keeps its faithful span for the same
+    reason deepening skips it, but still sheds the ignored fields.
+    """
+    if query_json.get("kind") not in LAZY_PRECOMPUTE_QUERY_KINDS:
+        return query_json
+    if query_json.get("useWebAnalyticsPrecompute") is not True:
+        return query_json
+    canonical = {k: v for k, v in query_json.items() if k not in _CANONICAL_REPLAY_DROPPED_FIELDS}
+    date_range = canonical.get("dateRange") or {}
+    if not date_range.get("date_to"):
+        days = _exact_lookback_days(date_range.get("date_from"))
+        if days:
+            step = _CANONICAL_LOOKBACK_STEP_DAYS
+            stepped = min(MAX_PRECOMPUTE_DAYS, ((days + step - 1) // step) * step)
+            canonical["dateRange"] = {**date_range, "date_from": f"-{stepped}d"}
+    return canonical
+
+
 # Family-level eligibility dispatch, mirroring each runner's own lazy-path
 # entry points (stats_table tries three families; a shape is lazy-served iff
 # any accepts). Keyed by query kind — only LAZY_PRECOMPUTE_QUERY_KINDS appear.
@@ -288,10 +337,14 @@ def build_replay_runner(
     the warmer's purpose — so the decision rests on the shape itself.
     """
     # The lazy candidate: deepen to the widest range the shape's demand covers,
-    # then widen a sub-30d range up to the standard warm depth. Both are no-ops
-    # off the lazy path, so an unchanged result means nothing to try there.
-    lazy_json = maybe_expand_warming_date_range(
-        deepen_to_widest_warmable_range(query_json, observed_date_froms, MAX_PRECOMPUTE_DAYS)
+    # widen a sub-30d range up to the standard warm depth, then collapse to the
+    # shape's canonical variant so the staleness cache key survives snapshot
+    # rotations. All three are no-ops off the lazy path, so an unchanged result
+    # means nothing to try there.
+    lazy_json = canonicalize_lazy_replay_json(
+        maybe_expand_warming_date_range(
+            deepen_to_widest_warmable_range(query_json, observed_date_froms, MAX_PRECOMPUTE_DAYS)
+        )
     )
     if lazy_json is query_json:
         runner = get_query_runner_or_none(query=query_json, team=team, limit_context=LimitContext.QUERY_ASYNC)
