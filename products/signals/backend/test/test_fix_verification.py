@@ -215,8 +215,11 @@ class TestEvaluatePendingFixVerifications(BaseTest):
         assert stats.checked == 2
 
     def test_error_settling_one_verification_does_not_halt_the_sweep(self):
-        _, broken_verification = self._make_verification()
-        _, other_verification = self._make_verification(merged_at=self._MERGED_AT + timedelta(hours=1))
+        # Both have to be past their soak deadline at the swept `now`, and the raising one
+        # has to sort first (the sweep orders by verify_after) — otherwise the sweep never
+        # reaches the second row and the test passes for the wrong reason.
+        _, broken_verification = self._make_verification(merged_at=self._MERGED_AT - timedelta(hours=1))
+        _, other_verification = self._make_verification()
 
         real_settle = fix_verification._settle_verification
 
