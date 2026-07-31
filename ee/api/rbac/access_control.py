@@ -5,6 +5,7 @@ from django.db.models import Q
 
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
+from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
@@ -187,14 +188,9 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
 # Object-level access-control `resource` -> (app_label, model_name, display-name field) for resolving
 # a `resource_id` to a human-readable name. Unknown resources fall back to showing the raw id.
-_OBJECT_RESOURCE_MODELS: dict[str, tuple[str, str, str]] = {
-    "dashboard": ("dashboards", "dashboard", "name"),
-    "insight": ("product_analytics", "insight", "name"),
-    "notebook": ("notebooks", "notebook", "title"),
-    "feature_flag": ("feature_flags", "featureflag", "key"),
-    "experiment": ("experiments", "experiment", "name"),
-    "survey": ("surveys", "survey", "name"),
-    "action": ("actions", "action", "name"),
+# Resources with object-level rules that universal search doesn't index, so they're absent
+# from its ENTITY_MAP: (app_label, model_name, display-name field).
+_EXTRA_RESOURCE_MODELS: dict[str, tuple[str, str, str]] = {
     "warehouse_view": ("data_modeling", "datawarehousesavedquery", "name"),
     "warehouse_table": ("warehouse_sources", "datawarehousetable", "name"),
     "external_data_source": ("warehouse_sources", "externaldatasource", "source_type"),
@@ -203,11 +199,31 @@ _OBJECT_RESOURCE_MODELS: dict[str, tuple[str, str, str]] = {
 
 
 def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, str]:
-    """Map {resource_id -> display name} for one resource type. Best-effort: on any failure returns {}."""
+    """Map {resource_id -> display name} for one resource type. Best-effort: on any failure returns {}.
+
+    Models and display fields come from universal search's ENTITY_MAP, whose keys match
+    access-control resources, with a small supplement for resources search doesn't index.
+    """
     from django.apps import apps
 
-    registry = _OBJECT_RESOURCE_MODELS.get(resource)
-    if not registry or not resource_ids:
+    from posthog.api.search import (
+        ENTITY_MAP,  # noqa: PLC0415 — imports every searchable product model, keep it off this module's import path
+    )
+
+    if not resource_ids:
+        return {}
+    entity = ENTITY_MAP.get(resource)
+    if entity is not None:
+        model = entity["klass"]
+        # The primary display field is the one search ranks highest (name / key / title)
+        name_field = next(field for field, rank in entity["search_fields"].items() if rank == "A")
+        try:
+            rows = model.objects.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
+            return {str(pk): name for pk, name in rows}
+        except Exception:
+            return {}
+    registry = _EXTRA_RESOURCE_MODELS.get(resource)
+    if not registry:
         return {}
     app_label, model_name, name_field = registry
     try:
@@ -814,19 +830,13 @@ class AccessControlViewSetMixin(_GenericViewSet):
         member_id = request.query_params.get("member_id")
         if not member_id:
             raise exceptions.ValidationError("member_id is required")
-        membership = OrganizationMembership.objects.filter(id=member_id, organization=team.organization).first()
-        if not membership:
-            raise exceptions.NotFound("Member not found")
-        return membership
+        return get_object_or_404(OrganizationMembership, id=member_id, organization=team.organization)
 
     def _get_role(self, request: Request, team: Team) -> Role:
         role_id = request.query_params.get("role_id")
         if not role_id:
             raise exceptions.ValidationError("role_id is required")
-        role = Role.objects.filter(id=role_id, organization=team.organization).first()
-        if not role:
-            raise exceptions.NotFound("Role not found")
-        return role
+        return get_object_or_404(Role, id=role_id, organization=team.organization)
 
     def _object_rules_response(
         self,
