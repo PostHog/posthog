@@ -25,7 +25,9 @@ use rdkafka::producer::{DefaultProducerContext, FutureProducer};
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_common::partitioning::partition_for_person;
-use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
+use personhog_leader::cache::{
+    approx_person_bytes, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey,
+};
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::PgFallback;
@@ -515,6 +517,7 @@ pub fn test_cached_person() -> CachedPerson {
         created_at: 1700000000,
         version: 1,
         is_identified: false,
+        approx_bytes: approx_person_bytes(64),
     }
 }
 
@@ -534,7 +537,7 @@ pub async fn start_leader_with_pg_fallback(
     Arc<PartitionedCache>,
     MockCluster<'static, DefaultProducerContext>,
 ) {
-    let cache = Arc::new(PartitionedCache::new(100));
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (mock_cluster, kafka_producer) = create_test_kafka().await;
     let pool = create_persons_pool().await;
 
