@@ -31,6 +31,21 @@ def _capture_sync_completed(total_processed: int, total_updated: int, dry_run: b
         )
 
 
+def _capture_retention_changes(changes: list[dict]) -> None:
+    with ph_scoped_capture() as capture:
+        for change in changes:
+            capture(
+                distinct_id="sync-events-retention",
+                event="events_retention_changed",
+                properties={
+                    **change,
+                    "cloud_deployment": settings.CLOUD_DEPLOYMENT,
+                    # Personless: a mass change (e.g. a policy flip) must not mint one person per team.
+                    "$process_person_profile": False,
+                },
+            )
+
+
 @activity.defn(name="sync-events-retention")
 async def sync_events_retention(input: SyncEventsRetentionInput) -> None:
     """Reconcile every team's events retention window with its billing entitlement.
@@ -62,17 +77,28 @@ async def sync_events_retention(input: SyncEventsRetentionInput) -> None:
             last_pk = teams[-1].pk
 
             teams_to_update: list[Team] = []
+            changes: list[dict] = []
             for team in teams:
                 retention_feature = team.organization.get_available_feature(
                     AvailableFeature.PRODUCT_ANALYTICS_DATA_RETENTION
                 )
                 target_months = parse_events_feature_to_months(retention_feature)
                 if team.event_retention_months != target_months:
+                    changes.append(
+                        {
+                            "team_id": team.pk,
+                            "organization_id": str(team.organization_id),
+                            "retention_months_before": team.event_retention_months,
+                            "retention_months_after": target_months,
+                        }
+                    )
                     team.event_retention_months = target_months
                     teams_to_update.append(team)
 
             if teams_to_update and not input.dry_run:
                 await Team.objects.abulk_update(teams_to_update, ["event_retention_months"])
+                # Per batch and off-thread so a mass change can't stall heartbeats or overflow the client queue.
+                await asyncio.to_thread(_capture_retention_changes, changes)
 
             total_processed += len(teams)
             total_updated += len(teams_to_update)
