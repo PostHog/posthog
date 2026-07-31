@@ -119,26 +119,6 @@ export const getInstructorSteps = (ctx: OnboardingComponentsContext): StepDefini
                             },
                         ]}
                     />
-
-                    <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
-                        <Markdown>
-                            {dedent`
-                                Multiple traces get grouped into one PostHog session through \`$ai_session_id\`. This
-                                OpenTelemetry setup can only set it as a \`Resource\` attribute at startup, and that
-                                Resource never changes again for the life of the process. That is accurate if a
-                                process handles one conversation end to end, like a script. But run this inside a
-                                long-lived extraction service, and every request quietly becomes part of the same
-                                session, with nothing to flag it.
-
-                                To group by conversation instead, capture \`$ai_span\` and \`$ai_generation\` events
-                                directly (see
-                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)).
-                                Alternatively, use an integration with a per-call channel, such as the PostHog SDK
-                                wrappers or the
-                                [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
-                            `}
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },

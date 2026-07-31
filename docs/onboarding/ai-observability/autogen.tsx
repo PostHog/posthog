@@ -71,32 +71,6 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                             OpenAIInstrumentor().instrument()
                         `}
                     />
-
-                    <CalloutBox type="caution" icon="IconWarning" title="Session grouping">
-                        <Markdown>
-                            {dedent`
-                                \`$ai_session_id\` groups every trace from one conversation into a single PostHog
-                                session. This integration only exposes it as an attribute on the \`Resource\` built
-                                above. That attribute becomes fixed the moment you create \`TracerProvider\`, and
-                                nothing touches it again. This setup is accurate for a process that only ever handles
-                                one conversation, like a script. A long-running AutoGen service is different: it ends
-                                up stamping every user's conversation with the same session id.
-
-                                Nothing errors. PostHog just groups the events wrong instead.
-
-                                For a session id per conversation, capture \`$ai_span\` and \`$ai_generation\` events
-                                directly. See
-                                [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture)
-                                for details. Or use an integration with a per-call channel instead, such as the
-                                PostHog SDK wrappers or the
-                                [LangChain callback handler](https://posthog.com/docs/ai-observability/installation/langchain).
-
-                                This setup also only captures the OpenAI calls AutoGen's agents make under the hood.
-                                It does not capture the tools those agents invoke. Give a tool call its own
-                                \`$ai_span\`, tied to the same \`$ai_trace_id\`, if you want it to show up in the trace.
-                            `}
-                        </Markdown>
-                    </CalloutBox>
                 </>
             ),
         },

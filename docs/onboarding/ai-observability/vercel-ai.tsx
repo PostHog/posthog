@@ -3,7 +3,7 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 
 export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
+    const { CodeBlock, Markdown, Blockquote, dedent, snippets } = ctx
 
     const NotableGenerationProperties = snippets?.NotableGenerationProperties
 
@@ -108,27 +108,6 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                         `}
                     />
 
-                    <Markdown>
-                        {dedent`
-                            PostHog captures the \`get_weather\` execution above as an \`$ai_span\` event, with its
-                            real duration, once the call completes. Pass \`$ai_session_id\` in \`metadata\` to group
-                            every call in a conversation into one PostHog session.
-                        `}
-                    </Markdown>
-
-                    <Markdown>
-                        {dedent`
-                            \`posthog_distinct_id\` ties this call to a person, so you can see everything one user
-                            asked for and know who hit an error or ran up cost. \`$ai_session_id\` groups every call
-                            in one conversation, so a multi-turn exchange reads as a single thread instead of
-                            separate, unrelated calls. A trace covers one call, and a session covers the whole
-                            conversation: passing the same session id in \`metadata\` across every call is what
-                            connects them. Together, \`posthog_distinct_id\` and \`$ai_session_id\` give you a
-                            complete view: who made the request, which conversation it is part of, and every
-                            generation and tool execution inside it.
-                        `}
-                    </Markdown>
-
                     <Blockquote>
                         <Markdown>
                             **Note:** If you want to capture LLM events anonymously, omit the `posthog_distinct_id`
@@ -145,19 +124,6 @@ export const getVercelAISteps = (ctx: OnboardingComponentsContext): StepDefiniti
                             PostHog does not capture other metadata fields.
                         </Markdown>
                     </Blockquote>
-
-                    <CalloutBox type="caution" icon="IconWarning" title="Tool calls aren't fully captured">
-                        <Markdown>
-                            {dedent`
-                                PostHog's ingestion strips \`ai.prompt.tools\` and \`ai.response.toolCalls\` from the
-                                spans this integration emits. \`$ai_tools\` stays empty, and the model's requested
-                                tool calls do not reach \`$ai_output_choices\`. Tool executions still appear as
-                                \`$ai_span\` events. If you need full tool-call visibility, use
-                                [OpenTelemetry](https://posthog.com/docs/ai-observability/installation/opentelemetry)
-                                instead.
-                            `}
-                        </Markdown>
-                    </CalloutBox>
 
                     <Markdown>
                         {dedent`
