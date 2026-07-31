@@ -1108,14 +1108,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("empty_list", [], set()),
-            ("blank_key_in_list", ["foo", ""], set()),
-            ("non_string_key", ["foo", 123], set()),
-            ("forbidden_key_in_list", ["foo", "secret"], {"secret"}),
+            ("empty_list", {"$unset": []}, set()),
+            ("blank_key_in_list", {"$unset": ["foo", ""]}, set()),
+            ("non_string_key", {"$unset": ["foo", 123]}, set()),
+            ("missing_unset", {}, set()),
+            ("non_dict_body", ["foo"], set()),
+            ("oversized_list", {"$unset": ["k"] * 1001}, set()),
+            ("forbidden_key_in_list", {"$unset": ["foo", "secret"]}, {"secret"}),
         ]
     )
     @mock.patch("posthog.api.person.capture_internal")
-    def test_delete_property_rejects_invalid_or_forbidden_unset(self, _name, unset, non_writable, mock_capture) -> None:
+    def test_delete_property_rejects_invalid_or_forbidden_unset(self, _name, body, non_writable, mock_capture) -> None:
         person = _create_person(
             team=self.team,
             distinct_ids=["some_distinct_id"],
@@ -1129,11 +1132,49 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ):
             response = self.client.post(
                 f"/api/person/{person.uuid}/delete_property",
-                {"$unset": unset},
+                body,
                 format="json",
             )
 
         self.assertEqual(response.status_code, 400)
+        mock_capture.assert_not_called()
+
+    @mock.patch("posthog.api.person.capture_internal")
+    def test_delete_property_names_every_forbidden_key(self, mock_capture) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["some_distinct_id"],
+            properties={"foo": "a", "secret": "b", "hidden": "c"},
+            immediate=True,
+        )
+
+        with mock.patch(
+            "posthog.api.person.PersonViewSet._get_non_writable_person_properties",
+            return_value={"secret", "hidden"},
+        ):
+            response = self.client.post(
+                f"/api/person/{person.uuid}/delete_property",
+                {"$unset": ["foo", "secret", "hidden"]},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("hidden, secret", response.json()["detail"])
+        mock_capture.assert_not_called()
+
+    @mock.patch("posthog.api.person.capture_internal")
+    @mock.patch("posthog.api.person.get_person_by_pk_or_uuid")
+    def test_delete_property_rejects_person_without_distinct_ids(self, mock_get_person, mock_capture) -> None:
+        mock_get_person.return_value = mock.Mock(distinct_ids=[])
+
+        response = self.client.post(
+            f"/api/person/{uuid4()}/delete_property",
+            {"$unset": "foo"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("no distinct IDs", response.json()["detail"])
         mock_capture.assert_not_called()
 
     @mock.patch("posthog.api.person.capture_internal")

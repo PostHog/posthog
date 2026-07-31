@@ -167,9 +167,14 @@ export const PersonsDeletePropertyCreateQueryParams = /* @__PURE__ */ zod.object
     format: zod.enum(['csv', 'json']).optional(),
 })
 
+export const personsDeletePropertyCreateBodyUnsetTwoMax = 1000
+
 export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
     $unset: zod
-        .union([zod.string().min(1), zod.array(zod.string().min(1)).min(1)])
+        .union([
+            zod.string().min(1),
+            zod.array(zod.string().min(1)).min(1).max(personsDeletePropertyCreateBodyUnsetTwoMax),
+        ])
         .describe('A property key, or a list of property keys, to remove from this person.'),
 })
 
