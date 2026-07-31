@@ -1240,6 +1240,17 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
     def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        return self._message_assets_response(request, kind="email")
+
+    @extend_schema(
+        parameters=[PersonMessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
+    def push_notifications(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        return self._message_assets_response(request, kind="push")
+
+    def _message_assets_response(self, request: request.Request, kind: str) -> response.Response:
         person = self.get_object()
         param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
@@ -1259,6 +1270,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             offset=params["offset"],
             after=after_date,
             before=before_date,
+            kind=kind,
         )
         # Single lookup for every workflow referenced by this page of rows so the tab shows
         # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
