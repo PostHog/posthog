@@ -265,3 +265,5 @@ GROUP BY variant
 5. **Fallback**: If precomputation fails or isn't ready, the query falls back to scanning the events table directly.
 
 6. **Future: GROUP BY (entity_id, variant)**: Currently the query groups by entity_id only and resolves the variant during precomputation (e.g., argMin for first-seen). This bakes the variant handling strategy into the stored data, so switching between "first seen" and "exclude multiple" requires recomputation. A better approach is to GROUP BY (entity_id, variant) so we store one row per user-variant pair, then resolve multiple variants at query time.
+
+7. **Metric events**: The same lazy computation system also precomputes the metric_events half into `experiment_metric_events_preaggregated`, for ordered funnel metrics (one row per matching event with step indicators in `steps`) and count/sum mean metrics (one row per matching event with its value in `numeric_value`). Eligibility is gated by `_metric_events_precompute_applicable()` in `experiment_query_runner.py`; breakdowns, CUPED, and data warehouse sources fall back to a direct scan of the metric_events CTE.
