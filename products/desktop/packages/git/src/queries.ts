@@ -1,7 +1,7 @@
+import { execFile } from "node:child_process";
 import { createReadStream, readFileSync, statSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { isBinaryFile } from "@posthog/shared";
 import type { CreateGitClientOptions } from "./client";
