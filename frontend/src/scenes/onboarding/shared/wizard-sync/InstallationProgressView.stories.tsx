@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { InstallationProgressContent } from './InstallationProgressContent'
 import { InstallationProgress, InstallationStepStatus } from './installationProgressLogic'
-import { InstallationProgressContent } from './InstallationProgressView'
 
 /**
  * Every state of the Installation layer's progress view, driven by fixtures (the component is pure, so

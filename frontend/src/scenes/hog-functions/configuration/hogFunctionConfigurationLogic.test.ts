@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
@@ -181,6 +183,56 @@ describe('hogFunctionConfigurationLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.submitConfiguration()
             }).toDispatchActions(['upsertHogFunction', 'submitConfigurationSuccess'])
+        })
+    })
+
+    describe('log transformation', () => {
+        const LOG_TEMPLATE: HogFunctionTemplateType = {
+            free: true,
+            status: 'stable',
+            id: 'template-log-transformation-default',
+            type: 'transformation_log',
+            name: 'Custom log transformation',
+            description: 'Start from scratch.',
+            code: 'return record',
+            code_language: 'hog',
+            inputs_schema: [],
+            filters: null,
+            masking: null,
+            icon_url: '/static/hedgehog/builder-hog-01.png',
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            mockApi.getTemplate.mockReturnValue(Promise.resolve(LOG_TEMPLATE))
+            logic = hogFunctionConfigurationLogic({ templateId: 'test' })
+            logic.mount()
+        })
+
+        it('seeds the inline tester with a sample record, not an event', async () => {
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+            const globals = logic.values.exampleInvocationGlobals
+            expect(globals.record).toBeTruthy()
+            expect(globals.record?.body).toContain('GET /api/users')
+            expect(globals.event).toBeUndefined()
+        })
+
+        it('surfaces validation errors on `type` as a toast, since no form field renders them', async () => {
+            // The feature-flag gate and the enabled-function cap both reject with attr `type`;
+            // without the toast the Save button fails with no visible feedback at all.
+            const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
+            const detail = 'Log transformations are not enabled for this team.'
+            mockApi.create.mockRejectedValue({
+                status: 400,
+                data: { type: 'validation_error', code: 'invalid_input', attr: 'type', detail },
+            })
+            await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
+
+            await expectLogic(logic, () => {
+                logic.actions.submitConfiguration()
+            }).toDispatchActions(['upsertHogFunctionFailure'])
+
+            expect(toastSpy).toHaveBeenCalledWith(detail)
         })
     })
 })
