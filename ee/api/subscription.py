@@ -998,7 +998,7 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
         ],
     ),
 )
-@extend_schema(tags=["subscriptions"])
+@extend_schema(tags=["subscriptions"], extensions={"x-product": "subscriptions"})
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "subscription"
     queryset = Subscription.objects.all()
