@@ -8401,6 +8401,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         "kind": "InsightVizNode",
         "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
     }
+    DELIVERY_URL = "https://app.dev/exporter/export-1.png?token=abc"
 
     def _post_chart(self, scopes, body):
         task = self.create_task()
@@ -8422,6 +8423,22 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
             format="json",
             headers={"authorization": f"Bearer {api_key_value}"},
         )
+
+    def _post_chart_with_session(self, body):
+        # Session auth skips scope enforcement, so the query-access check is the only gate here.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        self.client.force_authenticate(self.user)
+        return self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/living_artifacts/chart/",
+            body,
+            format="json",
+        )
+
+    def _rendered_asset(self, **kwargs):
+        asset = MagicMock(id=321, exception=None, **kwargs)
+        asset.get_subscription_delivery_content_url.return_value = self.DELIVERY_URL
+        return asset
 
     @parameterized.expand([("task_write_only", ["task:write"]), ("query_read_only", ["query:read"])])
     def test_rejects_key_missing_either_scope(self, _name, scopes):
@@ -8447,10 +8464,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
     @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
     @patch("products.tasks.backend.presentation.views.api.render_png_export")
     def test_renders_and_registers_artifact_with_both_scopes(self, mock_render, mock_create):
-        mock_asset = MagicMock(id=321, exception=None)
-        mock_asset.get_subscription_delivery_content_url.return_value = (
-            "https://app.dev/exporter/export-1.png?token=abc"
-        )
+        mock_asset = self._rendered_asset()
         mock_render.return_value = (mock_asset, b"png-bytes")
         mock_create.return_value = (self._artifact_response(), None)
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
@@ -8478,7 +8492,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
                 "content_type": "image/png",
                 "content_bytes": b"png-bytes",
                 "metadata": {
-                    "image_url": "https://app.dev/exporter/export-1.png?token=abc",
+                    "image_url": self.DELIVERY_URL,
                     "posthog_url": expected_url,
                 },
             },
@@ -8502,6 +8516,12 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
             (
                 "invalid_source_kind",
                 {"kind": "InsightVizNode", "source": {"kind": "NotAQuery"}},
+                "Invalid insight query",
+            ),
+            # Reaches upgrade(), which raises TypeError comparing a str version against an int.
+            (
+                "unupgradable_version",
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "version": "abc"}},
                 "Invalid insight query",
             ),
         ]
@@ -8530,6 +8550,60 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["error"], "Chart render failed")
+
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_render_value_error_surfaces_message_as_400(self, mock_render):
+        mock_render.side_effect = ValueError("Insight not found")
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "insight_id": 404})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Insight not found")
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_renders_saved_insight_and_links_to_it(self, mock_render, mock_create):
+        asset = self._rendered_asset(insight_id=7)
+        asset.insight.short_id = "ins123"
+        mock_render.return_value = (asset, b"png-bytes")
+        mock_create.return_value = (self._artifact_response(), None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Saved chart", "insight_id": 7})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        expected_url = absolute_uri(f"/project/{self.team.id}/insights/ins123")
+        self.assertEqual(response.json()["url"], expected_url)
+        render_kwargs = mock_render.call_args.kwargs
+        self.assertEqual(render_kwargs["insight_id"], 7)
+        self.assertIsNone(render_kwargs["export_context"])
+        self.assertEqual(mock_create.call_args.kwargs["artifact"]["name"], "Saved chart.png")
+        self.assertEqual(
+            mock_create.call_args.kwargs["artifact"]["metadata"],
+            {"image_url": self.DELIVERY_URL, "posthog_url": expected_url},
+        )
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_registration_error_returns_typed_400(self, mock_render, mock_create):
+        asset = self._rendered_asset()
+        mock_render.return_value = (asset, b"png-bytes")
+        mock_create.return_value = (None, "Slack channel not connected")
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "Slack channel not connected")
+        asset.delete.assert_called_once()
+
+    @patch("products.tasks.backend.presentation.views.api.tasks_facade.create_task_run_living_artifact")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_run_vanishing_before_registration_returns_404(self, mock_render, mock_create):
+        mock_render.return_value = (self._rendered_asset(), b"png-bytes")
+        mock_create.return_value = (None, None)
+        response = self._post_chart(["task:write", "query:read"], {"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource")
+    @patch("products.tasks.backend.presentation.views.api.render_png_export")
+    def test_session_auth_without_query_access_is_rejected(self, mock_render, mock_check):
+        mock_check.side_effect = lambda resource, required_level: resource != "query"
+        response = self._post_chart_with_session({"name": "Chart", "query": self.CHART_QUERY})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_render.assert_not_called()
 
 
 class TestTaskRepositoryReadinessAPI(BaseTaskAPITest):
