@@ -37,6 +37,14 @@ DATA_WAREHOUSE_TARGET_PARTITION_BYTES = get_from_env(
     "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000, type_cast=int
 )
 
+# Ceiling on the partition count a single datetime repartition step may produce (see
+# `_max_repartition_partitions` in repartition.py) — stops the auto-repartition ladder from walking a
+# long-history table all the way to `hour`, where it multiplies the partition count instead of
+# shrinking an oversized one and turns every subsequent merge into a per-partition commit storm.
+DATA_WAREHOUSE_MAX_REPARTITION_PARTITIONS = get_from_env(
+    "DATA_WAREHOUSE_MAX_REPARTITION_PARTITIONS", 5000, type_cast=int
+)
+
 # A schema that records at least this many sync OOMs within the lookback window is force-repartitioned
 # even when its largest partition is within the size budget — its real merge working set is bigger than
 # the compressed at-rest size implies (e.g. wide nested-JSON columns). See ExternalDataSchemaOOMEvent.

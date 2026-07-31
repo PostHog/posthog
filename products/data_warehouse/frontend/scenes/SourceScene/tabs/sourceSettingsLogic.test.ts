@@ -7,6 +7,7 @@ import {
     buildBulkEnablePayloads,
     clonePayloadPreservingFiles,
     isSensitiveCredentialField,
+    mergeJobInputs,
     removeEmptySensitiveValues,
     runBulkSchemaAction,
     schemasEligibleForSync,
@@ -210,6 +211,30 @@ describe('clonePayloadPreservingFiles', () => {
         expect(cloned.config).not.toBe(payload.config)
         expect(cloned.key_file[0]).toBeInstanceOf(File)
         expect(cloned.key_file[0]).toBe(keyFile)
+    })
+})
+
+describe('mergeJobInputs', () => {
+    it('merges a nested field object instead of replacing it, preserving untouched siblings', () => {
+        // A disabled "Customize synced properties" toggle submits `{ custom_properties: { enabled: false } }`
+        // — a shallow merge would wipe the previously saved contacts_properties/deals_properties text.
+        const existingJobInputs = {
+            custom_properties: { enabled: true, contacts_properties: 'email,name', deals_properties: 'amount' },
+        }
+        const sanitizedPayload = { custom_properties: { enabled: false } }
+
+        const merged = mergeJobInputs(existingJobInputs, sanitizedPayload)
+
+        expect(merged.custom_properties).toEqual({
+            enabled: false,
+            contacts_properties: 'email,name',
+            deals_properties: 'amount',
+        })
+    })
+
+    it('replaces non-object values outright', () => {
+        const merged = mergeJobInputs({ prefix: 'old', keep: 'me' }, { prefix: 'new' })
+        expect(merged).toEqual({ prefix: 'new', keep: 'me' })
     })
 })
 

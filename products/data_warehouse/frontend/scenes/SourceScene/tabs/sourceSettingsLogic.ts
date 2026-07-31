@@ -22,6 +22,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -310,6 +311,22 @@ export const clonePayloadPreservingFiles = (value: unknown): unknown => {
     }
 
     return value
+}
+
+// A switch-group/select-group field submits only the sub-fields it renders — e.g. a disabled
+// "Customize synced properties" toggle omits its nested text fields entirely. Replacing the whole
+// top-level key (rather than merging into it) would wipe those untouched nested values from
+// job_inputs, so merge one level deep for object fields.
+export function mergeJobInputs(
+    existingJobInputs: Record<string, any>,
+    sanitizedPayload: Record<string, any>
+): Record<string, any> {
+    const merged: Record<string, any> = { ...existingJobInputs }
+    for (const [key, value] of Object.entries(sanitizedPayload)) {
+        const existingValue = existingJobInputs[key]
+        merged[key] = isObject(value) && isObject(existingValue) ? { ...existingValue, ...value } : value
+    }
+    return merged
 }
 
 // Run a per-schema API action across many schemas; returns how many failed.
@@ -1057,10 +1074,10 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
                 }
 
-                const newJobInputs = {
-                    ...values.source?.job_inputs,
-                    ...sanitizedPayload,
-                }
+                const newJobInputs = mergeJobInputs(
+                    (values.source?.job_inputs ?? {}) as Record<string, any>,
+                    sanitizedPayload
+                )
 
                 // Handle file uploads
                 const sourceFieldConfig = values.sourceFieldConfig

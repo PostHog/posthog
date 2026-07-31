@@ -196,7 +196,11 @@ export const sourceFieldToElement = (
     }
 
     if (field.type === 'switch-group') {
-        const enabled = !!lastValue?.[field.name]?.enabled || lastValue?.[field.name]?.enabled === 'True'
+        // job_inputs round-trip booleans as Python-style strings ('True'/'False'), and `'False'` is
+        // JS-truthy — comparing against the string form (in addition to the real boolean) keeps a
+        // saved-disabled toggle rendering as off instead of flipping back on.
+        const rawEnabled = lastValue?.[field.name]?.enabled
+        const enabled = rawEnabled === true || rawEnabled === 'True'
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
                 {({ value, onChange }) => {

@@ -241,6 +241,24 @@ class TestSelectRepartitionTarget:
         _target, reason = select_repartition_target(_schema(**schema_kwargs), {"a": 5000}, 1000)
         assert reason == expected_reason
 
+    def test_datetime_step_blocked_by_projected_partition_count_ceiling(self):
+        # A table with years of `day`-tier history (hundreds of distinct days) must not be walked to
+        # `hour` — that multiplies the partition count ~24x without shrinking any oversized partition,
+        # turning every subsequent merge into a per-partition commit storm (the HubSpot contacts/deals
+        # regression this guards). Below the default 5000-partition ceiling, the same schema still steps.
+        many_days: dict[str | None, int] = {f"day-{i}": 6000 for i in range(300)}  # 300 * 24 = 7200 > default ceiling
+        schema = _schema(partition_mode="datetime", partition_format="day", partitioning_keys=["created_at"])
+
+        target, reason = select_repartition_target(schema, many_days, 1000)
+        assert target is None
+        assert reason == "partition_count_ceiling"
+
+        few_days: dict[str | None, int] = {f"day-{i}": 6000 for i in range(10)}  # 10 * 24 = 240, under the ceiling
+        target, reason = select_repartition_target(schema, few_days, 1000)
+        assert target is not None
+        assert reason == "selected"
+        assert target.partition_format == "hour"
+
     def test_md5_count_strictly_grows_even_when_formula_below_current(self):
         # Largest partition is over budget but total/target rounds below the current count: the count
         # must still grow, or the repartition would be a no-op that never relieves the pressure.

@@ -24,6 +24,8 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+
 import pyarrow as pa
 import deltalake as deltalake
 import deltalake.exceptions
@@ -53,6 +55,10 @@ if TYPE_CHECKING:
 
 # Coarse → fine. A datetime table that's OOMing steps one tier finer each repartition cycle.
 DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
+
+# Upper bound on how many buckets a step down one tier can split a bucket into: a month spans at most
+# 5 ISO weeks, a week spans 7 days, a day spans 24 hours.
+_DATETIME_TIER_STEP_FACTOR: dict[PartitionFormat, int] = {"month": 5, "week": 7, "day": 24}
 
 # Rows per streamed record-batch. Bounds the repartition's peak memory independent of partition size.
 DEFAULT_REPARTITION_BATCH_SIZE = 50_000
@@ -293,6 +299,20 @@ def _datetime_tier_ceiling(schema: ExternalDataSchema) -> PartitionFormat:
     return DATETIME_FORMAT_TIERS[-1]
 
 
+def _max_repartition_partitions() -> int:
+    """Ceiling on the partition count a single datetime tier step may produce.
+
+    Stepping down a tier doesn't shrink any partition that's over budget — every bucket at the finer
+    tier is proportionally smaller — it just multiplies the partition *count* (day -> hour is up to
+    24x). delta-rs pays a per-partition commit on every merge regardless of how little data lands in
+    it, so a table with years of history can walk all the way to `hour` (one partition per hour of
+    its whole history) and turn every subsequent incremental sync into a merge storm, without any
+    single partition ever exceeding the byte budget. Refuse to step past this projected count; the
+    caller treats it the same as "nothing finer to do" and backs off via the cooldown.
+    """
+    return int(getattr(settings, "DATA_WAREHOUSE_MAX_REPARTITION_PARTITIONS", 5000))
+
+
 def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
@@ -303,8 +323,9 @@ def select_repartition_target(
     Computes the target directly from measured bytes so one repartition lands under budget rather
     than stepping blindly: md5 grows the bucket count, numerical shrinks the row-size, datetime steps
     one format tier finer. When no target is chosen the reason explains why (reported in metrics so a
-    skipped table is diagnosable): `within_budget`, `datetime_at_finest_tier`, `numerical_cannot_shrink`,
-    `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
+    skipped table is diagnosable): `within_budget`, `datetime_at_finest_tier`, `partition_count_ceiling`,
+    `numerical_cannot_shrink`, `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target
+    carries reason `selected`.
     """
     if not partition_bytes:
         return None, "no_partitions"
@@ -347,6 +368,12 @@ def select_repartition_target(
         if current_index >= ceiling_index:
             # Already at the finest usable tier — can't go finer. Caller alerts.
             return None, "datetime_at_finest_tier"
+        step_factor = _DATETIME_TIER_STEP_FACTOR.get(current_format, 1)
+        projected_partition_count = len(partition_bytes) * step_factor
+        if projected_partition_count > _max_repartition_partitions():
+            # A table with enough history already has too many buckets at this tier to justify
+            # multiplying them further — see `_max_repartition_partitions`. Caller alerts.
+            return None, "partition_count_ceiling"
         return RepartitionTarget(
             partition_keys=keys,
             trigger_reason="",
