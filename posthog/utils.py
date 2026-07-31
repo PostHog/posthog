@@ -610,7 +610,8 @@ def _build_template_context(
                 resource_access: dict[str, Any] = {}
                 for resource in ACCESS_CONTROL_RESOURCES:
                     with tracer.start_as_current_span(f"template.rbac.levels.{resource}"):
-                        resource_access[resource] = user_access_control.access_level_for_resource(resource)
+                        resolution = user_access_control.access_level_for_resource(resource)
+                        resource_access[resource] = resolution.access_level if resolution else None
                 posthog_app_context["resource_access_control"] = resource_access
 
             with tracer.start_as_current_span("template.user_serializer"):

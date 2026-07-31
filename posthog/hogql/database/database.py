@@ -497,8 +497,8 @@ def _compute_system_table_access_decision(
 
     denied: set[str] = set()
     for name, access_scope in scoped_tables:
-        access_level = user_access_control.access_level_for_resource(access_scope)
-        if access_level and access_level != NO_ACCESS_LEVEL:
+        resolution = user_access_control.access_level_for_resource(access_scope)
+        if resolution and resolution.access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
         denied.add(name)
 

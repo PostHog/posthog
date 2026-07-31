@@ -1,7 +1,7 @@
 import json
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
@@ -242,6 +242,26 @@ class EffectiveAccessResult:
     effective_access_level: AccessControlLevel | None
     inherited_access_level: AccessControlLevel | None
     inherited_access_level_reason: InheritedAccessLevelReason | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ResolvedAccess:
+    """An access level plus which rule supplied it, so callers can attribute a resolution
+    instead of re-deriving it. Enforcement reads only `access_level`."""
+
+    access_level: AccessControlLevel
+    # What supplied the level: a row on the object itself, a row on its fallback parent (a table's
+    # source), a resource-wide rule, the parent's resource-wide rule, the system default
+    # (default_access_level(), no row anywhere — also covers orgs without the entitlement, where
+    # rules are never consulted), or the org-admin bypass.
+    source: Literal["object", "parent_object", "resource", "parent_resource", "system_default", "org_admin"]
+    # The source rule's subject: an everyone-row ("default"), a role row, or a member row.
+    # None when no row decided.
+    source_subject: Optional[Literal["member", "role", "default"]]
+    # The resource the source rule belongs to — a table resolved through its source reports the
+    # source's resource, and the system default reports the resource whose rules would apply
+    # (the RESOURCE_INHERITANCE_MAP umbrella), not necessarily the object's own.
+    source_resource: APIScopeObject
 
 
 def get_effective_access_level_for_role(
@@ -946,10 +966,11 @@ class UserAccessControl:
     # Resource level - checking conditions for the resource type
     # ------------------------------------------------------------
 
-    def access_level_for_resource(self, resource: APIScopeObject) -> Optional[AccessControlLevel]:
+    def access_level_for_resource(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
         """
         Access levels are strings - the order of which is determined at run time.
-        We find all relevant access controls and then return the highest value
+        We find all relevant access controls and return the highest value, with the source rule
+        attached so callers can attribute it.
         """
 
         # Check if this resource inherits access from a parent resource
@@ -959,7 +980,12 @@ class UserAccessControl:
             return self.access_level_for_resource(parent_resource)
 
         if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
-            return default_access_level(resource)
+            return ResolvedAccess(
+                access_level=default_access_level(resource),
+                source="system_default",
+                source_subject=None,
+                source_resource=resource,
+            )
 
         org_membership = self._organization_membership
 
@@ -969,19 +995,40 @@ class UserAccessControl:
 
         # Org admins always have resource level access
         if self.is_organization_admin:
-            return highest_access_level(resource)
+            return ResolvedAccess(
+                access_level=highest_access_level(resource),
+                source="org_admin",
+                source_subject=None,
+                source_resource=resource,
+            )
 
         if not self.access_controls_supported:
             # If access controls aren't supported, then return the default access level
-            return default_access_level(resource)
+            return ResolvedAccess(
+                access_level=default_access_level(resource),
+                source="system_default",
+                source_subject=None,
+                source_resource=resource,
+            )
 
         filters = self._access_controls_filters_for_resource(resource)
         access_controls = self._get_access_controls(filters)
 
         if not access_controls:
-            return default_access_level(resource)
+            return ResolvedAccess(
+                access_level=default_access_level(resource),
+                source="system_default",
+                source_subject=None,
+                source_resource=resource,
+            )
 
-        return self._highest_access_level_from_rows(resource, access_controls)
+        row = self._highest_access_control_from_rows(resource, access_controls)
+        return ResolvedAccess(
+            access_level=row.access_level,
+            source="resource",
+            source_subject=self._row_subject(row),
+            source_resource=resource,
+        )
 
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
         if not self._team:
@@ -1003,13 +1050,14 @@ class UserAccessControl:
         return bool(access_controls)
 
     def check_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
-        access_level = self.access_level_for_resource(resource)
+        resolution = self.access_level_for_resource(resource)
 
         # For inherited resources, use the parent resource's access levels for comparison
         comparison_resource = RESOURCE_INHERITANCE_MAP.get(resource, resource)
 
-        if not access_level:
+        if not resolution:
             return False
+        access_level = resolution.access_level
 
         return access_level_satisfied_for_resource(comparison_resource, access_level, required_level)
 
@@ -1082,7 +1130,8 @@ class UserAccessControl:
             span.set_attribute("rbac.resource", str(resource))
             # First check resource-level access
             with tracer.start_as_current_span("rbac.resource_level_check"):
-                resource_access = self.access_level_for_resource(resource)
+                resource_resolution = self.access_level_for_resource(resource)
+                resource_access = resource_resolution.access_level if resource_resolution else None
 
             # If resource access is not "none", return it directly
             if resource_access and resource_access != NO_ACCESS_LEVEL:
@@ -1217,8 +1266,8 @@ class UserAccessControl:
 
     def has_resource_access(self, resource: APIScopeObject) -> bool:
         """Whether the user has any resource-level access (level is set and not "none")"""
-        level = self.access_level_for_resource(resource)
-        return bool(level and level != NO_ACCESS_LEVEL)
+        resolution = self.access_level_for_resource(resource)
+        return bool(resolution and resolution.access_level != NO_ACCESS_LEVEL)
 
     @cached_property
     def blocked_resources(self) -> list[str]:
@@ -1338,10 +1387,35 @@ class UserAccessControl:
     def _highest_access_level_from_rows(
         resource: APIScopeObject, access_controls: list[_AccessControl]
     ) -> AccessControlLevel:
+        return UserAccessControl._highest_access_control_from_rows(resource, access_controls).access_level
+
+    @staticmethod
+    def _highest_access_control_from_rows(
+        resource: APIScopeObject, access_controls: list[_AccessControl]
+    ) -> _AccessControl:
+        """The row that supplies the highest level — `_highest_access_level_from_rows` as a row.
+
+        On level ties the attribution is deterministic — a member row over a role row over the
+        everyone-row. Label only: the level is identical by construction.
+        """
+        levels = ordered_access_levels(resource)
+        top = max(levels.index(ac.access_level) for ac in access_controls)
+
+        def specificity(ac: _AccessControl) -> int:
+            return 2 if ac.organization_member_id is not None else 1 if ac.role_id is not None else 0
+
         return max(
-            access_controls,
-            key=lambda access_control: ordered_access_levels(resource).index(access_control.access_level),
-        ).access_level
+            (ac for ac in access_controls if levels.index(ac.access_level) == top),
+            key=specificity,
+        )
+
+    @staticmethod
+    def _row_subject(access_control: _AccessControl) -> Literal["member", "role", "default"]:
+        if access_control.organization_member_id is not None:
+            return "member"
+        if access_control.role_id is not None:
+            return "role"
+        return "default"
 
     def _object_access_level_from_rows(
         self,
@@ -1349,11 +1423,11 @@ class UserAccessControl:
         object_access_controls: list[_AccessControl],
         explicit: bool = False,
         fallback_parent_id: Optional[str] = None,
-    ) -> Optional[AccessControlLevel]:
+    ) -> Optional[ResolvedAccess]:
         """Row-based object access resolution, most specific rule first: explicit (role/member) object
         rows, then the fallback parent's object rows, then resource-level rows, then the parent's
         resource-level rows, then default object rows, then the resource default. Shared by
-        `get_user_access_level` and `bulk_object_access_levels`.
+        `get_user_access_level` and `bulk_object_access_levels`, which read only `.access_level`.
         """
         parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
 
@@ -1361,29 +1435,54 @@ class UserAccessControl:
             ac for ac in object_access_controls if ac.role_id is not None or ac.organization_member_id is not None
         ]
         if explicit_rows:
-            return self._highest_access_level_from_rows(resource, explicit_rows)
+            row = self._highest_access_control_from_rows(resource, explicit_rows)
+            return ResolvedAccess(
+                access_level=row.access_level,
+                source="object",
+                source_subject=self._row_subject(row),
+                source_resource=resource,
+            )
 
         if parent:
             parent_rows = self._get_access_controls(
                 self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
             )
             if parent_rows:
-                return self._highest_access_level_from_rows(parent, parent_rows)
+                row = self._highest_access_control_from_rows(parent, parent_rows)
+                return ResolvedAccess(
+                    access_level=row.access_level,
+                    source="parent_object",
+                    source_subject=self._row_subject(row),
+                    source_resource=parent,
+                )
 
         if self.has_access_levels_for_resource(resource):
-            access_level_for_resource = self.access_level_for_resource(resource)
-            if access_level_for_resource:
-                return access_level_for_resource
+            resource_resolution = self.access_level_for_resource(resource)
+            if resource_resolution:
+                return resource_resolution
 
         if parent and self.has_access_levels_for_resource(parent):
-            access_level_for_parent = self.access_level_for_resource(parent)
-            if access_level_for_parent:
-                return access_level_for_parent
+            parent_resolution = self.access_level_for_resource(parent)
+            if parent_resolution:
+                return replace(parent_resolution, source="parent_resource")
 
         if object_access_controls:
-            return self._highest_access_level_from_rows(resource, object_access_controls)
+            row = self._highest_access_control_from_rows(resource, object_access_controls)
+            return ResolvedAccess(
+                access_level=row.access_level,
+                source="object",
+                source_subject=self._row_subject(row),
+                source_resource=resource,
+            )
 
-        return None if explicit else default_access_level(resource)
+        if explicit:
+            return None
+        return ResolvedAccess(
+            access_level=default_access_level(resource),
+            source="system_default",
+            source_subject=None,
+            source_resource=RESOURCE_INHERITANCE_MAP.get(resource, resource),
+        )
 
     @staticmethod
     def _fallback_parent_id(obj: Model, resource: APIScopeObject) -> Optional[str]:
@@ -1403,12 +1502,13 @@ class UserAccessControl:
         object_access_controls = self._get_access_controls(
             self._access_controls_filters_for_object(resource, str(obj.id))  # type: ignore
         )
-        return self._object_access_level_from_rows(
+        resolution = self._object_access_level_from_rows(
             resource,
             object_access_controls,
             explicit=explicit,
             fallback_parent_id=self._fallback_parent_id(obj, resource),
         )
+        return resolution.access_level if resolution else None
 
     def bulk_object_access_levels(
         self,
@@ -1445,7 +1545,8 @@ class UserAccessControl:
                 for ac in self._get_access_controls(self._access_controls_filters_for_queryset(resource)):
                     rows_by_object_id[ac.resource_id].append(ac)
 
-            results[object_id] = self._object_access_level_from_rows(resource, rows_by_object_id.get(object_id, []))
+            resolution = self._object_access_level_from_rows(resource, rows_by_object_id.get(object_id, []))
+            results[object_id] = resolution.access_level if resolution else None
 
         return results
 
