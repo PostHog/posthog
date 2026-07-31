@@ -1,20 +1,19 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import EmailEditor, { EditorRef } from 'react-email-editor'
 
+import { IconCollapse, IconExpand, IconExternal, IconPlus, IconX } from '@posthog/icons'
 import {
-    IconChevronDown,
-    IconChevronLeft,
-    IconChevronRight,
-    IconCollapse,
-    IconExpand,
-    IconExternal,
-    IconPlus,
-    IconX,
-} from '@posthog/icons'
-import { LemonButton, LemonLabel, LemonModal, LemonSegmentedButton, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
+    LemonButton,
+    LemonCard,
+    LemonLabel,
+    LemonModal,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonTabs,
+} from '@posthog/lemon-ui'
 
 import { CyclotronJobTemplateSuggestionsButton } from 'lib/components/CyclotronJob/CyclotronJobTemplateSuggestions'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -327,111 +326,44 @@ function LiquidSupportedText({
     )
 }
 
-const CARD_WIDTH = 192 // w-48
-const CARD_GAP = 12 // gap-3
-
-function TemplateSlider({
-    templates,
-    onSelect,
-    onSaveAsTemplate,
-}: {
-    templates: any[]
-    onSelect: (template: any) => void
-    onSaveAsTemplate?: () => void
-}): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-    const [page, setPage] = useState(0)
-    const [pageSize, setPageSize] = useState(5)
-    const containerRef = useRef<HTMLDivElement>(null)
-
-    const updatePageSize = useCallback(() => {
-        if (containerRef.current) {
-            const width = containerRef.current.offsetWidth
-            const count = Math.max(1, Math.floor((width + CARD_GAP) / (CARD_WIDTH + CARD_GAP)))
-            setPageSize(count)
-        }
-    }, [])
-
-    useEffect(() => {
-        if (!expanded) {
-            return
-        }
-        updatePageSize()
-        const observer = new ResizeObserver(updatePageSize)
-        if (containerRef.current) {
-            observer.observe(containerRef.current)
-        }
-        return () => observer.disconnect()
-    }, [expanded, updatePageSize])
-
-    const totalPages = Math.ceil(templates.length / pageSize)
-    const clampedPage = Math.min(page, totalPages - 1)
-    const visibleTemplates = templates.slice(clampedPage * pageSize, (clampedPage + 1) * pageSize)
+export function TemplatePickerModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
+    const { templates } = useValues(emailTemplaterLogic)
+    const { applyTemplate } = useActions(emailTemplaterLogic)
 
     return (
-        <div className="border-b">
-            <div
-                className="flex gap-2 items-center px-2 py-1 cursor-pointer select-none"
-                onClick={() => setExpanded(!expanded)}
-            >
-                <IconChevronDown className={clsx('w-4 h-4 transition-transform', !expanded && '-rotate-90')} />
-                <span className="flex-1 text-sm text-secondary">Start from a template (optional)</span>
-                {onSaveAsTemplate && (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onSaveAsTemplate()
-                        }}
-                    >
-                        Save as new template
-                    </LemonButton>
-                )}
-            </div>
-            {expanded && (
-                <div ref={containerRef} className="flex items-center gap-1 px-1 pb-2">
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronLeft />}
-                        disabled={clampedPage === 0}
-                        onClick={() => setPage(clampedPage - 1)}
-                    />
-                    <div className="flex gap-3 flex-1 overflow-hidden" key={clampedPage}>
-                        {visibleTemplates.map((template, index) => (
-                            <div
-                                key={template.id}
-                                className="shrink-0 w-48 h-56 MessageTemplateSlider__SlideIn--animate"
-                                style={{ animationDelay: `${index * 50}ms` }}
-                            >
-                                <MessageTemplateCard
-                                    template={template}
-                                    index={clampedPage * pageSize + index}
-                                    onClick={() => onSelect(template)}
-                                />
-                            </div>
-                        ))}
+        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose a starting point" width={880}>
+            <div className="flex flex-wrap gap-3">
+                <LemonCard
+                    className="w-48 h-56 flex flex-col gap-2 items-center justify-center cursor-pointer"
+                    onClick={onClose}
+                    data-attr="template-picker-blank"
+                >
+                    <IconPlus className="text-2xl" />
+                    <span>Blank template</span>
+                </LemonCard>
+                {templates.map((template, index) => (
+                    <div key={template.id} className="w-48 h-56">
+                        <MessageTemplateCard
+                            template={template}
+                            index={index}
+                            onClick={() => {
+                                applyTemplate(template)
+                                onClose()
+                            }}
+                        />
                     </div>
-                    <LemonButton
-                        size="small"
-                        icon={<IconChevronRight />}
-                        disabled={clampedPage >= totalPages - 1}
-                        onClick={() => setPage(clampedPage + 1)}
-                    />
-                </div>
-            )}
-        </div>
+                ))}
+            </div>
+        </LemonModal>
     )
 }
 
 function NativeEmailTemplaterForm({
     mode,
     fieldsHidden,
-    onSaveAsTemplate,
 }: {
     mode: EmailEditorMode
     fieldsHidden?: boolean
-    onSaveAsTemplate?: () => void
 }): JSX.Element {
     const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields } =
         useValues(emailTemplaterLogic)
@@ -439,13 +371,10 @@ function NativeEmailTemplaterForm({
         setEmailEditorRef,
         onEmailEditorReady,
         setIsModalOpen,
-        applyTemplate,
         setActiveContentTab,
         hideAdvancedField,
         revealAdvancedField,
     } = useActions(emailTemplaterLogic)
-
-    const [previewTemplate, setPreviewTemplate] = useState<(typeof templates)[0] | null>(null)
 
     // The template editor has only subject + preheader, so they share one row with the
     // visual/plain-text switch to keep vertical space for the canvas.
@@ -580,15 +509,6 @@ function NativeEmailTemplaterForm({
                     )}
 
                     {!compactHeader && <AddAdvancedFieldButtons />}
-
-                    {/* Inline layout replaces the slider with the scene's template picker modal. */}
-                    {mode === 'full' && templates.length > 0 && logicProps.layout !== 'inline' && (
-                        <TemplateSlider
-                            templates={templates}
-                            onSelect={applyTemplate}
-                            onSaveAsTemplate={onSaveAsTemplate}
-                        />
-                    )}
                 </div>
 
                 {mode === 'full' ? (
@@ -662,21 +582,6 @@ function NativeEmailTemplaterForm({
                             </div>
                             {activeContentTab === 'plaintext' && <PlainTextEditor />}
                         </div>
-                        <LemonModal
-                            isOpen={!!previewTemplate}
-                            onClose={() => setPreviewTemplate(null)}
-                            title={`Preview: ${previewTemplate?.name}`}
-                            width="90vw"
-                        >
-                            <div className="h-[80vh] overflow-auto">
-                                <iframe
-                                    srcDoc={previewTemplate?.content.email.html}
-                                    sandbox=""
-                                    title="Email template preview"
-                                    className="w-full h-full border-0"
-                                />
-                            </div>
-                        </LemonModal>
                     </>
                 ) : (
                     <LemonField name="html" className="flex relative flex-col">
@@ -704,15 +609,7 @@ function NativeEmailTemplaterForm({
     )
 }
 
-function EmailTemplaterForm({
-    mode,
-    fieldsHidden,
-    onSaveAsTemplate,
-}: {
-    mode: EmailEditorMode
-    fieldsHidden?: boolean
-    onSaveAsTemplate?: () => void
-}): JSX.Element {
+function EmailTemplaterForm({ mode, fieldsHidden }: { mode: EmailEditorMode; fieldsHidden?: boolean }): JSX.Element {
     const { logicProps } = useValues(emailTemplaterLogic)
 
     switch (logicProps.type) {
@@ -720,9 +617,7 @@ function EmailTemplaterForm({
             return <DestinationEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
         case 'native_email_template':
         case 'native_email':
-            return (
-                <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} onSaveAsTemplate={onSaveAsTemplate} />
-            )
+            return <NativeEmailTemplaterForm mode={mode} fieldsHidden={fieldsHidden} />
     }
 }
 
@@ -794,10 +689,21 @@ function SaveTemplateModal({
 }
 
 function EmailTemplaterModal(): JSX.Element {
-    const { isModalOpen, isEmailEditorReady, emailTemplateChanged, isSaveTemplateModalOpen } =
-        useValues(emailTemplaterLogic)
-    const { closeWithConfirmation, submitEmailTemplate, saveAsTemplate, setIsSaveTemplateModalOpen } =
-        useActions(emailTemplaterLogic)
+    const {
+        isModalOpen,
+        isEmailEditorReady,
+        emailTemplateChanged,
+        isSaveTemplateModalOpen,
+        isTemplatePickerOpen,
+        templates,
+    } = useValues(emailTemplaterLogic)
+    const {
+        closeWithConfirmation,
+        submitEmailTemplate,
+        saveAsTemplate,
+        setIsSaveTemplateModalOpen,
+        setIsTemplatePickerOpen,
+    } = useActions(emailTemplaterLogic)
     // Fields start collapsed: in embedded contexts they duplicate the surrounding form.
     const [fieldsHidden, setFieldsHidden] = useState(true)
 
@@ -834,12 +740,16 @@ function EmailTemplaterModal(): JSX.Element {
                         <div className="shrink-0">
                             <h2>Editing email template</h2>
                         </div>
-                        <EmailTemplaterForm
-                            mode="full"
-                            fieldsHidden={fieldsHidden}
-                            onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)}
-                        />
+                        <EmailTemplaterForm mode="full" fieldsHidden={fieldsHidden} />
                         <div className="flex gap-2 items-center mt-2">
+                            {templates.length > 0 && (
+                                <LemonButton type="secondary" onClick={() => setIsTemplatePickerOpen(true)}>
+                                    Start from a template
+                                </LemonButton>
+                            )}
+                            <LemonButton type="secondary" onClick={() => setIsSaveTemplateModalOpen(true)}>
+                                Save as new template
+                            </LemonButton>
                             <div className="flex-1" />
                             <LemonButton onClick={() => closeWithConfirmation()}>Discard changes</LemonButton>
                             <LemonButton
@@ -853,6 +763,7 @@ function EmailTemplaterModal(): JSX.Element {
                     </div>
                 </div>
             </LemonModal>
+            <TemplatePickerModal isOpen={isTemplatePickerOpen} onClose={() => setIsTemplatePickerOpen(false)} />
             <SaveTemplateModal
                 isOpen={isSaveTemplateModalOpen}
                 onClose={() => setIsSaveTemplateModalOpen(false)}
@@ -868,7 +779,7 @@ function EmailTemplaterInline(): JSX.Element {
 
     return (
         <>
-            <EmailTemplaterForm mode="full" onSaveAsTemplate={() => setIsSaveTemplateModalOpen(true)} />
+            <EmailTemplaterForm mode="full" />
             <SaveTemplateModal
                 isOpen={isSaveTemplateModalOpen}
                 onClose={() => setIsSaveTemplateModalOpen(false)}

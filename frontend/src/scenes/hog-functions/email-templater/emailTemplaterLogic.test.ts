@@ -130,6 +130,67 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('starting-point picker', () => {
+        const EMPTY_EMAIL: EmailTemplate = { ...DEFAULT_EMAIL_TEMPLATE, html: '', design: null }
+        const LIBRARY_TEMPLATE = {
+            id: 'tpl-1',
+            name: 'Welcome',
+            content: { templating: 'liquid', email: { subject: 's', text: 't', html: '<p>t</p>', design: {} } },
+        }
+
+        it.each([
+            {
+                description: 'opens when the modal opens on an empty email',
+                value: EMPTY_EMAIL,
+                templates: [LIBRARY_TEMPLATE],
+                expectedOpen: true,
+            },
+            {
+                description: 'stays closed when the email already has content',
+                value: DEFAULT_EMAIL_TEMPLATE,
+                templates: [LIBRARY_TEMPLATE],
+                expectedOpen: false,
+            },
+            {
+                description: 'stays closed when there are no templates to offer',
+                value: EMPTY_EMAIL,
+                templates: [],
+                expectedOpen: false,
+            },
+        ])('$description', async ({ value, templates, expectedOpen }) => {
+            useMocks({ get: { '/api/environments/:team_id/messaging_templates/': { results: templates } } })
+            logic = emailTemplaterLogic(makeProps({ value }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setIsModalOpen(true)
+            await expectLogic(logic).toMatchValues({ isTemplatePickerOpen: expectedOpen })
+        })
+
+        it.each([
+            {
+                description: 'autoOpenEditor opens the modal and picker on mount for an empty email',
+                value: EMPTY_EMAIL,
+                expectedModalOpen: true,
+            },
+            {
+                description: 'autoOpenEditor leaves the modal closed when the email has content',
+                value: DEFAULT_EMAIL_TEMPLATE,
+                expectedModalOpen: false,
+            },
+        ])('$description', async ({ value, expectedModalOpen }) => {
+            useMocks({ get: { '/api/environments/:team_id/messaging_templates/': { results: [LIBRARY_TEMPLATE] } } })
+            logic = emailTemplaterLogic(makeProps({ value, autoOpenEditor: true }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                isModalOpen: expectedModalOpen,
+                isTemplatePickerOpen: expectedModalOpen,
+            })
+        })
+    })
+
     describe('inline layout live propagation', () => {
         let onChange: jest.Mock
         let loadDesign: jest.Mock

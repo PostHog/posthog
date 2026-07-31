@@ -118,6 +118,8 @@ export type CyclotronJobInputsProps = {
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    /** Open the email editor modal on mount for email-type inputs with no content yet (new-function flow). */
+    autoOpenEmailEditor?: boolean
 }
 
 export function CyclotronJobInputs({
@@ -129,6 +131,7 @@ export function CyclotronJobInputs({
     warnings,
     showSource,
     sampleGlobalsWithInputs,
+    autoOpenEmailEditor,
 }: CyclotronJobInputsProps): JSX.Element | null {
     if (!configuration.inputs_schema?.length) {
         return <span className="italic text-secondary">This function does not require any input variables.</span>
@@ -166,6 +169,7 @@ export function CyclotronJobInputs({
                                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
                                     errors={errors}
                                     warnings={warnings}
+                                    autoOpenEmailEditor={autoOpenEmailEditor}
                                 />
                             )
                         })}
@@ -262,11 +266,13 @@ function EmailTemplateField({
     value,
     onChange,
     sampleGlobalsWithInputs,
+    autoOpenEditor,
 }: {
     schema: CyclotronJobInputSchemaType
     value: any
     onChange: (value: any) => void
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    autoOpenEditor?: boolean
 }): JSX.Element {
     return (
         <EmailTemplater
@@ -276,6 +282,7 @@ function EmailTemplateField({
             value={value}
             onChange={onChange}
             templating={schema.templating}
+            autoOpenEditor={autoOpenEditor}
         />
     )
 }
@@ -536,6 +543,7 @@ type CyclotronJobInputProps = {
     configuration: CyclotronJobInputConfiguration
     parentConfiguration?: CyclotronJobInputConfiguration
     sampleGlobalsWithInputs: CyclotronJobInvocationGlobalsWithInputs | null
+    autoOpenEmailEditor?: boolean
 }
 
 function NonFailureStatusCodesField({
@@ -587,6 +595,7 @@ function CyclotronJobInputRenderer({
     configuration,
     parentConfiguration,
     sampleGlobalsWithInputs,
+    autoOpenEmailEditor,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -699,6 +708,7 @@ function CyclotronJobInputRenderer({
                     value={input.value}
                     onChange={onValueChange}
                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                    autoOpenEditor={autoOpenEmailEditor}
                 />
             )
         case 'non_failure_status_codes':
@@ -884,6 +894,7 @@ function CyclotronJobInputWithSchema({
     sampleGlobalsWithInputs,
     errors,
     warnings,
+    autoOpenEmailEditor,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -1032,6 +1043,7 @@ function CyclotronJobInputWithSchema({
                                 configuration={configuration}
                                 parentConfiguration={parentConfiguration}
                                 sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                                autoOpenEmailEditor={autoOpenEmailEditor}
                             />
                         )}
                         {warning && !value?.secret ? (
