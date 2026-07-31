@@ -1453,7 +1453,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             last_seen_at: null,
             distinct_id: 'distinct_id',
         })
-        const distinctIdMoveMessage = (): any => ({
+        const distinctIdMoveMessage = (overrides: Record<string, any> = {}): any => ({
             value: Buffer.from(
                 JSON.stringify({
                     team_id: team.id,
@@ -1461,6 +1461,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                     person_id: 'new-uuid',
                     version: 2,
                     is_deleted: 0,
+                    ...overrides,
                 })
             ),
         })
@@ -1496,6 +1497,39 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             // survivor's plan=enterprise, and advances down the matched branch, firing the fetch.
             mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
             await matcher.processMoveBatch(matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage() as any]))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('anchors and wakes a wait that parked before its distinct_id had a person', async () => {
+            // Production shape: an event arrives for a distinct_id with no person yet, so the wait parks
+            // with person_id NULL. Person wakes are keyed on person_id alone, so nothing can address that
+            // job — before this was fixed, only the 10-minute polling re-check ever advanced it.
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The premise of the test: no anchor to wake.
+            const parked = await cyclotronPool.query(
+                `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+            )
+            expect(parked.rows).toHaveLength(1)
+            expect(parked.rows[0].person_id).toBeNull()
+
+            // The distinct_id acquires a person for the first time (version 0), and that person already
+            // satisfies the condition. The matcher fills the missing anchor and wakes the wait, which then
+            // resolves by personId and advances down the matched branch.
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
+            await matcher.processMoveBatch(
+                matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage({ version: 0 }) as any])
+            )
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
