@@ -2460,6 +2460,10 @@ class ExternalDataSourceType(StrEnum):
     CLAY = "Clay"
     TRADABLE_BITS = "TradableBits"
     SWAN = "Swan"
+    HYROS = "Hyros"
+    ODOO = "Odoo"
+    AIRBRIDGE = "Airbridge"
+    SNOVIO = "Snovio"
 
 
 class ExternalQueryErrorCode(StrEnum):
