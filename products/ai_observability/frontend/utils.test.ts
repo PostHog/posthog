@@ -7,6 +7,7 @@ import {
     costContextFromProperties,
     costContextFromTrace,
     formatAiErrorForDisplay,
+    formatLLMCost,
     formatLLMEventTitle,
     formatModelRowLabel,
     getInternalTagName,
@@ -117,6 +118,30 @@ describe('mapEvaluationRunRow', () => {
 
         expect(run.result).toBeNull()
         expect(run.applicable).toBe(false)
+    })
+})
+
+describe('formatLLMCost', () => {
+    it('formats a cost as USD', () => {
+        expect(formatLLMCost(1.23456)).toBe('$1.2346')
+    })
+
+    it('falls back to a plain dollar string when Intl.NumberFormat cannot be constructed', () => {
+        const original = Intl.NumberFormat
+        // @ts-expect-error simulating an environment where Intl.NumberFormat is broken
+        Intl.NumberFormat = jest.fn(() => {
+            throw new Error('Intl.NumberFormat is not a constructor')
+        })
+
+        try {
+            jest.resetModules()
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const freshUtils = require('./utils')
+            expect(freshUtils.formatLLMCost(1.23456)).toBe('$1.2346')
+        } finally {
+            Intl.NumberFormat = original
+            jest.resetModules()
+        }
     })
 })
 

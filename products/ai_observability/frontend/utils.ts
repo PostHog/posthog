@@ -190,14 +190,19 @@ export function hasCostBreakdown(ctx: CostContext): boolean {
     )
 }
 
-const usdFormatter = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    maximumFractionDigits: 4,
-})
+let usdFormatter: Intl.NumberFormat | undefined
 
 export function formatLLMCost(cost: number): string {
-    return usdFormatter.format(cost)
+    try {
+        usdFormatter ??= new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: 'USD',
+            maximumFractionDigits: 4,
+        })
+        return usdFormatter.format(cost)
+    } catch {
+        return `$${cost.toFixed(4)}`
+    }
 }
 
 export function formatTokens(tokens: number): string {
