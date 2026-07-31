@@ -21,12 +21,15 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.team_services import (
+    GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION,
     GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
     authorize_link_existing_installation,
     link_existing_team_github_integration,
+    list_org_github_installations,
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
+from posthog.constants import AvailableFeature
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
@@ -53,6 +56,8 @@ from products.batch_exports.backend.models import BatchExport, BatchExportDestin
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestSlackIntegration:
@@ -3136,6 +3141,157 @@ class TestGitHubTeamIntegrationComplete:
                 source_team_id=None,
                 installation_id_param=None,
             )
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_with_installation_id_disambiguates_multiple(self, mock_from_install):
+        # With more than one org installation, auto-resolve is ambiguous; passing the chosen
+        # installation_id must link that specific installation instead of raising.
+        for installation_id in ("111", "222"):
+            team = Team.objects.create(organization=self.organization, name=f"Sibling {installation_id}")
+            Integration.objects.create(
+                team=team,
+                kind="github",
+                integration_id=installation_id,
+                config={"installation_id": installation_id},
+                sensitive_config={"access_token": "ghs_sibling"},
+            )
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+
+        result = link_existing_team_github_integration(
+            user=self.user,
+            organization=self.organization,
+            team_id=self.team.pk,
+            source_team_id=None,
+            installation_id_param="222",
+        )
+
+        assert result is not None
+        assert mock_from_install.call_args.args[0] == "222"
+        assert mock_from_install.call_args.args[1] == self.team.pk
+
+    def test_list_org_github_installations_dedupes_and_excludes_target_team(self):
+        # The picker lists one entry per distinct installation_id in the org, excluding the target
+        # team's own installation, with account metadata for display.
+        self._team_github_integration(installation_id="999")
+        first = Team.objects.create(organization=self.organization, name="Org Project")
+        Integration.objects.create(
+            team=first,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111", "account": {"name": "acme", "type": "Organization"}},
+            sensitive_config={"access_token": "ghs_a"},
+        )
+        # A second project on the same installation must collapse into a single entry.
+        second = Team.objects.create(organization=self.organization, name="Other Project")
+        Integration.objects.create(
+            team=second,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111", "account": {"name": "acme", "type": "Organization"}},
+            sensitive_config={"access_token": "ghs_a2"},
+        )
+
+        installations = list_org_github_installations(
+            user=self.user, organization=self.organization, exclude_team_id=self.team.pk
+        )
+
+        assert [installation["installation_id"] for installation in installations] == ["111"]
+        assert installations[0]["account_name"] == "acme"
+        assert installations[0]["account_type"] == "Organization"
+        assert installations[0]["source_team_id"] == first.pk
+
+    def _org_member_with_access_control(self) -> User:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        return User.objects.create_and_join(
+            self.organization, "outsider@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+
+    def _sibling_github_integration(self, name: str, installation_id: str, private: bool = False) -> Integration:
+        team = Team.objects.create(organization=self.organization, name=name)
+        if private:
+            AccessControl.objects.create(team=team, resource="project", access_level="none")
+        return Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id=installation_id,
+            config={"installation_id": installation_id, "account": {"name": name, "type": "Organization"}},
+            sensitive_config={"access_token": f"ghs_{installation_id}"},
+        )
+
+    def test_link_existing_rejects_installation_from_inaccessible_source_project(self):
+        # A user who admins the target project but is locked out of a private sibling must not be able
+        # to discover or reuse that sibling's installation — target-team admin is not access to the
+        # source project. Without the source-team access boundary this both leaks the installation in
+        # the picker and links its repositories into the target.
+        member = self._org_member_with_access_control()
+        self._sibling_github_integration("Private Project", "777", private=True)
+
+        installations = list_org_github_installations(
+            user=member, organization=self.organization, exclude_team_id=self.team.pk
+        )
+        assert installations == []
+
+        with pytest.raises(ValidationError) as exc_info:
+            link_existing_team_github_integration(
+                user=member,
+                organization=self.organization,
+                team_id=self.team.pk,
+                source_team_id=None,
+                installation_id_param="777",
+            )
+        codes = exc_info.value.get_codes()
+        assert isinstance(codes, list) and GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION in codes
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_link_existing_links_installation_also_held_by_an_inaccessible_project(self, mock_from_install):
+        # One installation shared by a private project and an accessible one. Resolving the source
+        # across the whole org and only then checking access would settle on the private project's
+        # lower-id row and reject an installation the picker just offered.
+        member = self._org_member_with_access_control()
+        self._sibling_github_integration("Private Project", "111", private=True)
+        self._sibling_github_integration("Shared Project", "111")
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration(installation_id="111")
+
+        installations = list_org_github_installations(
+            user=member, organization=self.organization, exclude_team_id=self.team.pk
+        )
+        assert [installation["installation_id"] for installation in installations] == ["111"]
+
+        link_existing_team_github_integration(
+            user=member,
+            organization=self.organization,
+            team_id=self.team.pk,
+            source_team_id=None,
+            installation_id_param="111",
+        )
+        assert mock_from_install.call_args.args[0] == "111"
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_auto_resolve_ignores_installations_the_user_cannot_access(self, mock_from_install):
+        # The picker offers exactly one installation, so the UI sends the one-click empty payload.
+        # Counting installations the caller can't see would call that ambiguous and dead-end the very
+        # flow the picker exists to unblock.
+        member = self._org_member_with_access_control()
+        self._sibling_github_integration("Private Project", "111", private=True)
+        self._sibling_github_integration("Shared Project", "222")
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration(installation_id="222")
+
+        installations = list_org_github_installations(
+            user=member, organization=self.organization, exclude_team_id=self.team.pk
+        )
+        assert [installation["installation_id"] for installation in installations] == ["222"]
+
+        link_existing_team_github_integration(
+            user=member,
+            organization=self.organization,
+            team_id=self.team.pk,
+            source_team_id=None,
+            installation_id_param=None,
+        )
+        assert mock_from_install.call_args.args[0] == "222"
 
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.

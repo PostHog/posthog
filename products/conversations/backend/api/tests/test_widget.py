@@ -654,6 +654,43 @@ class TestWidgetIdentityVerification(BaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_list_tickets_without_secret_api_token_is_indistinguishable_from_bad_hash(self):
+        # The widget API is AllowAny, so the "no key configured" response must not reveal
+        # config state to anonymous callers — it stays identical to a signature mismatch.
+        self.team.secret_api_token = None
+        self.team.save()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["error"], "Forbidden")
+
+    def test_list_tickets_with_rotated_backup_token(self):
+        # A hash signed with the old secret keeps verifying after rotation moves it to backup.
+        old_secret = self.secret
+        old_hash = compute_identity_hash(self.distinct_id, old_secret)
+        self.team.secret_api_token = "rotated_new_secret"
+        self.team.secret_api_token_backup = old_secret
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": old_hash,
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+
     def test_list_tickets_missing_identity_fields_uses_session(self):
         self._create_ticket()
         response = self.client.get(
