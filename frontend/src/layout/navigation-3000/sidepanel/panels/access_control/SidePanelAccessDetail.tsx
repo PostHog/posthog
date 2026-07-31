@@ -47,8 +47,6 @@ export const SidePanelAccessDetail = (): JSX.Element => {
     }, [optionsSubject?.scopeType, optionsSubject?.subjectId])
 
     // The panel can outlive the settings page that opened it, so make sure the list it reads from is loaded.
-    // Deliberately not using the logic's selected member/role — that state drives the settings page's own
-    // detail view, and setting it here would open both at once.
     useEffect(() => {
         if (scopeType === 'role') {
             if (!rolesData && !rolesDataLoading) {
