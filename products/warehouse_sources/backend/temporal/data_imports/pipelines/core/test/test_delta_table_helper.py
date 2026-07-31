@@ -1382,6 +1382,19 @@ class TestDeltaliteWritePath:
         "deltalite_write.is_deltalite_write_enabled"
     )
 
+    @pytest.fixture(autouse=True)
+    def _preload_write_metrics(self):
+        # _write_via_deltalite lazily imports the pipeline_v3 metrics module. These tests fake the
+        # `deltalite` module via patch.dict(sys.modules, ...), which on exit restores the enter-time
+        # snapshot and thus evicts any module first imported *inside* the block. If the metrics module
+        # were first loaded there, the next test would re-execute it and hit "Duplicated timeseries" in
+        # the global Prometheus registry. Loading it here (at setup, before any patch.dict) keeps it in
+        # the snapshot so it survives. Imported at runtime — not module top — to keep the heavy
+        # pipeline_v3 chain off collection.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load import (  # noqa: F401
+            metrics,
+        )
+
     def _helper(self) -> DeltaTableHelper:
         return DeltaTableHelper(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=_make_logger())
 

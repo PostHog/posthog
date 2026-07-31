@@ -561,23 +561,31 @@ class DeltaTableHelper:
         """
         if not normalized_primary_keys:
             return False
-        # Lazy import: keep the heavy pipeline_v3 metrics chain off this core module's import path,
-        # which would otherwise risk a circular import.
+
+        # The flag check is a rollout gate, not part of the write: a flag miss (off) or a flags-service
+        # blip must fall back to the delta-rs MERGE *silently*. The warning + "fallback" metric below
+        # are reserved for a genuine deltalite write failure, so they stay a meaningful signal.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_write import (
+            is_deltalite_write_enabled,
+        )
+
+        try:
+            enabled = await database_sync_to_async_pool(is_deltalite_write_enabled)(
+                self._job.team_id, str(self._job.schema_id), None
+            )
+        except Exception:  # noqa: BLE001 - a flag-eval error just means "don't use deltalite"
+            return False
+        if not enabled:
+            return False
+
+        # deltalite is enabled for this schema — attempt the real write. A failure HERE is the
+        # meaningful fallback (logged + counted); the delta-rs MERGE then runs as it does today.
+        # Lazy metrics import keeps the heavy pipeline_v3 chain off the module import path (circular).
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
             DELTALITE_WRITE_TOTAL,
         )
 
         try:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_write import (
-                is_deltalite_write_enabled,
-            )
-
-            enabled = await database_sync_to_async_pool(is_deltalite_write_enabled)(
-                self._job.team_id, str(self._job.schema_id), None
-            )
-            if not enabled:
-                return False
-
             import deltalite
 
             uri = await self._get_delta_table_uri()
