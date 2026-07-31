@@ -775,6 +775,10 @@ class TestPollForTurnTimeoutDiagnosis:
             # A run whose only output is relay side-channel noise never started a turn either —
             # counting those lines as output would misfile it as a mid-run stall.
             ("side_channel_noise_only", lambda: _console_line("agentsh network events"), "no_turn_output"),
+            # The relay echoes the user's prompt into every turn log, so counting it as output
+            # would make no_turn_output unreachable — every never-started turn would misfile as a
+            # mid-run stall.
+            ("prompt_echo_only", lambda: _user_message_line("prompt"), "no_turn_output"),
             ("worked_then_silent", lambda: _agent_message_line("still working"), "stalled_after_output"),
         ]
     )

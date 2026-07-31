@@ -1344,7 +1344,18 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         if new_status == self.Status.PAUSED_BY_USER:
             raise ValueError("Only a user write may set paused_by_user.")
         with transaction.atomic():
-            locked = type(self).all_teams.select_for_update().get(pk=self.pk)
+            # One ordered query locks the whole team's rows, not just ours: the cap check below
+            # counts sibling rows, so two concurrent resumes locking only their own rows would
+            # each read the other as still paused and both slip under the cap. A single ordered
+            # lock set also keeps concurrent transitions on one team deadlock-free. Team config
+            # counts are small (capped) and transitions rare, so the wider lock is cheap.
+            team_rows = {
+                row.pk: row
+                for row in type(self).all_teams.select_for_update().filter(team_id=self.team_id).order_by("pk")
+            }
+            locked = team_rows.get(self.pk)
+            if locked is None:
+                return False
             if locked.status == self.Status.PAUSED_BY_USER:
                 return False
             if locked.status != self.Status.ACTIVE and locked.pause_reason != pause_reason:
@@ -1366,7 +1377,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
             )
 
             if new_status in self.RUNNABLE_STATUSES and locked.status not in self.RUNNABLE_STATUSES:
-                peers = type(self).all_teams.filter(team_id=locked.team_id, enabled=True).exclude(pk=locked.pk).count()
+                peers = sum(1 for row in team_rows.values() if row.enabled and row.pk != locked.pk)
                 if peers >= MAX_ENABLED_SCOUTS_PER_TEAM:
                     return False
             recorded_reason = None if new_status == self.Status.ACTIVE else pause_reason

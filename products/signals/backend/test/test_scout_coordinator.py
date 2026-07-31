@@ -286,6 +286,30 @@ async def test_wildcard_dispatches_team_with_enabled_config(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.flag_off
+async def test_wildcard_keeps_a_fully_breaker_paused_team_enrolled_for_probes(ateam):
+    # A wildcard team whose ONLY scout the breaker paused has no enabled config left, so an
+    # enabled-only wildcard scan would drop the team from participation before probe collection
+    # ever ran — the promised recovery probe could never dispatch and the lane would stay paused
+    # until a human noticed.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(
+        ateam,
+        "signals-scout-errors",
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        consecutive_failure_count=5,
+        last_run_at=timezone.now() - timedelta(seconds=AUTO_PAUSE_PROBE_INTERVAL_S + 60),
+    )
+
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": ["*"]}):
+        planned = await _run_activity()
+
+    assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-errors" for p in planned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
 async def test_wildcard_does_not_auto_seed_a_config_less_team(ateam):
     # Under "*" a team participates only if it ALREADY has configs — the wildcard never seeds from
     # nothing (that's the explicit-id path). A team with a scout skill but no config row is left

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
@@ -810,8 +811,9 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
     is gone or the write failed — the caller only uses the result to decide whether to emit the
     auto-paused event, and a failure here must never mask the run's own error.
 
-    Not a compare-and-set: the runner's single-flight guard means one run per (team, skill) at a
-    time, so read-then-write can only race a config edit, where losing the increment is harmless.
+    The bump is an atomic `F()` increment, not read-then-write: the runner's single-flight guard
+    means one run per (team, skill) at a time, but a config edit's streak reset can land
+    concurrently, and a stale absolute write would resurrect the streak the edit just cleared.
     The pause goes through the transition helper: `tripped` is True only when the helper actually
     moved the status, so a re-failed probe (already paused, transition is a no-op) re-arms the
     cooldown via its own `last_run_at` stamp without firing the trip event again. The error text
@@ -819,11 +821,15 @@ def _record_failure_streak(config_id: Any) -> _FailureStreak | None:
     (`repeated_failures`).
     """
     try:
+        updated = SignalScoutConfig.all_teams.filter(pk=config_id).update(
+            consecutive_failure_count=F("consecutive_failure_count") + 1
+        )
+        if not updated:
+            return None
         config = SignalScoutConfig.all_teams.filter(pk=config_id).first()
         if config is None:
             return None
-        count = config.consecutive_failure_count + 1
-        SignalScoutConfig.all_teams.filter(pk=config_id).update(consecutive_failure_count=count)
+        count = config.consecutive_failure_count
         tripped = False
         if count >= FAILURE_STREAK_PAUSE_THRESHOLD:
             tripped = config.transition_status_by_system(

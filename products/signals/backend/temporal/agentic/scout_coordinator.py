@@ -380,8 +380,19 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
     wildcard_ids: set[int] = set()
     if enrollment.wildcard:
         # Config rows persist under the canonical parent team, so these ids are already canonical.
+        # Breaker-paused configs keep the team enrolled even when nothing else is enabled: a
+        # wildcard team whose only scout tripped the breaker would otherwise drop out of
+        # participation entirely, and the recovery probe it was promised could never dispatch.
         wildcard_ids = set(
-            SignalScoutConfig.all_teams.filter(enabled=True).values_list("team_id", flat=True).distinct()
+            SignalScoutConfig.all_teams.filter(
+                Q(enabled=True)
+                | Q(
+                    status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                    pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                )
+            )
+            .values_list("team_id", flat=True)
+            .distinct()
         )
     wildcard_ids -= skip_canonical
     wildcard_ids -= explicit  # explicit wins the tag — it gets the seed pass below

@@ -72,6 +72,11 @@ TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
 # earlier finalization fingerprint and report a bogus success, so a failed progress line stays decisive.
 FAILED_PROGRESS_STATUS = "failed"
 
+# The relay echoes the user's own prompt into the turn log as these `session/update` kinds. They are
+# input, not agent output, so the turn-relevant growth counting discounts them like the transient
+# side-channels above.
+_PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
+
 
 @dataclass(frozen=True)
 class AgentError:
@@ -777,9 +782,12 @@ def _is_failed_progress(notification: dict) -> bool:
 
 
 def _transient_growth(lines: list[str]) -> int:
-    """Count how many of `lines` are transient relay side-channel notifications (network audits,
-    credential refreshes, sandbox stdout, informational progress). A failed progress line is not
-    transient — it must count as real activity so the growth check can't discount a failure away."""
+    """Count how many of `lines` carry no agent turn-state: transient relay side-channels (network
+    audits, credential refreshes, sandbox stdout, informational progress) and echoed prompts. The
+    relay echoes the user's own message into the turn log, so without discounting it every turn
+    counts at least one "turn-relevant" line and the `no_turn_output` timeout classification —
+    the agent never got going at all — could never fire. A failed progress line is not transient —
+    it must count as real activity so the growth check can't discount a failure away."""
     count = 0
     for line in lines:
         line = line.strip()
@@ -789,7 +797,15 @@ def _transient_growth(lines: list[str]) -> int:
             notification = json.loads(line).get("notification")
         except json.JSONDecodeError:
             continue
-        if not isinstance(notification, dict) or notification.get("method") not in TRANSIENT_SIDE_CHANNEL_METHODS:
+        if not isinstance(notification, dict):
+            continue
+        method = notification.get("method")
+        if method == "session/update":
+            update = (notification.get("params") or {}).get("update")
+            if isinstance(update, dict) and update.get("sessionUpdate") in _PROMPT_ECHO_UPDATES:
+                count += 1
+            continue
+        if method not in TRANSIENT_SIDE_CHANNEL_METHODS:
             continue
         if _is_failed_progress(notification):
             continue
