@@ -79,6 +79,7 @@ import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle
 import { FeatureFlagConditionWarning } from './FeatureFlagConditionWarning'
 import { FlagIntent, featureFlagIntentWarningLogic } from './featureFlagIntentWarningLogic'
 import { FeatureFlagLogicProps } from './featureFlagLogic'
+import { FeatureFlagPropertyNoResultsHint } from './FeatureFlagPropertyNoResultsHint'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     FeatureFlagGroupTypeWithSortKey,
@@ -637,6 +638,7 @@ const ConditionContent = ({
                                             hasRowOperator={false}
                                             errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                             hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                            noResultsHint={() => <FeatureFlagPropertyNoResultsHint />}
                                         />
                                     </div>
 

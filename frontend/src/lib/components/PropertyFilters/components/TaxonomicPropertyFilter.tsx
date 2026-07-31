@@ -91,6 +91,7 @@ export function TaxonomicPropertyFilter({
     endpointFilters,
     hogQLGlobals,
     triggerVariant = 'button',
+    noResultsHint,
 }: PropertyFilterInternalProps): JSX.Element {
     const generatedKey = useId()
     const pageKey = pageKeyInput || `filter-${generatedKey}`
@@ -192,6 +193,7 @@ export function TaxonomicPropertyFilter({
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
             collapseUrlsToContainsRow
+            noResultsHint={noResultsHint}
         />
     )
 

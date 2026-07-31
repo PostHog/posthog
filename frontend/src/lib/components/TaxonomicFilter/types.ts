@@ -192,6 +192,11 @@ export interface TaxonomicFilterProps {
      *  behind it) opts in — that covers every current pageview-URL consumer — so the paths
      *  picker keeps its full URL list. */
     collapseUrlsToContainsRow?: boolean
+    /** Rendered under the generic "No results for ..." empty state when a search comes up
+     *  empty. Use it to explain a scoping restriction specific to this picker (e.g. a host
+     *  that only offers person properties) and point at an alternative, since the default
+     *  empty state gives no reason and no next step. */
+    noResultsHint?: (searchQuery: string) => ReactNode
 }
 
 export interface DataWarehousePopoverField {

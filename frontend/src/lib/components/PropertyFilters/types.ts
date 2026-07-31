@@ -74,4 +74,5 @@ export interface PropertyFilterInternalProps {
      * (`TAXONOMIC_FILTER_MENU_REBUILD`).
      */
     triggerVariant?: 'button' | 'input'
+    noResultsHint?: TaxonomicFilterProps['noResultsHint']
 }

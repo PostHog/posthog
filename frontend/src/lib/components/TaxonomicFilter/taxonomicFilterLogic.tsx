@@ -393,6 +393,7 @@ export interface taxonomicFilterLogicValues {
     }
     metadataSource: AnyDataNode
     mouseInteractionsEnabled: boolean
+    noResultsHint: any
     propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     propertyFilters: {
         excludedProperties: TaxonomicFilterGroupValueMap
@@ -508,6 +509,7 @@ export interface taxonomicFilterLogicMeta {
         maxContextOptions: (arg: any) => any
         dataWarehousePopoverFields: (arg: any) => any
         suggestedFiltersLabel: (arg: any) => any
+        noResultsHint: (arg: any) => any
         metadataSource: (arg: any) => AnyDataNode
         excludedProperties: (arg: any) => TaxonomicFilterGroupValueMap
         selectedProperties: (arg: any) => TaxonomicFilterGroupValueMap
@@ -581,12 +583,12 @@ export interface taxonomicFilterLogicMeta {
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         groupAnalyticsTaxonomicGroups: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentProjectId: number | null,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => TaxonomicFilterGroup[]
         infiniteListLogics: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
@@ -851,6 +853,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.suggestedFiltersLabel],
             (suggestedFiltersLabel) => suggestedFiltersLabel,
         ],
+        noResultsHint: [() => [(_, props) => props.noResultsHint], (noResultsHint) => noResultsHint],
         metadataSource: [
             () => [(_, props) => props.metadataSource],
             (metadataSource): AnyDataNode =>

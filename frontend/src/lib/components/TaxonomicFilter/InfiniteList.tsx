@@ -707,6 +707,7 @@ function InfiniteListEmptyState(): JSX.Element {
         infiniteListCounts,
         infiniteListResultCounts,
         eventNames,
+        noResultsHint,
     } = useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
@@ -775,6 +776,7 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
+                    {!emptySearchQuery && noResultsHint?.(searchQuery)}
                     {canOfferStaleToggle && (
                         <LemonButton
                             type="secondary"

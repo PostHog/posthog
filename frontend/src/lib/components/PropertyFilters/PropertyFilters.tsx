@@ -65,6 +65,7 @@ export interface PropertyFiltersProps {
      * (`TAXONOMIC_FILTER_MENU_REBUILD`).
      */
     triggerVariant?: 'button' | 'input'
+    noResultsHint?: TaxonomicFilterProps['noResultsHint']
 }
 
 export function PropertyFilters({
@@ -104,6 +105,7 @@ export function PropertyFilters({
     operatorAllowlist,
     hogQLGlobals,
     triggerVariant = 'button',
+    noResultsHint,
 }: PropertyFiltersProps): JSX.Element {
     const logicProps = { propertyFilters, onChange, pageKey, sendAllKeyUpdates }
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
@@ -175,6 +177,7 @@ export function PropertyFilters({
                                             operatorAllowlist={operatorAllowlist}
                                             hogQLGlobals={hogQLGlobals}
                                             triggerVariant={triggerVariant}
+                                            noResultsHint={noResultsHint}
                                         />
                                     )}
                                     errorMessage={errorMessages && errorMessages[index]}

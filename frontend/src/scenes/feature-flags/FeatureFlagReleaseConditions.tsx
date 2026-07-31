@@ -29,6 +29,7 @@ import { dateFilterToText, dateStringToComponents } from 'lib/utils/dateFilters'
 import { clamp } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
+import { FeatureFlagPropertyNoResultsHint } from 'scenes/feature-flags/FeatureFlagPropertyNoResultsHint'
 import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { urls } from 'scenes/urls'
 
@@ -386,6 +387,7 @@ export function FeatureFlagReleaseConditions({
                                 }
                                 errorMessages={getPropertySelectErrorMessages(propertySelectErrors, index)}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
+                                noResultsHint={() => <FeatureFlagPropertyNoResultsHint />}
                             />
                         </div>
                     )}

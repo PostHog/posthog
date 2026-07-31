@@ -113,6 +113,23 @@ describe('PropertyFilters', () => {
         expect(filters[0].type).toBe('event')
     })
 
+    it('renders a custom noResultsHint when a search comes up empty', async () => {
+        renderPropertyFilters({ noResultsHint: (query) => `No match for ${query} here` })
+
+        await userEvent.click(screen.getByTestId('new-prop-filter-test-page'))
+        await waitFor(() => {
+            expect(screen.getByTestId('taxonomic-filter-searchfield')).toBeInTheDocument()
+        })
+
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'zzzznonexistent')
+
+        await waitFor(() => {
+            // Each taxonomic tab renders its own empty state (only the active one is visible),
+            // so the hint appears once per tab rather than once overall.
+            expect(screen.getAllByText('No match for zzzznonexistent here').length).toBeGreaterThan(0)
+        })
+    })
+
     it('remove first of two filters: onChange has only the remaining filter', async () => {
         const { onChange } = renderPropertyFilters({
             propertyFilters: [BROWSER_FILTER, OS_FILTER],
