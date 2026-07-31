@@ -43,8 +43,6 @@ from ..models.evaluation_configs import (
     SESSION_EVAL_MIN_MAX_AGE_SECONDS,
     SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MIN_WINDOW_SECONDS,
-    TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
-    TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
     TRACE_EVAL_MAX_MAX_AGE_SECONDS,
     TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS,
@@ -140,11 +138,11 @@ class _OutputConfigField(serializers.JSONField):
             {
                 "type": "object",
                 "title": "Fixed window settle config",
+                "required": ["strategy"],
                 "properties": {
                     "strategy": {
                         "type": "string",
                         "enum": ["fixed_window"],
-                        "default": "fixed_window",
                         "description": "Wait a fixed window after the first matching generation, then evaluate.",
                     },
                     "window_seconds": {
@@ -154,11 +152,11 @@ class _OutputConfigField(serializers.JSONField):
                             "unit. Captured when the run is scheduled — editing it does not change runs "
                             "already in flight. The accepted range depends on `target`: "
                             f"{TRACE_EVAL_MIN_WINDOW_SECONDS}–{TRACE_EVAL_MAX_WINDOW_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'."
+                            f"{SESSION_EVAL_MIN_WINDOW_SECONDS}–{SESSION_EVAL_MAX_WINDOW_SECONDS} for 'session'. "
+                            "The default also depends on `target`; see the field-level help_text."
                         ),
                         "minimum": min(TRACE_EVAL_MIN_WINDOW_SECONDS, SESSION_EVAL_MIN_WINDOW_SECONDS),
                         "maximum": max(TRACE_EVAL_MAX_WINDOW_SECONDS, SESSION_EVAL_MAX_WINDOW_SECONDS),
-                        "default": TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
                     },
                 },
                 "additionalProperties": False,
@@ -171,7 +169,7 @@ class _OutputConfigField(serializers.JSONField):
                     "strategy": {
                         "type": "string",
                         "enum": ["inactivity"],
-                        "description": "Evaluate once the trace has had no new activity for the quiet period.",
+                        "description": "Evaluate once the unit has had no new activity for the quiet period.",
                     },
                     "quiet_period_seconds": {
                         "type": "integer",
@@ -180,11 +178,10 @@ class _OutputConfigField(serializers.JSONField):
                             f"range depends on `target`: {TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS}–"
                             f"{TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS} for 'trace', "
                             f"{SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS}–{SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS} "
-                            "for 'session'."
+                            "for 'session'. The default also depends on `target`; see the field-level help_text."
                         ),
                         "minimum": min(TRACE_EVAL_MIN_QUIET_PERIOD_SECONDS, SESSION_EVAL_MIN_QUIET_PERIOD_SECONDS),
                         "maximum": max(TRACE_EVAL_MAX_QUIET_PERIOD_SECONDS, SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS),
-                        "default": TRACE_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
                     },
                     "max_age_seconds": {
                         "type": "integer",
@@ -193,11 +190,11 @@ class _OutputConfigField(serializers.JSONField):
                             "if the unit stays active. Must be at least quiet_period_seconds. The accepted "
                             f"range depends on `target`: {TRACE_EVAL_MIN_MAX_AGE_SECONDS}–"
                             f"{TRACE_EVAL_MAX_MAX_AGE_SECONDS} for 'trace', "
-                            f"{SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for 'session'."
+                            f"{SESSION_EVAL_MIN_MAX_AGE_SECONDS}–{SESSION_EVAL_MAX_MAX_AGE_SECONDS} for 'session'. "
+                            "The default also depends on `target`; see the field-level help_text."
                         ),
                         "minimum": min(TRACE_EVAL_MIN_MAX_AGE_SECONDS, SESSION_EVAL_MIN_MAX_AGE_SECONDS),
                         "maximum": max(TRACE_EVAL_MAX_MAX_AGE_SECONDS, SESSION_EVAL_MAX_MAX_AGE_SECONDS),
-                        "default": TRACE_EVAL_DEFAULT_MAX_AGE_SECONDS,
                     },
                 },
                 "additionalProperties": False,
@@ -299,8 +296,9 @@ class EvaluationSerializer(serializers.ModelSerializer):
         help_text=(
             "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on "
             "`strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, "
-            "max_age_seconds}. Bounds differ per target. A missing strategy means fixed_window for 'trace' "
-            "and inactivity for 'session'. Empty for 'generation'."
+            "max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window "
+            "for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults "
+            "for any field omitted alongside it. Empty for 'generation'."
         ),
     )
     conditions = EvaluationConditionSerializer(

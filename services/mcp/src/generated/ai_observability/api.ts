@@ -139,16 +139,12 @@ export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsCreateBodyTargetConfigOneStrategyDefault = `fixed_window`
-export const evaluationsCreateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsCreateBodyTargetConfigOneWindowSecondsMin = 10
 export const evaluationsCreateBodyTargetConfigOneWindowSecondsMax = 604800
 
-export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsDefault = 300
 export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
 export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
 
-export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsDefault = 7200
 export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin = 60
 export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
 
@@ -248,42 +244,41 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 strategy: zod
                     .enum(['fixed_window'])
-                    .default(evaluationsCreateBodyTargetConfigOneStrategyDefault)
                     .describe('Wait a fixed window after the first matching generation, then evaluate.'),
                 window_seconds: zod
                     .number()
                     .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
-                    .default(evaluationsCreateBodyTargetConfigOneWindowSecondsDefault)
+                    .optional()
                     .describe(
-                        "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'."
+                        "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                     ),
             }),
             zod.object({
                 strategy: zod
                     .enum(['inactivity'])
-                    .describe('Evaluate once the trace has had no new activity for the quiet period.'),
+                    .describe('Evaluate once the unit has had no new activity for the quiet period.'),
                 quiet_period_seconds: zod
                     .number()
                     .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
                     .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                    .default(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsDefault)
+                    .optional()
                     .describe(
-                        "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'."
+                        "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
                     ),
                 max_age_seconds: zod
                     .number()
                     .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
                     .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
-                    .default(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsDefault)
+                    .optional()
                     .describe(
-                        "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'."
+                        "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                     ),
             }),
         ])
         .optional()
         .describe(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds differ per target. A missing strategy means fixed_window for 'trace' and inactivity for 'session'. Empty for 'generation'."
+            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'."
         ),
     model_configuration: zod
         .union([
@@ -351,16 +346,12 @@ export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsPartialUpdateBodyTargetConfigOneStrategyDefault = `fixed_window`
-export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsDefault = 1800
 export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin = 10
 export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax = 604800
 
-export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsDefault = 300
 export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
 export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax = 86400
 
-export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsDefault = 7200
 export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin = 60
 export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 604800
 
@@ -462,42 +453,41 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.object({
                 strategy: zod
                     .enum(['fixed_window'])
-                    .default(evaluationsPartialUpdateBodyTargetConfigOneStrategyDefault)
                     .describe('Wait a fixed window after the first matching generation, then evaluate.'),
                 window_seconds: zod
                     .number()
                     .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
                     .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
-                    .default(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsDefault)
+                    .optional()
                     .describe(
-                        "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'."
+                        "Seconds to wait after the first matching generation before evaluating the whole unit. Captured when the run is scheduled — editing it does not change runs already in flight. The accepted range depends on `target`: 10–7200 for 'trace', 10–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                     ),
             }),
             zod.object({
                 strategy: zod
                     .enum(['inactivity'])
-                    .describe('Evaluate once the trace has had no new activity for the quiet period.'),
+                    .describe('Evaluate once the unit has had no new activity for the quiet period.'),
                 quiet_period_seconds: zod
                     .number()
                     .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
                     .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
-                    .default(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsDefault)
+                    .optional()
                     .describe(
-                        "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'."
+                        "Seconds without new activity before the unit counts as settled. The accepted range depends on `target`: 10–1800 for 'trace', 10–86400 for 'session'. The default also depends on `target`; see the field-level help_text."
                     ),
                 max_age_seconds: zod
                     .number()
                     .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
                     .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
-                    .default(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsDefault)
+                    .optional()
                     .describe(
-                        "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'."
+                        "Hard cap in seconds on the total wait from the first matching generation, even if the unit stays active. Must be at least quiet_period_seconds. The accepted range depends on `target`: 60–7200 for 'trace', 60–604800 for 'session'. The default also depends on `target`; see the field-level help_text."
                     ),
             }),
         ])
         .optional()
         .describe(
-            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds differ per target. A missing strategy means fixed_window for 'trace' and inactivity for 'session'. Empty for 'generation'."
+            "Target-specific config. For 'trace' and 'session' targets: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Bounds and defaults differ per target. A missing `strategy` means fixed_window for 'trace' and inactivity for 'session'; the server fills in the matching per-target defaults for any field omitted alongside it. Empty for 'generation'."
         ),
     model_configuration: zod
         .union([

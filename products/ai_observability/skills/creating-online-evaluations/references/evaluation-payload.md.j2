@@ -15,7 +15,7 @@ schemas below are rendered from the backend Pydantic models at build time, so th
 | `output_config`       | no             | `{ "allows_na": bool }` for boolean; `{}` for sentiment.                             |
 | `model_configuration` | llm_judge only | Provider + model; key ID optional. Rejected on `hog`/`sentiment`.                     |
 | `target`              | no             | `"generation"` (default), `"trace"`, or `"session"`. Sentiment supports only `"generation"`. |
-| `target_config`       | trace/session only | Settle config discriminated on `strategy` (below); defaults to a 1800-second fixed window for `trace`, and to `inactivity` for `session`. |
+| `target_config`       | trace/session only | Settle config discriminated on `strategy` (below); defaults to a 30-minute fixed window for `trace`, and to a 1-hour inactivity window for `session`. |
 | `conditions`          | no             | Trigger condition sets (below). For traces, conditions match the triggering generation. |
 | `enabled`             | no             | Defaults to `false`. Create disabled, then flip with `llma-evaluation-update`.         |
 
@@ -45,12 +45,6 @@ Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boo
   - A session is evaluated at most once per evaluation, for as long as the completed run stays inside
     Temporal's retention window. A session that resumes long after being evaluated may be evaluated
     again.
-
-  > **Always send `strategy` explicitly for a `session` target.** The generated tool schema for
-  > `target_config` is a plain union, not a discriminated one, so a payload that omits `strategy` is
-  > read as `fixed_window` and its `quiet_period_seconds` / `max_age_seconds` are silently dropped.
-  > You would get a fixed-window session evaluation with no error, firing at a time unrelated to when
-  > the session actually ends.
 
 - Conditions always match generation properties. For a trace or session target, that matching
   generation schedules the eventual whole-unit evaluation.
@@ -178,10 +172,6 @@ The same Hog source also works for a whole session, once no new activity has arr
   "target_config": { "strategy": "inactivity", "quiet_period_seconds": 3600, "max_age_seconds": 86400 }
 }
 ```
-
-> **Always send `strategy` explicitly for a `session` target.** Omitting it is read as `fixed_window`,
-> silently dropping `quiet_period_seconds` / `max_age_seconds` with no error, which produces a
-> fixed-window session evaluation instead of the intended inactivity one.
 
 New Hog source should use the shared `evaluation_events` and `target` globals. Top-level generation globals
 such as `input`, `output`, `properties`, and `event`, plus the trace-only `events` and `trace` globals, remain

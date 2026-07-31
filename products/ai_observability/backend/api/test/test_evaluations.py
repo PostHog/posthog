@@ -7,13 +7,14 @@ from unittest.mock import patch
 from django.db import IntegrityError, transaction
 from django.test import SimpleTestCase
 
+from drf_spectacular.plumbing import get_override
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, Project, Team, User
 
-from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer
+from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer, _TargetConfigField
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -63,6 +64,30 @@ class TestModelConfigurationSerializer(SimpleTestCase):
 
         self.assertFalse(serializer.is_valid())
         self.assertEqual(serializer.errors[missing_field][0].code, "required")
+
+
+class TestTargetConfigFieldSchema(SimpleTestCase):
+    def test_every_oneof_branch_requires_the_discriminator(self) -> None:
+        """Orval only emits a discriminated zod union (one that picks a branch by `strategy` alone,
+        without matching optional fields against it) when every `oneOf` branch requires `strategy`.
+        A branch missing it lets Orval fall through to a plain `zod.union`, which previously let a
+        session payload sending only `{"strategy": "inactivity"}` match the fixed_window branch and
+        silently drop the inactivity fields.
+        """
+        schema = get_override(_TargetConfigField(), "field")
+        for branch in schema["oneOf"]:
+            self.assertIn("strategy", branch.get("required", []), branch["title"])
+
+    def test_no_branch_declares_a_default_for_a_shared_field(self) -> None:
+        """window_seconds/quiet_period_seconds/max_age_seconds have no single correct default: it
+        depends on `target`, which lives outside this schema. A `default` here would regenerate as
+        a zod `.default(...)` that materializes the wrong target's value before the request ever
+        reaches `validate_target_config`, which is exactly how session evals got trace timings.
+        """
+        schema = get_override(_TargetConfigField(), "field")
+        for branch in schema["oneOf"]:
+            for field_name, field_schema in branch["properties"].items():
+                self.assertNotIn("default", field_schema, f"{branch['title']}.{field_name}")
 
 
 class TestEvaluationConfigsApi(APIBaseTest):

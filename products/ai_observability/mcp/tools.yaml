@@ -216,10 +216,8 @@ tools:
             boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional
             evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or
             'session' — a session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle
-            strategy, so always send `target_config.strategy` explicitly: an omitted strategy is read as
-            'fixed_window' with no error, silently dropping the inactivity settings. Pass `enabled` as a boolean
-            (true to start scoring new $ai_generation events immediately, false to create it paused). Results are
-            '$ai_evaluation' events.
+            strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately,
+            false to create it paused). Results are '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
@@ -464,9 +462,7 @@ tools:
             provide both fields to replace it; null is rejected for configured judges. When switching an llm_judge to
             hog or sentiment, set model_configuration to null. Legacy llm_judge evaluations without a model remain
             editable. provider_key_id may be null when no key is pinned. `target` accepts 'generation', 'trace', or
-            'session'; when switching to 'session', send `target_config.strategy` explicitly — an omitted strategy
-            is read as 'fixed_window' with no error, silently dropping the 'inactivity' settle settings a session
-            target defaults to.
+            'session'.
     llma-evaluation-update-full:
         operation: evaluations_update
         enabled: false

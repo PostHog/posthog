@@ -99,11 +99,6 @@ A `session` target takes the same settle config with session-sized bounds, and d
 - `{ "strategy": "fixed_window", "window_seconds": 1800 }` — evaluate a fixed wait after the first
   matching generation (10 seconds to 7 days).
 
-> **Always send `strategy` explicitly for a `session` target.** The tool's `target_config` schema is
-> a plain union, so a payload that omits `strategy` is read as `fixed_window` and its
-> `quiet_period_seconds` / `max_age_seconds` are dropped. You would get a fixed-window session
-> evaluation with no error.
-
 A session evaluation only fires for events that carry `$ai_session_id`. Producers either set it on
 every generation or on none, so an SDK that does not set it will never trigger a session
 evaluation. `$ai_session_id` is not `$session_id`: the second is PostHog's product-analytics
