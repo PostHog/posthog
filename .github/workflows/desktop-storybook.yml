@@ -12,17 +12,23 @@ name: Desktop Storybook
 # the capture, which catches stories that crash or never settle.
 
 on:
-    pull_request:
+    # Dispatched by desktop-ci.yml, the single PR/merge_group run for the whole
+    # desktop suite; merge_group gating and PR concurrency live there.
+    workflow_call:
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID:
+                required: false
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
+                required: false
+            TRUNK_API_TOKEN:
+                required: false
+            VR_API_TOKEN:
+                required: false
     push:
         branches: [master]
         paths:
             - 'products/desktop/**'
             - '.github/workflows/desktop-storybook.yml'
-    # Required so `Desktop Storybook Pass` (a required status check) reports on
-    # merge queue entries — without it the queue would wait for the check until
-    # timeout. The jobs themselves skip on merge_group (the suite already ran in
-    # full on the PR) and the aggregator treats skipped as success.
-    merge_group:
 
 concurrency:
     group: desktop-storybook-${{ github.head_ref || github.ref }}
