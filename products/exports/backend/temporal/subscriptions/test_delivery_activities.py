@@ -35,10 +35,9 @@ from products.exports.backend.temporal.subscriptions.workflows import (
     ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
 )
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
-
-from products.product_analytics.backend.models.insight import Insight
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -142,6 +141,8 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
         patch("temporalio.workflow.logger", MagicMock()),
     ):
         mock_info.return_value = MagicMock(workflow_id="wf-test-ai")
-        await ProcessAISubscriptionWorkflow().run(TrackedSubscriptionInputs(subscription_id=1, team_id=1, distinct_id="u1"))
+        await ProcessAISubscriptionWorkflow().run(
+            TrackedSubscriptionInputs(subscription_id=1, team_id=1, distinct_id="u1")
+        )
 
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
