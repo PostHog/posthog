@@ -5914,7 +5914,7 @@ export interface EffectiveAccessControlEntry {
     inherited_access_level: AccessControlLevel | null
     inherited_access_level_reason: InheritedAccessLevelReason | null
     /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
-    built_in_access_level?: AccessControlLevel
+    system_default_access_level?: AccessControlLevel
     minimum: AccessControlLevel
     maximum: AccessControlLevel
 }

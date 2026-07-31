@@ -351,7 +351,7 @@ function ToolsSection({
                                         disabledReason={subjectDisabledReason(entry, canEdit)}
                                         inherited={inheritedFor(
                                             res,
-                                            defaults?.resource_access_levels[resource.key]?.built_in_access_level,
+                                            defaults?.resource_access_levels[resource.key]?.system_default_access_level,
                                             resource.label.toLowerCase()
                                         )}
                                     />

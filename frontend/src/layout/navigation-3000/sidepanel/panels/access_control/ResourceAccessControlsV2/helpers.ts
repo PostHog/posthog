@@ -159,14 +159,14 @@ function inheritedReason(reason: InheritedAccessLevelReason | null, fallbackTo: 
 
 /**
  * What applies to a resource when the subject has no rule of their own. The entry resolves explicit
- * defaults and role grants server-side; `builtIn` covers resources with no rule anywhere.
+ * defaults and role grants server-side; `systemDefault` covers resources with no rule anywhere.
  */
 export function inheritedFor(
     res: EffectiveAccessControlEntry | undefined,
-    builtIn: AccessControlLevel | undefined,
+    systemDefault: AccessControlLevel | undefined,
     fallbackTo: string
 ): InheritedAccess | null {
-    const level = res?.inherited_access_level ?? builtIn
+    const level = res?.inherited_access_level ?? systemDefault
     if (!level) {
         return null
     }
