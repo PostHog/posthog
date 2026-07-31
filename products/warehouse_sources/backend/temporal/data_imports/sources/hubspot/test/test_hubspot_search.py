@@ -787,6 +787,137 @@ class TestGetRowsViaSearch:
             "value": tail_id,
         } in second_drain_request["filterGroups"][0]["filters"]
 
+    def test_pathological_window_drain_paginates_within_one_anchor_and_backfills_associations(
+        self,
+    ) -> None:
+        # Regression: continuing a drain query via its `after` token must keep the same
+        # hs_object_id GT anchor (HubSpot's `after` cursor is scoped to the filters it was
+        # issued with) — only a *new* query after `after` runs out may advance the anchor.
+        # Also covers contacts, the object type that actually hit this cap, to prove
+        # association backfill still runs for records only reachable via the drain.
+        identical_cursor = 1_799_000_000_000
+        pages_in_cap = SEARCH_RESULT_CAP // SEARCH_PAGE_SIZE
+        pages = []
+        for i in range(pages_in_cap):
+            batch = [
+                _result(str(i * SEARCH_PAGE_SIZE + j), identical_cursor, cursor_prop="lastmodifieddate")
+                for j in range(SEARCH_PAGE_SIZE)
+            ]
+            is_last = i == pages_in_cap - 1
+            pages.append(_search_page(batch, after=None if is_last else f"c{i}"))
+
+        drain_id_1 = str(SEARCH_RESULT_CAP + 1)
+        drain_id_2 = str(SEARCH_RESULT_CAP + 2)
+        drain_page_1 = [_result(drain_id_1, identical_cursor, cursor_prop="lastmodifieddate")]
+        drain_page_2 = [_result(drain_id_2, identical_cursor, cursor_prop="lastmodifieddate")]
+
+        responses = (
+            [_make_response(200, p) for p in pages]
+            + [_make_response(200, _search_page(drain_page_1, after="drain-1"))]  # anchor -1, page 1
+            + [_make_response(200, _search_page(drain_page_2))]  # anchor -1, page 2 via `after`
+            + [_make_response(200, _search_page([]))]  # fresh query, advanced anchor: exhausted
+            + [_make_response(200, _search_page([]))]  # window resumes past the tied cursor
+        )
+        side_effect, captured = _setup_search_post(responses)
+        manager = _make_manager()
+        logger = MagicMock()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+                new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot._batch_read_associations",
+                return_value={},
+            ) as mock_batch,
+        ):
+            tables = list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="contacts",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=str(identical_cursor - 1),
+                    include_custom_props=False,
+                    now_ms=identical_cursor + 1_000,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
+        assert sum(t.num_rows for t in tables) == SEARCH_RESULT_CAP + 2
+
+        # Second page of the first drain query: continues via `after`, anchor unchanged.
+        continued_request = captured[pages_in_cap + 1]["json"]
+        assert continued_request.get("after") == "drain-1"
+        assert {"propertyName": "hs_object_id", "operator": "GT", "value": "-1"} in (
+            continued_request["filterGroups"][0]["filters"]
+        )
+
+        # Once that query's `after` pages run out, a fresh query advances the anchor.
+        restart_request = captured[pages_in_cap + 2]["json"]
+        assert "after" not in restart_request
+        assert {"propertyName": "hs_object_id", "operator": "GT", "value": drain_id_2} in (
+            restart_request["filterGroups"][0]["filters"]
+        )
+
+        # Records only reachable via the drain still get their associations backfilled.
+        assoc_ids_seen = {i for call in mock_batch.call_args_list for i in call.kwargs["ids"]}
+        assert {drain_id_1, drain_id_2} <= assoc_ids_seen
+
+    def test_drain_tied_cursor_skips_records_with_non_numeric_id(self) -> None:
+        # Defensive: a record with a missing/non-numeric id must not crash the drain — it's
+        # still batched, just excluded from the id-anchor advance for that record.
+        identical_cursor = 1_799_000_000_000
+        pages_in_cap = SEARCH_RESULT_CAP // SEARCH_PAGE_SIZE
+        pages = []
+        for i in range(pages_in_cap):
+            batch = [_result(str(i * SEARCH_PAGE_SIZE + j), identical_cursor) for j in range(SEARCH_PAGE_SIZE)]
+            is_last = i == pages_in_cap - 1
+            pages.append(_search_page(batch, after=None if is_last else f"c{i}"))
+
+        bad_id_record = _result("not-a-number", identical_cursor)
+        good_id_record = _result(str(SEARCH_RESULT_CAP + 1), identical_cursor)
+
+        responses = (
+            [_make_response(200, p) for p in pages]
+            + [_make_response(200, _search_page([bad_id_record, good_id_record]))]
+            + [_make_response(200, _search_page([]))]  # restart anchored past the good id
+            + [_make_response(200, _search_page([]))]  # window resumes past the tied cursor
+        )
+        side_effect, captured = _setup_search_post(responses)
+        manager = _make_manager()
+        logger = MagicMock()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"post": staticmethod(side_effect)})(),
+        ):
+            tables = list(
+                get_rows_via_search(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    db_incremental_field_last_value=str(identical_cursor - 1),
+                    include_custom_props=False,
+                    now_ms=identical_cursor + 1_000,
+                    api_version=HUBSPOT_API_VERSION_V3,
+                )
+            )
+
+        # The bad-id record is still delivered; it just doesn't drive the anchor forward.
+        assert sum(t.num_rows for t in tables) == SEARCH_RESULT_CAP + 2
+
+        restart_request = captured[pages_in_cap + 1]["json"]
+        assert {
+            "propertyName": "hs_object_id",
+            "operator": "GT",
+            "value": str(SEARCH_RESULT_CAP + 1),
+        } in restart_request["filterGroups"][0]["filters"]
+
     def test_saves_progress_at_window_boundaries(self) -> None:
         manager = _make_manager()
         logger = MagicMock()

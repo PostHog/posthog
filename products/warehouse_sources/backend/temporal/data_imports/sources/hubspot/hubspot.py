@@ -676,61 +676,74 @@ def get_rows_via_search(
     def _drain_tied_cursor(cursor_ms: int) -> Iterator[Any]:
         """SEARCH_RESULT_CAP+ records share `cursor_ms` (e.g. a bulk import stamping a whole
         batch with the same lastmodifieddate), so the cursor value can't sub-divide the window
-        any further. Page through them by the unique hs_object_id instead: each re-query with
-        `hs_object_id > last_id` shrinks the match count, sidestepping HubSpot's per-query
-        SEARCH_RESULT_CAP. This re-walks records already seen for `cursor_ms` in the caller's
-        cursor-sorted pass, but writes dedup by primary key, so re-fetching is safe.
+        any further. Page through them by the unique hs_object_id instead: each query filters
+        on `hs_object_id > anchor_id`, so re-issuing a fresh query with an advanced anchor once
+        one query's own `after`-pagination ends shrinks the match count each time, sidestepping
+        HubSpot's per-query SEARCH_RESULT_CAP regardless of how many records are tied. This
+        re-walks records already seen for `cursor_ms` in the caller's cursor-sorted pass, but
+        writes dedup by primary key, so re-fetching is safe.
         """
-        last_id = -1
-        after: Optional[str] = None
+        next_anchor_id = -1
         while True:
-            body: dict[str, Any] = {
-                "limit": SEARCH_PAGE_SIZE,
-                "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
-                "filterGroups": [
-                    {
-                        "filters": [
-                            {"propertyName": cursor_prop, "operator": "EQ", "value": str(cursor_ms)},
-                            {"propertyName": "hs_object_id", "operator": "GT", "value": str(last_id)},
-                        ]
-                    }
-                ],
-                "properties": props_list,
-            }
-            if after is not None:
-                body["after"] = after
+            anchor_id = next_anchor_id
+            after: Optional[str] = None
+            got_any = False
 
-            data = fetch_search(body)
-            results = data.get("results", [])
-            if not results:
+            while True:
+                body: dict[str, Any] = {
+                    "limit": SEARCH_PAGE_SIZE,
+                    "sorts": [{"propertyName": "hs_object_id", "direction": "ASCENDING"}],
+                    "filterGroups": [
+                        {
+                            "filters": [
+                                {"propertyName": cursor_prop, "operator": "EQ", "value": str(cursor_ms)},
+                                {"propertyName": "hs_object_id", "operator": "GT", "value": str(anchor_id)},
+                            ]
+                        }
+                    ],
+                    "properties": props_list,
+                }
+                if after is not None:
+                    body["after"] = after
+
+                data = fetch_search(body)
+                results = data.get("results", [])
+                if not results:
+                    break
+                got_any = True
+
+                if config.associations:
+                    _backfill_associations_into_results(
+                        results=results,
+                        from_entity_plural=endpoint,
+                        association_types=config.associations,
+                        headers=headers,
+                        refresh_token=refresh_token,
+                        source_id=source_id,
+                        logger=logger,
+                        api_version=api_version,
+                    )
+
+                for result in results:
+                    try:
+                        result_id = int(result["id"])
+                    except (KeyError, ValueError):
+                        continue
+                    if result_id > next_anchor_id:
+                        next_anchor_id = result_id
+
+                yield from _process_results(results)
+
+                next_cursor = data.get("paging", {}).get("next", {}).get("after")
+                if not next_cursor:
+                    break
+                after = next_cursor
+
+            # An empty result for this anchor means every tied record has been seen; a
+            # non-empty query that just ran out of `after` pages (likely SEARCH_RESULT_CAP)
+            # restarts fresh with the advanced anchor to keep shrinking the match count.
+            if not got_any:
                 break
-
-            if config.associations:
-                _backfill_associations_into_results(
-                    results=results,
-                    from_entity_plural=endpoint,
-                    association_types=config.associations,
-                    headers=headers,
-                    refresh_token=refresh_token,
-                    source_id=source_id,
-                    logger=logger,
-                    api_version=api_version,
-                )
-
-            for result in results:
-                try:
-                    result_id = int(result["id"])
-                except (KeyError, ValueError):
-                    continue
-                if result_id > last_id:
-                    last_id = result_id
-
-            yield from _process_results(results)
-
-            # No `after` token doesn't mean we're done: a query capped at SEARCH_RESULT_CAP
-            # also omits it, so re-querying with the advanced `last_id` picks up where this
-            # one left off, and only returns empty once every tied record has been seen.
-            after = data.get("paging", {}).get("next", {}).get("after")
 
     while current_lower <= sync_end_ms:
         window_upper = min(current_lower + WINDOW_SIZE_MS, sync_end_ms)
