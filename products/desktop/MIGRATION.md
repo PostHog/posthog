@@ -191,6 +191,11 @@ ports from source using these rules.
       `desktop-warm-caches.yml` on master pushes, mirroring the source repo's
       warm-caches.yml design. Rare-run workflows (build-test, mobile-promote) drop
       caching instead.
+    - jobs that sign or publish release artifacts restore no dependency cache at all:
+      every `actions/setup-node` in `desktop-release.yml` and `desktop-agent-release.yml`
+      passes `package-manager-cache: false` instead of `cache: 'pnpm'`. A poisoned cache
+      entry would otherwise reach a signing job (zizmor `cache-poisoning`). Reapply on
+      resync: the source workflows cache there.
 12. **Gating workflows also trigger on `push: [master]`** (paths-scoped to desktop): house
     pattern and post-merge safety net. The changes-filter step is skipped on push and its
     outputs default to `'true'`, except `packages` (so the live-gateway e2e stays
