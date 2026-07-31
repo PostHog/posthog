@@ -4,12 +4,10 @@ import products.tasks.backend.presentation.views.api as tasks
 import products.tasks.backend.presentation.views.loops as loops
 import products.tasks.backend.presentation.views.seat_api as seats
 import products.tasks.backend.presentation.views.channels_api as channels
-import products.tasks.backend.presentation.views.remote_tasks as remote_tasks
 
 
 def register_routes(routers: RouterRegistry) -> None:
     project_tasks_router = routers.projects.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
-    routers.projects.register(r"remote_tasks", remote_tasks.RemoteTaskViewSet, "project_remote_tasks", ["team_id"])
     project_task_runs_router = project_tasks_router.register(
         r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"]
     )

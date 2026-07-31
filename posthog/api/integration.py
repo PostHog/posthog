@@ -1104,11 +1104,16 @@ class IntegrationViewSet(
                 region = (request.GET.get("region") or "").upper()
                 if region not in POSTHOG_CONNECT_ALLOWED_REGIONS:
                     raise ValidationError(f"region must be one of {', '.join(POSTHOG_CONNECT_ALLOWED_REGIONS)}")
-                raw_scopes = request.GET.get("scopes", "")
-                scopes = [s for s in re.split(r"[,\s]+", raw_scopes) if s] or list(POSTHOG_CONNECT_DEFAULT_SCOPES)
-                invalid = [s for s in scopes if s not in POSTHOG_CONNECT_GRANTABLE_SCOPES]
-                if invalid:
-                    raise ValidationError(f"Unsupported remote scopes: {', '.join(invalid)}")
+                raw_scopes = (request.GET.get("scopes") or "").strip()
+                if raw_scopes == "full":
+                    scopes = sorted(POSTHOG_CONNECT_GRANTABLE_SCOPES)
+                elif raw_scopes == "read_only":
+                    scopes = sorted(s for s in POSTHOG_CONNECT_GRANTABLE_SCOPES if s.endswith(":read"))
+                else:
+                    scopes = [s for s in re.split(r"[,\s]+", raw_scopes) if s] or list(POSTHOG_CONNECT_DEFAULT_SCOPES)
+                    invalid = [s for s in scopes if s not in POSTHOG_CONNECT_GRANTABLE_SCOPES]
+                    if invalid:
+                        raise ValidationError(f"Unsupported connection scopes: {', '.join(invalid)}")
             try:
                 auth_url = OauthIntegration.authorize_url(
                     kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id

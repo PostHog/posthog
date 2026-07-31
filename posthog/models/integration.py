@@ -56,6 +56,7 @@ from posthog.models.utils import IntegrityError, generate_random_oauth_access_to
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
+from posthog.scopes import get_oauth_scopes_supported
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
@@ -675,10 +676,12 @@ POSTHOG_CONNECT_KIND = "posthog"
 POSTHOG_CONNECT_ALLOWED_REGIONS = ("US", "EU", "DEV")
 POSTHOG_CONNECT_DEFAULT_SCOPES = ("task:read", "task:write")
 POSTHOG_CONNECT_IDENTITY_SCOPES = ("openid", "email")
-# The set a user may pick from at connect time. Deliberately narrow: a connection to another PostHog
-# project is standing delegated access, so it is capped at the task verbs for v1 rather than exposing
-# `full`. Widen only with a security review. Identity scopes are auto-added and not user-selectable.
-POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(POSTHOG_CONNECT_DEFAULT_SCOPES)
+# A connection can proxy any request the granted scopes allow, so the user may pick from the full set
+# of user-grantable OAuth scopes (the same set the consent screen advertises — excludes internal,
+# hidden, and privileged scopes). The real bound is enforced twice more downstream: the target cell's
+# OAuthApplication.allowed_scopes at consent time, and the target's per-request scope checks. Identity
+# scopes are auto-added and not part of this set.
+POSTHOG_CONNECT_GRANTABLE_SCOPES = frozenset(get_oauth_scopes_supported())
 
 
 def _posthog_connect_target(region: str | None) -> tuple[str, str, str]:

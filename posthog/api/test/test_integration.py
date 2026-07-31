@@ -5095,11 +5095,12 @@ class TestPosthogConnectAuthorize:
         response = self._authorize(client, scopes="task:read")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_rejects_unsupported_scope(self, client: HttpClient):
+    def test_rejects_unknown_scope(self, client: HttpClient):
         client.force_login(self.user)
-        response = self._authorize(client, region="EU", scopes="organization:read")
+        # A made-up scope is never user-grantable, so it is rejected regardless of the widened set.
+        response = self._authorize(client, region="EU", scopes="totally:fake")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Unsupported remote scopes" in response.json()["detail"]
+        assert "Unsupported connection scopes" in response.json()["detail"]
 
     @override_settings(
         POSTHOG_CONNECT_BASE_URL_EU="https://eu.posthog.com",
@@ -5112,3 +5113,20 @@ class TestPosthogConnectAuthorize:
         assert response.status_code == status.HTTP_302_FOUND
         assert response.headers["Location"].startswith("https://eu.posthog.com/oauth/authorize?")
         assert client.cookies.get("ph_oauth_state") is not None
+
+    @override_settings(
+        POSTHOG_CONNECT_BASE_URL_EU="https://eu.posthog.com",
+        POSTHOG_CONNECT_OAUTH_CLIENT_ID_EU="eu-client-id",
+        POSTHOG_CONNECT_OAUTH_CLIENT_SECRET_EU="eu-secret",
+    )
+    def test_read_only_preset_requests_only_read_scopes(self, client: HttpClient):
+        from urllib.parse import parse_qs, urlparse
+
+        client.force_login(self.user)
+        response = self._authorize(client, region="EU", scopes="read_only")
+        assert response.status_code == status.HTTP_302_FOUND
+        requested = parse_qs(urlparse(response.headers["Location"]).query)["scope"][0].split()
+        assert requested, "expected some scopes"
+        # Only :read scopes plus the auto-added identity scopes; no :write.
+        assert not any(s.endswith(":write") for s in requested)
+        assert "openid" in requested and "email" in requested
