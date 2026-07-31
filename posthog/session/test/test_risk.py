@@ -10,6 +10,8 @@ from django.test.utils import override_settings
 from parameterized import parameterized
 
 from posthog.session.risk import (
+    DEVICE_SIGNALS,
+    NETWORK_SIGNALS,
     Baseline,
     Context,
     RiskSignal,
@@ -106,12 +108,11 @@ class TestSignalsAndTiers(BaseTest):
         signals = evaluate_signals(b, ctx, now=self.BASELINE_TIME + timedelta(minutes=10))
         self.assertNotIn(RiskSignal.IMPOSSIBLE_TRAVEL, signals)
 
-    def test_ua_change_alone_is_medium(self):
+    def test_ua_change_fires_alone(self):
         b = self._baseline()
         ctx = self._ctx(ua_signature="firefox|mac os x|pc")
         signals = evaluate_signals(b, ctx, now=self.BASELINE_TIME + timedelta(minutes=10))
         self.assertEqual(signals, {RiskSignal.UA_CHANGE})
-        self.assertEqual(tier_for(signals), RiskTier.MEDIUM)
 
     @parameterized.expand(
         [
@@ -133,7 +134,31 @@ class TestSignalsAndTiers(BaseTest):
         # HIGH ends the session, so it takes a network anomaly *and* a device anomaly. Counting any
         # two signals as corroboration over-escalates: impossible_travel and new_country both come
         # from one geoip lookup on one IP, so together they are a single observation, not two.
-        self.assertEqual(tier_for(signals), expected)
+        self.assertEqual(tier_for(signals, device_comparable=True), expected)
+
+    @parameterized.expand(
+        [
+            ("network_alone", {RiskSignal.IMPOSSIBLE_TRAVEL}, RiskTier.HIGH),
+            ("both_geo_signals", {RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY}, RiskTier.HIGH),
+            ("no_signals", set(), RiskTier.NONE),
+        ]
+    )
+    def test_network_signal_escalates_when_device_cannot_be_compared(self, _name, signals, expected):
+        # With no recorded user agent the device axis can neither confirm nor clear the request, so a
+        # network anomaly has to escalate on its own — otherwise such a session could never reach HIGH.
+        self.assertEqual(tier_for(signals, device_comparable=False), expected)
+
+    def test_every_signal_belongs_to_exactly_one_axis(self):
+        # A new RiskSignal in neither axis would silently cap at MEDIUM forever, and one in both would
+        # let a single observation corroborate itself.
+        self.assertEqual(NETWORK_SIGNALS | DEVICE_SIGNALS, set(RiskSignal))
+        self.assertEqual(NETWORK_SIGNALS & DEVICE_SIGNALS, set())
+
+    def test_missing_user_agent_counts_as_a_device_change(self):
+        # Dropping the header must not be a way to keep the device axis quiet.
+        b = self._baseline()
+        signals = evaluate_signals(b, self._ctx(ua_signature=None), now=self.BASELINE_TIME + timedelta(minutes=10))
+        self.assertIn(RiskSignal.UA_CHANGE, signals)
 
     def test_null_baseline_no_signals(self):
         b = Baseline(latitude=None, longitude=None, country_code=None, ua_signature=None, baseline_at=None)

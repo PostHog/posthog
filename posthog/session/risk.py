@@ -6,6 +6,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.sessions.backends.base import SessionBase
 from django.core.cache import cache
 from django.http import HttpRequest
 from django.utils import timezone
@@ -21,6 +22,11 @@ from posthog.session.models import Session
 from posthog.utils import get_trusted_client_ip
 
 logger = structlog.get_logger(__name__)
+
+# Per-process circuit breaker for the dedup cache: how many consecutive failures still emit (and log)
+# before we assume a real outage and stay quiet rather than emitting once per request.
+_CACHE_FAILURE_EMIT_LIMIT = 10
+_consecutive_cache_failures = 0
 
 
 class RiskSignal(str, Enum):
@@ -86,7 +92,10 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[RiskSignal]:
     signals: set[RiskSignal] = set()
 
-    if baseline.ua_signature and ctx.ua_signature and baseline.ua_signature != ctx.ua_signature:
+    # A *missing* user agent counts as a change, not as "nothing to compare". Session-cookie auth is
+    # browser traffic and browsers always send the header, so its absence is itself anomalous — and
+    # treating it as neutral would let a caller drop the header to avoid tripping the device axis.
+    if baseline.ua_signature and baseline.ua_signature != ctx.ua_signature:
         signals.add(RiskSignal.UA_CHANGE)
 
     if baseline.country_code and ctx.country_code and baseline.country_code != ctx.country_code:
@@ -114,20 +123,29 @@ def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[
 
 
 # The independent axes a signal can observe. impossible_travel and new_country are both derived from
-# a single geoip lookup on a single IP, so they corroborate each other only in appearance.
+# a single geoip lookup on a single IP, so they corroborate each other only in appearance. Every
+# RiskSignal must belong to exactly one axis or tier_for would silently cap it at MEDIUM forever.
 NETWORK_SIGNALS = frozenset({RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY})
 DEVICE_SIGNALS = frozenset({RiskSignal.UA_CHANGE})
 
 
-def tier_for(signals: set[RiskSignal]) -> RiskTier:
-    """HIGH ends the session, so it requires corroboration across both axes: the request came from an
-    unexpected network *and* an unexpected device. A hijacked session shows both, while VPN, relay and
-    carrier-NAT egress moves the apparent location on its own — which is why network signals alone,
-    however many, only warrant a step-up re-auth.
+def tier_for(signals: set[RiskSignal], *, device_comparable: bool) -> RiskTier:
+    """HIGH ends the session, so it wants corroboration across both axes: the request came from an
+    unexpected network *and* an unexpected device. VPN, relay and carrier-NAT egress moves the apparent
+    location on its own, so network signals alone — however many — only warrant a step-up re-auth.
+
+    `device_comparable` is False when the baseline holds no user agent to compare against. Then the
+    device axis can't clear or confirm anything, so a network anomaly escalates on its own rather than
+    leaving the session permanently un-escalatable.
+
+    Note the device axis reads a client-supplied header, so it can only ever be evidence, never proof:
+    a caller that replays the recorded user agent will not trip it. See the PR for the residual risk.
     """
     if not signals:
         return RiskTier.NONE
-    if signals & NETWORK_SIGNALS and signals & DEVICE_SIGNALS:
+    network = bool(signals & NETWORK_SIGNALS)
+    device = bool(signals & DEVICE_SIGNALS)
+    if network and (device or not device_comparable):
         return RiskTier.HIGH
     return RiskTier.MEDIUM
 
@@ -164,7 +182,19 @@ def risk_flags(user: User) -> RiskFlags:
     )
 
 
-def _baseline_for_session(session_key: str) -> Optional[Baseline]:
+def _baseline_for_session(session: SessionBase, session_key: str) -> Optional[Baseline]:
+    # The session store already fetched this row to read session_data, so reuse it rather than issue a
+    # second SELECT for the same row on the same request — this runs on every authenticated request.
+    # Falls back to a query for stores that expose no loaded row (another engine, or a new session).
+    loaded = getattr(session, "loaded_row", None)
+    if loaded is not None:
+        return Baseline(
+            latitude=loaded.latitude,
+            longitude=loaded.longitude,
+            country_code=loaded.country_code,
+            ua_signature=loaded.ua_signature,
+            baseline_at=loaded.baseline_at,
+        )
     row = (
         Session.objects.filter(session_key=session_key)
         .values("latitude", "longitude", "country_code", "ua_signature", "baseline_at")
@@ -217,13 +247,21 @@ def _should_emit_risk(session_key: str, tier: RiskTier, signals: set[RiskSignal]
     id so a live session key never reaches the cache. Never touches the baseline, so detection is
     unaffected: the request is still scored the same next time.
     """
+    global _consecutive_cache_failures
     key = f"session_risk_emit:{session_public_id(session_key)}:{_risk_signature(tier, signals)}"
     try:
-        return bool(cache.add(key, 1, timeout=int(settings.RISK_REEMIT_COOLDOWN_S)))
+        allowed = bool(cache.add(key, 1, timeout=int(settings.RISK_REEMIT_COOLDOWN_S)))
     except Exception:
-        # A cache outage must not silence detection telemetry — duplicates beat missing events.
-        logger.exception("session_risk dedup cache unavailable")
-        return True
+        # Fail open at first, since duplicates beat missing events, but only briefly: with the gate
+        # gone every request on every flagged session would emit an event and a traceback, which is
+        # the storm the gate exists to prevent. Past the limit, go quiet until the cache recovers.
+        _consecutive_cache_failures += 1
+        if _consecutive_cache_failures <= _CACHE_FAILURE_EMIT_LIMIT:
+            logger.exception("session_risk dedup cache unavailable")
+            return True
+        return False
+    _consecutive_cache_failures = 0
+    return allowed
 
 
 def evaluate_session_risk(request: HttpRequest) -> RiskTier:
@@ -248,14 +286,14 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
     if not flags.detection:
         return RiskTier.NONE
 
-    baseline = _baseline_for_session(session_key)
+    baseline = _baseline_for_session(request.session, session_key)
     if baseline is None:
         return RiskTier.NONE
 
     ctx = current_request_context(request)
     now = timezone.now()
     signals = evaluate_signals(baseline, ctx, now=now)
-    tier = tier_for(signals)
+    tier = tier_for(signals, device_comparable=baseline.ua_signature is not None)
     if tier == RiskTier.NONE:
         # Low-risk request: roll the known-good baseline forward (or establish it when NULL). A
         # suspicious request never reaches here, so it can't poison the reference it's scored against.

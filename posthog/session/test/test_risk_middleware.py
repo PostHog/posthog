@@ -17,7 +17,7 @@ from parameterized import parameterized
 from posthog.models import User
 from posthog.session.middleware import SessionRiskMiddleware
 from posthog.session.models import Session
-from posthog.session.risk import Context, RiskFlags, RiskTier, evaluate_session_risk
+from posthog.session.risk import Context, RiskFlags, RiskTier, _baseline_for_session, evaluate_session_risk
 
 IMPOSSIBLE_TRAVEL_CTX = Context(latitude=35.6, longitude=139.7, country_code="JP", ua_signature="chrome|mac os x|pc")
 # Network anomaly *and* device anomaly — the cross-axis pair that reaches HIGH.
@@ -184,6 +184,19 @@ class TestEvaluateSessionRisk(BaseTest):
             evaluate_session_risk(request)
             evaluate_session_risk(request)
         self.assertEqual(mock_capture.call_count, expected_calls)
+
+    def test_baseline_reuses_the_row_the_session_store_loaded(self):
+        # Loading the session already fetches this row, and scoring runs on every authenticated
+        # request, so reading the baseline must not cost a second SELECT for the same row.
+        key = self._login_session(self._make_user())
+        self._seed_baseline(key)
+        store = self.engine.SessionStore(session_key=key)
+        store.load()
+
+        with self.assertNumQueries(0):
+            baseline = _baseline_for_session(store, key)
+
+        self.assertEqual(baseline.country_code, "US")
 
     @patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX)
     @patch("posthog.session.risk.posthoganalytics.capture")
