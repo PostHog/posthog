@@ -217,14 +217,14 @@
   -- ClickHouse
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM events 
-  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0), less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
+  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_1)s), ''), 'null'), '^"|"$', ''), %(hogql_val_2)s), 0), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 23:59:59.999999', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), lessOrEquals(timestamp, toDateTime('2020-01-02 23:59:59.999999')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '''
 # ---
@@ -233,7 +233,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), lessOrEquals(timestamp, toDateTime('2020-01-02 23:59:59.999999')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '''
 # ---
@@ -251,14 +251,14 @@
   -- ClickHouse
   SELECT events.event AS event, events.distinct_id AS distinct_id 
   FROM events_json AS events 
-  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))), %(hogql_val_1)s), 0), less(events.timestamp, toDateTime64('2020-01-02 00:00:00.000000', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
+  WHERE and(equals(events.team_id, 99999), equals(events.distinct_id, %(hogql_val_0)s), and(ifNull(equals(if(notEquals(toJSONString(events.properties.^index), '{}'), toJSONString(events.properties.^index), if(isNull(events.properties.index), NULL, if(startsWith(dynamicType(events.properties.index), 'DateTime'), replaceOne(toString(events.properties.index), ' ', 'T'), if(or(startsWith(dynamicType(events.properties.index), 'Array'), startsWith(dynamicType(events.properties.index), 'Map'), startsWith(dynamicType(events.properties.index), 'Tuple')), toJSONString(events.properties.index), toString(events.properties.index))))), %(hogql_val_1)s), 0), lessOrEquals(events.timestamp, toDateTime64('2020-01-02 23:59:59.999999', 6, 'UTC')), greaterOrEquals(events.timestamp, toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), lessOrEquals(timestamp, toDateTime('2020-01-02 23:59:59.999999')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '''
 # ---
@@ -267,7 +267,7 @@
   
   SELECT event, distinct_id 
   FROM events 
-  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), less(timestamp, toDateTime('2020-01-02 00:00:00.000000')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
+  WHERE and(equals(distinct_id, 'RANDOM_TEST_ID::UUID'), and(equals(properties.index, '4'), lessOrEquals(timestamp, toDateTime('2020-01-02 23:59:59.999999')), greaterOrEquals(timestamp, toDateTime('2020-01-01 00:00:00.000000')))) 
   LIMIT 100
   '''
 # ---
@@ -328,14 +328,14 @@
     FROM raw_sessions 
     WHERE and(equals(raw_sessions.team_id, 99999), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3))), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(3)))) 
     GROUP BY raw_sessions.session_id_v7) AS sessions 
-  WHERE and(less(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC'))) 
+  WHERE and(lessOrEquals(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC')), greaterOrEquals(sessions.`$start_timestamp`, toDateTime64('today', 6, 'UTC'))) 
   LIMIT 100 
   SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0
   
   -- HogQL
   SELECT session_id, $entry_current_url 
   FROM sessions 
-  WHERE and(less($start_timestamp, toDateTime('2024-07-06 00:00:00.000000')), greaterOrEquals($start_timestamp, toDateTime('2024-07-04 00:00:00.000000'))) 
+  WHERE and(lessOrEquals($start_timestamp, toDateTime('2024-07-06 23:59:59.999999')), greaterOrEquals($start_timestamp, toDateTime('2024-07-04 00:00:00.000000'))) 
   LIMIT 100
   '''
 # ---
@@ -344,7 +344,7 @@
   
   SELECT session_id, $entry_current_url 
   FROM sessions 
-  WHERE and(less($start_timestamp, toDateTime('2024-07-06 00:00:00.000000')), greaterOrEquals($start_timestamp, toDateTime('2024-07-04 00:00:00.000000'))) 
+  WHERE and(lessOrEquals($start_timestamp, toDateTime('2024-07-06 23:59:59.999999')), greaterOrEquals($start_timestamp, toDateTime('2024-07-04 00:00:00.000000'))) 
   LIMIT 100
   '''
 # ---

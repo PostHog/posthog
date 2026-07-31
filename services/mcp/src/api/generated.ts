@@ -24045,6 +24045,12 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
+      /**
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
     }
 
     export interface EndpointBreakdownLimitExceededSignalExtra {
@@ -28037,6 +28043,39 @@ export namespace Schemas {
          * @nullable
          */
       ensure_experience_continuity?: boolean | null;
+    }
+
+    /**
+     * * `explicit` - explicit
+     * * `single_repo` - single_repo
+     * * `ambiguous` - ambiguous
+     * * `no_integration` - no_integration
+     */
+    export type ExperimentFlagCleanupTargetSourceEnum = typeof ExperimentFlagCleanupTargetSourceEnum[keyof typeof ExperimentFlagCleanupTargetSourceEnum];
+
+
+    export const ExperimentFlagCleanupTargetSourceEnum = {
+      Explicit: 'explicit',
+      SingleRepo: 'single_repo',
+      Ambiguous: 'ambiguous',
+      NoIntegration: 'no_integration',
+    } as const;
+
+    export interface ExperimentFlagCleanupTarget {
+      /**
+         * Repository a flag-cleanup pull request would be opened in, or null when none can be determined.
+         * @nullable
+         */
+      repository: string | null;
+      /** How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the team's only connected repository), `ambiguous` (several connected repositories and none saved — pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened).
+       *
+       * * `explicit` - explicit
+       * * `single_repo` - single_repo
+       * * `ambiguous` - ambiguous
+       * * `no_integration` - no_integration */
+      source: ExperimentFlagCleanupTargetSourceEnum;
+      /** Repositories connected to the team's GitHub integration, to choose a target from. */
+      candidates: string[];
     }
 
     /**
@@ -37184,6 +37223,7 @@ export namespace Schemas {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -37231,6 +37271,7 @@ export namespace Schemas {
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
+      Posthog: 'posthog',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
@@ -37278,6 +37319,7 @@ export namespace Schemas {
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
+       * * `posthog` - Posthog
        * * `reddit-ads` - Reddit Ads
        * * `resend` - Resend
        * * `s3-compatible` - S3 Compatible
@@ -40730,32 +40772,6 @@ export namespace Schemas {
       metric_name: MetricNameEnum;
       instance_id: string;
     }
-
-    /**
-     * * `user_message` - user_message
-     * * `cancel` - cancel
-     * * `close` - close
-     * * `permission_response` - permission_response
-     * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response
-     * * `pi/rpc` - pi/rpc
-     * * `queue_get` - queue_get
-     * * `queue_clear` - queue_clear
-     */
-    export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
-
-
-    export const MethodEnum = {
-      UserMessage: 'user_message',
-      Cancel: 'cancel',
-      Close: 'close',
-      PermissionResponse: 'permission_response',
-      SetConfigOption: 'set_config_option',
-      McpResponse: 'mcp_response',
-      PiRpc: 'pi/rpc',
-      QueueGet: 'queue_get',
-      QueueClear: 'queue_clear',
-    } as const;
 
     /**
      * * `up` - up
@@ -55933,6 +55949,53 @@ export namespace Schemas {
     }
 
     /**
+     * Query parameters to send to the target.
+     */
+    export type PostHogConnectionForwardQuery = {[key: string]: string};
+
+    /**
+     * * `GET` - GET
+     * * `POST` - POST
+     * * `PUT` - PUT
+     * * `PATCH` - PATCH
+     * * `DELETE` - DELETE
+     */
+    export type PostHogConnectionForwardMethodEnum = typeof PostHogConnectionForwardMethodEnum[keyof typeof PostHogConnectionForwardMethodEnum];
+
+
+    export const PostHogConnectionForwardMethodEnum = {
+      Get: 'GET',
+      Post: 'POST',
+      Put: 'PUT',
+      Patch: 'PATCH',
+      Delete: 'DELETE',
+    } as const;
+
+    export interface PostHogConnectionForward {
+      /** HTTP method to use against the target project's API.
+       *
+       * * `GET` - GET
+       * * `POST` - POST
+       * * `PUT` - PUT
+       * * `PATCH` - PATCH
+       * * `DELETE` - DELETE */
+      method: PostHogConnectionForwardMethodEnum;
+      /** Relative target API path with no host or scheme, e.g. `api/projects/2/insights/`. */
+      path: string;
+      /** Query parameters to send to the target. */
+      query?: PostHogConnectionForwardQuery;
+      /** JSON request body for write methods. */
+      data?: unknown;
+    }
+
+    export interface PostHogConnectionForwardResponse {
+      /** HTTP status the target project returned. */
+      status: number;
+      /** The target project's response body, passed through. */
+      data: unknown;
+    }
+
+    /**
      * * `Postgres` - Postgres
      */
     export type PostgresDestinationRequestTypeEnum = typeof PostgresDestinationRequestTypeEnum[keyof typeof PostgresDestinationRequestTypeEnum];
@@ -63110,6 +63173,12 @@ export namespace Schemas {
       conclusion_comment?: string | null;
       /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
       open_cleanup_pr?: boolean;
+      /**
+         * GitHub repository to open the cleanup pull request in, in `organization/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
       /** The key of the variant to ship. */
       variant_key: string;
       /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
@@ -69867,6 +69936,32 @@ export namespace Schemas {
     export type TaskRunCommandRequestParams = { [key: string]: unknown };
 
     /**
+     * * `user_message` - user_message
+     * * `cancel` - cancel
+     * * `close` - close
+     * * `permission_response` - permission_response
+     * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear
+     */
+    export type TaskRunCommandRequestMethodEnum = typeof TaskRunCommandRequestMethodEnum[keyof typeof TaskRunCommandRequestMethodEnum];
+
+
+    export const TaskRunCommandRequestMethodEnum = {
+      UserMessage: 'user_message',
+      Cancel: 'cancel',
+      Close: 'close',
+      PermissionResponse: 'permission_response',
+      SetConfigOption: 'set_config_option',
+      McpResponse: 'mcp_response',
+      PiRpc: 'pi/rpc',
+      QueueGet: 'queue_get',
+      QueueClear: 'queue_clear',
+    } as const;
+
+    /**
      * JSON-RPC request to send a command to the agent server in the sandbox.
      */
     export interface TaskRunCommandRequest {
@@ -69885,7 +69980,7 @@ export namespace Schemas {
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
        * * `queue_clear` - queue_clear */
-      method: MethodEnum;
+      method: TaskRunCommandRequestMethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
       /** Optional JSON-RPC request ID (string or number) */
@@ -79275,6 +79370,7 @@ export namespace Schemas {
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
+     * * `posthog` - Posthog
      * * `reddit-ads` - Reddit Ads
      * * `resend` - Resend
      * * `s3-compatible` - S3 Compatible
@@ -79333,6 +79429,7 @@ export namespace Schemas {
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
+      Posthog: 'posthog',
       RedditAds: 'reddit-ads',
       Resend: 'resend',
       S3Compatible: 's3-compatible',
