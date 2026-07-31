@@ -124,6 +124,63 @@ class CustomPromptSandboxContext:
     mint fails, the sandbox starts without a token."""
 
 
+class TurnPollTimeout(RuntimeError):
+    """The per-turn poll budget ran out with no `end_turn` and nothing salvageable.
+
+    Carries what the turn log looked like at the wall, because the message alone cannot tell
+    apart failures that need opposite fixes: a turn that never produced a single turn-relevant
+    line (the sandbox agent never got going — waiting longer would change nothing), one that
+    worked and then went silent past the salvage window (a dropped stream mid-run), and one
+    still emitting when the budget expired (the budget is the binding constraint, not the
+    agent). Callers surface `diagnostics()` as analytics properties so the fleet's timeout rate
+    is splittable by cause instead of collapsing into one signature.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str,
+        elapsed: int,
+        stale_seconds: int,
+        total_lines: int,
+        turn_relevant_lines: int,
+    ):
+        super().__init__(message)
+        self.stage = stage
+        self.elapsed = elapsed
+        self.stale_seconds = stale_seconds
+        self.total_lines = total_lines
+        self.turn_relevant_lines = turn_relevant_lines
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "poll_timeout_stage": self.stage,
+            "poll_elapsed_seconds": self.elapsed,
+            "poll_stale_seconds": self.stale_seconds,
+            "turn_log_total_lines": self.total_lines,
+            "turn_log_relevant_lines": self.turn_relevant_lines,
+        }
+
+
+# `TurnPollTimeout.stage` values. Low-cardinality on purpose: the numbers ride in the other
+# diagnostic properties, so this stays usable as a breakdown key.
+POLL_TIMEOUT_NO_TURN_OUTPUT = "no_turn_output"
+POLL_TIMEOUT_STALLED_AFTER_OUTPUT = "stalled_after_output"
+POLL_TIMEOUT_ACTIVE_AT_BUDGET = "active_at_budget"
+
+
+def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> str:
+    if turn_relevant_lines == 0:
+        return POLL_TIMEOUT_NO_TURN_OUTPUT
+    # Past the salvage floor the stream is provably not live (the floor is one SSE read window),
+    # and salvage has already declined, so the turn died mid-flight. Below it, the turn was still
+    # producing turn-relevant output when the budget ran out.
+    if stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
+        return POLL_TIMEOUT_STALLED_AFTER_OUTPUT
+    return POLL_TIMEOUT_ACTIVE_AT_BUDGET
+
+
 class EmptyAgentTurnError(RuntimeError):
     """Raised when the agent emitted end_turn but no agent_message (Claude Agent SDK short-circuits)."""
 
@@ -236,6 +293,10 @@ async def poll_for_turn(
     consecutive_storage_errors = 0
     # Elapsed time when we last saw new log lines
     last_new_lines_at = 0
+    # Running tally of turn-relevant lines this turn produced. Zero at the wall means the agent
+    # never got going at all, which `last_new_lines_at` alone can't distinguish from "went quiet
+    # on the very first poll" — see `_classify_poll_timeout`.
+    turn_relevant_lines = 0
     # Remember assistant text, as the agent message and end_message could arrive in different poll slices
     latest_assistant_text: str | None = None
     # Cursor at start of this turn — passed to _drain_final_log so the terminal-status drain can
@@ -279,7 +340,9 @@ async def poll_for_turn(
         # _ended_on_pending_finalization.
         if total_lines > skip_lines:
             new_lines = (full_log or "").strip().split("\n")[skip_lines:]
-            if (total_lines - skip_lines) - _transient_growth(new_lines) > 0:
+            relevant_growth = (total_lines - skip_lines) - _transient_growth(new_lines)
+            if relevant_growth > 0:
+                turn_relevant_lines += relevant_growth
                 last_new_lines_at = elapsed
         stale_seconds = elapsed - last_new_lines_at
         # Warn once per minute of silence (not every poll) so stalls surface without flooding logs.
@@ -382,7 +445,27 @@ async def poll_for_turn(
         )
         if salvaged is not None:
             return salvaged
-    raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
+    stage = _classify_poll_timeout(turn_relevant_lines=turn_relevant_lines, stale_seconds=stale_seconds)
+    logger.warning(
+        "custom_prompt - poll_for_turn: timed out after %ds, run=%s, stage=%s, stale_for=%ds, "
+        "total_lines=%d, turn_relevant_lines=%d",
+        elapsed,
+        task_run.id,
+        stage,
+        stale_seconds,
+        skip_lines,
+        turn_relevant_lines,
+    )
+    # `stage` is in the message as well as the diagnostics so the cause survives everywhere the
+    # error string is the only thing that gets persisted (TaskRun.error_message, Temporal).
+    raise TurnPollTimeout(
+        f"custom_prompt - poll_for_turn: timed out after {elapsed}s (stage={stage})",
+        stage=stage,
+        elapsed=elapsed,
+        stale_seconds=stale_seconds,
+        total_lines=skip_lines,
+        turn_relevant_lines=turn_relevant_lines,
+    )
 
 
 async def _read_turn_log_with_retry(

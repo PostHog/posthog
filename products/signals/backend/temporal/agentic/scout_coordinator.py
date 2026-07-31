@@ -21,6 +21,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.limits import AUTO_PAUSE_PROBE_INTERVAL_S
 
 # Per-team cap resolution + the flag-payload read live in the temporalio-free `team_limits` module
 # so the HTTP metadata surface can share them. Imported by name so the planning code below calls
@@ -229,6 +230,7 @@ def _collect_planned_runs(
             if overdue_s is None:
                 continue
             due.append(_DueRun(overdue_s, str(config.pk), team.id, config.skill_name))
+        due.extend(_collect_probe_runs(team.id, live_skills, now))
 
     if not due:
         return []
@@ -389,6 +391,47 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
         return []
     teams = {team.id: team for team in Team.objects.filter(id__in=all_ids)}
     return [(teams[team_id], team_id in explicit) for team_id in sorted(all_ids) if team_id in teams]
+
+
+def _collect_probe_runs(team_id: int, live_skills: set[str], now: datetime) -> list[_DueRun]:
+    """The half-open side of the failure-streak breaker: one probe per cooldown for paused lanes.
+
+    A `(team, skill)` lane that fails every run still looks due every tick, and each dispatch
+    takes a sandbox lease for the full runtime cap to produce nothing — so an unrecoverable lane
+    costs a lease per interval indefinitely, with the only trace in the failure event stream.
+    Once the runner trips the breaker (`runner._record_failure_streak` →
+    `transition_status_by_system`), the pause syncs `enabled=False`, so the main dispatch query
+    stops seeing the lane. This is the reason-scoped exception that keeps the breaker half-open:
+    lanes paused with `repeated_failures` — never a human's pause, never another writer's — get
+    one probe per `AUTO_PAUSE_PROBE_INTERVAL_S`. A probe that succeeds resumes the lane
+    (`runner._clear_failure_streak`); a failed probe restarts the cooldown through its own
+    `last_run_at` stamp, with no extra bookkeeping.
+    """
+    probes: list[_DueRun] = []
+    paused = SignalScoutConfig.all_teams.filter(
+        team_id=team_id,
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        skill_name__in=live_skills,
+    )
+    for config in paused:
+        # `last_run_at` is stamped on every dispatch, including the failed run that tripped the
+        # breaker, so the first probe lands one full cooldown after the trip. A null (possible
+        # only through manual row surgery) probes immediately rather than never.
+        cooldown_elapsed_s = (
+            (now - config.last_run_at).total_seconds() if config.last_run_at else float(AUTO_PAUSE_PROBE_INTERVAL_S)
+        )
+        overdue_s = cooldown_elapsed_s - AUTO_PAUSE_PROBE_INTERVAL_S
+        if overdue_s < 0:
+            continue
+        logger.info(
+            "signals_scout coordinator: dispatching probe for auto-paused scout",
+            team_id=team_id,
+            skill_name=config.skill_name,
+            consecutive_failure_count=config.consecutive_failure_count,
+        )
+        probes.append(_DueRun(overdue_s, str(config.pk), team_id, config.skill_name))
+    return probes
 
 
 def _overdue_seconds(config: SignalScoutConfig, now: datetime, project_timezone: tzinfo) -> float | None:

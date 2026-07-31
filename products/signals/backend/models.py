@@ -1237,6 +1237,14 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
+    # Failure-streak circuit breaker over this lane's run outcomes, maintained by the runner:
+    # bumped on a failed run, zeroed on a successful one. At `FAILURE_STREAK_PAUSE_THRESHOLD`
+    # the runner pauses the lane (`transition_status_by_system`, `repeated_failures`) and the
+    # coordinator holds it to one probe per `AUTO_PAUSE_PROBE_INTERVAL_S`. Without it a lane
+    # that can never succeed re-dispatches forever, taking a full-length sandbox lease per
+    # interval to produce nothing. Written on every run, so it is excluded from activity
+    # logging like `last_run_at`; the pause itself logs through `status` like any other.
+    consecutive_failure_count = models.PositiveIntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -1261,13 +1269,20 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "skill_name"], name="unique_scout_config_per_team_skill"),
-            # A CHECK constraint tying `enabled` to `status` is deliberately deferred to a
-            # follow-up migration: enforcing it in the same deploy that introduces the
-            # dual-write breaks rolling deploys, because not-yet-replaced instances still
-            # write `enabled` alone and a NOT VALID constraint already checks new writes.
-            # That follow-up must first re-run the enabled-wins reconciliation over drifted
-            # rows (enabled-only writes from old instances during the rollout window land
-            # after the 0075 backfill), then add and validate the constraint.
+            # Backstop for the dual-write in `save`: added NOT VALID + validated (0080–0082)
+            # only after the 0077 deploy fully rolled, because enforcing it in the same deploy
+            # that introduced the dual-write would break not-yet-replaced instances that still
+            # write `enabled` alone.
+            models.CheckConstraint(
+                name="scout_config_enabled_matches_status",
+                condition=models.Q(enabled=True, status__in=["active", "pending_pause"])
+                | models.Q(enabled=False, status__in=["paused_by_system", "paused_by_user"]),
+            ),
+            models.CheckConstraint(
+                name="scout_config_pause_reason_matches_status",
+                condition=models.Q(status__in=["pending_pause", "paused_by_system"], pause_reason__isnull=False)
+                | models.Q(status__in=["active", "paused_by_user"], pause_reason__isnull=True),
+            ),
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
@@ -1362,17 +1377,28 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
             locked.status_changed_at = timezone.now()
             locked.status_changed_by = None
             locked.enabled = new_status in self.RUNNABLE_STATUSES
-            locked.save(
-                update_fields=[
-                    "status",
-                    "pause_reason",
-                    "status_changed_at",
-                    "status_changed_by",
-                    "enabled",
-                    "updated_at",
-                ]
-            )
-        for field in ("status", "pause_reason", "status_changed_at", "status_changed_by", "enabled"):
+            update_fields = [
+                "status",
+                "pause_reason",
+                "status_changed_at",
+                "status_changed_by",
+                "enabled",
+                "updated_at",
+            ]
+            if new_status == self.Status.ACTIVE:
+                # A resume always starts with a clean failure streak — otherwise the very next
+                # failed run would re-trip the breaker off stale evidence.
+                locked.consecutive_failure_count = 0
+                update_fields.append("consecutive_failure_count")
+            locked.save(update_fields=update_fields)
+        for field in (
+            "status",
+            "pause_reason",
+            "status_changed_at",
+            "status_changed_by",
+            "enabled",
+            "consecutive_failure_count",
+        ):
             setattr(self, field, getattr(locked, field))
         return True
 

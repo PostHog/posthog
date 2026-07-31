@@ -23,7 +23,7 @@ import uuid
 import dataclasses
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.db import transaction
 from django.utils import timezone
@@ -1915,9 +1915,15 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if enabling:
             _reject_if_enabled_cap_reached(team_id, config.skill_name)
         # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
-        save_kwargs = {}
+        save_kwargs: dict[str, Any] = {}
         if enabling:
             save_kwargs["enabled_by"] = request.user
+        if config.consecutive_failure_count and serializer.validated_data:
+            # A human tending the config resets the breaker's evidence — the streak is stale the
+            # moment someone acts on the lane. The pause itself (if the breaker tripped) is a
+            # status and lifts only through `enabled=true` here or a successful probe, both of
+            # which re-check the enabled-scout cap; an unrelated edit must not sidestep that.
+            save_kwargs["consecutive_failure_count"] = 0
         instance = serializer.save(**save_kwargs)
         skill_info = _skill_info_for(team_id, [instance.skill_name])
         return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)

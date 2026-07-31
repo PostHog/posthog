@@ -1949,6 +1949,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="When the coordinator last dispatched this scout. Null if it has never run.",
     )
+    consecutive_failure_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "How many of this scout's runs have failed in a row. Back to 0 after a successful "
+            "run or any config edit. At the failure limit the scout pauses itself (`status` "
+            "becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries "
+            "about once a day; a successful retry resumes it, and so does setting `enabled=true`."
+        ),
+    )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -1979,6 +1988,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "run_cron_schedule",
             "output_destinations",
             "last_run_at",
+            "consecutive_failure_count",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
@@ -2086,6 +2096,10 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             validated_data["pause_reason"] = None
             validated_data["status_changed_at"] = timezone.now()
             validated_data["status_changed_by"] = getattr(request, "user", None)
+            if target == SignalScoutConfig.Status.ACTIVE:
+                # Same rule as `transition_status_by_system`: a resume starts with a clean
+                # failure streak, or the next failed run re-trips the breaker off stale evidence.
+                validated_data["consecutive_failure_count"] = 0
         return super().update(instance, validated_data)
 
     class Meta:
