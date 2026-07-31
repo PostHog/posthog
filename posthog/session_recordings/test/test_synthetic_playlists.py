@@ -441,6 +441,36 @@ class TestFrustrationSignalsSyntheticPlaylist(APIBaseTest):
         # session_c (score 13) > session_b (score 8) > session_a (score 6)
         assert session_ids == [session_c, session_b, session_a]
 
+    def test_dead_clicks_count_toward_frustration_but_rank_below_rage_clicks(self) -> None:
+        cache.clear()
+
+        # 6 dead clicks = score 6, enough on its own to clear MIN_FRUSTRATION_SCORE
+        dead_click_session = str(uuid7())
+        for _ in range(6):
+            _create_event(
+                distinct_id="user",
+                event="$dead_click",
+                properties={"$session_id": dead_click_session},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
+
+        # 3 rage clicks = score 9, so fewer rage clicks still outrank the dead clicks
+        rage_click_session = str(uuid7())
+        for _ in range(3):
+            _create_event(
+                distinct_id="user",
+                event="$rageclick",
+                properties={"$session_id": rage_click_session},
+                team=self.team,
+                timestamp=datetime.now() - timedelta(days=1),
+            )
+
+        flush_persons_and_events()
+
+        source = FrustrationSignalsPlaylistSource()
+        assert source.get_session_ids(self.team, self.user) == [rage_click_session, dead_click_session]
+
     def test_frustrated_sessions_excludes_old_data(self) -> None:
         cache.clear()
 

@@ -173,6 +173,27 @@ export const replayTemplates: ReplayTemplateType[] = [
         icon: <IconThumbsDown />,
     },
     {
+        key: 'dead-clicks',
+        name: 'Dead clicks',
+        description: 'See where users click something that does nothing, so you can find broken or misleading UI.',
+        variables: [
+            {
+                type: 'event',
+                name: 'Dead click event',
+                key: 'dead-click-event',
+                description: 'The event that indicates a user clicked something that did nothing.',
+                noTouch: true,
+                filterGroup: {
+                    id: '$dead_click',
+                    name: '$dead_click',
+                    type: TaxonomicFilterGroupType.Events,
+                },
+            },
+        ],
+        categories: ['More'],
+        icon: <IconCursorClick />,
+    },
+    {
         key: 'scattershot',
         name: 'Scattershot',
         description: 'Watch all recent replays, and see where users are getting stuck.',

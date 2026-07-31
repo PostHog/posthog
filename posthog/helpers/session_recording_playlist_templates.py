@@ -55,6 +55,11 @@ DEFAULT_PLAYLISTS = [
         "description": "Recordings containing rage clicks. Most likely to be from users who are frustrated.",
     },
     {
+        "name": "Recordings with dead clicks",
+        "filters": {"events": [{"id": "$dead_click", "type": "events", "order": 0}]},
+        "description": "Recordings where a click did nothing. A good place to find broken or misleading UI.",
+    },
+    {
         "name": "Recordings of people from Google Ads",
         "filters": {
             "order": "start_time",
