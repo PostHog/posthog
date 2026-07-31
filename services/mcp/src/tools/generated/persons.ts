@@ -1,13 +1,21 @@
 // AUTO-GENERATED from products/persons/mcp/tools.yaml + OpenAPI — do not edit
 import { z } from 'zod'
 
-import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
-
 import type { Schemas } from '@/api/generated'
+import {
+    PersonsBulkDeleteCreateBody,
+    PersonsCohortsRetrieveQueryParams,
+    PersonsDeletePropertyCreateBody,
+    PersonsDeletePropertyCreateParams,
+    PersonsListQueryParams,
+    PersonsRetrieveParams,
+    PersonsUpdatePropertyCreateBody,
+    PersonsUpdatePropertyCreateParams,
+    PersonsValuesRetrieveQueryParams,
+} from '@/generated/persons/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-
-import { PersonsBulkDeleteCreateBody, PersonsCohortsRetrieveQueryParams, PersonsDeletePropertyCreateBody, PersonsDeletePropertyCreateParams, PersonsListQueryParams, PersonsRetrieveParams, PersonsUpdatePropertyCreateBody, PersonsUpdatePropertyCreateParams, PersonsValuesRetrieveQueryParams } from '@/generated/persons/api'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const PersonsBulkDeleteSchema = PersonsBulkDeleteCreateBody
 
@@ -17,11 +25,21 @@ const personsBulkDelete = (): ToolBase<typeof PersonsBulkDeleteSchema, unknown> 
     handler: async (context: Context, params: z.infer<typeof PersonsBulkDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.ids !== undefined) body["ids"] = params.ids
-        if (params.distinct_ids !== undefined) body["distinct_ids"] = params.distinct_ids
-        if (params.delete_events !== undefined) body["delete_events"] = params.delete_events
-        if (params.delete_recordings !== undefined) body["delete_recordings"] = params.delete_recordings
-        if (params.keep_person !== undefined) body["keep_person"] = params.keep_person
+        if (params.ids !== undefined) {
+            body['ids'] = params.ids
+        }
+        if (params.distinct_ids !== undefined) {
+            body['distinct_ids'] = params.distinct_ids
+        }
+        if (params.delete_events !== undefined) {
+            body['delete_events'] = params.delete_events
+        }
+        if (params.delete_recordings !== undefined) {
+            body['delete_recordings'] = params.delete_recordings
+        }
+        if (params.keep_person !== undefined) {
+            body['keep_person'] = params.keep_person
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/bulk_delete/`,
@@ -31,7 +49,7 @@ const personsBulkDelete = (): ToolBase<typeof PersonsBulkDeleteSchema, unknown> 
     },
 })
 
-const PersonsCohortsRetrieveSchema = PersonsCohortsRetrieveQueryParams.omit({ 'format': true })
+const PersonsCohortsRetrieveSchema = PersonsCohortsRetrieveQueryParams.omit({ format: true })
 
 const personsCohortsRetrieve = (): ToolBase<typeof PersonsCohortsRetrieveSchema, unknown> => ({
     name: 'persons-cohorts-retrieve',
@@ -49,7 +67,10 @@ const personsCohortsRetrieve = (): ToolBase<typeof PersonsCohortsRetrieveSchema,
     },
 })
 
-const PersonsListSchema = (PersonsListQueryParams.omit({ 'format': true, 'properties': true })).extend({ limit: z.preprocess(castStringToInt, PersonsListQueryParams.shape['limit']).optional(), offset: z.preprocess(castStringToInt, PersonsListQueryParams.shape['offset']).optional() })
+const PersonsListSchema = PersonsListQueryParams.omit({ format: true, properties: true }).extend({
+    limit: z.preprocess(castStringToInt, PersonsListQueryParams.shape['limit']).optional(),
+    offset: z.preprocess(castStringToInt, PersonsListQueryParams.shape['offset']).optional(),
+})
 
 const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schemas.PaginatedPersonRecordList>> => ({
     name: 'persons-list',
@@ -67,13 +88,29 @@ const personsList = (): ToolBase<typeof PersonsListSchema, WithPostHogUrl<Schema
                 search: params.search,
             },
         })
-        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ['id', 'uuid', 'name', 'distinct_ids', 'properties.email', 'properties.$email', 'properties.$geoip_country_code', 'created_at', 'last_seen_at'])) } as typeof result
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'uuid',
+                    'name',
+                    'distinct_ids',
+                    'properties.email',
+                    'properties.$email',
+                    'properties.$geoip_country_code',
+                    'created_at',
+                    'last_seen_at',
+                ])
+            ),
+        } as typeof result
         return await withPostHogUrl(context, filtered, '/persons')
     },
 })
 
-const PersonsPropertyDeleteSchema = PersonsDeletePropertyCreateParams.omit({ project_id: true }).extend(PersonsDeletePropertyCreateBody.shape)
-    .omit({ '$unset': true })
+const PersonsPropertyDeleteSchema = PersonsDeletePropertyCreateParams.omit({ project_id: true })
+    .extend(PersonsDeletePropertyCreateBody.shape)
+    .omit({ $unset: true })
     .extend({ unset: PersonsDeletePropertyCreateBody.shape['$unset'] })
 
 const personsPropertyDelete = (): ToolBase<typeof PersonsPropertyDeleteSchema, unknown> => ({
@@ -82,7 +119,9 @@ const personsPropertyDelete = (): ToolBase<typeof PersonsPropertyDeleteSchema, u
     handler: async (context: Context, params: z.infer<typeof PersonsPropertyDeleteSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.unset !== undefined) body["$unset"] = params.unset
+        if (params.unset !== undefined) {
+            body['$unset'] = params.unset
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/delete_property/`,
@@ -92,7 +131,9 @@ const personsPropertyDelete = (): ToolBase<typeof PersonsPropertyDeleteSchema, u
     },
 })
 
-const PersonsPropertySetSchema = PersonsUpdatePropertyCreateParams.omit({ project_id: true }).extend(PersonsUpdatePropertyCreateBody.shape)
+const PersonsPropertySetSchema = PersonsUpdatePropertyCreateParams.omit({ project_id: true }).extend(
+    PersonsUpdatePropertyCreateBody.shape
+)
 
 const personsPropertySet = (): ToolBase<typeof PersonsPropertySetSchema, unknown> => ({
     name: 'persons-property-set',
@@ -100,8 +141,12 @@ const personsPropertySet = (): ToolBase<typeof PersonsPropertySetSchema, unknown
     handler: async (context: Context, params: z.infer<typeof PersonsPropertySetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.key !== undefined) body["key"] = params.key
-        if (params.value !== undefined) body["value"] = params.value
+        if (params.key !== undefined) {
+            body['key'] = params.key
+        }
+        if (params.value !== undefined) {
+            body['value'] = params.value
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/update_property/`,
@@ -122,12 +167,20 @@ const personsRetrieve = (): ToolBase<typeof PersonsRetrieveSchema, WithPostHogUr
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/persons/${encodeURIComponent(String(params.id))}/`,
         })
-        const filtered = pickResponseFields(result, ['id', 'uuid', 'name', 'properties', 'distinct_ids', 'created_at', 'last_seen_at']) as typeof result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'uuid',
+            'name',
+            'properties',
+            'distinct_ids',
+            'created_at',
+            'last_seen_at',
+        ]) as typeof result
         return await withPostHogUrl(context, filtered, `/persons/${filtered.id}`)
     },
 })
 
-const PersonsValuesRetrieveSchema = PersonsValuesRetrieveQueryParams.omit({ 'format': true })
+const PersonsValuesRetrieveSchema = PersonsValuesRetrieveQueryParams.omit({ format: true })
 
 const personsValuesRetrieve = (): ToolBase<typeof PersonsValuesRetrieveSchema, unknown> => ({
     name: 'persons-values-retrieve',
