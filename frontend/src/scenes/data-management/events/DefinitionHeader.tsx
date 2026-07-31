@@ -244,7 +244,7 @@ export function DefinitionSentAs({ definition }: { definition: EventDefinition |
                 noPadding
                 icon={<IconCopy />}
                 tooltip="Copy"
-                className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                 onClick={() => void copyToClipboard(name, 'name')}
                 data-attr="definition-sent-as-copy"
             />
