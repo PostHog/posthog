@@ -20,6 +20,20 @@ from posthog.utils import (
 
 logger = structlog.get_logger(__name__)
 
+# KeyboardInterrupt/SystemExit are control flow (an operator hitting Ctrl-C, or a normal
+# process exit), never a real crash — reporting them mints a fresh error tracking issue
+# every time someone aborts a hand-run management command.
+_CONTROL_FLOW_EXCEPTION_TYPES = {"KeyboardInterrupt", "SystemExit"}
+
+
+def _drop_control_flow_exceptions(event: dict) -> dict | None:
+    if event.get("event") != "$exception":
+        return event
+    exception_list = event.get("properties", {}).get("$exception_list", [])
+    if any(exc.get("type") in _CONTROL_FLOW_EXCEPTION_TYPES for exc in exception_list):
+        return None
+    return event
+
 
 class PostHogConfig(AppConfig):
     name = "posthog"
@@ -66,6 +80,7 @@ class PostHogConfig(AppConfig):
         )
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
         posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.before_send = _drop_control_flow_exceptions  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),

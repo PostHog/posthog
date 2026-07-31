@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Iterable
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
@@ -90,6 +91,27 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
         counts["tenant_failures"] = len(pairs)
         return counts
 
+    try:
+        _migrate_pairs(pairs, tenant_client, aws_account_id, dry_run, counts)
+    except KeyboardInterrupt:
+        print(  # noqa: T201
+            f"Interrupted. Progress before exit: {counts['tenants']} tenants processed, "
+            f"{counts['associations_ok']} associations ensured, "
+            f"{counts['tenant_failures']} tenant failures, "
+            f"{counts['association_failures']} association failures"
+        )
+        raise
+
+    return counts
+
+
+def _migrate_pairs(
+    pairs: list[tuple[int, str]],
+    tenant_client: Any,
+    aws_account_id: str,
+    dry_run: bool,
+    counts: dict[str, int],
+) -> None:
     for batch in _batched(pairs, 50):
         for team_id, domain in batch:
             tenant_name = f"team-{team_id}"
@@ -151,8 +173,6 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
                     print(f"Error creating tenant_resource_association for '{resource_arn}' on '{tenant_name}': {e}")  # noqa: T201
                     counts["association_failures"] += 1
                     continue
-
-    return counts
 
 
 class Command(BaseCommand):

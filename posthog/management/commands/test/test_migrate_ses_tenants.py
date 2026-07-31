@@ -1,3 +1,6 @@
+import io
+import contextlib
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -162,3 +165,24 @@ class TestMigrateSESTenants(BaseTest):
         # The identity succeeded; both config-set associations failed and must be reported so the
         # rollout can't mistake a partial pass for a complete one
         assert counts == {"tenants": 1, "associations_ok": 1, "tenant_failures": 0, "association_failures": 2}
+
+    @override_settings(SES_ACCESS_KEY_ID="test", SES_SECRET_ACCESS_KEY="test", SES_REGION="us-east-1", SES_ENDPOINT="")
+    @patch("posthog.management.commands.migrate_ses_tenants.boto3.client")
+    def test_keyboard_interrupt_prints_partial_progress_and_reraises(self, mock_boto_client):
+        # An operator hitting Ctrl-C mid-run must see how far the migration got instead of the
+        # process just dying silently — otherwise nobody knows whether the tenant association
+        # that was in flight completed.
+        class _InterruptingClient(_FakeSESv2Client):
+            def create_tenant_resource_association(self, TenantName: str, ResourceArn: str):  # noqa: N803
+                if "configuration-set" in ResourceArn:
+                    raise KeyboardInterrupt
+                return super().create_tenant_resource_association(TenantName=TenantName, ResourceArn=ResourceArn)
+
+        sesv2 = _InterruptingClient()
+        mock_boto_client.side_effect = lambda service, **kwargs: sesv2
+
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), self.assertRaises(KeyboardInterrupt):
+            migrate_ses_tenants(team_ids=[self.team.id], domains=[], dry_run=False)
+
+        assert "Interrupted. Progress before exit: 1 tenants processed" in stdout.getvalue()
