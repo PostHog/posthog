@@ -562,31 +562,32 @@ class DeltaTableHelper:
         if not normalized_primary_keys:
             return False
 
-        # The flag check is a rollout gate, not part of the write: a flag miss (off) or a flags-service
-        # blip must fall back to the delta-rs MERGE *silently*. The warning + "fallback" metric below
-        # are reserved for a genuine deltalite write failure, so they stay a meaningful signal.
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_write import (
-            is_deltalite_write_enabled,
-        )
-
+        # The flag check is a rollout gate, not part of the write: a flag miss (off) or any error here
+        # (including the import) must fall back to the delta-rs MERGE *silently*.
         try:
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_write import (
+                is_deltalite_write_enabled,
+            )
+
             enabled = await database_sync_to_async_pool(is_deltalite_write_enabled)(
                 self._job.team_id, str(self._job.schema_id), None
             )
-        except Exception:  # noqa: BLE001 - a flag-eval error just means "don't use deltalite"
+        except Exception:  # noqa: BLE001 - a flag-eval / import error just means "don't use deltalite"
             return False
         if not enabled:
             return False
 
-        # deltalite is enabled for this schema — attempt the real write. A failure HERE is the
-        # meaningful fallback (logged + counted); the delta-rs MERGE then runs as it does today.
-        # Lazy metrics import keeps the heavy pipeline_v3 chain off the module import path (circular).
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
-            DELTALITE_WRITE_TOTAL,
-        )
-
+        # deltalite is enabled. Only the upsert *commit* gates the fallback: a pre-commit failure means
+        # nothing was written, so we re-run the delta-rs MERGE. Anything AFTER the commit is best-effort
+        # bookkeeping and must NOT return False — otherwise the MERGE would re-run on top of deltalite's
+        # already-committed write. (Lazy metrics import keeps the heavy pipeline_v3 chain off the module
+        # import path — circular.)
         try:
             import deltalite
+
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+                DELTALITE_WRITE_TOTAL,
+            )
 
             uri = await self._get_delta_table_uri()
             storage_options = self._get_credentials()
@@ -602,21 +603,30 @@ class DeltaTableHelper:
                 )
 
             stats = await asyncio.to_thread(_upsert)
-            # Refresh the in-memory delta-rs handle to deltalite's freshly committed version, so the
-            # table returned by write_to_deltalake (and any subsequent reads) reflects the real state.
-            await asyncio.to_thread(existing_delta_table.update_incremental)
-            await self._logger.ainfo(
-                f"deltalite write: committed v{stats.version} "
-                f"(+{stats.rows_inserted} inserted / ~{stats.rows_updated} updated / {stats.rows_copied} copied)"
-            )
-            DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
-            return True
-        except Exception as e:  # noqa: BLE001 - never fail the sync; fall back to the delta-rs MERGE
-            DELTALITE_WRITE_TOTAL.labels(outcome="fallback").inc()
+        except Exception as e:  # noqa: BLE001 - pre-commit failure: nothing committed, fall back to MERGE
             await self._logger.awarning(
                 f"deltalite write failed; falling back to delta-rs MERGE (sync unaffected): {e}"
             )
+            try:
+                DELTALITE_WRITE_TOTAL.labels(outcome="fallback").inc()
+            except Exception:  # noqa: BLE001 - the metrics import itself failed; the warning is enough
+                pass
             return False
+
+        # Committed — the real table is now deltalite's output. Post-commit steps are best-effort; the
+        # write already succeeded, so they never fall back to the MERGE.
+        try:
+            # Refresh the in-memory delta-rs handle to deltalite's new version so the table returned by
+            # write_to_deltalake (and any subsequent reads) reflects the real state.
+            await asyncio.to_thread(existing_delta_table.update_incremental)
+        except Exception as e:  # noqa: BLE001 - data is committed; a stale handle must not re-run the MERGE
+            await self._logger.awarning(f"deltalite write committed but post-commit table refresh failed: {e}")
+        await self._logger.ainfo(
+            f"deltalite write: committed v{stats.version} "
+            f"(+{stats.rows_inserted} inserted / ~{stats.rows_updated} updated / {stats.rows_copied} copied)"
+        )
+        DELTALITE_WRITE_TOTAL.labels(outcome="written").inc()
+        return True
 
     async def write_to_deltalake(
         self,

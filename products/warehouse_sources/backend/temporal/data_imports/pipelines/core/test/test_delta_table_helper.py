@@ -1470,3 +1470,30 @@ class TestDeltaliteWritePath:
         ):
             wrote = await self._call(helper)
         assert wrote is False  # deltalite blew up -> caller falls through to the delta-rs MERGE
+
+    @pytest.mark.asyncio
+    async def test_post_commit_failure_does_not_fall_back(self):
+        # If a step AFTER the upsert commits (here update_incremental) raises, the write already
+        # succeeded — we must return True, NOT fall back, or the MERGE would re-run on top of the commit.
+        helper = self._helper()
+        existing = MagicMock()
+        existing.update_incremental.side_effect = RuntimeError("post-commit refresh boom")
+        fake_table = MagicMock()
+        fake_table.upsert.return_value = MagicMock(version=5, rows_inserted=1, rows_updated=0, rows_copied=0)
+        fake_deltalite = MagicMock()
+        fake_deltalite.DeltaLiteTable.open.return_value = fake_table
+        with (
+            patch(self._FLAG, return_value=True),
+            patch.dict("sys.modules", {"deltalite": fake_deltalite}),
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+        ):
+            wrote = await helper._write_via_deltalite(
+                existing_delta_table=existing,
+                data=pa.table({"id": pa.array([1], pa.int64())}),
+                normalized_primary_keys=["id"],
+                use_partitioning=False,
+                commit_metadata=None,
+            )
+        assert wrote is True
+        fake_table.upsert.assert_called_once()
