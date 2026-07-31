@@ -1380,7 +1380,8 @@ class TestFindSignalImplementationRun(TestCase):
         self,
         *,
         with_report: bool = True,
-        internal: bool = False,
+        internal: bool = True,
+        ai_stage: str | None = "implementation",
         output: dict | None = None,
         branch=None,
         team: Team | None = None,
@@ -1399,7 +1400,16 @@ class TestFindSignalImplementationRun(TestCase):
             internal=internal,
             deleted=task_deleted,
         )
-        return TaskRun.objects.create(task=task, team=team, status=status, output=output or {}, branch=branch)
+        # Production stamps the PR-opening run ai_stage="implementation" (auto_start), and internal=True;
+        # the facade keys on ai_stage, so the fixture carries it to reflect the real self-driving shape.
+        return TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=status,
+            output=output or {},
+            branch=branch,
+            state={"ai_stage": ai_stage} if ai_stage else {},
+        )
 
     def test_pr_url_match_returns_the_run(self):
         run = self._make_run(output={"pr_url": self.PR_URL})
@@ -1430,8 +1440,10 @@ class TestFindSignalImplementationRun(TestCase):
     @parameterized.expand(
         [
             # Every rejection means "treat as an ordinary PR" downstream — each of these leaking
-            # through would hand a bot PR the self-driving carve-out it must not have.
-            ("internal_pipeline_task", {"internal": True}, {}),
+            # through would hand a bot PR the self-driving carve-out it must not have. The pipeline's
+            # research/repo_selection runs share signal_report_id + internal=True with the
+            # implementation run and differ only by ai_stage, so a non-implementation stage must miss.
+            ("non_implementation_stage_run", {"ai_stage": "research"}, {}),
             ("task_without_signal_report", {"with_report": False}, {}),
             ("other_team", {}, {"team_id_offset": 1}),
             ("fork_pr_branch_not_consulted", {"output": {}, "branch": "posthog-code/sd-fix"}, {"head_branch": None}),

@@ -97,11 +97,13 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         task = instance.task  # first DB hit
         if task.signal_report_id is None:
             return
-        # Only the report's implementation task reviews. The pipeline's internal plumbing tasks
-        # (report research, repo selection, custom agents) also carry signal_report_id but push
-        # nothing — all created internal=True; the auto-start implementation task is the only
-        # non-internal signal-report task.
-        if task.internal:
+        # Only the self-driving IMPLEMENTATION run reviews, keyed on the run's ai_stage. The other
+        # signal tasks (report research, repo selection) share signal_report_id AND internal=True with
+        # the implementation task — auto_start stamps it internal=True too — so an `internal` gate
+        # here couldn't tell them apart and silently disabled the whole feature. ai_stage
+        # ="implementation" (stamped by auto_start on the PR-opening run) is the marker that does; the
+        # gate is shared by both toggle legs below, each of which still fires only on its own setting.
+        if (instance.state or {}).get("ai_stage") != "implementation":
             return
         repository = (task.repository or "").strip() or None
         if pr_url is None and repository is None:

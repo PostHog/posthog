@@ -63,7 +63,7 @@ class TestInboxTrigger(BaseTest):
         *,
         with_signal_report: bool = True,
         repository: str | None = "PostHog/posthog",
-        internal: bool = False,
+        internal: bool = True,
         created_by: User | None = None,
     ) -> Task:
         # created_by defaults to None: a background-created task must resolve its acting reviewer
@@ -86,8 +86,18 @@ class TestInboxTrigger(BaseTest):
         status: str = TaskRun.Status.IN_PROGRESS,
         output: dict | None = None,
         branch: str | None = None,
+        ai_stage: str | None = "implementation",
     ) -> TaskRun:
-        return TaskRun.objects.create(task=task, team=self.team, status=status, branch=branch, output=output)
+        # Production stamps the PR-opening run ai_stage="implementation" (auto_start); the trigger
+        # keys on it, so the fixture carries it by default and overrides it to model other stages.
+        return TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=status,
+            branch=branch,
+            output=output,
+            state={"ai_stage": ai_stage} if ai_stage else {},
+        )
 
     def _record_output(
         self,
@@ -270,7 +280,6 @@ class TestInboxTrigger(BaseTest):
         [
             # (name, with_signal_report, internal, reviewers, opt_in, output, repository)
             ("not_a_signals_task", False, False, ["alice"], True, {"pr_url": _PR_URL}, "o/r"),
-            ("internal_pipeline_task", True, True, ["alice"], True, {"pr_url": _PR_URL}, "o/r"),
             ("no_reviewers_artefact", True, False, None, True, {"pr_url": _PR_URL}, "o/r"),
             ("reviewer_not_an_org_member", True, False, ["stranger"], True, {"pr_url": _PR_URL}, "o/r"),
             ("nobody_opted_in", True, False, ["alice"], False, {"pr_url": _PR_URL}, "o/r"),
@@ -283,9 +292,9 @@ class TestInboxTrigger(BaseTest):
     def test_gates_skip_without_starting_a_review(
         self, _name, with_signal_report, internal, reviewers, opt_in, output, repository, mock_start
     ) -> None:
-        # Each gate protects real money (a sandbox review per trigger) or correctness: internal
-        # pipeline tasks (research/repo-selection, created as the integration creator) must never
-        # trigger, and reviews must only run for reports actually assigned to someone who opted in.
+        # Each gate protects real money (a sandbox review per trigger) or correctness: a review must
+        # only run for a signals implementation run whose report is assigned to someone who opted in.
+        # (The non-implementation-stage skip has its own test — the gate keys on the run's ai_stage.)
         self._mock_start = mock_start
         if reviewers is not None:
             self._suggest_reviewers(reviewers)
@@ -298,6 +307,21 @@ class TestInboxTrigger(BaseTest):
         self._record_output(run, output)
 
         mock_start.assert_not_called()
+
+    @patch(_STAMPHOG_QUEUE)
+    @patch(_START, return_value="wf-1")
+    def test_non_implementation_stage_run_does_not_trigger(self, mock_start, mock_queue) -> None:
+        # The pipeline's other signal runs (research, repo_selection) share signal_report_id AND
+        # internal=True with the implementation run — only the run's ai_stage separates them. A
+        # non-implementation run that happens to carry a PR target must trigger neither review; the
+        # old internal-flag gate couldn't tell them apart and disabled the real implementation run too.
+        self._mock_start = mock_start
+        self._suggest_reviewers(["alice"])
+        self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
+        self._record_output(self._run(self._task(), ai_stage="research"), {"pr_url": _PR_URL})
+
+        mock_start.assert_not_called()
+        mock_queue.assert_not_called()
 
     @patch(_START, side_effect=RuntimeError("temporal down"))
     def test_workflow_start_failure_never_raises_into_the_save_path(self, mock_start) -> None:

@@ -490,7 +490,8 @@ def find_signal_implementation_run(
 
     Matches runs the same way the GitHub-webhook backstop does (``pr_url`` first, then
     repository + branch — see ``webhooks.find_task_run``) and answers only for the
-    self-driving shape: a non-internal task carrying a signal report in the given team.
+    self-driving shape: the signal-report implementation run, identified by its
+    ``ai_stage="implementation"`` state in the given team.
     Callers (stamphog's inbox carve-out) use this to positively identify a bot-authored PR
     as a PostHog Code self-driving implementation and gate automation on it, so the match is
     both **team-scoped** and **live-only at the query level**: ``team_id`` is applied before the
@@ -509,7 +510,12 @@ def find_signal_implementation_run(
     if run is None or run.team_id != team_id:
         return None
     task = run.task
-    if task.signal_report_id is None or task.internal:
+    # Match the self-driving IMPLEMENTATION run specifically, keyed on ai_stage. The pipeline's other
+    # signal tasks (research, repo_selection) share signal_report_id AND internal=True with it, so an
+    # `internal` gate here excluded the very run this must identify — every real implementation task
+    # is internal=True (auto_start), which silently disabled the carve-out. auto_start stamps the
+    # PR-opening run ai_stage="implementation" (products/signals/backend/auto_start.py).
+    if task.signal_report_id is None or (run.state or {}).get("ai_stage") != "implementation":
         return None
     return contracts.SignalImplementationRunDTO(
         run_id=run.id,

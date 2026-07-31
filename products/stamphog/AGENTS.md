@@ -82,13 +82,15 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`),
 the engine (`review_pr.py::_refuse_bot_author`, mirrored by `review_local.py`), and the
 Action's job gates — with ONE deliberate exception: a PR **positively linked** to a PostHog
-Code self-driving implementation run (a non-internal, signal-report-carrying TaskRun matched
-through the tasks facade), whose acting reviewer opted in via ReviewHog's per-user
-`stamphog_review_inbox_prs` toggle. Rules that keep the exception narrow:
+Code self-driving implementation run (a signal-report-carrying TaskRun at
+`ai_stage="implementation"`, matched through the tasks facade), whose acting reviewer opted in via
+ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception narrow:
 
 - Identification is **task linkage plus server-attested PR identity** — both required, neither
-  trusted alone. The task link (a non-internal, signal-report `TaskRun` matched through the tasks
-  facade) rides on `TaskRun.output.pr_url`, which any team member can write through the task-run
+  trusted alone. The task link (a signal-report `TaskRun` at `ai_stage="implementation"` matched
+  through the tasks facade — the pipeline's research/repo_selection runs share `signal_report_id`
+  and `internal=True`, so stage is what selects the PR-opening run) rides on `TaskRun.output.pr_url`,
+  which any team member can write through the task-run
   APIs, so it can't gate the bypass by itself: `_is_self_driving_pr` also requires two facts only
   GitHub attests — the PR is authored by this instance's PostHog Code App machine user
   (`<GITHUB_APP_SLUG>[bot]`) and its head is repo-native (never a fork) — enforced on **both** the
