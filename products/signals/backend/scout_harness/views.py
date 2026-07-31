@@ -23,7 +23,7 @@ import uuid
 import dataclasses
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 from django.db import transaction
 from django.utils import timezone
@@ -62,6 +62,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
@@ -136,6 +137,7 @@ from products.signals.backend.scout_harness.tools.notes import (
 )
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.report import (
+    ReportChartInput,
     ReportEvidence,
     ReviewerInput,
     edit_report_sync,
@@ -336,6 +338,29 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
     """
     return view.team.parent_team_id or view.team_id
+
+
+def _to_report_charts(entries: list[dict] | None) -> list[ReportChartInput] | None:
+    """Map validated `charts` entries to `ReportChartInput`s for the report tools. Content validation
+    lives in `ReportChart`, which the tools build from these; this only crosses the DRF boundary so a
+    malformed chart still surfaces as an invalid-report error.
+
+    An absent or null `charts` yields None, which an edit reads as "leave the report's charts alone".
+    An empty list is preserved as an empty list, because on an edit that is the instruction to take
+    the report's charts down (see `_build_edit_charts`). Emit treats both the same way."""
+    if entries is None:
+        return None
+    return [
+        ReportChartInput(
+            chart_id=entry["chart_id"],
+            title=entry["title"],
+            query=entry["query"],
+            caption=entry.get("caption") or None,
+            # Narrowed by the serializer's choices; the cast only crosses the untyped DRF dict.
+            size=cast("ChartSize | None", entry.get("size") or None),
+        )
+        for entry in entries
+    ]
 
 
 def _to_reviewer_inputs(entries: list[dict] | None) -> list[ReviewerInput] | None:
@@ -923,6 +948,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+                charts=_to_report_charts(data.get("charts")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -978,6 +1004,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 summary=data.get("summary"),
                 append_note=data.get("append_note"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
+                charts=_to_report_charts(data.get("charts")),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -988,6 +1015,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
                     "reviewers_set": result.reviewers_set,
+                    "charts_set": result.charts_set,
                 }
             ).data,
             status=status.HTTP_200_OK,
@@ -1241,7 +1269,9 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             exclude_origins=(
                 ()
                 if _may_read_reports(request, self.team.parent_team or self.team)
-                else (SignalScoutNote.Origin.REPORT_DISMISSAL,)
+                # Both derived origins quote report content (id, title, and the reviewer's / user's
+                # text), so a caller without report read access must not see either.
+                else (SignalScoutNote.Origin.REPORT_DISMISSAL, SignalScoutNote.Origin.REPORT_DISCUSSION)
             ),
         )
         return Response(ScoutNoteSerializer([row.as_dict() for row in rows], many=True).data)
@@ -1885,7 +1915,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if enabling:
             _reject_if_enabled_cap_reached(team_id, config.skill_name)
         # Fold `enabled_by` into the same save so enabling logs one activity entry, not two.
-        save_kwargs = {}
+        save_kwargs: dict[str, Any] = {}
         if enabling:
             save_kwargs["enabled_by"] = request.user
         instance = serializer.save(**save_kwargs)

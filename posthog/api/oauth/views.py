@@ -47,11 +47,18 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_application,
     is_cimd_client_id,
 )
+from posthog.api.oauth.client_auth import verify_client_secret
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
-from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken, revoke_oauth_session
+from posthog.models.oauth import (
+    OAuthApplicationAccessLevel,
+    OAuthGrant,
+    OAuthRefreshToken,
+    TokenEndpointAuthMethod,
+    revoke_oauth_session,
+)
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
     downgrade_scopes_to_read_only,
@@ -286,6 +293,16 @@ class OAuthAuthorizationSerializer(serializers.Serializer):
 
 
 class OAuthValidator(OAuth2Validator):
+    def _check_secret(self, provided_secret, stored_secret):
+        """Reject a blank secret, which the library's own implementation accepts.
+
+        An application registered for ``private_key_jwt`` is confidential but holds no
+        secret, so its column stores ``make_password("")``. The library compares with a bare
+        ``check_password``, which returns True for an empty input against that hash, so such
+        a client would authenticate here having presented no credential at all.
+        """
+        return verify_client_secret(provided_secret, stored_secret)
+
     def _is_dynamic_client(self, request) -> bool:
         """Check if the client was registered dynamically (DCR or CIMD)."""
         if hasattr(request, "client") and request.client:
@@ -1628,7 +1645,12 @@ class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
                 id_jag.JWT_BEARER_GRANT_TYPE,
             ],
             "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
-            "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
+            # private_key_jwt is deliberately absent: it is implemented on the agentic token
+            # endpoint, not on the endpoint this document describes.
+            "token_endpoint_auth_methods_supported": [
+                TokenEndpointAuthMethod.NONE.value,
+                TokenEndpointAuthMethod.CLIENT_SECRET_POST.value,
+            ],
             "code_challenge_methods_supported": ["S256"],
             # Service documentation
             "service_documentation": "https://posthog.com/docs/api",

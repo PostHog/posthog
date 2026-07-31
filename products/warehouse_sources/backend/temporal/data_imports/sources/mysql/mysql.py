@@ -38,11 +38,7 @@ from structlog.types import FilteringBoundLogger
 # their guard tests patch `mysql.capture_exception` to enforce that.
 from posthog.exceptions_capture import capture_exception  # noqa: F401
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     build_pyarrow_decimal_type,
@@ -71,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -813,7 +810,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         with self._ssh_tunnel_endpoint(config) as (host, port):
             kwargs: dict[str, Any] = {
                 "host": host,
-                "port": port,
+                # pymysql rejects a non-int port; config.port can arrive as a string when the
+                # config is built directly rather than through the int-coercing from_dict.
+                "port": int(port),
                 "database": config.database,
                 "user": config.user,
                 "password": config.password,

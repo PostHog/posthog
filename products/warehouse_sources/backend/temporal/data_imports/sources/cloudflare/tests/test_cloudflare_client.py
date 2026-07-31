@@ -229,6 +229,29 @@ class TestZoneFanout:
         with pytest.raises(requests.HTTPError):
             _rows(cloudflare_source("token", "dns_records", team_id=1, job_id="j"))
 
+    @pytest.mark.parametrize(
+        ("endpoint", "status_code"),
+        [("rate_limits", 410), ("custom_certificates", 400)],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_zone_missing_plan_feature_and_continues(self, MockSession, endpoint, status_code) -> None:
+        # Cloudflare returns a non-403/404 error when a zone's plan doesn't include a
+        # feature (e.g. legacy rate limiting is 410 Gone, custom certs are 400) rather
+        # than an empty list — one such zone must not abort the whole stream.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
+                _error_response(status_code),
+                _response([{"id": "r2"}], total_pages=1),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", endpoint, team_id=1, job_id="j"))
+
+        assert [(r["id"], r["_zone_id"]) for r in rows] == [("r2", "z2")]
+
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_zone_without_id_is_skipped(self, MockSession) -> None:
         session = MockSession.return_value
@@ -327,6 +350,24 @@ class TestAccountFanout:
         rows = _rows(cloudflare_source("token", "kv_namespaces", team_id=1, job_id="j"))
 
         assert [(r["id"], r["_account_id"]) for r in rows] == [("n2", "a2")]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_account_missing_billing_usage_entitlement_and_continues(self, MockSession) -> None:
+        # Accounts without billing-usage entitlement get a 400 rather than an empty
+        # list — one such account must not abort the whole stream.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response([{"id": "a1"}, {"id": "a2"}], total_pages=1),
+                _error_response(400),
+                _response([{"ts": 1}], total_pages=1),
+            ],
+        )
+
+        rows = _rows(cloudflare_source("token", "billing_usage", team_id=1, job_id="j"))
+
+        assert [(r["ts"], r["_account_id"]) for r in rows] == [(1, "a2")]
 
 
 class TestSinglePageEndpoints:

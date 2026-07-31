@@ -1,3 +1,4 @@
+use std::fs;
 use std::net::SocketAddr;
 use std::time::Duration;
 
@@ -9,12 +10,23 @@ pub struct Config {
     #[envconfig(default = "127.0.0.1:50053")]
     pub grpc_address: SocketAddr,
 
-    /// In-memory cache capacity in number of entries
-    #[envconfig(default = "100000")]
-    pub cache_memory_capacity: usize,
+    /// Per-partition person-cache capacity in bytes. Entries are weighed
+    /// by their approximate serialized size, so this bounds memory, not
+    /// entry count. Sized against full ownership: a lone survivor owns
+    /// every partition, so the worst-case cache footprint is this value
+    /// times the partition count — 16 MiB × 16 partitions = 256 MiB —
+    /// and in-memory size can run a small multiple of serialized weight
+    /// for key-dense documents.
+    #[envconfig(default = "16777216")]
+    pub cache_memory_capacity_bytes: usize,
 
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
+
+    /// Maximum concurrent partition warms. Warms are broker-bound reads
+    /// on MSK, so this can sit well above the S3-era default of 4.
+    #[envconfig(default = "8")]
+    pub warm_concurrency: usize,
 
     // ── gRPC server ──────────────────────────────────────────────
     /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
@@ -229,6 +241,20 @@ pub struct Config {
     #[envconfig(default = "")]
     pub pod_ip: String,
 
+    /// Enable K8s awareness: at startup the leader discovers its owning
+    /// controller (Deployment) and generation (pod-template-hash) and
+    /// registers them, so the coordinator can steer placement away from
+    /// old-generation pods during rollouts instead of handing partitions
+    /// to pods that are about to be replaced. Requires RBAC to read
+    /// pods, replicasets, and deployments in the pod's namespace.
+    #[envconfig(default = "false")]
+    pub k8s_awareness_enabled: bool,
+
+    /// Kubernetes namespace for controller discovery. If empty,
+    /// auto-reads from the service account mount.
+    #[envconfig(default = "")]
+    pub k8s_namespace: String,
+
     #[envconfig(default = "30")]
     pub lease_ttl: i64,
 
@@ -271,6 +297,18 @@ impl Config {
 
     pub fn heartbeat_interval(&self) -> Duration {
         Duration::from_secs(self.heartbeat_interval_secs)
+    }
+
+    /// Resolve the K8s namespace from config or the service account mount.
+    pub fn resolve_k8s_namespace(&self) -> Result<String, String> {
+        if !self.k8s_namespace.is_empty() {
+            return Ok(self.k8s_namespace.clone());
+        }
+        fs::read_to_string("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
+            .map(|s| s.trim().to_string())
+            .map_err(|e| {
+                format!("k8s_namespace not set and failed to read from service account: {e}")
+            })
     }
 }
 

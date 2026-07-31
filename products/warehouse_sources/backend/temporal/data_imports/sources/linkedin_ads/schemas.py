@@ -3,7 +3,25 @@ from typing import Literal, NotRequired, TypedDict
 
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
+# adAnalytics metrics, coerced to a stable python type on every row (see `_coerce_metric`).
+# LinkedIn omits a metric entirely when its value is zero and can flip a metric between JSON number
+# and string across pages, so an uncoerced column's arrow type varies per batch. Batches are type-
+# inferred independently, and a batch where a metric was omitted for every row infers as `null`,
+# which the Delta-compat cast rewrites to `string` — that batch then fails to merge with a numeric
+# one. Coercing here (including absent → 0) keeps each column's type identical across every batch.
 FLOAT_FIELDS = {"costInUsd", "costInLocalCurrency", "conversionValueInLocalCurrency"}
+
+INT_FIELDS = {
+    "impressions",
+    "clicks",
+    "externalWebsiteConversions",
+    "landingPageClicks",
+    "totalEngagements",
+    "videoViews",
+    "videoCompletions",
+    "oneClickLeads",
+    "follows",
+}
 
 # There are in the results from the API. The value is in the URN format.
 URN_COLUMNS = ["campaignGroup", "account", "campaign", "creative"]

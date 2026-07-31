@@ -823,13 +823,39 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "recording_ttl": 29,
             "snapshot_source": "web",
             "snapshot_library": None,
-            "ongoing": None,
+            # ingestion just happened in this test, so the session still counts as ongoing
+            "ongoing": True,
             "activity_score": None,
             "has_summary": False,
             "summary_outcome": None,
             "external_references": [],
             "matches_filters": True,
         }
+
+    @parameterized.expand(
+        [
+            ("recently_ingested", 1, True),
+            ("ingested_long_ago", 30, False),
+        ]
+    )
+    def test_single_session_recording_reports_ongoing(
+        self, _name: str, ingested_minutes_ago: int, expected_ongoing: bool
+    ) -> None:
+        session_recording_id = str(uuid7())
+        base_time = (now() - relativedelta(minutes=45)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="d1",
+            kafka_timestamp=now() - timedelta(minutes=ingested_minutes_ago),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ongoing"] is expected_ongoing
 
     @freeze_time("2023-01-01T12:00:00.000Z")
     def test_get_single_session_recording_metadata_has_summary_true(self):

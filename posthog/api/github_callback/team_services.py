@@ -32,6 +32,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubUserAuthorization,
     Integration,
+    defer_repository_cache_fields,
     invalidate_github_repository_caches_for_installation,
 )
 from posthog.models.organization import Organization
@@ -399,6 +400,16 @@ def authenticated_drf_request(http_request: HttpRequest) -> Request:
     return cast(Request, drf_request)
 
 
+def _accessible_org_team_ids(user: User, organization: Organization) -> set[int]:
+    """Team ids in ``organization`` that ``user`` may actually access.
+
+    ``user.teams`` already honours project-based permissioning (private projects, RBAC roles,
+    org admin/owner implicit access), so this is the source-project access boundary that gates
+    which installations a user can discover and reuse.
+    """
+    return set(user.teams.filter(organization_id=organization.id).values_list("id", flat=True))
+
+
 def link_existing_team_github_integration(
     *,
     user: User,
@@ -410,13 +421,18 @@ def link_existing_team_github_integration(
     if installation_id_param and not is_valid_github_installation_id(installation_id_param):
         raise ValidationError("Invalid installation_id")
 
+    # Reusing a source project's GitHub access requires access to that project; target-team admin isn't
+    # enough. Filter the candidates rather than checking the winner, so this stays in step with what
+    # `list_org_github_installations` offers.
+    accessible_team_ids = _accessible_org_team_ids(user, organization)
+
     if source_team_id:
         try:
             source_team_id_int = int(source_team_id)
         except (TypeError, ValueError):
             raise ValidationError("source_team_id must be an integer")
 
-        if not organization.teams.filter(id=source_team_id_int).exists():
+        if source_team_id_int not in accessible_team_ids:
             raise ValidationError("Source team not found in your organization")
 
         qs = Integration.objects.filter(team_id=source_team_id_int, kind="github")
@@ -430,6 +446,7 @@ def link_existing_team_github_integration(
         existing = (
             Integration.objects.filter(
                 team__organization_id=organization.id,
+                team_id__in=accessible_team_ids,
                 kind="github",
             )
             .for_github_installation_id(str(installation_id_param))
@@ -447,13 +464,15 @@ def link_existing_team_github_integration(
         # one-click "Link existing installation" UI, where a second project reuses the org's single
         # install without the caller having to know a sibling team id or the installation id.
         org_github = (
-            Integration.objects.filter(team__organization_id=organization.id, kind="github")
+            Integration.objects.filter(
+                team__organization_id=organization.id, team_id__in=accessible_team_ids, kind="github"
+            )
             .exclude(team_id=team_id)
             .order_by("id")
         )
         distinct_installation_ids = {
             str(config_installation_id)
-            for integration in org_github
+            for integration in defer_repository_cache_fields(org_github)
             if (config_installation_id := (integration.config or {}).get("installation_id"))
         }
         if not distinct_installation_ids:
@@ -489,6 +508,54 @@ def link_existing_team_github_integration(
         instance.save(update_fields=["config"])
 
     return instance
+
+
+def list_org_github_installations(
+    *,
+    user: User,
+    organization: Organization,
+    exclude_team_id: int | None = None,
+) -> list[dict[str, Any]]:
+    """List the distinct GitHub App installations ``user`` may reuse within ``organization``.
+
+    A GitHub App installs once per org, so when an org has more than one installation the caller
+    can't rely on the single-install auto-resolve path in ``link_existing_team_github_integration``.
+    This enumerates the installations so the UI can offer a picker and pass an explicit
+    ``installation_id``. The first integration seen for each installation id (deterministic
+    ``order_by("id")``) provides the representative account metadata and source team.
+
+    Only installations linked to source projects the user can access are returned — mirroring the
+    access boundary enforced in ``link_existing_team_github_integration`` so the picker never
+    surfaces an installation the user couldn't actually link.
+    """
+    org_github = defer_repository_cache_fields(
+        Integration.objects.filter(
+            team__organization_id=organization.id,
+            team_id__in=_accessible_org_team_ids(user, organization),
+            kind="github",
+        )
+    )
+    if exclude_team_id is not None:
+        org_github = org_github.exclude(team_id=exclude_team_id)
+    org_github = org_github.order_by("id")
+
+    installations: dict[str, dict[str, Any]] = {}
+    for integration in org_github:
+        config = integration.config or {}
+        raw_installation_id = config.get("installation_id")
+        if not raw_installation_id:
+            continue
+        installation_id = str(raw_installation_id)
+        if installation_id in installations:
+            continue
+        account = config.get("account") or {}
+        installations[installation_id] = {
+            "installation_id": installation_id,
+            "account_name": account.get("name") or config.get("connecting_user_github_login"),
+            "account_type": account.get("type"),
+            "source_team_id": integration.team_id,
+        }
+    return list(installations.values())
 
 
 def finish_team_setup(http_request) -> FinishResult:

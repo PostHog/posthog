@@ -168,6 +168,7 @@ export function createJoinedIngestionPipeline<
         groupsPrefetchEnabled,
         groupTypeManager,
         flagCalledPersonlessDefaultTeams: perDistinctIdOptions.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+        personlessWritesDisabledTeams: perDistinctIdOptions.PERSONLESS_WRITES_DISABLED_TEAMS,
         hogTransformer,
         cdpHogWatcherSampleRate,
     }
@@ -189,6 +190,7 @@ export function createJoinedIngestionPipeline<
             teamManager,
             outputs,
             promiseScheduler,
+            topHog,
             // Batch stores are singleton persistent caches, but each batch receives a
             // batch-bound view so entries can be reference-counted and released after
             // that batch's flush lifecycle completes. The Rust consumer's per-worker
