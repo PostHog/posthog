@@ -350,6 +350,12 @@ def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[st
     Artefacts stream in throughout a run (snapshot, chunk set, per-chunk results, verdicts), so the
     newest artefact is the liveness signal; a crashed run goes quiet and ages out instead of showing
     a stuck spinner forever.
+
+    `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
+    outcome sweep appends it after the PR merges, which can be long after the run ended. Counting it
+    would restart the staleness window and re-show the spinner for a report with nothing running —
+    exactly the crashed-and-never-finalized report (status only leaves ACTIVE on a successful
+    finalize) that the ageing-out exists to retire.
     """
     candidates = [report for report in reports if report.status == ReviewReport.Status.ACTIVE]
     if not candidates:
@@ -357,6 +363,7 @@ def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[st
     latest_artefact = dict(
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(report_id__in=[report.id for report in candidates])
+        .exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
         .values_list("report_id")
         .annotate(latest=Max("created_at"))
         .values_list("report_id", "latest")

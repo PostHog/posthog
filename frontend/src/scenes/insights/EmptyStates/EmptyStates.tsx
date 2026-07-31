@@ -27,7 +27,7 @@ import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightLogic, insightOverridesPresent } from 'scenes/insights/insightLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -118,7 +118,27 @@ export function InsightEmptyState({
 }
 
 /** Shown when the chart area would otherwise be blank (e.g. cache miss + aborted refresh). */
-export function InsightRefreshDataHint({ onRetry }: { onRetry: () => void }): JSX.Element {
+export function InsightRefreshDataHint({
+    onRetry,
+    insightProps,
+}: {
+    onRetry: () => void
+    insightProps?: InsightLogicProps
+}): JSX.Element {
+    // This dead-end state used to be invisible outside session replay — capture it so blank
+    // tiles are measurable and can be sliced by dashboard context and override presence.
+    useOnMountEffect(() => {
+        posthog.capture('insight refresh hint shown', {
+            dashboard_id: insightProps?.dashboardId ?? null,
+            insight_short_id: typeof insightProps?.dashboardItemId === 'string' ? insightProps.dashboardItemId : null,
+            has_overrides: insightOverridesPresent(
+                insightProps?.filtersOverride,
+                insightProps?.variablesOverride,
+                insightProps?.tileFiltersOverride
+            ),
+        })
+    })
+
     return (
         <div
             data-attr="insight-refresh-data-hint"

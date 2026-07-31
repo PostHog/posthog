@@ -60,6 +60,15 @@ class Conflict(APIException):
     default_code = "conflict"
 
 
+class DatabaseSchemaUnavailable(APIException):
+    # The schema request backs the SQL editor's table list, so a bare 500 leaves the sidebar looking
+    # like an empty project. A stable code lets the client tell "we couldn't read your schema" apart
+    # from any other server error.
+    status_code = 503
+    default_detail = "Couldn't load your project's schema. Try again, and if it keeps happening contact support."
+    default_code = "database_schema_unavailable"
+
+
 class ClickHouseAtCapacity(APIException):
     status_code = 503
     default_detail = (

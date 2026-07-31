@@ -293,6 +293,12 @@ If automatic creation failed due to a permissions error and you're using a restr
             "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.": "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 is already retried in-process by _RateLimitRetryingRequestsClient's Retry-After-aware
+        # backoff (see stripe.py); if that budget still exhausts, Temporal's activity retry picks it
+        # back up, so this is self-recovering rather than a tracked-exception-worthy failure.
+        return {"Request rate limit exceeded"}
+
     def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "api_key":
             if not config.auth_method.stripe_secret_key:

@@ -100,6 +100,7 @@ def create_living_artifact(
     source_artifact_id: str | None = None,
     source_storage_path: str | None = None,
     metadata: dict[str, Any] | None = None,
+    export_asset_id: int | None = None,
 ) -> TaskArtifact:
     _require_living_artifacts_enabled(run)
     content_payload = resolve_artifact_content(
@@ -143,6 +144,7 @@ def create_living_artifact(
             },
             versions=[commit.version],
             current_version=1,
+            export_asset_id=export_asset_id,
         )
     return artifact
 
@@ -202,6 +204,9 @@ def edit_living_artifact(
         locked.adapter = commit.adapter
         locked.location = commit.location
         locked.metadata = {**(locked.metadata or {}), **(metadata or {}), **commit.metadata}
+        # The export only depicts the version it was rendered from, and an edit replaces the
+        # content — so drop the link rather than let the new version deliver the old picture.
+        locked.export_asset_id = None
         locked.versions = versions
         locked.current_version = next_version
         locked.status = TaskArtifact.Status.ACTIVE
@@ -211,6 +216,7 @@ def edit_living_artifact(
                 "adapter",
                 "location",
                 "metadata",
+                "export_asset_id",
                 "versions",
                 "current_version",
                 "status",
