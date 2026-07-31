@@ -253,6 +253,26 @@ function ExposureTime({
     )
 }
 
+// The experiment's recordings tab lists a session only when it carries an exposure event, so an
+// enrolled-only item is context that list can't return. This box has the enrollment from the flag
+// properties posthog-js stamps on every event, which is why the two surfaces can disagree.
+const NOT_EXPOSED_CAVEAT =
+    "The flag was active in this session, but no exposure event was captured here, so this recording won't appear in the experiment's recordings list."
+
+// The caveat hangs off an info icon, like the section header's: it's far too long to sit inline in a
+// sidebar this narrow.
+function NotExposedInSessionLabel({ children, className }: { children: string; className?: string }): JSX.Element {
+    return (
+        <Tooltip title={NOT_EXPOSED_CAVEAT}>
+            {/* The icon trails the text inline so it stays with the last word when the label wraps. */}
+            <span className={className} data-attr="replay-experiment-context-not-exposed">
+                {children}
+                <IconInfo className="inline-block ml-1 size-3 text-secondary" />
+            </span>
+        </Tooltip>
+    )
+}
+
 function ExperimentContextRow({
     item,
     onSeek,
@@ -478,7 +498,14 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                     {pinnedItem.first_exposure_timestamp != null ? (
                         renderSeenRow(pinnedItem)
                     ) : (
-                        <ExperimentContextRow item={pinnedItem} />
+                        <>
+                            <ExperimentContextRow item={pinnedItem} />
+                            {/* Pinning lifts the row out of the enrolled group below, and with it out of
+                                that group's label, so the row has to carry the distinction itself. */}
+                            <NotExposedInSessionLabel className="w-fit text-xs text-muted">
+                                Not exposed in this session
+                            </NotExposedInSessionLabel>
+                        </>
                     )}
                 </div>
             ) : null}
@@ -498,7 +525,11 @@ export function PlayerSidebarExperimentsSection(): JSX.Element | null {
                     panels={[
                         {
                             key: 'enrolled',
-                            header: `Also enrolled, not exposed in this session (${listEnrolledItems.length})`,
+                            header: (
+                                <NotExposedInSessionLabel>
+                                    {`Also enrolled, not exposed in this session (${listEnrolledItems.length})`}
+                                </NotExposedInSessionLabel>
+                            ),
                             content: (
                                 <div className="flex flex-col gap-y-1">
                                     {listEnrolledItems.map((item) => (
