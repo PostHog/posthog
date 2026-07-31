@@ -1,6 +1,8 @@
+import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { initKeaTests } from '~/test/init'
 import { LogEntryLevel } from '~/types'
 
 import {
@@ -8,6 +10,7 @@ import {
     groupLogs,
     LogEntry,
     LogEntryParams,
+    logsViewerLogic,
     toAbsoluteClickhouseTimestamp,
 } from './logsViewerLogic'
 
@@ -199,6 +202,58 @@ describe('logsViewerLogic', () => {
             const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
 
             expect(firstPage.replace('OFFSET 0', 'OFFSET 10')).toEqual(secondPage)
+        })
+    })
+
+    describe('unmounting while a "load more" request is in flight', () => {
+        let logic: ReturnType<typeof logsViewerLogic.build> | undefined
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = undefined
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+            jest.restoreAllMocks()
+        })
+
+        // LogsViewer is mounted as a keyed instance inside expandable table rows (e.g. per hog function
+        // invocation, per data warehouse sync job). Collapsing the row unmounts the logic mid-request, which
+        // used to throw "[KEA] Can not find path" when the loader read `values.*` after its `await` with no
+        // breakpoint to abort cleanly first.
+        it.each([
+            { action: 'loadMoreUngroupedLogs' as const, seed: 'loadUngroupedLogsSuccess' as const },
+            { action: 'loadMoreGroupedLogs' as const, seed: null },
+        ])('does not throw when unmounted mid-request: $action', async ({ action, seed }) => {
+            // kea-loaders catches the loader's rejection and routes it through console.error rather than
+            // letting it become an unhandled promise rejection, so that's what a real crash shows up as here.
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+            let resolveQuery: (value: { results: unknown[] }) => void = () => {}
+            const pendingQuery = new Promise<{ results: unknown[] }>((resolve) => {
+                resolveQuery = resolve
+            })
+            jest.spyOn(api, 'queryHogQL').mockReturnValue(pendingQuery as any)
+
+            logic = logsViewerLogic({ sourceType: 'hog_function', sourceId: 'abc' })
+            logic.mount()
+
+            if (seed) {
+                // loadMoreUngroupedLogs no-ops until there is an oldest entry to page from
+                logic.actions[seed]([makeEntry('a', '2024-01-15 10:00:00')])
+            }
+
+            logic.actions[action]()
+            logic.unmount()
+            logic = undefined
+
+            resolveQuery({ results: [] })
+            await pendingQuery
+            // let the loader's `await breakpoint(10)` timer (and any resulting microtasks) flush
+            await new Promise((resolve) => setTimeout(resolve, 30))
+
+            expect(consoleError).not.toHaveBeenCalled()
         })
     })
 })

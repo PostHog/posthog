@@ -539,7 +539,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     await breakpoint(10)
                     return results
                 },
-                loadMoreUngroupedLogs: async () => {
+                loadMoreUngroupedLogs: async (_, breakpoint) => {
                     if (!values.oldestLogTimestamp) {
                         return values.unGroupedLogs
                     }
@@ -550,6 +550,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                     }
 
                     const results = await loadLogs(logParams)
+                    await breakpoint(10)
 
                     if (!results.length) {
                         actions.markLogsEnd()
@@ -575,12 +576,13 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
                     return groupLogs(results)
                 },
-                loadMoreGroupedLogs: async () => {
+                loadMoreGroupedLogs: async (_, breakpoint) => {
                     const results = await loadGroupedLogs(
                         values.logEntryParams,
                         LOG_GROUP_LIMIT,
                         values.groupedLogs.length
                     )
+                    await breakpoint(10)
 
                     if (!results.length) {
                         actions.markLogsEnd()
