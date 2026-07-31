@@ -4,9 +4,11 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from django.test import override_settings
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -16,6 +18,7 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentQueryResponse,
     FunnelConversionWindowTimeUnit,
+    HogQLQueryResponse,
 )
 
 from posthog.test.test_journeys import journeys_for
@@ -1297,3 +1300,59 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(result.baseline.sum, 1)
         self.assertEqual(result.variant_results[0].sum, 2)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_grace_hash_spill_failure_retries_without_grace_hash(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL))
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        spill_error = ServerException("Unknown BlockInfo field number: 34", code=261)
+        used_settings = []
+
+        def fake_execute(*args, **kwargs):
+            used_settings.append(kwargs["settings"])
+            if len(used_settings) == 1:
+                raise spill_error
+            return HogQLQueryResponse(results=[("control", 0, 0, 0)], columns=["variant", "num_users", "sum", "sum2"])
+
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_query_runner.execute_hogql_query",
+            side_effect=fake_execute,
+        ):
+            query_runner._evaluate_experiment_query()
+
+        self.assertEqual(len(used_settings), 2)
+        self.assertEqual(used_settings[0].join_algorithm, "grace_hash")
+        self.assertIsNone(used_settings[1].join_algorithm)
+        self.assertIsNone(used_settings[1].grace_hash_join_initial_buckets)
+        # The rest of the memory protection must survive the retry
+        self.assertEqual(
+            used_settings[1].max_bytes_before_external_group_by,
+            used_settings[0].max_bytes_before_external_group_by,
+        )
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_unrelated_clickhouse_error_is_not_retried(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        metric = ExperimentMeanMetric(source=EventsNode(event="purchase", math=ExperimentMetricMathType.TOTAL))
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+
+        with patch(
+            "products.experiments.backend.hogql_queries.experiment_query_runner.execute_hogql_query",
+            side_effect=ServerException("Unknown identifier", code=47),
+        ) as mock_execute:
+            with self.assertRaises(ServerException):
+                query_runner._evaluate_experiment_query()
+
+        self.assertEqual(mock_execute.call_count, 1)

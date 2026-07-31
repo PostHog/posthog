@@ -22,6 +22,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    HogQLQueryResponse,
     IntervalType,
     MultipleVariantHandling,
     PrecomputationMode,
@@ -50,7 +51,10 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
-from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
+from products.experiments.backend.hogql_queries.error_handling import (
+    experiment_error_handler,
+    is_grace_hash_spill_error,
+)
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
@@ -124,6 +128,8 @@ MIN_PRECOMPUTATION_DURATION_SECONDS = 12 * 60 * 60  # 12 hours
 
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
+GRACE_HASH_JOIN_ALGORITHM = "grace_hash"
+GRACE_HASH_JOIN_INITIAL_BUCKETS = 2
 
 
 def experiment_has_min_runtime_for_precomputation(
@@ -593,21 +599,43 @@ class ExperimentQueryRunner(QueryRunner):
         )
         # Mean metric queries join exposures with a potentially large metric-events table and
         # can exceed memory with the default hash join. grace_hash spills to disk when needed.
-        if isinstance(self.metric, ExperimentMeanMetric):
-            settings.join_algorithm = "grace_hash"
-            settings.grace_hash_join_initial_buckets = 2
+        use_grace_hash = isinstance(self.metric, ExperimentMeanMetric)
+        if use_grace_hash:
+            settings.join_algorithm = GRACE_HASH_JOIN_ALGORITHM
+            settings.grace_hash_join_initial_buckets = GRACE_HASH_JOIN_INITIAL_BUCKETS
 
-        response = execute_hogql_query(
-            query_type="ExperimentQuery",
-            query=experiment_query_ast,
-            team=self.team,
-            user=self.user,
-            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
-            timings=self.timings,
-            modifiers=modifiers,
-            settings=settings,
-            workload=self.workload,
-        )
+        def run(query_settings: HogQLGlobalSettings) -> HogQLQueryResponse:
+            return execute_hogql_query(
+                query_type="ExperimentQuery",
+                query=experiment_query_ast,
+                team=self.team,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+                timings=self.timings,
+                modifiers=modifiers,
+                settings=query_settings,
+                workload=self.workload,
+            )
+
+        try:
+            response = run(settings)
+        except Exception as e:
+            # grace_hash can fail while reading its own spilled buckets back. Retrying without it
+            # turns a dead metric into a query that may instead hit the memory limit, which at
+            # least surfaces an actionable error - and usually just succeeds.
+            if not (use_grace_hash and is_grace_hash_spill_error(e)):
+                raise
+            logger.warning(
+                "experiment_mean_metric_grace_hash_join_failed",
+                experiment_id=self.experiment.id,
+                metric_uuid=self.metric.uuid,
+                error_message=str(e),
+            )
+            fallback_settings = settings.model_copy(
+                update={"join_algorithm": None, "grace_hash_join_initial_buckets": None}
+            )
+            with tags_context(experiment_join_algorithm_fallback=True):
+                response = run(fallback_settings)
 
         # Remove the $multiple variant only when using exclude handling
         if self.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:

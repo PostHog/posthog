@@ -469,6 +469,8 @@ class QueryTags(BaseModel):
     # top-level evaluation; sub-queries inherit it through the tag context. Lets the query-performance
     # UI group the (synchronous) build INSERTs under the read that triggered them.
     experiment_query_group_id: Optional[uuid.UUID] = None
+    # Set on a mean-metric read that is being retried without grace_hash after the spill read-back failed.
+    experiment_join_algorithm_fallback: Optional[bool] = None
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
     experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included

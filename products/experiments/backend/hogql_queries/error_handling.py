@@ -125,6 +125,25 @@ def classify_experiment_query_error(error: Exception) -> str:
     return "server_error"
 
 
+# ClickHouse error codes that a grace_hash join can raise when it reads its spilled buckets back
+# (the DelayedJoinedBlocksWorkerTransform stage). These say nothing about the query itself, so the
+# same query on the default join algorithm is expected to work.
+_GRACE_HASH_SPILL_ERROR_CODE_NAMES = frozenset(
+    {
+        "UNKNOWN_BLOCK_INFO_FIELD",
+        "UNKNOWN_PACKET_FROM_SERVER",
+        "CANNOT_READ_ALL_DATA",
+    }
+)
+
+
+def is_grace_hash_spill_error(error: Exception) -> bool:
+    """Whether this failure looks like grace_hash choking on its own spilled buckets."""
+    if not isinstance(error, ServerException):
+        return False
+    return look_up_clickhouse_error_code_meta(error).name in _GRACE_HASH_SPILL_ERROR_CODE_NAMES
+
+
 def capture_experiment_metric_error_event(
     *,
     team: "Team",
