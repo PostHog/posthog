@@ -62,6 +62,39 @@ def test_fetch_page_404_skips_only_for_org_scoped_endpoints(skip_on_not_found, e
             )
 
 
+def _unprocessable_response() -> mock.Mock:
+    response = mock.Mock(spec=requests.Response)
+    response.status_code = 422
+    response.ok = False
+    response.headers = {}
+    response.text = "Unprocessable Entity"
+    response.request = None
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "422 Client Error: Unprocessable Entity for url", response=response
+    )
+    return response
+
+
+@pytest.mark.parametrize(
+    "page_url,expected_exc",
+    [
+        # GitHub permanently refuses to compute code_frequency for repos above its commit
+        # threshold, answering 422 rather than the usual 202 "still computing" response.
+        ("https://api.github.com/repos/o/r/stats/code_frequency", github.GithubStatsUnavailableError),
+        # A 422 on any other endpoint is a real validation error and must stay fatal — the skip
+        # is scoped to /stats/ paths only.
+        ("https://api.github.com/repos/o/r/issues", requests.exceptions.HTTPError),
+    ],
+)
+def test_fetch_page_422_skips_only_for_stats_endpoints(page_url, expected_exc):
+    session = mock.Mock()
+    session.request.return_value = _unprocessable_response()
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        with pytest.raises(expected_exc):
+            github._fetch_page(page_url, {}, mock.Mock())
+
+
 def test_fetch_page_retries_chunked_encoding_error():
     session = mock.Mock()
     session.request.side_effect = [requests.exceptions.ChunkedEncodingError("Connection broken"), _ok_response()]

@@ -78,6 +78,15 @@ class GithubOrgNotFoundError(Exception):
     pass
 
 
+class GithubStatsUnavailableError(Exception):
+    """GitHub permanently refuses to compute a ``/stats/*`` aggregate (e.g. ``code_frequency``) for
+    repositories above its internal commit threshold, answering 422 rather than the usual 202
+    "still computing" response. ``_fetch_page`` raises this so the caller syncs zero rows instead of
+    aborting the whole activity on an unhandled ``HTTPError``."""
+
+    pass
+
+
 @dataclasses.dataclass
 class GithubResumeConfig:
     next_url: str
@@ -682,6 +691,13 @@ def _fetch_page(
     if skip_on_not_found and response.status_code == 404:
         raise GithubOrgNotFoundError()
 
+    # GitHub permanently refuses to compute a /stats/* aggregate for repositories above its
+    # internal commit threshold, answering 422 instead of the usual 202 "still computing" response.
+    # Scoped to /stats/ paths only — a blanket 422 skip would silently swallow real validation
+    # errors on the other endpoints.
+    if response.status_code == 422 and "/stats/" in page_url:
+        raise GithubStatsUnavailableError()
+
     if not response.ok:
         logger.error(f"Github API error: status={response.status_code}, body={response.text}, url={page_url}")
         response.raise_for_status()
@@ -995,6 +1011,9 @@ def get_rows(
             break
         except GithubOrgNotFoundError:
             logger.debug(f"Github: no accessible org teams for {endpoint}, syncing zero rows: url={url}")
+            break
+        except GithubStatsUnavailableError:
+            logger.debug(f"Github: stats permanently unavailable for {endpoint}, syncing zero rows: url={url}")
             break
 
         # The /stats/* aggregates are computed asynchronously: GitHub answers 202 with no body

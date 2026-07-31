@@ -202,6 +202,25 @@ class TestBodyTransforms:
 
         assert rows == []
 
+    def test_stats_permanently_unavailable_syncs_zero_rows(self) -> None:
+        # A permanent 422 on a /stats aggregate (repo too large for GitHub to compute it) must sync
+        # zero rows and end cleanly, not blow up the whole activity with an unhandled HTTPError.
+        def fetch_page(*_args: Any, **_kwargs: Any) -> mock.Mock:
+            raise github.GithubStatsUnavailableError()
+
+        with mock.patch.object(github, "_fetch_page", side_effect=fetch_page):
+            rows = list(
+                github.get_rows(
+                    personal_access_token="tok",
+                    repository="acme/widgets",
+                    endpoint="code_frequency_stats",
+                    logger=mock.Mock(),
+                    resumable_source_manager=_no_resume(),
+                )
+            )
+
+        assert rows == []
+
     def test_envelope_endpoint_unwraps_named_key(self) -> None:
         rows, _calls = _run(
             "environments",
