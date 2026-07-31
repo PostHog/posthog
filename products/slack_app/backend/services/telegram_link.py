@@ -20,13 +20,10 @@ Two distinct purposes, never interchangeable:
 """
 
 import time
-import secrets
-from dataclasses import asdict, dataclass
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
-from django.core.cache import cache
 
 import structlog
 
@@ -36,54 +33,28 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.slack_app.backend.services.chat_link_codes import (
+    LINK_CODE_TTL_SECONDS,
+    ChatLinkCode,
+    LinkPurpose,
+    mint_link_code as _mint_chat_link_code,
+    redeem_link_code as _redeem_chat_link_code,
+)
 from products.slack_app.backend.services.slack_user_oauth import _pick_accessible_linked_user
 
 logger = structlog.get_logger(__name__)
 
-_LINK_CODE_CACHE_PREFIX = "telegram_app:link_code:"
-LINK_CODE_TTL_SECONDS = 15 * 60
+__all__ = ["LINK_CODE_TTL_SECONDS", "LinkPurpose", "TelegramLinkCode", "mint_link_code", "redeem_link_code"]
 
-LinkPurpose = Literal["link", "connect"]
-
-
-@dataclass(frozen=True)
-class TelegramLinkCode:
-    purpose: LinkPurpose
-    posthog_user_id: int
-    team_id: int
+TelegramLinkCode = ChatLinkCode
 
 
 def mint_link_code(*, purpose: LinkPurpose, posthog_user_id: int, team_id: int) -> str:
-    # 24 random bytes → 32 chars of [A-Za-z0-9_-], comfortably inside Telegram's
-    # 64-char /start payload limit.
-    code = secrets.token_urlsafe(24)
-    cache.set(
-        _LINK_CODE_CACHE_PREFIX + code,
-        asdict(TelegramLinkCode(purpose=purpose, posthog_user_id=posthog_user_id, team_id=team_id)),
-        LINK_CODE_TTL_SECONDS,
-    )
-    return code
+    return _mint_chat_link_code(provider="telegram", purpose=purpose, posthog_user_id=posthog_user_id, team_id=team_id)
 
 
-def redeem_link_code(code: str, *, expected_purpose: LinkPurpose) -> TelegramLinkCode | None:
-    """One-shot: the code is deleted on first read regardless of purpose match."""
-    if not code:
-        return None
-    key = _LINK_CODE_CACHE_PREFIX + code
-    payload = cache.get(key)
-    if payload is None:
-        return None
-    cache.delete(key)
-    if not isinstance(payload, dict) or payload.get("purpose") != expected_purpose:
-        return None
-    try:
-        return TelegramLinkCode(
-            purpose=payload["purpose"],
-            posthog_user_id=int(payload["posthog_user_id"]),
-            team_id=int(payload["team_id"]),
-        )
-    except (KeyError, TypeError, ValueError):
-        return None
+def redeem_link_code(code: str, *, expected_purpose: LinkPurpose) -> ChatLinkCode | None:
+    return _redeem_chat_link_code("telegram", code, expected_purpose=expected_purpose)
 
 
 def user_telegram_integration_from_identity(
