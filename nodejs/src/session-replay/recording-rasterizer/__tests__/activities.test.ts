@@ -215,12 +215,12 @@ describe('rasterizeRecordingActivity', () => {
         })
 
         it('wraps retryable RasterizationError as ApplicationFailure.retryable, keeping the code', async () => {
-            const error = new RasterizationError('browser crashed', true, 'PLAYBACK_ERROR')
+            const error = new RasterizationError('browser crashed', true, 'TIMEOUT')
             mockedRasterizeRecording.mockRejectedValue(error)
 
             await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('browser crashed')
 
-            expect(ApplicationFailure.retryable).toHaveBeenCalledWith('browser crashed', 'PLAYBACK_ERROR', error)
+            expect(ApplicationFailure.retryable).toHaveBeenCalledWith('browser crashed', 'TIMEOUT', error)
             expect(ApplicationFailure.nonRetryable).not.toHaveBeenCalled()
         })
 
