@@ -1371,7 +1371,8 @@ describe('maxThreadLogic', () => {
 
     describe('error tracking capture gating', () => {
         // 402 (out of AI credits) and 429 (rate limited) are expected business conditions shown
-        // to the user, so they must not be reported to error tracking; genuine failures (500) must.
+        // to the user, so they must not be reported to error tracking; genuine failures (500) must -
+        // 500 also retries a bounded number of times first, so this needs fake timers to flush that.
         it.each([
             [402, false],
             [429, false],
@@ -1387,15 +1388,79 @@ describe('maxThreadLogic', () => {
             logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
             logic.mount()
 
-            await expectLogic(logic, () => {
-                logic.actions.askMax('hello')
-            }).toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+            jest.useFakeTimers()
+            try {
+                const assertion = expectLogic(logic, () => {
+                    logic.actions.askMax('hello')
+                }).toDispatchActions(['askMax', 'addMessage', 'completeThreadGeneration'])
+                await jest.advanceTimersByTimeAsync(30_000)
+                await assertion
+            } finally {
+                jest.useRealTimers()
+            }
 
             if (shouldCapture) {
                 expect(captureExceptionSpy).toHaveBeenCalledTimes(1)
             } else {
                 expect(captureExceptionSpy).not.toHaveBeenCalled()
             }
+        })
+    })
+
+    describe('recoverable stream error retry', () => {
+        it('retries a network error even when the conversation never reached InProgress locally', async () => {
+            // First message of a brand-new conversation - askMax has no `values.conversation` yet,
+            // so it never flips status to InProgress before the first stream call.
+            const streamSpy = mockStream()
+            streamSpy.mockRejectedValueOnce(new Error('Failed to fetch'))
+
+            logic.unmount()
+            maxLogicInstance.actions.setConversationId(MOCK_TEMP_CONVERSATION_ID)
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, panelId: 'test' })
+            logic.mount()
+
+            jest.useFakeTimers()
+            try {
+                const assertion = expectLogic(logic, () => {
+                    logic.actions.askMax('hello')
+                }).toDispatchActions(['askMax', 'streamConversation', 'completeThreadGeneration'])
+                await jest.advanceTimersByTimeAsync(1000)
+                await assertion
+            } finally {
+                jest.useRealTimers()
+            }
+
+            expect(streamSpy).toHaveBeenCalledTimes(2)
+            expect(logic.values.threadRaw.some((message) => message.status === 'error')).toBe(false)
+        })
+
+        it('honors the Retry-After header on a 503 instead of the default backoff', async () => {
+            const captureExceptionSpy = jest
+                .spyOn(posthog, 'captureException')
+                .mockImplementation(() => undefined as any)
+            const streamSpy = mockStream()
+            streamSpy.mockRejectedValueOnce(
+                new ApiError('Service Unavailable', 503, new Headers({ 'Retry-After': '3' }), {})
+            )
+
+            jest.useFakeTimers()
+            try {
+                const assertion = expectLogic(logic, () => {
+                    logic.actions.askMax('hello')
+                }).toDispatchActions(['askMax', 'streamConversation', 'completeThreadGeneration'])
+
+                // The default backoff for a first attempt is 1s - the header's 3s must win.
+                await jest.advanceTimersByTimeAsync(2999)
+                expect(streamSpy).toHaveBeenCalledTimes(1)
+
+                await jest.advanceTimersByTimeAsync(1)
+                await assertion
+            } finally {
+                jest.useRealTimers()
+            }
+
+            expect(streamSpy).toHaveBeenCalledTimes(2)
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
         })
     })
 

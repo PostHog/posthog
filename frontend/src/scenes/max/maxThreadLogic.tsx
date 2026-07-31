@@ -1449,8 +1449,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.setForAnotherAgenticIteration(false)
 
                 // Retry logic
-                async function retry(): Promise<void> {
-                    await breakpoint(1000 * (generationAttempt + 1))
+                async function retry(delayMs: number = 1000 * (generationAttempt + 1)): Promise<void> {
+                    await breakpoint(delayMs)
                     // Need to decrement the active streaming threads here, as we exit early.
                     actions.decrActiveStreamingThreads()
                     actions.streamConversation(
@@ -1495,15 +1495,15 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         (e instanceof ApiError && !e.status)
 
                     if (isNetworkError) {
-                        if (values.conversation?.status === ConversationStatus.InProgress) {
-                            if (generationAttempt > 15) {
-                                relevantErrorMessage.content = offlineMessage
-                            } else {
-                                await retry()
-                                return
-                            }
-                        } else {
+                        // A dropped connection isn't necessarily evidence the conversation reached
+                        // `InProgress` locally - e.g. the very first message of a new conversation
+                        // has no local conversation object yet to flip that status on - so retry on
+                        // the error itself rather than gating on conversation status.
+                        if (generationAttempt > 15) {
                             relevantErrorMessage.content = offlineMessage
+                        } else {
+                            await retry()
+                            return
                         }
                     } else if (e instanceof ApiError) {
                         if (e.status === 400) {
@@ -1559,6 +1559,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         }
 
                         if (e.status && e.status >= 500) {
+                            // 503 from the SSE admission cap ships a jittered `Retry-After` and expects
+                            // the client to reconnect itself (see `sse_streaming_response`) - honor it,
+                            // with the same backoff as other retryable statuses when it's absent.
+                            if (generationAttempt <= 5) {
+                                const retryAfterSeconds = Number(e.headers?.get('Retry-After'))
+                                await retry(
+                                    Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+                                        ? retryAfterSeconds * 1000
+                                        : undefined
+                                )
+                                return
+                            }
                             relevantErrorMessage.content =
                                 'Something is wrong with our servers. Please try again later.'
                         }
