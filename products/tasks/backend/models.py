@@ -52,6 +52,12 @@ from products.tasks.backend.storage import append_jsonl_object
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
+MCPBuiltInAgentKey = Literal["support", "scout"]
+MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
+MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
+    "support_reply": "support",
+    "signals_scout": "scout",
+}
 
 
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
@@ -293,6 +299,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if is_new:
             self._track_task_created()
 
+    @property
+    def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
+        expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
+        marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
+        return expected_key if marker == expected_key else None
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> models.QuerySet["Task"]:
         # Tasks live only on the desktop surface, never the web app tree.
@@ -495,6 +507,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,
         repository: str | None = None,
+        channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         branch: str | None = None,
@@ -513,9 +526,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
+        self_driving_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -589,6 +604,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
+        expected_agent_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
+        if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
+            raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
+
         task = Task.objects.create(
             team=team,
             title=title,
@@ -598,8 +617,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             github_integration=github_integration,
             github_user_integration=github_user_integration,
             repository=repository,
+            channel=channel,
             internal=internal,
             json_schema=resolve_schema(output_schema) if output_schema else None,
+            state={MCP_BUILT_IN_AGENT_STATE_KEY: mcp_builtin_agent_key} if mcp_builtin_agent_key else {},
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -692,6 +713,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if wizard_head_branch:
             extra_state["wizard_head_branch"] = wizard_head_branch
 
+        # Same server-generated-branch pattern for signals implementation runs: the stamped value
+        # is the only caller-unwritable end of the run->PR link, so the self-driving review
+        # carve-out matches a PR's GitHub-attested head ref against it (find_signal_implementation_run)
+        # instead of trusting the API-writable output.pr_url.
+        if self_driving_head_branch:
+            extra_state["self_driving_head_branch"] = self_driving_head_branch
+
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
@@ -724,6 +752,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -748,6 +777,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             interaction_origin=interaction_origin,
             model=model,
             initial_permission_mode=initial_permission_mode,
+            mcp_builtin_agent_key=mcp_builtin_agent_key,
         )
         return task
 
@@ -760,6 +790,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        channel: Channel | None = None,
         create_pr: bool = True,
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -782,11 +813,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
+        self_driving_head_branch: str | None = None,
         pending_user_message: str | None = None,
         workflow_id_prefix: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         github_read_access: bool = False,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -797,6 +830,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             origin_product=origin_product,
             user_id=user_id,
             repository=repository,
+            channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             branch=branch,
@@ -815,9 +849,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             ai_stage=ai_stage,
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
+            self_driving_head_branch=self_driving_head_branch,
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
+            mcp_builtin_agent_key=mcp_builtin_agent_key,
         )
 
         run_extra_state = dict(extra_state or {})
@@ -1618,6 +1654,14 @@ class TaskRun(models.Model):
                 name="task_run_wizard_branch_idx",
                 condition=models.Q(state__wizard_head_branch__isnull=False),
             ),
+            # Same shape again for the self-driving review carve-out lookup
+            # `filter(state__self_driving_head_branch=...)`; only signals implementation runs
+            # carry the key.
+            models.Index(
+                KeyTransform("self_driving_head_branch", "state"),
+                name="task_run_sd_branch_idx",
+                condition=models.Q(state__self_driving_head_branch__isnull=False),
+            ),
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
             models.Index(fields=["created_at"], name="task_run_created_at_idx"),
@@ -2235,6 +2279,11 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         default=list, db_default=models.Value("[]"), help_text="Chronological artifact versions."
     )
     current_version = models.PositiveIntegerField(default=1, db_default=1)
+    # Slack delivery exchanges this for an anonymous image url that bypasses export access
+    # checks, so it's a dedicated column the API never accepts from callers — only the chart
+    # endpoint sets it, for an export it rendered itself. Plain id, not an FK: exports live in
+    # another product and expire on their own TTL; delivery treats a dangling id as no link.
+    export_asset_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

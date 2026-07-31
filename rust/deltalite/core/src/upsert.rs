@@ -240,6 +240,12 @@ pub struct UpsertStats {
     pub source_rows: usize,
     /// Source rows carrying a NULL PK component (always inserted, never matched).
     pub null_pk_rows: usize,
+    /// Wall-clock ms spent planning: listing each partition's files and pruning which to rewrite.
+    pub plan_ms: u64,
+    /// Wall-clock ms spent rewriting the touched partitions (reading + probing targets, writing files).
+    pub rewrite_ms: u64,
+    /// Wall-clock ms spent committing the new file set to the Delta log.
+    pub commit_ms: u64,
 }
 
 /// A file selected for rewrite, with the metadata needed to tombstone it.
@@ -604,6 +610,7 @@ async fn upsert_inner(
     // Index of the first PK column in the table schema, for stats-based pruning.
     let pk0_idx = table_schema.index_of(&opts.primary_keys[0]).ok();
 
+    let plan_started = Instant::now();
     let mut work = Vec::new();
     for (value, source) in groups {
         let files = list_partition_files(table, partition_col.as_deref(), &value).await?;
@@ -628,7 +635,10 @@ async fn upsert_inner(
         });
     }
 
+    let plan_ms = plan_started.elapsed().as_millis() as u64;
+
     // --- Rewrite (parallel across partitions) ----------------------------------------
+    let rewrite_started = Instant::now();
     let partitions_touched = work.len();
     let semaphore = Arc::new(Semaphore::new(opts.max_parallel_partitions.max(1)));
     // Per-call byte budget in KiB units (tokio's acquire_many takes u32); the
@@ -696,7 +706,10 @@ async fn upsert_inner(
         actions.extend(outcome.actions);
     }
 
+    let rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
+
     // --- Commit ----------------------------------------------------------------------
+    let commit_started = Instant::now();
     let predicate = partition_col.as_ref().map(|c| {
         let vals: Vec<String> = actions
             .iter()
@@ -730,7 +743,11 @@ async fn upsert_inner(
         .with_actions(actions)
         .build(Some(snapshot), table.log_store(), operation)
         .await?;
+    let commit_ms = commit_started.elapsed().as_millis() as u64;
 
+    stats.plan_ms = plan_ms;
+    stats.rewrite_ms = rewrite_ms;
+    stats.commit_ms = commit_ms;
     stats.version = i64::try_from(finalized.version())
         .map_err(|_| Error::Generic("committed version overflows i64".into()))?;
     tracing::Span::current().record("version", stats.version);
@@ -743,6 +760,9 @@ async fn upsert_inner(
         rows_updated = stats.rows_updated,
         rows_inserted = stats.rows_inserted,
         rows_copied = stats.rows_copied,
+        plan_ms = stats.plan_ms,
+        rewrite_ms = stats.rewrite_ms,
+        commit_ms = stats.commit_ms,
         "upsert committed"
     );
     Ok(stats)

@@ -16,6 +16,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { captureInboxReportActionCompleted } from './inboxAnalytics'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -29,11 +30,6 @@ import { aiConsentDisabledReason } from './utils/aiConsent'
 // NOT a live chat surface. The created task carries the SignalReport linkage so the
 // backend's agent pipeline can pick it up.
 
-// Report artefacts are paginated newest-first (default page size 100); `repo_selection` is
-// written early in a research run, so a generous limit keeps it on the fetched page even for
-// reports with many findings.
-const REPO_SELECTION_ARTEFACT_FETCH_LIMIT = 1000
-
 // The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
 type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
 
@@ -41,6 +37,15 @@ type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapte
 // pins the stronger model instead of taking the server-side default of Sonnet: the answer quality is
 // what the user is here for, and the extra cost is bounded by the length of the conversation.
 const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+    model: 'claude-opus-5',
+    reasoning_effort: ReasoningEffortEnumApi.High,
+}
+
+// Pressing "Create PR" is a strong engagement signal — the user is committing to a real
+// implementation run — so it pins the stronger model rather than taking the server-side default of
+// Sonnet, giving the change the best shot at landing.
+const CREATE_PR_RUNTIME: ClaudeRuntimeSelection = {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
     model: 'claude-opus-5',
     reasoning_effort: ReasoningEffortEnumApi.High,
@@ -68,41 +73,13 @@ async function createReportTask(
     relationship: SignalReportTaskRelationship,
     prompt: string,
     fallbackTitle: string,
-    requireRepository = false,
     runtimeSelection?: ClaudeRuntimeSelection
 ): Promise<void> {
-    // Use the repository the signals pipeline already selected for this report (its
-    // `repo_selection` artefact), matching the desktop app and the auto-start flow. Never fall
-    // back to an arbitrary project repo — `repositories[0]` previously leaked whichever repo
-    // sorted first (e.g. a personal repo) and pinned the task to the wrong codebase.
-    // Artefacts are paginated newest-first and `repo_selection` is written early in the run, so
-    // fetch a high limit to keep it on the page even for reports with many findings.
-    let repository: string | undefined
-    try {
-        const { results } = await api.signalReports.artefacts(report.id, { limit: REPO_SELECTION_ARTEFACT_FETCH_LIMIT })
-        const selected = results.find((a) => a.type === 'repo_selection')?.content?.repository
-        repository = typeof selected === 'string' && selected ? selected : undefined
-    } catch (e) {
-        // A genuine fetch failure must not masquerade as "no repository selected" — when a repo
-        // is required, surface the real error so the user retries instead of waiting on analysis.
-        if (requireRepository) {
-            throw e
-        }
-        repository = undefined
-    }
-
-    // Opening a PR needs a concrete target repo. If selection hasn't resolved one (e.g. a
-    // pending-input report), fail with a clear message instead of creating a task pinned to no
-    // repository that can never open a PR. Discuss doesn't require a repo.
-    if (requireRepository && !repository) {
-        throw new Error('No repository has been selected for this report yet — try again once analysis finishes.')
-    }
-
+    // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
     const task = await api.tasks.create({
         title: report.title?.trim() || fallbackTitle,
         description: prompt,
         origin_product: OriginProduct.SIGNAL_REPORT,
-        repository,
         // Linkage fields accepted by the tasks backend for the signal_report origin.
         signal_report: report.id,
         signal_report_task_relationship: relationship,
@@ -231,6 +208,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             // run endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'discuss',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
                 actions.discussReportFailure()
                 return
             }
@@ -240,18 +223,25 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
                     buildDiscussReportPrompt(reportUrl, question),
                     'Discuss report',
-                    false,
                     DISCUSS_RUNTIME
                 )
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start discussion')
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'failure' })
                 actions.discussReportFailure()
             }
         },
         createPrFromReport: async ({ report }) => {
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'create_pr',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
                 actions.createPrFailure()
                 return
             }
@@ -261,11 +251,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report),
                     'Implement report fix',
-                    true
+                    CREATE_PR_RUNTIME
                 )
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start PR task')
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
                 actions.createPrFailure()
             }
         },

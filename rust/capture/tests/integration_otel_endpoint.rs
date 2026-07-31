@@ -164,9 +164,8 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         quota_limiter,
         TokenDropper::default(),
         options.event_restriction_service,
-        false, // metrics
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-otel-test"),
         None,             // concurrency_limit
         25 * 1024 * 1024, // event_payload_size_limit
         false,            // enable_historical_rerouting

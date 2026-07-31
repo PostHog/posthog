@@ -463,6 +463,18 @@ export interface PatchedAccountApi {
 }
 
 /**
+ * Metadata for one message a channel summary covered — never the message text.
+ */
+export interface ChannelSummaryMessageApi {
+    /** Display name of the message author. */
+    readonly author: string
+    /** When the message was sent. */
+    readonly sent_at: string
+    /** Slack permalink to the message. */
+    readonly permalink: string
+}
+
+/**
  * An AI summary of one closed period of the account's bound Slack channel (read-only).
  */
 export interface AccountChannelSummaryApi {
@@ -484,6 +496,8 @@ export interface AccountChannelSummaryApi {
     readonly content: string
     /** Number of channel messages the summary covered. */
     readonly message_count: number
+    /** The messages the summary covered, in transcript order — metadata only, no message text. */
+    readonly messages: readonly ChannelSummaryMessageApi[]
     /** When the summary was generated. */
     readonly generated_at: string
 }
@@ -891,6 +905,8 @@ export interface CustomPropertyDefinitionApi {
     group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+    readonly is_canonical: boolean
     /**
      * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
      * @nullable
@@ -960,6 +976,8 @@ export interface PatchedCustomPropertyDefinitionApi {
     group_type_index?: number | null
     /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
     is_big_number?: boolean
+    /** True when PostHog writes this property itself. Its name and display type are fixed — an update changing either is rejected. */
+    readonly is_canonical?: boolean
     /**
      * For select properties: the allowed options. Required (non-empty) when display_type is 'select'; cleared server-side for other types.
      * @nullable

@@ -4,18 +4,24 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { dayjs } from 'lib/dayjs'
 import { getDefaultInterval } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { HogQLFilters, HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } from '~/queries/schema/schema-general'
+import {
+    HogQLFilters,
+    HogQLQueryResponse,
+    MCPHarnessBreakdownItem,
+    MCPToolCallBreakdownItem,
+    MCPToolCallsAndErrorsItem,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 
 import type { TeamPublicType } from '../../../frontend/src/types'
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
-import { BUCKET_FORMAT, buildBucketKeys, normalizeBucket, resolveWindow, startOfBucket } from './timeBuckets'
+import { BUCKET_FORMAT, buildBucketKeys, lastBucketIsInProgress, normalizeBucket, resolveWindow } from './timeBuckets'
 
 export interface DateFilter {
     dateFrom: string | null
@@ -110,43 +116,12 @@ LIMIT 50
 // single source of truth for client → harness labelling — so the tile reads typed,
 // already-bucketed rows rather than re-deriving the labels in the browser.
 
-// Daily success/error split powering the activity time-series bar chart.
-const ACTIVITY_QUERY = `
-SELECT
-    __BUCKET__ AS day,
-    countIf(NOT toBool(properties.$mcp_is_error)) AS successes,
-    countIf(toBool(properties.$mcp_is_error)) AS errors
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY day
-ORDER BY day
-`
-
-// Daily call counts per tool, powering the tool-usage stacked bar (one segment per tool).
-const TOOL_DAILY_QUERY = `
-SELECT
-    __BUCKET__ AS day,
-    toString(properties.$mcp_tool_name) AS tool,
-    count() AS calls
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY day, tool
-ORDER BY day
-LIMIT 10000
-`
-
-// The `__BUCKET__` expression every bucketed query above is built with. toString() is load-bearing:
-// a bare dateTrunc returns a typed DateTime that the query API serializes with the project's UTC
-// offset attached (2026-07-21T00:00:00-07:00), which the client then reads back as an instant and
+// The `__BUCKET__` expression the KPI query is built with. toString() is load-bearing: a bare
+// dateTrunc returns a typed DateTime that the query API serializes with the project's UTC offset
+// attached (2026-07-21T00:00:00-07:00), which the client then reads back as an instant and
 // converts, shifting every bucket away from the wall-clock keys it joins and compares against.
 // Rendering it server-side leaves a plain string with nothing left to reinterpret, matching the
-// backend runners (tool_quality_tables.py, tool_tables.py).
+// backend runners (dashboard_series.py, tool_quality_tables.py, tool_tables.py).
 const bucketExpr = (interval: IntervalType): string => `toString(dateTrunc('${interval}', timestamp))`
 
 export interface BucketRow {
@@ -293,24 +268,8 @@ export function deltaPct(current: number, previous: number): number | null {
 }
 
 // Window resolution, bucket keys, and the BUCKET_FORMAT contract are shared with the tab/detail
-// surfaces — see ./timeBuckets. The dashboard adds only the KPI-comparison window and in-progress
-// tail below, built on those shared primitives.
-
-// True when the final bucket is the current, still-running interval (open-ended window), so the
-// chart can dash that segment as "in progress" rather than letting the partial period read as data
-// loss. Needs ≥2 buckets to have a segment to dash; `now` is injectable so the logic stays testable.
-export function lastBucketIsInProgress(
-    bucketKeys: string[],
-    timezone: string,
-    interval: IntervalType,
-    now: dayjs.Dayjs = dayjs()
-): boolean {
-    if (bucketKeys.length < 2) {
-        return false
-    }
-    const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
-    return bucketKeys[bucketKeys.length - 1] === currentBucket
-}
+// surfaces — see ./timeBuckets. The dashboard adds only the KPI-comparison window below, built on
+// those shared primitives.
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
 export function buildDailyActivity(rows: ActivityRow[], bucketKeys: string[]): DailyActivity {
@@ -447,6 +406,7 @@ export interface mcpDashboardOverviewLogicValues {
     harnessRowsLoading: boolean
     intentClusterCount: KPIMetric
     interval: IntervalType
+    kpiIncompleteTail: boolean
     kpis: KPIData
     kpisLoading: boolean
     notableSessions: NotableSession[]
@@ -643,6 +603,7 @@ export interface mcpDashboardOverviewLogicMeta {
         interval: (dateFilter: DateFilter) => IntervalType
         bucketKeys: (dateFilter: DateFilter, timezone: string, interval: IntervalType) => string[]
         activityIncompleteTail: (bucketKeys: string[], timezone: string, interval: IntervalType) => boolean
+        kpiIncompleteTail: (kpis: KPIData, timezone: string, interval: IntervalType) => boolean
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
         toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
@@ -818,17 +779,19 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ActivityRow[],
             {
                 loadActivityRows: async (_: void, breakpoint): Promise<ActivityRow[]> => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: ACTIVITY_QUERY.replace('__BUCKET__', bucketExpr(values.interval)),
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
+                        kind: NodeKind.MCPToolCallsAndErrorsQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                        interval: values.interval,
+                    })) as { results?: MCPToolCallsAndErrorsItem[] }
                     breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        day: normalizeBucket(r[0]),
-                        successes: Number(r[1] ?? 0),
-                        errors: Number(r[2] ?? 0),
+                    return (response?.results ?? []).map((r) => ({
+                        day: normalizeBucket(r.bucket),
+                        successes: r.successes,
+                        errors: r.errors,
                     }))
                 },
             },
@@ -837,17 +800,19 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             [] as ToolDailyRow[],
             {
                 loadToolDailyRows: async (_: void, breakpoint): Promise<ToolDailyRow[]> => {
+                    const { dateRange, properties, filterTestAccounts } = values.queryFilters
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: TOOL_DAILY_QUERY.replace('__BUCKET__', bucketExpr(values.interval)),
-                        filters: values.queryFilters,
-                    })) as HogQLQueryResponse
+                        kind: NodeKind.MCPToolCallBreakdownQuery,
+                        dateRange,
+                        properties,
+                        filterTestAccounts,
+                        interval: values.interval,
+                    })) as { results?: MCPToolCallBreakdownItem[] }
                     breakpoint()
-                    const raw = (response?.results as unknown[][]) ?? []
-                    return raw.map((r) => ({
-                        day: normalizeBucket(r[0]),
-                        tool: String(r[1] ?? ''),
-                        calls: Number(r[2] ?? 0),
+                    return (response?.results ?? []).map((r) => ({
+                        day: normalizeBucket(r.bucket),
+                        tool: r.tool,
+                        calls: r.calls,
                     }))
                 },
             },
@@ -888,6 +853,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.bucketKeys, s.timezone, s.interval],
             (bucketKeys: string[], timezone: string, interval: IntervalType): boolean =>
                 lastBucketIsInProgress(bucketKeys, timezone, interval),
+        ],
+        // Read off the KPI sparkline's own labels, not `bucketKeys`: the sparkline is not zero-filled,
+        // so on a day with no calls yet its last point is yesterday, which is settled.
+        kpiIncompleteTail: [
+            (s) => [s.kpis, s.timezone, s.interval],
+            (kpis: KPIData, timezone: string, interval: IntervalType): boolean =>
+                lastBucketIsInProgress(kpis.sessions.sparklineLabels, timezone, interval),
         ],
         dailyActivity: [
             (s) => [s.activityRows, s.bucketKeys],

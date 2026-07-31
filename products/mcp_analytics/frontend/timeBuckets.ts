@@ -68,6 +68,22 @@ export function buildBucketKeys(
     return keys
 }
 
+// True when the final bucket is the current, still-running interval (open-ended window), so a chart
+// can dash that segment as "in progress" rather than letting the partial period read as a drop.
+// Needs ≥2 buckets to have a segment to dash; `now` is injectable so the logic stays testable.
+export function lastBucketIsInProgress(
+    bucketKeys: string[],
+    timezone: string,
+    interval: IntervalType,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    if (bucketKeys.length < 2) {
+        return false
+    }
+    const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
+    return bucketKeys[bucketKeys.length - 1] === currentBucket
+}
+
 // Normalize a raw bucket string from a query (a date or datetime) to BUCKET_FORMAT so it joins the
 // generated keys regardless of how ClickHouse rendered it. The value always carries the project-tz
 // wall clock, in one of three shapes: naive (toString(dateTrunc)), Z-stamped (a raw DateTime
