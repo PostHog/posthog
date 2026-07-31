@@ -15,10 +15,11 @@ from posthog.models.integration import Integration
 FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 
 
-def _mock_response(status_code: int, body: dict) -> MagicMock:
-    # The view streams the body via res.raw.read(...), so mock that rather than res.json().
+def _mock_response(status_code: int, body: dict, chunks: list[bytes] | None = None) -> MagicMock:
+    # The view streams the body via res.iter_content(...), so drive that rather than res.json().
     m = MagicMock(status_code=status_code)
-    m.raw.read.return_value = json.dumps(body).encode()
+    m.__enter__.return_value = m
+    m.iter_content.return_value = iter(chunks) if chunks is not None else iter([json.dumps(body).encode()])
     return m
 
 
@@ -185,6 +186,21 @@ class TestPostHogConnectionForward:
                 )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_request.assert_not_called()
+
+    def test_forward_times_out_when_target_exceeds_deadline(self, client: HttpClient):
+        # A target that keeps trickling data past the wall-clock deadline is cut off with a 504 rather
+        # than holding a worker (and its in-flight slot) open past the lease.
+        client.force_login(self.user)
+        slow = _mock_response(200, {}, chunks=[b'{"a":1}', b"more"])
+        # deadline = 0 + timeout; the post-chunk check sees a clock already past it.
+        with patch("posthog.api.posthog_connection.monotonic", side_effect=[0.0, 10_000.0, 10_001.0]):
+            with patch(FORWARD_PATH, return_value=slow):
+                response = client.post(
+                    self._forward_url(),
+                    {"method": "GET", "path": "api/projects/2/insights/"},
+                    content_type="application/json",
+                )
+        assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
 
     def test_forward_rejects_when_connection_at_inflight_capacity(self, client: HttpClient):
         # The per-minute throttle limits how fast forwards start, not how many run at once. When a

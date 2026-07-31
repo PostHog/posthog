@@ -14,6 +14,7 @@ import re
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager
+from time import monotonic
 from typing import Any
 
 from django.core.cache import cache
@@ -109,8 +110,12 @@ def _inflight_slot(integration_id: int) -> Iterator[bool]:
     any cache error so the limiter can never take the feature down; the slot key's TTL reclaims a
     slot whose holder died before release."""
     key = f"posthog_connection_inflight:{integration_id}"
+    # Keep the lease alive for the whole forward: the read is bounded by a wall-clock deadline of
+    # CONNECTION_FORWARD_TIMEOUT_SECONDS, plus up to one more socket-timeout window for the final
+    # blocking read, so a slot could legitimately be held for ~2x the timeout. TTL past that (rather
+    # than expiring mid-forward) is what makes the concurrency cap actually hold.
     try:
-        cache.add(key, 0, timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS + 5)
+        cache.add(key, 0, timeout=2 * CONNECTION_FORWARD_TIMEOUT_SECONDS + 5)
         current = cache.incr(key)
     except Exception:
         yield True
@@ -190,6 +195,8 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         token = _connection_access_token(integration)
         base = posthog_connect_base_url(integration.config.get("region"))
 
+        raw = bytearray()
+        timed_out = False
         try:
             with _inflight_slot(integration.id) as acquired:
                 if not acquired:
@@ -208,7 +215,18 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     stream=True,
                 )
                 with res:
-                    raw = res.raw.read(CONNECTION_MAX_RESPONSE_BYTES + 1, decode_content=True) or b""
+                    # Bound the *total* time we hold a worker, not just each socket read. A target that
+                    # trickles a long-lived stream (SSE keepalives, say) would otherwise keep this read
+                    # alive past the in-flight lease below and defeat the concurrency cap. Stop at the
+                    # size cap or the wall-clock deadline, whichever comes first.
+                    deadline = monotonic() + CONNECTION_FORWARD_TIMEOUT_SECONDS
+                    for chunk in res.iter_content(chunk_size=65536):
+                        raw += chunk
+                        if len(raw) > CONNECTION_MAX_RESPONSE_BYTES:
+                            break
+                        if monotonic() > deadline:
+                            timed_out = True
+                            break
         except requests.RequestException as err:
             logger.warning(
                 "posthog_connection_forward_unreachable",
@@ -219,6 +237,15 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response(
                 {"status": status.HTTP_502_BAD_GATEWAY, "data": {"error": "The target project could not be reached."}},
                 status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if timed_out:
+            return Response(
+                {
+                    "status": status.HTTP_504_GATEWAY_TIMEOUT,
+                    "data": {"error": "The target project took too long to respond."},
+                },
+                status=status.HTTP_504_GATEWAY_TIMEOUT,
             )
 
         if len(raw) > CONNECTION_MAX_RESPONSE_BYTES:

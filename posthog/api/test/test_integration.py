@@ -5130,3 +5130,39 @@ class TestPosthogConnectAuthorize:
         # Only :read scopes plus the auto-added identity scopes; no :write.
         assert not any(s.endswith(":write") for s in requested)
         assert "openid" in requested and "email" in requested
+
+
+class TestPosthogConnectionListScoping:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.owner = User.objects.create_and_join(
+            self.organization, "owner@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.other = User.objects.create_and_join(
+            self.organization, "other@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.connection = Integration.objects.create(
+            team=self.team, kind="posthog", integration_id="EU:owner", created_by=self.owner, config={"region": "EU"}
+        )
+        self.slack = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T123", created_by=self.owner, config={}
+        )
+
+    def _list_ids(self, client: HttpClient) -> set[int]:
+        response = client.get(f"/api/environments/{self.team.pk}/integrations/")
+        assert response.status_code == status.HTTP_200_OK
+        return {r["id"] for r in response.json()["results"]}
+
+    def test_other_member_cannot_see_another_users_connection(self, client: HttpClient):
+        # A `posthog` connection is only usable by its creator and carries their personal target
+        # metadata, so it must not leak to other members via the list endpoint. Team-shared kinds stay.
+        client.force_login(self.other)
+        ids = self._list_ids(client)
+        assert self.connection.id not in ids
+        assert self.slack.id in ids
+
+    def test_creator_still_sees_their_connection(self, client: HttpClient):
+        client.force_login(self.owner)
+        assert self.connection.id in self._list_ids(client)
