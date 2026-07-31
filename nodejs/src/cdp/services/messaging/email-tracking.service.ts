@@ -217,6 +217,7 @@ export class EmailTrackingService {
         properties,
         timestamp,
         instanceIdOverride,
+        deferFlush = false,
     }: {
         functionId?: string
         invocationId?: string
@@ -228,6 +229,9 @@ export class EmailTrackingService {
         properties?: Record<string, unknown>
         timestamp?: string
         instanceIdOverride?: string
+        // Skips the per-call Kafka flush so a caller handling several metrics can queue them all
+        // and pay a single broker round-trip. The caller owns flushing when it sets this.
+        deferFlush?: boolean
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -288,7 +292,9 @@ export class EmailTrackingService {
             await this.capturedEventsService.flush()
         }
 
-        await this.hogFunctionMonitoringService.flush()
+        if (!deferFlush) {
+            await this.hogFunctionMonitoringService.flush()
+        }
 
         trackingEventsCounter.inc({ event_type: metricName, source })
         logger.debug('[EmailTrackingService] trackMetric: Email tracking event', {
@@ -382,6 +388,9 @@ export class EmailTrackingService {
                 verifySignature: true,
             })
 
+            // A single SNS notification can yield several metrics (a Click emits its rollup plus a
+            // per-link row, a Bounce its rollup plus a per-type row). Flushing inside each call would
+            // make those serial Kafka round-trips, so defer and flush once for the batch.
             for (const metric of metrics || []) {
                 await this.trackMetric({
                     functionId: metric.functionId,
@@ -394,7 +403,11 @@ export class EmailTrackingService {
                     properties: metric.properties,
                     timestamp: metric.timestamp,
                     instanceIdOverride: metric.instanceIdOverride,
+                    deferFlush: true,
                 })
+            }
+            if (metrics?.length) {
+                await this.hogFunctionMonitoringService.flush()
             }
 
             // Wrapped so a failure here doesn't skip the suppression writes below.

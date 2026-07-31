@@ -219,6 +219,27 @@ const MAX_LINK_URL_LENGTH = 200
  * anchors that genuinely point at the same path stay distinguishable through the link index, which
  * is carried alongside this value.
  */
+// Path segments that look like a per-recipient identifier rather than part of the page's identity:
+// UUIDs, long hex digests, long opaque base64url tokens, and bare numeric ids. Templates routinely
+// build hrefs like `/unsubscribe/{{token}}` or `/users/12345`, where the segment varies per
+// recipient. Collapsing them is what keeps the metrics sort key bounded by pages rather than by
+// audience size, and keeps recipient tokens out of a store the whole team can read.
+const OPAQUE_PATH_SEGMENT_REGEXES = [
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    /^[0-9a-f]{12,}$/i,
+    /^[0-9]{6,}$/,
+    /^[A-Za-z0-9_-]{24,}$/,
+]
+const OPAQUE_PATH_SEGMENT_PLACEHOLDER = '*'
+
+const redactOpaquePathSegments = (pathname: string): string =>
+    pathname
+        .split('/')
+        .map((segment) =>
+            OPAQUE_PATH_SEGMENT_REGEXES.some((re) => re.test(segment)) ? OPAQUE_PATH_SEGMENT_PLACEHOLDER : segment
+        )
+        .join('/')
+
 export const normalizeClickUrl = (link: string): string => {
     try {
         const url = new URL(link)
@@ -228,7 +249,8 @@ export const normalizeClickUrl = (link: string): string => {
         if (!url.host) {
             return link.slice(0, MAX_LINK_URL_LENGTH)
         }
-        return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/$/, '').slice(0, MAX_LINK_URL_LENGTH)
+        const path = redactOpaquePathSegments(url.pathname)
+        return `${url.protocol}//${url.host}${path}`.replace(/\/$/, '').slice(0, MAX_LINK_URL_LENGTH)
     } catch {
         return link.slice(0, MAX_LINK_URL_LENGTH)
     }

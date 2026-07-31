@@ -43,11 +43,24 @@ const RUN_LEVEL_INSTANCE_ID = ''
 const EMAIL_LINK_METRIC_NAME = 'email_link_clicked_by_link'
 const LINK_INSTANCE_SEPARATOR = '|'
 
+// One group per (action, link), so a workflow with many email steps clears the executor's default
+// 100-row cap easily. The request orders by total so the cap keeps the most-clicked links rather
+// than an arbitrary slice; `parseEmailLinkTotals` then sorts within each action for display.
+const EMAIL_LINK_TOTALS_LIMIT = 1000
+
+// Mirrors MAX_LINK_URL_LENGTH in the plugin server's helpers/ses.ts. A stored URL at exactly this
+// length was cut to fit the metrics key, so it is not safe to navigate to.
+const EMAIL_LINK_URL_MAX_LENGTH = 200
+
 export type EmailLinkRow = {
     /** Position of the anchor in the email body, blank for clicks recorded without a link tag. */
     linkIndex: string
     url: string
     clicks: number
+    /** The stored URL was cut to fit the metrics key, so it may not resolve to the real page. */
+    truncated: boolean
+    /** Another link in the same step resolves to this same URL, so position is what tells them apart. */
+    duplicateUrl: boolean
 }
 
 export function parseEmailLinkTotals(totalsResponse: AppMetricsTotalsResponse): Record<string, EmailLinkRow[]> {
@@ -73,11 +86,23 @@ export function parseEmailLinkTotals(totalsResponse: AppMetricsTotalsResponse): 
             linkIndex: instanceId.slice(separatorIndex + 1, indexEnd),
             url,
             clicks: total,
+            truncated: url.length >= EMAIL_LINK_URL_MAX_LENGTH,
+            duplicateUrl: false,
         })
     })
 
-    // Most-clicked first so the interesting links are visible without scrolling an expanded row.
-    Object.values(byActionId).forEach((rows) => rows.sort((a, b) => b.clicks - a.clicks))
+    Object.values(byActionId).forEach((rows) => {
+        // Two anchors pointing at the same URL are counted separately by design (a header logo and a
+        // footer link, say). Without flagging them the table shows two identical-looking rows with
+        // different counts, which reads as a double-count bug.
+        const urlCounts = new Map<string, number>()
+        rows.forEach((row) => urlCounts.set(row.url, (urlCounts.get(row.url) ?? 0) + 1))
+        rows.forEach((row) => {
+            row.duplicateUrl = (urlCounts.get(row.url) ?? 0) > 1
+        })
+        // Most-clicked first so the interesting links are visible without scrolling an expanded row.
+        rows.sort((a, b) => b.clicks - a.clicks)
+    })
     return byActionId
 }
 
@@ -934,6 +959,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['instance_id'],
                         metricName: [EMAIL_LINK_METRIC_NAME],
+                        limit: EMAIL_LINK_TOTALS_LIMIT,
                         dateFrom: dateRange.dateFrom.toISOString(),
                         dateTo: dateRange.dateTo.toISOString(),
                     }

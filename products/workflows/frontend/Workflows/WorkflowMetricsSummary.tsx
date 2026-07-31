@@ -176,9 +176,24 @@ export function WorkflowMetricsSummary({
                 title: 'Link',
                 key: 'url',
                 render: (_: unknown, row: EmailLinkRow) => (
-                    <Link to={row.url} target="_blank" className="break-all">
-                        {row.url}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        {row.truncated ? (
+                            // Navigating to a URL that was cut mid-path would land somewhere wrong,
+                            // so show it as text rather than something clickable.
+                            <span className="break-all" title="This link was too long to store in full">
+                                {row.url}…
+                            </span>
+                        ) : (
+                            <Link to={row.url} target="_blank" className="break-all">
+                                {row.url}
+                            </Link>
+                        )}
+                        {row.duplicateUrl && row.linkIndex ? (
+                            <LemonTag type="muted" title="Another link in this email points to the same page">
+                                Position {row.linkIndex}
+                            </LemonTag>
+                        ) : null}
+                    </div>
                 ),
             },
             {

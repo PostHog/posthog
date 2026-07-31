@@ -174,9 +174,39 @@ describe('SesWebhookHandler', () => {
             ['drops the fragment', 'https://example.com/a#top', 'https://example.com/a'],
             ['drops a trailing slash', 'https://example.com/a/', 'https://example.com/a'],
             ['keeps the path', 'https://example.com/a/b/c', 'https://example.com/a/b/c'],
-            ['passes through an unparseable link', 'mailto:x', 'mailto:x'],
+            ['passes through a hostless scheme', 'mailto:x', 'mailto:x'],
+            ['passes through an unparseable link', 'not a url', 'not a url'],
         ])('%s', (_name, link, expected) => {
             expect(normalizeClickUrl(link)).toBe(expected)
+        })
+
+        // Per-recipient tokens in the path would otherwise land in the metrics sort key, making its
+        // cardinality scale with audience size and putting recipient secrets in a team-readable store.
+        it.each([
+            [
+                'a uuid',
+                'https://example.com/verify/123e4567-e89b-12d3-a456-426614174000',
+                'https://example.com/verify/*',
+            ],
+            [
+                'a long hex digest',
+                'https://example.com/unsubscribe/a1b2c3d4e5f6a7b8',
+                'https://example.com/unsubscribe/*',
+            ],
+            ['a bare numeric id', 'https://example.com/users/1234567', 'https://example.com/users/*'],
+            [
+                'a long opaque token',
+                'https://example.com/magic/AbCdEfGhIjKlMnOpQrStUvWx',
+                'https://example.com/magic/*',
+            ],
+        ])('redacts %s from the path', (_name, link, expected) => {
+            expect(normalizeClickUrl(link)).toBe(expected)
+        })
+
+        it('keeps ordinary path words that merely look long', () => {
+            expect(normalizeClickUrl('https://example.com/pricing/enterprise-plan')).toBe(
+                'https://example.com/pricing/enterprise-plan'
+            )
         })
 
         it('caps the length so a long url cannot bloat the metrics sort key', () => {

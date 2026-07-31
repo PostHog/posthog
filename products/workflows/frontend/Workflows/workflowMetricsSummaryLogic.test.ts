@@ -231,17 +231,39 @@ describe('parseEmailLinkTotals', () => {
             )
         ).toEqual({
             'act-1': [
-                { linkIndex: '1', url: 'https://example.com/b', clicks: 9 },
-                { linkIndex: '0', url: 'https://example.com/a', clicks: 3 },
+                { linkIndex: '1', url: 'https://example.com/b', clicks: 9, truncated: false, duplicateUrl: false },
+                { linkIndex: '0', url: 'https://example.com/a', clicks: 3, truncated: false, duplicateUrl: false },
             ],
-            'act-2': [{ linkIndex: '0', url: 'https://example.com/c', clicks: 1 }],
+            'act-2': [
+                { linkIndex: '0', url: 'https://example.com/c', clicks: 1, truncated: false, duplicateUrl: false },
+            ],
         })
     })
 
     it('keeps a url containing the field separator intact', () => {
         expect(parseEmailLinkTotals(totals(['act-1|0|https://example.com/a|b', 2]))['act-1']).toEqual([
-            { linkIndex: '0', url: 'https://example.com/a|b', clicks: 2 },
+            { linkIndex: '0', url: 'https://example.com/a|b', clicks: 2, truncated: false, duplicateUrl: false },
         ])
+    })
+
+    it('flags links that share a url within a step, so position can tell them apart', () => {
+        const rows = parseEmailLinkTotals(
+            totals(
+                ['act-1|0|https://example.com/a', 4],
+                ['act-1|7|https://example.com/a', 1],
+                ['act-1|2|https://example.com/b', 2]
+            )
+        )['act-1']
+        expect(rows.map((r) => [r.linkIndex, r.duplicateUrl])).toEqual([
+            ['0', true],
+            ['2', false],
+            ['7', true],
+        ])
+    })
+
+    it('flags a url stored at the length cap as truncated', () => {
+        const longUrl = `https://example.com/${'x'.repeat(200)}`.slice(0, 200)
+        expect(parseEmailLinkTotals(totals([`act-1|0|${longUrl}`, 1]))['act-1'][0].truncated).toBe(true)
     })
 
     it.each([
