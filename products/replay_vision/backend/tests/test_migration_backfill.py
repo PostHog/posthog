@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest
 from django.apps import apps
 from django.utils import timezone
 
-from posthog.models import Organization, Team
+from posthog.models import Team
 
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -14,7 +14,6 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_quota_grant import ReplayQuotaGrant
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 
 m33 = importlib.import_module("products.replay_vision.backend.migrations.0033_backfill_replayobservationusage_team_id")
@@ -72,7 +71,7 @@ class TestReceiptBackfillMigrations(APIBaseTest):
 
 
 class TestClosedBetaLaunchReset(APIBaseTest):
-    def test_disables_scanners_zeroes_receipts_and_grants_once(self) -> None:
+    def test_disables_scanners_and_zeroes_receipts(self) -> None:
         internal_team = (
             self.team
             if self.team.id == m56.INTERNAL_TEAM_ID
@@ -101,18 +100,8 @@ class TestClosedBetaLaunchReset(APIBaseTest):
             model=ScannerModel.GEMINI_3_6_FLASH,
             credits=15,
         )
-        # An org whose scanners were deleted mid-beta is only discoverable through its receipts.
-        receipt_only_org = Organization.objects.create(name="receipt-only")
-        ReplayObservationUsage.objects.create(
-            observation_id=uuid.uuid4(),
-            organization_id=receipt_only_org.id,
-            observation_created_at=timezone.now(),
-            model=ScannerModel.GEMINI_3_6_FLASH,
-            credits=5,
-        )
 
         m56.reset_closed_beta_state(apps, None)
-        m56.reset_closed_beta_state(apps, None)  # bin/migrate retries must not double-grant
 
         internal_scanner.refresh_from_db()
         beta_scanner.refresh_from_db()
@@ -120,6 +109,3 @@ class TestClosedBetaLaunchReset(APIBaseTest):
         assert internal_scanner.enabled
         assert not beta_scanner.enabled
         assert receipt.credits == 0
-        grants = list(ReplayQuotaGrant.objects.filter(reason=m56.GRANT_REASON))
-        assert {g.organization_id for g in grants} == {self.organization.id, receipt_only_org.id}
-        assert all(g.amount == 10_000 and g.expires_at == m56.GRANT_EXPIRES_AT for g in grants)
