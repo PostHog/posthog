@@ -206,6 +206,12 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED = Counter(
     labelnames=["family"],
 )
 
+WEB_ANALYTICS_LAZY_PRECOMPUTE_COLD_MISS_ENQUEUED = Counter(
+    "web_analytics_lazy_precompute_cold_miss_enqueued_total",
+    "Background builds enqueued after a read found no precompute jobs for its namespace.",
+    labelnames=["family"],
+)
+
 WEB_ANALYTICS_LAZY_PRECOMPUTE_REVALIDATION_ENQUEUED = Counter(
     "web_analytics_lazy_precompute_revalidation_enqueued_total",
     "Background revalidation tasks enqueued after a stale-served read.",
@@ -333,6 +339,19 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     """
     WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED.labels(family=family).inc()
     tag_queries(precompute_stale=True)
+    enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
+
+
+def handle_cold_miss(*, runner: Any, family: str) -> None:
+    """A user read found no precompute jobs for its namespace — the shape was
+    never built (below the warmer's demand floor, or a variant the selection's
+    representative grouping doesn't produce). User reads never build inline, so
+    without intervention such a shape misses on every read forever. Serve live
+    this time and enqueue the same debounced, per-team-budgeted background
+    re-run the stale path uses: the re-run carries a background warming trigger,
+    builds the exact namespace this reader computes, and the next read hits.
+    """
+    WEB_ANALYTICS_LAZY_PRECOMPUTE_COLD_MISS_ENQUEUED.labels(family=family).inc()
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
 
 

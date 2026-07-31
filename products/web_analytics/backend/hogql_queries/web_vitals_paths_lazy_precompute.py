@@ -43,6 +43,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     user_filter_expr,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    handle_cold_miss,
     handle_stale_served,
     web_ensure_precomputed,
 )
@@ -390,6 +391,7 @@ def execute_lazy_precomputed_read(
 
         if not result.job_ids:
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="no_job_ids").inc()
+            handle_cold_miss(runner=runner, family=_FAMILY)
             logger.info(
                 "web_vitals_paths_lazy_precompute_no_job_ids",
                 team_id=team_id,

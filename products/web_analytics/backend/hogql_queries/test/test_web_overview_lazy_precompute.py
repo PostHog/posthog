@@ -103,6 +103,29 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         return WebOverviewQueryRunner(team=self.team, query=query).calculate()
 
     @freeze_time("2024-01-15T12:00:00Z")
+    def test_cold_miss_enqueues_background_build(self):
+        # User reads never build inline, so a never-warmed shape would miss on
+        # every read forever unless the cold miss enqueues the background build
+        # that the next read then hits.
+        self._seed_two_sessions()
+        with (
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.ensure_precomputed",
+                return_value=LazyComputationResult(ready=False, job_ids=[]),
+            ),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common.enqueue_stale_revalidation"
+            ) as mock_enqueue,
+        ):
+            response = self._run(self._build_query())
+
+        # Served live (fallback) AND the background build was enqueued.
+        assert response.results is not None
+        assert mock_enqueue.called
+        assert mock_enqueue.call_args.kwargs["family"] == "web_overview"
+
+    @freeze_time("2024-01-15T12:00:00Z")
     def test_unfiltered_round_trip_creates_precompute_job(self):
         self._seed_two_sessions()
         with self._enable_lazy():
