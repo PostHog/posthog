@@ -297,6 +297,7 @@ class TestQueryRunner(BaseTest):
                     "campaign_name_mappings": {},
                     "custom_source_mappings": {},
                     "campaign_field_preferences": {},
+                    "costs_dedup_v2": False,
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -366,7 +367,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_27f711c65fe4ac9828d73c2056ac6f09cdda4769fc347e0add6ba30c7f69cab9"
+        assert cache_key == "cache_42_fb4ce1f0e9ab5160f9149135623c5e26ae32ea725032f37fa68fe648a3ed82dd"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -380,7 +381,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_d29b758d2f988b37fa6dc0628de038b45d65bcd9b818c18d9d97ae30248d5b4a"
+        assert cache_key == "cache_42_58e763f83c7e35599cac52116c5d568628f58d6ecee3c37ff3092ab3a9fe02be"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -391,7 +392,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_e4b76128de4fb9db2c87808e542362fb6e47ca9a06f0dab13dcf22cf515b44f9"
+        assert cache_key == "cache_42_eaaac31e844e277ed1e6bd29ca458a228b9fd86126c7d64f853cfa0f04521d27"
 
     def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
         TestQueryRunner = self.setup_test_query_runner_class()
