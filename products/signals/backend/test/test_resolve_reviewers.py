@@ -276,6 +276,26 @@ class TestAreaWalkUp:
         assert len(merged) == contributor_count
         assert all(contributor.implies_ownership is implies_ownership for contributor in merged.values())
 
+    def test_fresher_crowded_commit_does_not_erase_focused_area_ownership(self, team):
+        _seed_area(team, "products/signals", [("alice", 4, 10)])
+        _seed_area(
+            team,
+            "*",
+            [("alice", 9, 1), *[(f"dev-{i}", 3, 2) for i in range(MAX_CONTRIBUTORS_FOR_OWNERSHIP)]],
+        )
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            merged = _relevant_area_activity(
+                team.id, "acme/app", ["products/signals/backend/models.py", "bin/deploy.sh"]
+            )
+
+        # Evidence still follows alice's freshest commit, which landed repo-wide...
+        assert merged["alice"].area == "*"
+        assert merged["alice"].days_since_last_commit == pytest.approx(1, abs=0.01)
+        # ...but the claim she earned in products/signals survives it.
+        assert merged["alice"].implies_ownership
+        assert not merged["dev-0"].implies_ownership
+
 
 @pytest.mark.django_db
 class TestRankAssigneeCandidates:

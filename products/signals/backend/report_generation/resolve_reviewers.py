@@ -283,8 +283,9 @@ class _AreaContributor:
     last_commit_sha: str
     last_commit_url: str
     area: str  # the area of the evidence (freshest) commit, for evidence wording
-    # Whether the evidence area is focused enough to imply ownership. A crowded area still
-    # supplies recency, it just proposes nobody.
+    # Whether *any* area this contributor was drawn from is focused enough to imply ownership.
+    # Not tied to the evidence area: a crowded area still supplies recency, it just proposes
+    # nobody, and it must not cancel a claim earned in a focused one.
     implies_ownership: bool
 
 
@@ -355,7 +356,8 @@ def _merge_contributor(
             implies_ownership=implies_ownership,
         )
     # Evidence follows the freshest commit, so sha/url/area always agree with
-    # days_since_last_commit.
+    # days_since_last_commit. Ownership does not: it accumulates, so a fresher commit in a
+    # crowded level can't erase a claim earned in a focused one.
     keep_incoming_evidence = days_since < existing.days_since_last_commit
     return _AreaContributor(
         name=existing.name or incoming.name,
@@ -364,7 +366,7 @@ def _merge_contributor(
         last_commit_sha=incoming.last_commit_sha if keep_incoming_evidence else existing.last_commit_sha,
         last_commit_url=incoming.last_commit_url if keep_incoming_evidence else existing.last_commit_url,
         area=area if keep_incoming_evidence else existing.area,
-        implies_ownership=implies_ownership if keep_incoming_evidence else existing.implies_ownership,
+        implies_ownership=existing.implies_ownership or implies_ownership,
     )
 
 
