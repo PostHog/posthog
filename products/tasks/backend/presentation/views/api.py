@@ -30,7 +30,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
-from posthog.permissions import APIScopePermission, get_authenticator_scoped_team_ids, get_authenticator_scopes
+from posthog.permissions import (
+    APIScopePermission,
+    DenyMCPBuiltInAgentOAuth,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+)
 from posthog.rate_limit import CodeInviteThrottle
 from posthog.renderers import ServerSentEventRenderer
 
@@ -823,12 +828,19 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class DenyBuiltInAgentTaskAutomations(DenyMCPBuiltInAgentOAuth):
+    """Automations schedule future runs that resolve a member's credentials, so a
+    built-in agent's sandbox token must not create or trigger them."""
+
+    message = "Built-in agents cannot manage task automations."
+
+
 @extend_schema(tags=["task-automations"])
 class TaskAutomationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """API for managing scheduled task automations."""
 
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    permission_classes = [IsAuthenticated, APIScopePermission, DenyBuiltInAgentTaskAutomations]
     scope_object = "task"
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
 

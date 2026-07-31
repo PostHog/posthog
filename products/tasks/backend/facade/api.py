@@ -58,6 +58,7 @@ from products.tasks.backend.models import (
     ChannelFeedMessage,
     CodeInvite,
     CodeInviteRedemption,
+    MCPBuiltInAgentKey,
     SandboxCustomImage,
     SandboxEnvironment,
     SandboxSession,
@@ -1056,6 +1057,7 @@ def create_task_without_run(
     title: str = "",
     description: str = "",
     repository: str | None = None,
+    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
@@ -1069,6 +1071,7 @@ def create_task_without_run(
         origin_product=origin_product,
         user_id=user_id,
         repository=repository,
+        mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     return task.id
 
