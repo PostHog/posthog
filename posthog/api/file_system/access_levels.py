@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from typing import Any, Optional, cast
 
 from django.apps import apps
@@ -25,18 +26,39 @@ from posthog.rbac.user_access_control import (
     access_level_satisfied_for_resource,
 )
 from posthog.scopes import APIScopeObject
+from posthog.settings import EE_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
-# (file system type, ref, created_by_id of the underlying object - None when unknown, team_id the
-# tree row belongs to)
-FileSystemAccessEntry = tuple[str, Optional[str], Optional[int], int]
+
+@dataclass(frozen=True, kw_only=True)
+class FileSystemAccessEntry:
+    """One entry to resolve an access level for.
+
+    Keyword-only because `created_by_id` and `team_id` are both ints: positionally they can be
+    transposed without any type error, and getting that wrong resolves the entry against the
+    wrong team.
+
+    `created_by_id` is the creator of the backing object, never of the tree row that points at
+    it, and is None when the caller doesn't know it (it is then read during ref translation).
+    `team_id` is the tree row's own team, which is not necessarily the request's team.
+    """
+
+    entry_type: str
+    ref: Optional[str]
+    created_by_id: Optional[int]
+    team_id: int
+
 
 # A ref (short_id) maps to exactly one immutable pk for the life of the object, so the
 # translation is safe to cache across requests. Caching it keeps the multi-model UNION off
 # the high-traffic list endpoint on every page load - the query that translates short_id refs
 # to pks otherwise runs per request and adds DB pool load under contention.
-_REF_PK_CACHE_PREFIX = "fs_ref_pk:v1"
+#
+# The version is v2 because the key gained a team_id segment. Under v1 the two layouts are
+# ambiguous: an entry written for ref "7:abc" produces the same key as team_id 7 with ref "abc",
+# so a v1 read after deploy could return a different object's pk.
+_REF_PK_CACHE_PREFIX = "fs_ref_pk:v2"
 _REF_PK_CACHE_TTL = 60 * 60
 
 
@@ -80,6 +102,25 @@ def _is_access_controlled_type(file_system_type: str) -> bool:
     return file_system_type in ACCESS_CONTROL_RESOURCES or file_system_type in RESOURCE_INHERITANCE_MAP
 
 
+def _coerce_refs_for_lookup(model: Any, lookup_field: str, refs: list[str]) -> list[Any]:
+    """Refs the lookup field can actually hold, dropping the ones it rejects.
+
+    `ref` is a plain CharField on the tree row and is caller-supplied when a row is created, so
+    it can hold a value the target field can't. Passing one into the query raises rather than
+    matching nothing: an integer pk raises ValueError on "oops", a UUID pk raises ValidationError.
+    Dropped refs then resolve at resource level like any other ref with no matching object, which
+    is the same fail-safe unresolvable refs already get.
+    """
+    field = model._meta.get_field(lookup_field)
+    coerced: list[Any] = []
+    for ref in refs:
+        try:
+            coerced.append(field.to_python(ref))
+        except (DjangoValidationError, ValueError, TypeError):
+            continue
+    return coerced
+
+
 def _ref_translation_queryset(
     entry_type: str, registration: ModelRegistration, refs: list[str], project_id: int
 ) -> QuerySet:
@@ -97,7 +138,7 @@ def _ref_translation_queryset(
         manager.filter(
             **{
                 f"{registration.team_field}__project_id": project_id,
-                f"{lookup_field}__in": refs,
+                f"{lookup_field}__in": _coerce_refs_for_lookup(model, lookup_field, refs),
             }
         )
         .annotate(
@@ -124,22 +165,10 @@ def _user_access_controls_by_team(
     `_scope_by_project_and_environment`), so resolving access has to run against each row's own
     team - a `UserAccessControl` only ever answers for the single team it was built with, and
     silently falls back to `default_access_level` (typically "editor") for objects outside it.
-    Reuses the caller's instance for its own team (no extra query); builds fresh instances,
-    backed by a single bulk `Team` fetch, for every other team.
+    The caller's own instance serves its own team, and the rest are memoized on it, so the
+    filter pass and the serializer pass of one request share them.
     """
-    current_team = user_access_control.team
-    by_team: dict[int, UserAccessControl] = {}
-    other_ids: set[int] = set()
-    for team_id in team_ids:
-        if current_team is not None and team_id == current_team.id:
-            by_team[team_id] = user_access_control
-        else:
-            other_ids.add(team_id)
-    if other_ids:
-        user = user_access_control.user
-        for team in Team.objects.filter(id__in=other_ids):
-            by_team[team.id] = UserAccessControl(user, team=team)
-    return by_team
+    return user_access_control.for_team_ids(team_ids)
 
 
 def bulk_file_system_access_levels(
@@ -183,14 +212,14 @@ def bulk_file_system_access_levels(
     user_id = user_access_control.user.id
 
     entries_by_type_team: dict[tuple[str, int], dict[str, Optional[int]]] = {}
-    for entry_type, ref, created_by_id, team_id in entries:
-        if not ref or not _is_access_controlled_type(entry_type):
+    for entry in entries:
+        if not entry.ref or not _is_access_controlled_type(entry.entry_type):
             continue
         # The same object can back several entries (e.g. an unfiled row and a user-created one)
         # with different `created_by` values - the row marking the user as creator wins
-        by_ref = entries_by_type_team.setdefault((entry_type, team_id), {})
-        if by_ref.get(ref) is None or created_by_id == user_id:
-            by_ref[ref] = created_by_id
+        by_ref = entries_by_type_team.setdefault((entry.entry_type, entry.team_id), {})
+        if by_ref.get(entry.ref) is None or entry.created_by_id == user_id:
+            by_ref[entry.ref] = entry.created_by_id
 
     # (type, ref, team_id) -> (pk, created_by_id)
     translated: dict[tuple[str, str, int], tuple[str, Optional[int]]] = {}
@@ -298,7 +327,10 @@ def entries_missing_access_level(
         return []
 
     levels = bulk_file_system_access_levels(
-        [(entry_type, ref, None, team_id) for entry_type, ref, team_id in controlled],
+        [
+            FileSystemAccessEntry(entry_type=entry_type, ref=ref, created_by_id=None, team_id=team_id)
+            for entry_type, ref, team_id in controlled
+        ],
         user_access_control,
         project_id,
     )
@@ -318,11 +350,18 @@ def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int
     against the tree. The tree lists rows from every environment in the project, so a grant has
     to be checked - and its matching ref translated - against the team it was actually made in:
     keyed by (type, team_id) so the caller can exclude a denied ref only within its own team,
-    not project-wide. With no such grants in play this costs no queries.
+    not project-wide.
+
+    Costs one `Team` query per request plus one access-control preload per environment; the
+    per-team instances are memoized on `user_access_control`, so the serializer's own resolution
+    pass later in the same request reuses them rather than repeating either.
     """
-    # Mirrors the early return in `filter_and_annotate_file_system_queryset` - these users see
-    # everything, so resolving the grants would only cost a query the request doesn't need.
+    # Mirrors the early returns in `filter_and_annotate_file_system_queryset`, which discards
+    # this result in exactly these cases: these users see everything, and without the
+    # entitlement stale rules in the DB must be ignored rather than enforced.
     if user_access_control.user.is_staff or user_access_control.is_organization_admin:
+        return {}
+    if not EE_AVAILABLE or not user_access_control.access_controls_supported:
         return {}
 
     resources = [
@@ -403,7 +442,12 @@ class FileSystemAccessLevelSerializerMixin(serializers.Serializer):
         if self._access_levels_by_type_ref is None:
             instances = self.instance if isinstance(self.instance, list) else [self.instance]
             entries = [
-                (instance.type, instance.ref, getattr(instance, "created_by_id", None), instance.team_id)
+                FileSystemAccessEntry(
+                    entry_type=instance.type,
+                    ref=instance.ref,
+                    created_by_id=getattr(instance, "created_by_id", None),
+                    team_id=instance.team_id,
+                )
                 for instance in instances
                 if instance is not None and instance.ref
             ]
@@ -417,7 +461,15 @@ class FileSystemAccessLevelSerializerMixin(serializers.Serializer):
             # Object wasn't part of the preloaded batch (e.g. freshly created) - resolve it alone
             self._access_levels_by_type_ref.update(
                 self._compute_access_levels(
-                    [(obj.type, obj.ref, getattr(obj, "created_by_id", None), obj.team_id)], user_access_control
+                    [
+                        FileSystemAccessEntry(
+                            entry_type=obj.type,
+                            ref=obj.ref,
+                            created_by_id=getattr(obj, "created_by_id", None),
+                            team_id=obj.team_id,
+                        )
+                    ],
+                    user_access_control,
                 )
             )
         return self._access_levels_by_type_ref.get(key)

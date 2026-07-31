@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from django.apps import apps
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import (
+    ObjectDoesNotExist,
+    ValidationError as DjangoValidationError,
+)
 
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
 from posthog.models.signals import mute_selected_signals
@@ -181,8 +184,11 @@ def _get_object(
     *,
     ref: str,
     team_id: int | None,
+    for_update: bool = False,
 ) -> Any:
     queryset = _get_queryset(registration)
+    if for_update:
+        queryset = queryset.select_for_update()
     filters: dict[str, Any] = {registration.lookup_field: ref, f"{registration.team_field}_id": team_id}
     return queryset.get(**filters)
 
@@ -294,7 +300,10 @@ def delete_file_system_object(
 
     try:
         instance = _get_object(registration, ref=ref, team_id=entry.team_id)
-    except ObjectDoesNotExist:
+    except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
+        # A ref the lookup field can't hold (`FileSystem.ref` is a plain CharField, set by the
+        # caller when the row is created) is the same situation as one that resolves to nothing:
+        # the row references no object, so drop the row itself.
         logger.warning("File system entry for type '%s' with ref '%s' has no backing object.", type_string, ref)
         entry.delete()
         return DeletionResult(
@@ -364,7 +373,11 @@ def get_restorable_object(type_string: str, ref: str, *, team_id: int | None) ->
 
     try:
         instance = _get_object(registration, ref=ref, team_id=team_id)
-    except ObjectDoesNotExist:
+    except (ObjectDoesNotExist, DjangoValidationError, ValueError, TypeError):
+        # `ref` is caller-supplied and every model's lookup field rejects a different shape: an
+        # integer pk raises ValueError on "oops", a UUID pk raises ValidationError. Those are all
+        # the same answer as a missing object, and must return it identically so a caller can't
+        # tell a malformed ref from one that resolves to something they aren't allowed to see.
         return None
 
     assert capabilities.soft_delete_field is not None
@@ -406,7 +419,7 @@ def undo_delete(
 
     team_id = getattr(team, "id", None)
     try:
-        instance = _get_object(registration, ref=ref, team_id=team_id)
+        instance = _get_object(registration, ref=ref, team_id=team_id, for_update=True)
     except ObjectDoesNotExist as exc:
         raise ValueError(f"Unable to restore {type_string} with ref '{ref}'") from exc
 
@@ -414,7 +427,9 @@ def undo_delete(
     # (get_restorable_object): that check and this restore run as separate queries, so a
     # concurrent change to this object in between must not be silently overwritten by an
     # unconditional restore - e.g. reviving a feature flag someone deliberately disabled in the
-    # gap between the check and this call.
+    # gap between the check and this call. The row is locked for the rest of the caller's
+    # transaction, because reading it unlocked would leave the same gap between this check and
+    # the save below that the check exists to close.
     assert capabilities.soft_delete_field is not None
     if not getattr(instance, capabilities.soft_delete_field):
         raise ValueError(f"{type_string} with ref '{ref}' is not currently deleted")

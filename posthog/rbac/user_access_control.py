@@ -1,6 +1,6 @@
 import json
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
@@ -470,6 +470,7 @@ class UserAccessControl:
         self._user = user
         self._team = team
         self._cache: dict[str, list[AccessControl]] = {}
+        self._sibling_team_access_controls: dict[int, UserAccessControl] = {}
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
@@ -485,6 +486,43 @@ class UserAccessControl:
         self.__dict__.pop("blocked_resources", None)
         self.__dict__.pop("_organization_membership", None)
         self.__dict__.pop("_user_role_ids", None)
+        # Dropped rather than cleared through: each sibling carries its own preloaded rows, and
+        # some were primed from the caches being cleared here
+        self._sibling_team_access_controls = {}
+
+    def for_team_ids(self, team_ids: Iterable[int]) -> dict[int, "UserAccessControl"]:
+        """This user's access control for each of the given teams, memoized on this instance.
+
+        An instance only ever answers for the single team it was built with, and preloads that
+        team's rows on first use. Resolving objects across several teams therefore needs one
+        instance per team, and a request can reach that more than once (the file system tree
+        spans every environment in a project and resolves access on both its filter and its
+        serializer pass). Memoizing means the second pass reuses the first pass's instances,
+        including their preloaded rows, instead of rebuilding and re-querying them.
+        """
+        by_team: dict[int, UserAccessControl] = {}
+        missing: set[int] = set()
+        for team_id in team_ids:
+            if self._team is not None and team_id == self._team.id:
+                by_team[team_id] = self
+            elif team_id in self._sibling_team_access_controls:
+                by_team[team_id] = self._sibling_team_access_controls[team_id]
+            else:
+                missing.add(team_id)
+
+        if missing:
+            for team in Team.objects.filter(id__in=missing):
+                sibling = UserAccessControl(self._user, team=team)
+                if sibling._organization_id == self._organization_id:
+                    # Org membership and role ids don't vary by team, so seed them from this
+                    # instance rather than letting each sibling re-query them. Written straight
+                    # into __dict__ because that is where cached_property stores its value.
+                    sibling.__dict__["_organization_membership"] = self._organization_membership
+                    sibling.__dict__["_user_role_ids"] = self._user_role_ids
+                self._sibling_team_access_controls[team.id] = sibling
+                by_team[team.id] = sibling
+
+        return by_team
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:

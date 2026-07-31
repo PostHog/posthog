@@ -1167,10 +1167,9 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             role=role,
         )
 
+    # A second environment in the same project. The tree lists rows from every environment, so
+    # access resolution has to hold across that boundary, not just within self.team.
     def _create_sibling_team(self) -> Team:
-        """A second team (environment) in the same project as self.team - the tree lists rows
-        from every environment in a project, so access resolution has to be proven correct
-        across that boundary too, not just within self.team."""
         return Team.objects.create(project=self.project, organization=self.organization, name="Env-2")
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -1426,11 +1425,9 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             team=team,
         )
 
+    # Replaces the auto-filed tree rows for an object with a single entry, because deleting an
+    # entry only reaches the backing object once it is the last row referencing it.
     def _sole_entry_for(self, *, file_type: str, ref: str, path: str, team: Team | None = None) -> FileSystem:
-        """Replace the auto-filed tree rows for an object with a single entry at `path`.
-
-        Deleting an entry only reaches the backing object once it is the last row referencing it.
-        """
         team = team or self.team
         FileSystem.objects.filter(team=team, type=file_type, ref=ref).delete()
         return FileSystem.objects.create(
@@ -1510,9 +1507,6 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_destroy_requires_editor_access_in_the_objects_own_environment(self, mock_flag):
-        """The tree lists rows from every environment in the project, so resolving access has to
-        run against the row's own team - not the team in the request URL, where no grant for
-        this object exists and resolution would fall through to the "editor" default."""
         team2 = self._create_sibling_team()
         dashboard = Dashboard.objects.create(team=team2, name="Sibling env, viewer only", created_by=self.other_user)
         entry = self._sole_entry_for(
@@ -1529,10 +1523,6 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_none_access_hides_short_id_entries_from_a_sibling_environment(self, mock_flag):
-        """denied_short_id_refs only resolved 'none' grants against the request's own team; a
-        grant made in a sibling environment - which the tree still lists rows from - has to hide
-        that row too, keyed to its own team rather than leaking because it was checked against
-        the wrong one."""
         team2 = self._create_sibling_team()
         insight = Insight.objects.create(team=team2, name="Sibling env, denied", created_by=self.other_user)
         entry = self._sole_entry_for(
@@ -1551,13 +1541,6 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_destroy_does_not_collapse_access_levels_across_teams_sharing_a_ref(self, mock_flag):
-        """`ref` is caller-supplied at row creation, so nothing stops a row filed in the
-        requester's own team from pointing at another team's real object via the same (type,
-        ref) pair - both rows can land in one folder-cascade delete, since the tree spans every
-        environment in the project. Resolving each team's level correctly and then storing both
-        under one (type, ref) key would let whichever team was resolved last silently override
-        the other, letting the requester's own-team default (editor) clear a viewer-only grant
-        made in the victim's team."""
         team2 = self._create_sibling_team()
         dashboard = Dashboard.objects.create(team=team2, name="Victim", created_by=self.other_user)
         self._grant_to_user("dashboard", str(dashboard.pk), "viewer", team=team2)
@@ -1581,12 +1564,6 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_destroy_does_not_translate_a_short_id_through_another_teams_object(self, mock_flag):
-        """short_id uniqueness (insight, notebook, session recording playlist) is enforced per
-        team, not per project, and notebook creation accepts a caller-chosen short_id - so a
-        notebook the requester creates in their own team can share a short_id with a real
-        notebook in a sibling team. Translating that ref to a pk without keying by team would
-        let the requester's own notebook (where they're creator, so fully authorized) silently
-        stand in for the victim's during the victim team's access check."""
         team2 = self._create_sibling_team()
         victim_notebook = Notebook.objects.create(team=team2, short_id="colliding-id", created_by=self.other_user)
         self._grant_to_user("notebook", str(victim_notebook.pk), "viewer", team=team2)
@@ -1603,34 +1580,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertFalse(victim_notebook.deleted)
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_destroy_locks_the_reference_count_only_once(self, mock_flag):
-        """_delete_file_system_entry must act on the reference count _ensure_can_delete already
-        locked and authorized against, not recompute an unlocked count of its own - two
-        independent counts would let a sibling row deleted in between change the answer,
-        deleting the backing object without the editor check the first count gated on ever
-        having run for it. One locking query per sibling group is the observable signature of a
-        single, shared count backing both decisions - this deletes one object, so one lock query
-        is the expected total; a folder cascade over N objects would lock once per object.
-        """
-        dashboard = Dashboard.objects.create(team=self.team, name="Locked once", created_by=self.other_user)
-        entry = self._sole_entry_for(file_type="dashboard", ref=str(dashboard.pk), path="Docs/Locked once")
-
-        with CaptureQueriesContext(connection) as ctx:
-            response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-
-        lock_queries = [q for q in ctx.captured_queries if "FOR UPDATE" in q["sql"]]
-        self.assertEqual(len(lock_queries), 1, lock_queries)
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_destroy_locks_and_deletes_a_shared_reference_once_per_object(self, mock_flag):
-        """A folder cascade can sweep up several rows referencing the same object - that's the
-        "last reference" case this whole mechanism exists for. Locking and counting
-        independently per row, rather than once per distinct (team, type, ref), would re-issue
-        the identical locking query for every row beyond the first. Worse: if every row in a
-        fully-consumed group were marked as reaching the backing object, each would call
-        delete_file_system_object independently, running its hooks and activity logging once
-        per row instead of once for the object - only one row in a group is allowed to."""
         dashboard = Dashboard.objects.create(team=self.team, name="Shared twice", created_by=self.other_user)
         FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(dashboard.pk)).delete()
         FileSystem.objects.create(
@@ -1657,10 +1607,6 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(len(lock_queries), 1, lock_queries)
 
     def test_undo_delete_function_refuses_to_restore_a_live_object(self):
-        """undo_delete's own soft-delete check - not the view's earlier _ensure_can_restore - is
-        what stops it from reviving an object whose state changed between the two, e.g. a
-        feature flag someone deliberately disabled in that gap. Calling the function directly
-        bypasses the view's pre-check, so this guard is what actually refuses it here."""
         flag = FeatureFlag.objects.create(
             team=self.team, key="live-flag", name="Live flag", created_by=self.other_user, deleted=False
         )
@@ -1670,6 +1616,56 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
         flag.refresh_from_db()
         self.assertFalse(flag.deleted)
+
+    @parameterized.expand([("integer_pk", "dashboard"), ("uuid_pk", "hog_function/destination")])
+    def test_undo_delete_refuses_a_ref_the_lookup_field_rejects(self, _name, file_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": file_type, "ref": "not-a-valid-ref"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_a_ref_the_lookup_field_rejects_does_not_break_list_or_delete(self, mock_flag):
+        # created_by=None is what an unfiled row looks like, and it's what forces the creator
+        # lookup that pushes the raw ref into the query on the list path
+        entry = FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Broken ref",
+            depth=2,
+            type="dashboard",
+            ref="not-a-number",
+            created_by=None,
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.content)
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.content)
+        self.assertFalse(FileSystem.objects.filter(pk=entry.pk).exists())
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_list_queries_do_not_scale_with_environment_count(self, mock_flag):
+        insight = Insight.objects.create(team=self.team, name="Denied insight", created_by=self.other_user)
+        self._create_access_control(resource="insight", resource_id=str(insight.pk), access_level="none")
+
+        with CaptureQueriesContext(connection) as one_environment:
+            self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        added_environments = 3
+        for _ in range(added_environments):
+            self._create_sibling_team()
+
+        with CaptureQueriesContext(connection) as several_environments:
+            self.client.get(f"/api/projects/{self.team.id}/file_system/")
+
+        extra = len(several_environments.captured_queries) - len(one_environment.captured_queries)
+        # Each added environment costs one access-control preload. Anything beyond that means an
+        # environment is being resolved more than once per request.
+        self.assertLessEqual(extra, added_environments * 2, several_environments.captured_queries)
 
     def test_created_at_filters(self):
         """

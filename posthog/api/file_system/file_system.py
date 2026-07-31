@@ -617,9 +617,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # this whole check exists for - and a folder cascade can span several distinct objects.
         # Group first so each distinct object is locked and counted exactly once, however many
         # rows in this batch reference it.
-        entries_by_group: dict[tuple[int, str, Optional[str]], list[FileSystem]] = {}
+        # A ref-less row backs no shared object of its own (a desktop canvas keeps its source in
+        # `meta`, not in a Dashboard), so it is keyed by its own id rather than pooled with every
+        # other ref-less row of its type. Pooling them would treat unrelated objects as siblings.
+        entries_by_group: dict[tuple[int, str, Optional[str], str], list[FileSystem]] = {}
         for current in entries_to_check:
-            entries_by_group.setdefault((current.team_id, current.type, current.ref), []).append(current)
+            group_key = (current.team_id, current.type, current.ref, "" if current.ref else str(current.id))
+            entries_by_group.setdefault(group_key, []).append(current)
 
         objects_to_delete: builtins.list[tuple[str, str, int]] = []
         reaches_backing_object: dict[UUID, bool] = {}
@@ -629,20 +633,27 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # an unordered queryset) could have two such requests lock the same two objects in
         # opposite order and deadlock, same failure mode `.order_by("id")` below prevents within
         # one object's sibling set.
-        for (team_id, file_type, ref), group in sorted(
-            entries_by_group.items(), key=lambda kv: (*kv[0][:2], kv[0][2] or "")
+        for (team_id, file_type, ref, _row_key), group in sorted(
+            entries_by_group.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])
         ):
-            # Lock every row referencing this object (not just the ones outside ids_to_remove) so
-            # a concurrent request deleting a sibling row locks the same row set in the same
-            # order and blocks on it, rather than each request locking a different subset and
-            # deadlocking against the other.
-            sibling_ids = {
-                row.id
-                for row in FileSystem.objects.select_for_update()
-                .filter(team_id=team_id, type=file_type, ref=ref, shortcut=False)
-                .order_by("id")
-            }
-            remaining = len(sibling_ids - ids_to_remove)
+            if ref is None:
+                # No ref means no shared backing object, so there is no sibling set to count and
+                # nothing for a concurrent delete to race us to. Locking on (team, type, NULL)
+                # would instead row-lock every ref-less row of this type in the team for the rest
+                # of the transaction, serializing unrelated deletes behind this one.
+                remaining = 0
+            else:
+                # Lock every row referencing this object (not just the ones outside ids_to_remove)
+                # so a concurrent request deleting a sibling row locks the same row set in the
+                # same order and blocks on it, rather than each request locking a different subset
+                # and deadlocking against the other.
+                sibling_ids = {
+                    row.id
+                    for row in FileSystem.objects.select_for_update()
+                    .filter(team_id=team_id, type=file_type, ref=ref, shortcut=False)
+                    .order_by("id")
+                }
+                remaining = len(sibling_ids - ids_to_remove)
             # When several rows in this batch reference the same object, only one of them may
             # actually carry the deletion through - otherwise every row in the group would call
             # delete_file_system_object independently, running its hooks and activity logging
@@ -748,7 +759,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = UndoDeleteRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        items = serializer.validated_data["items"]
+        # Each restore locks its target row and holds it to the end of the transaction, so two
+        # requests naming the same objects in opposite order would each hold one and block on the
+        # other. Sorting means every request takes those locks in the same order instead.
+        items = sorted(serializer.validated_data["items"], key=lambda item: (item["type"], item["ref"]))
         undo_results: list[dict[str, str]] = []
 
         with transaction.atomic():
