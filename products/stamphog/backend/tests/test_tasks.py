@@ -16,6 +16,7 @@ from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
 from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
+    _parse_pr_url,
     _upsert_pull_request,
     process_inbox_pr_review,
     process_installation_event,
@@ -920,6 +921,22 @@ def test_inbox_carve_out_requires_task_linkage(team, repo_config):
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0
     mock_execute.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "pr_url,expected",
+    [
+        ("https://github.com/acme/widgets/pull/42", ("acme/widgets", 42)),
+        # The anchor is load-bearing: unanchored, both lookalike shapes below would parse and hand
+        # a caller-writable URL its pick of repo string.
+        ("https://fakegithub.com/acme/widgets/pull/42", None),
+        ("https://evil.example/github.com/acme/widgets/pull/42", None),
+        ("not a url", None),
+    ],
+    ids=["canonical", "lookalike_host", "host_in_path", "garbage"],
+)
+def test_parse_pr_url_only_accepts_the_real_github_host(pr_url, expected):
+    assert _parse_pr_url(pr_url) == expected
 
 
 # Deterministic linkage ids so provenance assertions can name the exact run and report the

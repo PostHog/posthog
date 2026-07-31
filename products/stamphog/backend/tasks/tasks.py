@@ -112,7 +112,10 @@ _AUTHOR_PERMISSION_ALLOW_CACHE_SECONDS = 60
 _AUTHOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
 
 
-_PR_URL_RE = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
+# Anchored to the canonical host so a lookalike ("fakegithub.com", a github.com path segment on
+# another host) never parses; output.pr_url is caller-writable, and the host must not be one more
+# thing downstream checks have to reason about.
+_PR_URL_RE = re.compile(r"^https://github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")
 
 
 def _parse_pr_url(pr_url: str) -> tuple[str, int] | None:
