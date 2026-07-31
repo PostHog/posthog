@@ -177,6 +177,10 @@ class S3Table(FunctionCallTable):
     # Used to attribute query execution back to the source that was synced, for usage telemetry.
     external_data_source_id: Optional[str] = None
     source_type: Optional[str] = None
+    # True when this S3 read backs a materialized view (set at swap time in
+    # DataWarehouseSavedQuery.hogql_definition). Lets workload detection route matview-only
+    # queries to the endpoints cluster without also capturing raw warehouse-source tables.
+    is_materialized_view: bool = False
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
