@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     DELTA_MERGE_CONFLICT_RETRIES,
     DeltaTableHelper,
     _delta_merge_spill_kwargs,
+    _deltalite_write_stats,
     _first_per_pk_table,
     _merge_predicate_ops,
     _realign_decimal_buffers,
@@ -1421,6 +1423,12 @@ class TestDeltaliteWritePath:
         assert wrote is False
         flag.assert_not_called()
 
+    def test_write_stats_flattens_scalar_getters_only(self):
+        # Enumerates scalar attributes (so future crate fields flow through) and drops methods/non-scalars.
+        stats = SimpleNamespace(version=7, rows_inserted=2, files_added=1, _private=9)
+        stats.helper = lambda: None  # callable attribute must be ignored
+        assert _deltalite_write_stats(stats) == {"version": 7, "rows_inserted": 2, "files_added": 1}
+
     @pytest.mark.asyncio
     async def test_falls_back_when_flag_disabled(self):
         with patch(self._FLAG, return_value=False):
@@ -1428,9 +1436,13 @@ class TestDeltaliteWritePath:
 
     @pytest.mark.asyncio
     async def test_writes_via_deltalite_when_enabled(self):
-        helper = self._helper()
+        logger = _make_logger()  # captured so we can inspect the structured log without hitting the typed attr
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(team_id=2, schema_id="sch-1"), logger=logger)
         existing = MagicMock()
-        fake_stats = MagicMock(version=5, rows_inserted=3, rows_updated=2, rows_copied=10)
+        # SimpleNamespace stands in for the pyo3 UpsertStats: predictable scalar getters for the structured log.
+        fake_stats = SimpleNamespace(
+            version=5, partitions_touched=1, rows_inserted=3, rows_updated=2, rows_copied=10, null_pk_rows=0
+        )
         fake_table = MagicMock()
         fake_table.upsert.return_value = fake_stats
         fake_deltalite = MagicMock()
@@ -1454,6 +1466,13 @@ class TestDeltaliteWritePath:
         # PARTITION_KEY is passed as the partition arg when the table is partitioned.
         assert fake_table.upsert.call_args.args[2] == PARTITION_KEY
         existing.update_incremental.assert_called_once()
+        # The commit is logged with the UpsertStats fields as structured keys + a duration, so it's parseable.
+        logger.ainfo.assert_called_once()
+        log_kwargs = logger.ainfo.call_args.kwargs
+        assert log_kwargs["version"] == 5
+        assert log_kwargs["rows_inserted"] == 3
+        assert log_kwargs["partitions_touched"] == 1
+        assert "duration_ms" in log_kwargs
 
     @pytest.mark.asyncio
     async def test_falls_back_when_deltalite_raises(self):

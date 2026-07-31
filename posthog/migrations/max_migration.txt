@@ -1,1 +1,1 @@
-1279_drop_duckgresserverteam_table
+1280_alter_integration_kind
