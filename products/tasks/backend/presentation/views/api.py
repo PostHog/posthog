@@ -76,6 +76,8 @@ from products.tasks.backend.presentation.serializers import (
     StreamReadTokenResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
+    TaskCommentForwardRequestSerializer,
+    TaskCommentForwardResponseSerializer,
     TaskCreateSerializer,
     TaskListQuerySerializer,
     TaskPinRequestSerializer,
@@ -420,6 +422,42 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if pinned is None:
             raise NotFound()
         return Response({"task_id": pk, "pinned": pinned})
+
+    @extend_schema(
+        request=TaskCommentForwardRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskCommentForwardResponseSerializer, description="Comment sent to the agent"
+            ),
+            400: OpenApiResponse(description="No live run, or the comment was already sent"),
+            403: OpenApiResponse(description="Only the task author can send comments to the agent"),
+            404: OpenApiResponse(description="Task or comment not found"),
+        },
+        summary="Send a comment to the agent",
+        description=(
+            "Task author only: forwards a comment written on one of the task's resources "
+            "into its latest live run. The comment is named by id, so its text and author "
+            "are read from the database rather than taken from the caller."
+        ),
+    )
+    @action(detail=True, methods=["post"], url_path="forward_comment", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskCommentForwardRequestSerializer)
+    def forward_comment(self, request, pk=None, **kwargs):
+        comment_id = request.validated_data["comment_id"]
+        kind = tasks_facade.forward_comment(comment_id, pk, self.team_id, self._user_id())
+        if kind == "not_found":
+            raise NotFound()
+        if kind == "forbidden":
+            raise PermissionDenied("Only the task author can send comments to the agent")
+        if kind == "already_forwarded":
+            return Response({"detail": "Comment was already sent to the agent"}, status=status.HTTP_400_BAD_REQUEST)
+        if kind == "no_run":
+            return Response(
+                {"detail": "Task has no active run to receive the comment"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if kind == "signal_failed":
+            return Response({"detail": "Failed to queue comment for the agent"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"comment_id": comment_id, "forwarded": True})
 
     @extend_schema(
         responses={

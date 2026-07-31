@@ -1627,6 +1627,17 @@ class TaskPinResponseSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
 
 
+class TaskCommentForwardRequestSerializer(serializers.Serializer):
+    comment_id = serializers.UUIDField(
+        help_text="Comment to send into the task's live run. Must be a comment written on one of that task's resources."
+    )
+
+
+class TaskCommentForwardResponseSerializer(serializers.Serializer):
+    comment_id = serializers.UUIDField(help_text="Comment that was sent.")
+    forwarded = serializers.BooleanField(help_text="True once the comment has reached the run.")
+
+
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
     repository = serializers.CharField(required=True, help_text="Repository in org/repo format")
     window_days = serializers.IntegerField(required=False, default=7, min_value=1, max_value=30)

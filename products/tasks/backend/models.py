@@ -1022,6 +1022,36 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
 
 
+class TaskCommentForward(TeamScopedRootMixin):
+    """One row per comment sent into a run, so a comment reaches the agent at most once
+    and the trail records who sent it.
+
+    The equivalent for thread messages is a column on the message itself; comments live on
+    the shared comments table, which this product has no business adding columns to.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    # db_constraint=False on the team/user/comment FKs: an FK constraint to those tables
+    # locks them on deploy, and Django still enforces the relation at the app level.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    comment = models.ForeignKey("posthog.Comment", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    run = models.ForeignKey("tasks.TaskRun", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    forwarded_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    forwarded_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_comment_forward"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "comment"], name="task_comment_forward_team_comment_unique")
+        ]
+
+    def __str__(self):
+        return f"Comment {self.comment_id} forwarded to task {self.task_id}"
+
+
 class TaskActivity(TeamScopedRootMixin):
     """One row per (user, task): the latest thing that happened on a task the user is
     involved in, plus whether they have seen it.
@@ -1048,6 +1078,20 @@ class TaskActivity(TeamScopedRootMixin):
     message = models.ForeignKey(
         TaskThreadMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name="activity_rows"
     )
+    # A mention can come from a comment on one of the task's resources rather than from the
+    # thread. Unconstrained and reverse-less to keep this product's rows off the shared
+    # comments table — the feed already tolerates a row whose source has gone.
+    comment = models.ForeignKey(
+        "posthog.Comment",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        # Unindexed on purpose: this table is upserted on every thread message, and nothing
+        # reads it by comment, so the only caller an index would serve is a rare hard delete.
+        db_index=False,
+    )
     kind = models.CharField(max_length=32, choices=Kind)
     activity_at = models.DateTimeField()
     read_at = models.DateTimeField(null=True, blank=True)
@@ -1072,6 +1116,7 @@ class TaskActivity(TeamScopedRootMixin):
         kind: str,
         activity_at: datetime,
         message_id: uuid.UUID | None = None,
+        comment_id: uuid.UUID | None = None,
         actor_id: int | None = None,
     ) -> None:
         """Record the latest activity on ``task_id`` for ``user_id``, newest-wins.
@@ -1089,10 +1134,11 @@ class TaskActivity(TeamScopedRootMixin):
             cursor.execute(
                 f"""
                 INSERT INTO {cls._meta.db_table}
-                       (id, team_id, user_id, task_id, message_id, kind, activity_at, read_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                       (id, team_id, user_id, task_id, message_id, comment_id, kind, activity_at, read_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (team_id, user_id, task_id) DO UPDATE
                    SET message_id = EXCLUDED.message_id,
+                       comment_id = EXCLUDED.comment_id,
                        kind = EXCLUDED.kind,
                        activity_at = EXCLUDED.activity_at,
                        read_at = CASE
@@ -1102,7 +1148,7 @@ class TaskActivity(TeamScopedRootMixin):
                        END
                  WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
                 """,
-                [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
+                [uuid7(), team_id, user_id, task_id, message_id, comment_id, kind, activity_at, read_at],
             )
 
 
