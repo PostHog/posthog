@@ -403,8 +403,12 @@ class ConversionGoalsAggregator:
         # ROAS = revenue from goals marked counts_as_revenue, over the channel's spend. Only when
         # campaign_costs is joined (include_cost_per), since spend is the denominator. Skipped when
         # no goal is flagged as revenue, so the column stays hidden until revenue goals exist.
+        #
+        # A flagged goal only contributes if its column actually holds money. A counting goal
+        # flagged as revenue would put a conversion count in the numerator and render, say, 200
+        # signups against $100 of spend as "ROAS 2.0".
         if include_cost_per:
-            revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue]
+            revenue_processors = [p for p in self.processors if p.goal.counts_as_revenue and p.sums_a_property()]
             if revenue_processors:
                 columns[ROAS_COLUMN] = self._build_roas_column(revenue_processors)
 

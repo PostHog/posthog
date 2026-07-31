@@ -357,6 +357,28 @@ class TestConversionGoalsAggregator(ClickhouseTestMixin, BaseTest):
         assert self.config.get_conversion_goal_column_name(0) not in roas
         assert self.config.total_cost_field in roas
 
+    def test_roas_numerator_skips_revenue_goals_that_count_instead_of_summing(self):
+        goals = [
+            # Flagged as revenue but counts conversions, so its column holds a count, not money.
+            self._create_test_conversion_goal("g0", "Signups", counts_as_revenue=True),
+            self._create_test_conversion_goal(
+                "g1", "Purchases", math=PropertyMathType.SUM, math_property="revenue", counts_as_revenue=True
+            ),
+        ]
+        processors = [self._create_test_processor(goal, i) for i, goal in enumerate(goals)]
+        aggregator = ConversionGoalsAggregator(processors=processors, config=self.config)
+
+        roas = aggregator.get_conversion_goal_columns()[ROAS_COLUMN].expr.to_hogql()
+
+        assert self.config.get_conversion_goal_column_name(1) in roas
+        assert self.config.get_conversion_goal_column_name(0) not in roas
+
+    def test_roas_column_absent_when_every_revenue_goal_counts_instead_of_summing(self):
+        goal = self._create_test_conversion_goal("g0", "Signups", counts_as_revenue=True)
+        aggregator = ConversionGoalsAggregator(processors=[self._create_test_processor(goal, 0)], config=self.config)
+
+        assert ROAS_COLUMN not in aggregator.get_conversion_goal_columns()
+
     def test_coalesce_fallback_columns(self):
         goal = self._create_test_conversion_goal("fallback_test", "Fallback Test")
         processor = self._create_test_processor(goal, 0)
