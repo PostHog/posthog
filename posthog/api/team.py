@@ -465,10 +465,10 @@ class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
     """A conversion goal counted from events."""
 
     # `validate_conversion_goals` rejects a goal without a string name or an explicit kind, so the
-    # documented schema has to require both. `conversion_goal_id` is server-assigned on create.
+    # documented schema has to require both. `conversion_goal_id` stays required like the query
+    # schema: nothing here assigns one, and a goal stored without it fails to rebuild for queries.
     kind: Literal["EventsNode"]
     name: str
-    conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
     fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 
@@ -478,7 +478,6 @@ class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
 
     kind: Literal["ActionsNode"]
     name: str
-    conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
     fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 
@@ -488,7 +487,6 @@ class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
 
     kind: Literal["DataWarehouseNode"]
     name: str
-    conversion_goal_id: str | None = None  # type: ignore[assignment]
     properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
     fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
 

@@ -40100,7 +40100,7 @@ export namespace Schemas {
      * A conversion goal counted from an action.
      */
     export interface MarketingAnalyticsActionConversionGoal {
-      conversion_goal_id?: string | null;
+      conversion_goal_id: string;
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
@@ -40143,7 +40143,7 @@ export namespace Schemas {
      * A conversion goal counted from events.
      */
     export interface MarketingAnalyticsEventConversionGoal {
-      conversion_goal_id?: string | null;
+      conversion_goal_id: string;
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
@@ -40180,7 +40180,7 @@ export namespace Schemas {
      * A conversion goal counted from a data warehouse table.
      */
     export interface MarketingAnalyticsWarehouseConversionGoal {
-      conversion_goal_id?: string | null;
+      conversion_goal_id: string;
       conversion_goal_name: string;
       /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
       counts_as_customer?: boolean | null;
