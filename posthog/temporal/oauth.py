@@ -241,10 +241,9 @@ def create_oauth_access_token_for_user(
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
     if include_mcp_builtin_agent_scope:
-        # Built-in agents use their persisted task provenance and explicit MCP
-        # grants. They must not be able to create or control a generic task run
-        # whose token would inherit the backing member's connections.
-        resolved = [scope for scope in resolved if scope != "task:write"]
+        # Provenance marker: the MCP Store uses it to deny the human/member
+        # surface and route the agent through its explicit gateway grants. It
+        # does not narrow the token's other scopes.
         resolved.append(MCP_BUILT_IN_AGENT_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))

@@ -172,7 +172,7 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
             create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
-    def test_built_in_agent_token_cannot_control_generic_tasks(self) -> None:
+    def test_built_in_agent_scope_is_added_without_narrowing_scopes(self) -> None:
         self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
         user, team = self._create_user_and_team()
 
@@ -184,8 +184,9 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
 
         scopes = set(OAuthAccessToken.objects.get(token=token).scope.split())
         assert MCP_BUILT_IN_AGENT_SCOPE in scopes
+        # The marker is provenance only: built-in agents keep the task tools.
         assert "task:read" in scopes
-        assert "task:write" not in scopes
+        assert "task:write" in scopes
 
 
 class TestCreateWizardOAuthAccessTokenForUser(TestCase):

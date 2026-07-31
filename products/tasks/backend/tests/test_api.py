@@ -234,7 +234,7 @@ class BaseTaskAPITest(TestCase):
         )
 
 
-class TestBuiltInAgentTaskOAuthRestrictions(BaseTaskAPITest):
+class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
     def _built_in_agent_client(self) -> APIClient:
         application = OAuthApplication.objects.create(
             name="Built-in agent sandbox",
@@ -257,44 +257,18 @@ class TestBuiltInAgentTaskOAuthRestrictions(BaseTaskAPITest):
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client
 
-    def test_can_read_tasks_but_cannot_create_or_run_them(self) -> None:
-        task = self.create_task()
+    def test_can_read_and_create_tasks(self) -> None:
+        self.create_task()
         client = self._built_in_agent_client()
 
         assert client.get("/api/projects/@current/tasks/").status_code == status.HTTP_200_OK
-        assert (
-            client.post(
-                "/api/projects/@current/tasks/",
-                {"title": "Child task", "description": "Escape agent grants"},
-                format="json",
-            ).status_code
-            == status.HTTP_403_FORBIDDEN
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Child task", "description": "Follow-up work"},
+            format="json",
         )
-        assert client.post(f"/api/projects/@current/tasks/{task.id}/run/").status_code == status.HTTP_403_FORBIDDEN
-        assert not Task.objects.filter(title="Child task").exists()
-        assert not TaskRun.objects.filter(task=task).exists()
-
-    def test_cannot_create_or_control_nested_runs(self) -> None:
-        task = self.create_task()
-        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        client = self._built_in_agent_client()
-
-        assert (
-            client.post(
-                f"/api/projects/@current/tasks/{task.id}/runs/",
-                {"environment": TaskRun.Environment.CLOUD},
-                format="json",
-            ).status_code
-            == status.HTTP_403_FORBIDDEN
-        )
-        assert (
-            client.post(
-                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/",
-                {"jsonrpc": "2.0", "method": "user_message", "params": {"content": "Continue"}},
-                format="json",
-            ).status_code
-            == status.HTTP_403_FORBIDDEN
-        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Task.objects.filter(title="Child task").exists()
 
     def test_cannot_create_or_run_task_automations(self) -> None:
         automation = self.create_automation()
