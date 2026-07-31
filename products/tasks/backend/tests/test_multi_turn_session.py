@@ -19,6 +19,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
+    TurnPollResult,
     _extract_agent_error,
     create_task_and_trigger,
     poll_for_turn,
@@ -106,9 +107,9 @@ class TestPollForTurnEmptyEndTurn:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            last_message, _, total_lines, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
-        assert last_message == "current-turn-text"
-        assert total_lines == len(turn_1) + len(turn_2_with_text) + len(turn_2_end_turn)
+            turn = await poll_for_turn(fake_task_run, skip_lines=skip)
+        assert turn.last_message == "current-turn-text"
+        assert turn.total_lines == len(turn_1) + len(turn_2_with_text) + len(turn_2_end_turn)
 
     @pytest.mark.asyncio
     async def test_poll_handles_s3_shrink_then_recovery_without_duplicates(self):
@@ -135,16 +136,14 @@ class TestPollForTurnEmptyEndTurn:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            last_message, _, total_lines, printed_lines = await poll_for_turn(
-                fake_task_run, skip_lines=0, output_fn=captured.append, verbose=True
-            )
+            turn = await poll_for_turn(fake_task_run, skip_lines=0, output_fn=captured.append, verbose=True)
 
-        assert last_message == "final-answer"
+        assert turn.last_message == "final-answer"
         # Every raw line streamed exactly once, in log order — no re-emission after the shrink.
         assert captured == poll_3_lines
         # Cursors settled on the final (recovered) line count, not the truncated one.
-        assert total_lines == len(poll_3_lines)
-        assert printed_lines == len(poll_3_lines)
+        assert turn.total_lines == len(poll_3_lines)
+        assert turn.printed_lines == len(poll_3_lines)
 
 
 class TestPollForTurnStaleSalvage:
@@ -166,10 +165,10 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
-        assert total_lines == 2
+        assert turn.last_message == "close-out summary"
+        assert turn.total_lines == 2
 
     @pytest.mark.asyncio
     async def test_salvages_dropped_finalization_after_active_work(self):
@@ -196,10 +195,10 @@ class TestPollForTurnStaleSalvage:
             # STALE_TURN_SALVAGE_SECONDS intentionally NOT patched — exercise the production floor.
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
-        assert total_lines == len(done)
+        assert turn.last_message == "close-out summary"
+        assert turn.total_lines == len(done)
 
     @parameterized.expand(
         [
@@ -227,10 +226,10 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
-        assert total_lines == 2 + len(trailing)
+        assert turn.last_message == "close-out summary"
+        assert turn.total_lines == 2 + len(trailing)
 
     @pytest.mark.asyncio
     async def test_salvages_dropped_finalization_despite_side_channels_arriving_every_poll(self):
@@ -258,9 +257,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
+        assert turn.last_message == "close-out summary"
 
     @pytest.mark.asyncio
     async def test_does_not_salvage_when_console_lines_follow_a_live_tail(self):
@@ -317,9 +316,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "Part-one.Part-two.Part-three."
+        assert turn.last_message == "Part-one.Part-two.Part-three."
 
     @pytest.mark.asyncio
     async def test_does_not_salvage_turn_active_near_deadline(self):
@@ -396,9 +395,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "final answer"
+        assert turn.last_message == "final answer"
 
     @pytest.mark.asyncio
     async def test_salvages_despite_eventually_consistent_short_final_poll(self):
@@ -429,9 +428,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
+        assert turn.last_message == "close-out summary"
 
     @pytest.mark.asyncio
     async def test_salvages_when_finalization_fingerprint_lands_on_reread(self):
@@ -456,9 +455,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
+        assert turn.last_message == "close-out summary"
 
     @pytest.mark.asyncio
     async def test_declines_salvage_when_reread_shows_new_chunk_after_final_poll(self):
@@ -552,9 +551,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "Part-one.Part-two.Part-three."
+        assert turn.last_message == "Part-one.Part-two.Part-three."
 
     @pytest.mark.asyncio
     async def test_salvage_propagates_exhausted_storage_error(self):
@@ -603,9 +602,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
+        assert turn.last_message == "close-out summary"
 
     @pytest.mark.asyncio
     async def test_terminal_status_at_timeout_drains_instead_of_salvaging(self):
@@ -648,10 +647,10 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, total_lines, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "final answer"
-        assert total_lines == len(final)
+        assert turn.last_message == "final answer"
+        assert turn.total_lines == len(final)
 
     @parameterized.expand(
         [
@@ -711,9 +710,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
+        assert turn.last_message == "close-out summary"
 
     @pytest.mark.asyncio
     async def test_failed_progress_after_fingerprint_declines_salvage(self):
@@ -754,9 +753,9 @@ class TestPollForTurnStaleSalvage:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0)
 
-        assert last_message == "close-out summary"
+        assert turn.last_message == "close-out summary"
 
 
 class TestPollForTurnTerminalDrain:
@@ -816,9 +815,9 @@ class TestPollForTurnTerminalDrain:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=skip)
+            turn = await poll_for_turn(fake_task_run, skip_lines=skip)
 
-        assert last_message == "turn-2-partial-answer"
+        assert turn.last_message == "turn-2-partial-answer"
 
     @pytest.mark.asyncio
     async def test_terminal_status_first_turn_still_scans_full_log(self):
@@ -838,9 +837,9 @@ class TestPollForTurnTerminalDrain:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake_task_run),
         ):
-            last_message, _, _, _ = await poll_for_turn(fake_task_run, skip_lines=0)
+            turn = await poll_for_turn(fake_task_run, skip_lines=0)
 
-        assert last_message == "partial-before-death"
+        assert turn.last_message == "partial-before-death"
 
 
 class TestExtractAgentError:
@@ -1064,7 +1063,9 @@ class TestMultiTurnSessionRetry:
 
         with patch(
             "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
-            new=AsyncMock(return_value=(agent_response, None, 10, 5)),
+            new=AsyncMock(
+                return_value=TurnPollResult(last_message=agent_response, full_log=None, total_lines=10, printed_lines=5)
+            ),
         ):
             result = await session.send_followup("hello", _Resp, label="unit")
 
@@ -1080,7 +1081,7 @@ class TestMultiTurnSessionRetry:
         poll_mock = AsyncMock(
             side_effect=[
                 EmptyAgentTurnError("empty", total_lines=12, printed_lines=7),
-                (agent_response, None, 20, 10),
+                TurnPollResult(last_message=agent_response, full_log=None, total_lines=20, printed_lines=10),
             ]
         )
         with patch(
@@ -1188,7 +1189,7 @@ class TestMultiTurnSessionRetry:
             captured_skip_lines.append(skip_lines)
             if len(captured_skip_lines) == 1:
                 raise EmptyAgentTurnError("empty", total_lines=99, printed_lines=50)
-            return (agent_response, None, 120, 60)
+            return TurnPollResult(last_message=agent_response, full_log=None, total_lines=120, printed_lines=60)
 
         with patch(
             "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
@@ -1229,7 +1230,11 @@ class TestMultiTurnSessionStartBranch:
             ),
             patch(
                 "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
-                new=AsyncMock(return_value=(agent_response, None, 1, 1)),
+                new=AsyncMock(
+                    return_value=TurnPollResult(
+                        last_message=agent_response, full_log=None, total_lines=1, printed_lines=1
+                    )
+                ),
             ),
         ):
             kwargs = {"branch": branch} if branch is not None else {}
@@ -1511,9 +1516,9 @@ class TestPollForTurnConnectionDrop:
             patch("products.tasks.backend.logic.services.custom_prompt_internals.close_old_connections") as close_conns,
             patch("products.tasks.backend.models.TaskRun.objects.get", new=get_mock),
         ):
-            last_message, _, _, _ = await poll_for_turn(FakeTaskRun(), skip_lines=0)
+            turn = await poll_for_turn(FakeTaskRun(), skip_lines=0)
 
-        assert last_message == "connection-drop summary"
+        assert turn.last_message == "connection-drop summary"
         # Read was retried after the drop, and the staleness guard ran before each attempt.
         assert get_mock.call_count == 2
         assert close_conns.call_count == 2

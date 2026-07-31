@@ -85,7 +85,7 @@ def _current_period_bounds(organization: Organization | None, now: datetime) -> 
     """The org's active billing period when synced and current, else the calendar month containing `now`."""
     billing_period = organization.current_billing_period if organization else None
     if billing_period:
-        synced = BillingPeriod(start=_as_utc(billing_period[0]), end=_as_utc(billing_period[1]))
+        synced = BillingPeriod(start=_as_utc(billing_period.start), end=_as_utc(billing_period.end))
         if synced.start <= now < synced.end:
             return synced
     return _current_month_bounds(now)

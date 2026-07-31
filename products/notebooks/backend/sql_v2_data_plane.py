@@ -36,7 +36,7 @@ from posthog.models import Team, User
 
 from products.notebooks.backend import frame_store
 from products.notebooks.backend.models import Notebook
-from products.notebooks.backend.sql_v2 import verify_data_plane_token
+from products.notebooks.backend.sql_v2 import DataPlaneClaims, verify_data_plane_token
 from products.notebooks.backend.sql_v2_direct import apply_page_bounds
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2DataPlaneRequestSerializer
 
@@ -76,7 +76,7 @@ def _rows_to_arrow_bytes(
     return sink.getvalue().to_pybytes()
 
 
-def _verify_request_token(request: HttpRequest) -> tuple[str, int, int | None] | JsonResponse:
+def _verify_request_token(request: HttpRequest) -> DataPlaneClaims | JsonResponse:
     authorization = request.headers.get("Authorization", "")
     token = authorization[len("Bearer ") :].strip() if authorization.startswith("Bearer ") else ""
     if not token:
@@ -111,7 +111,6 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
     claims = _verify_request_token(request)
     if isinstance(claims, JsonResponse):
         return claims
-    notebook_short_id, team_id, user_id = claims
 
     try:
         body = json.loads(request.body)
@@ -127,10 +126,10 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         return JsonResponse({"error": f"Invalid request body — {detail}", "detail": serializer.errors}, status=400)
     data = serializer.validated_data
 
-    if not Notebook.objects.filter(team_id=team_id, short_id=notebook_short_id).exists():
+    if not Notebook.objects.filter(team_id=claims.team_id, short_id=claims.notebook_short_id).exists():
         return JsonResponse({"error": "Notebook not found"}, status=404)
-    team = Team.objects.get(id=team_id)
-    user = User.objects.filter(id=user_id).first() if user_id else None
+    team = Team.objects.get(id=claims.team_id)
+    user = User.objects.filter(id=claims.user_id).first() if claims.user_id else None
 
     try:
         # Validate the user's HogQL up front so syntax errors fail here with a clear
@@ -156,12 +155,14 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                     status = enqueue_frame_materialization(
                         team=team,
                         user_id=user.id if user else None,
-                        notebook_short_id=notebook_short_id,
+                        notebook_short_id=claims.notebook_short_id,
                         query=bounded,
                         _test_only_inline=settings.TEST,
                     )
             except Exception:
-                logger.exception("notebook_frame_materialize_enqueue_failed", notebook_short_id=notebook_short_id)
+                logger.exception(
+                    "notebook_frame_materialize_enqueue_failed", notebook_short_id=claims.notebook_short_id
+                )
                 return JsonResponse({"error": "Query could not be scheduled."}, status=500)
             return JsonResponse({"query_id": status.id}, status=202)
         # Degraded mode: the cell still runs over the inline (Redis) transport, clamped at
@@ -169,8 +170,8 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         FRAME_STORE_FALLBACK_COUNTER.inc()
         logger.warning(
             "notebook_frame_store_fallback_inline",
-            notebook_short_id=notebook_short_id,
-            team_id=team_id,
+            notebook_short_id=claims.notebook_short_id,
+            team_id=claims.team_id,
             frame_store_enabled=settings.NOTEBOOKS_FRAME_STORE_ENABLED,
             object_storage_enabled=settings.OBJECT_STORAGE_ENABLED,
         )
@@ -186,7 +187,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                 _test_only_bypass_celery=settings.TEST,
             )
     except Exception:
-        logger.exception("notebook_sql_v2_data_plane_enqueue_failed", notebook_short_id=notebook_short_id)
+        logger.exception("notebook_sql_v2_data_plane_enqueue_failed", notebook_short_id=claims.notebook_short_id)
         return JsonResponse({"error": "Query could not be scheduled."}, status=500)
 
     return JsonResponse({"query_id": status.id}, status=202)
@@ -217,10 +218,9 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
     claims = _verify_request_token(request)
     if isinstance(claims, JsonResponse):
         return claims
-    _notebook_short_id, team_id, _user_id = claims
 
     try:
-        status = get_query_status(team_id=team_id, query_id=query_id)
+        status = get_query_status(team_id=claims.team_id, query_id=query_id)
     except QueryNotFoundError:
         return JsonResponse({"error": "Query not found or expired"}, status=404)
 
@@ -237,9 +237,9 @@ def notebook_sql_v2_data_plane_status(request: HttpRequest, query_id: str) -> Ht
         # above; presign_get additionally refuses keys outside this team's prefix. The
         # presigned URL is a bearer secret — it must never be logged.
         try:
-            presigned_url = frame_store.presign_get(str(object_key), team_id)
+            presigned_url = frame_store.presign_get(str(object_key), claims.team_id)
         except frame_store.FrameStoreError:
-            logger.exception("notebook_frame_presign_failed", team_id=team_id, query_id=query_id)
+            logger.exception("notebook_frame_presign_failed", team_id=claims.team_id, query_id=query_id)
             return JsonResponse({"error": "The frame download could not be prepared. Try re-running."}, status=500)
         return HttpResponseRedirect(presigned_url)
 

@@ -43,6 +43,7 @@ _LAZY = {
     "validate_and_coerce_row_filters": "sources.common.sql",
     "SQLSource": "sources.common.sql.base",
     "extract_available_column_names": "sources.common.sql.metadata",
+    "DottedNameParts": "sources.common.sql.location",
     "fill_missing_from_dotted_name": "sources.common.sql.location",
     "normalize_namespace": "sources.common.sql.location",
     "filter_columns_by_enabled_columns": "sources.common.sql.projection",

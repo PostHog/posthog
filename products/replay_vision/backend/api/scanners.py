@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any, NoReturn, cast
 
 from django.db import IntegrityError
@@ -1017,6 +1018,14 @@ class AffectedCohortResponseSerializer(serializers.Serializer):
     )
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class BulkObserveHeadroom:
+    max_starts: int
+    skip_reason: str
+    team_in_flight: int
+    scanner_in_flight: int
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1211,7 +1220,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # in-flight caps and the remaining monthly quota bounds it; the loser names the skip reason so
         # the user knows which limit they hit. Decrementing a local counter as we start models each new
         # in-flight row without re-querying (a started scan consumes exactly one slot).
-        max_starts, skip_reason, team_rows, scanner_rows = self._bulk_observe_headroom(scanner)
+        headroom = self._bulk_observe_headroom(scanner)
+        # Mutable copies: the CAPPED branch below reassigns both mid-loop.
+        max_starts = headroom.max_starts
+        skip_reason = headroom.skip_reason
         results: list[dict[str, str]] = []
         started = 0
         for session_id in session_ids:
@@ -1225,8 +1237,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 trigger=ObservationTrigger.ON_DEMAND,
                 # Row counts are this request's snapshot; the atomic claim inside makes racing
                 # requests visible to each other, which the snapshot alone cannot.
-                team_in_flight_rows=team_rows,
-                scanner_in_flight_rows=scanner_rows,
+                team_in_flight_rows=headroom.team_in_flight,
+                scanner_in_flight_rows=headroom.scanner_in_flight,
             )
             if outcome is WorkflowStartOutcome.STARTED:
                 started += 1
@@ -1277,9 +1289,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             request=self.request,
         )
 
-    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> tuple[int, str, int, int]:
-        """(max_starts, skip_reason, team_rows, scanner_rows): how many new scans can start, the
-        reason once that's used up, and the row counts reused by the per-start slot claims."""
+    def _bulk_observe_headroom(self, scanner: ReplayScanner) -> BulkObserveHeadroom:
+        """How many new scans can start, the reason once that's used up, and the in-flight
+        row counts reused by the per-start slot claims."""
         team_in_flight = ReplayObservation.in_flight_for_team(self.team_id).count()
         scanner_in_flight = ReplayObservation.in_flight_for_team(self.team_id).filter(scanner_id=scanner.id).count()
         # Enqueued-but-not-yet-persisted scans hold claims instead of rows.
@@ -1296,8 +1308,18 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         quota_limit = in_flight_limit if snapshot.remaining is None else (snapshot.remaining // cost if cost else 0)
         # Report quota as the reason only when it's the strictly tighter limit.
         if quota_limit < in_flight_limit:
-            return quota_limit, "skipped_quota", team_in_flight, scanner_in_flight
-        return in_flight_limit, "skipped_limit", team_in_flight, scanner_in_flight
+            return BulkObserveHeadroom(
+                max_starts=quota_limit,
+                skip_reason="skipped_quota",
+                team_in_flight=team_in_flight,
+                scanner_in_flight=scanner_in_flight,
+            )
+        return BulkObserveHeadroom(
+            max_starts=in_flight_limit,
+            skip_reason="skipped_limit",
+            team_in_flight=team_in_flight,
+            scanner_in_flight=scanner_in_flight,
+        )
 
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
     @action(

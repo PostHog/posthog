@@ -457,10 +457,7 @@ class PipelineV3(Generic[ResumableData]):
                 if field.name not in self._accumulated_pa_schema.names:
                     self._accumulated_pa_schema = self._accumulated_pa_schema.append(field)
 
-        (
-            self._last_incremental_field_value,
-            self._earliest_incremental_field_value,
-        ) = await update_incremental_field_values(
+        incremental_values = await update_incremental_field_values(
             self._schema,
             pa_table,
             self._resource,
@@ -470,6 +467,8 @@ class PipelineV3(Generic[ResumableData]):
             log_prefix="V3 Pipeline: ",
             staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
+        self._last_incremental_field_value = incremental_values.last_value
+        self._earliest_incremental_field_value = incremental_values.earliest_value
 
         await update_row_tracking_after_batch(
             str(self._job.id), self._job.team_id, self._schema.id, pa_table.num_rows, self._logger

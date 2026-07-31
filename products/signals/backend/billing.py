@@ -46,6 +46,8 @@ from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.models.organization import BillingPeriod
+
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
@@ -267,7 +269,7 @@ def refund_ineligibility_reason(
     has_refund: bool,
     billing_exempt: bool,
     billable_run_at: datetime | None,
-    period: tuple[datetime, datetime],
+    period: BillingPeriod,
 ) -> str | None:
     """Why a report can't be refunded right now, or None when a refund would be accepted.
 
@@ -281,8 +283,7 @@ def refund_ineligibility_reason(
         return REFUND_INELIGIBLE_BILLING_EXEMPT
     if billable_run_at is None:
         return REFUND_INELIGIBLE_NO_BILLABLE_PR
-    period_start, period_end = period
-    if not (period_start <= billable_run_at < period_end):
+    if not (period.start <= billable_run_at < period.end):
         return REFUND_INELIGIBLE_OUT_OF_PERIOD
     return None
 
@@ -305,7 +306,7 @@ def credited_refund_credits_for_org(organization_id: str | uuid.UUID, begin: dat
     )
 
 
-def current_billing_period_bounds(organization: "Organization") -> tuple[datetime, datetime]:
+def current_billing_period_bounds(organization: "Organization") -> BillingPeriod:
     """The org's current billing period `[start, end)`, falling back to the current UTC calendar
     month when billing hasn't populated `organization.usage["period"]` (e.g. self-hosted or a
     just-created org). Refund eligibility and the org-wide refund summary both key off this."""
@@ -314,7 +315,7 @@ def current_billing_period_bounds(organization: "Organization") -> tuple[datetim
         return period
     now = timezone.now()
     start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    return (start, start + relativedelta(months=1))
+    return BillingPeriod(start=start, end=start + relativedelta(months=1))
 
 
 def get_signals_billing_credits_by_team(

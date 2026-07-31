@@ -98,14 +98,20 @@ def format_cadence(interval: timedelta) -> str:
     return str(interval)
 
 
-def _adjacency(edges: list[tuple[str, str]]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
-    """Return (children, parents) maps. Edges are (upstream, downstream)."""
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class Adjacency:
+    children: dict[str, list[str]]  # upstream id -> downstream ids
+    parents: dict[str, list[str]]  # downstream id -> upstream ids
+
+
+def _adjacency(edges: list[tuple[str, str]]) -> Adjacency:
+    """Return the children/parents maps. Edges are (upstream, downstream)."""
     children: dict[str, list[str]] = defaultdict(list)
     parents: dict[str, list[str]] = defaultdict(list)
     for upstream, downstream in edges:
         children[upstream].append(downstream)
         parents[downstream].append(upstream)
-    return children, parents
+    return Adjacency(children=children, parents=parents)
 
 
 def compute_effective_cadences(
@@ -120,9 +126,9 @@ def compute_effective_cadences(
     no declared target and no scheduled descendant demanding freshness (the
     ride-downstream opt-out). Source nodes are not expected in `nodes`.
     """
-    children, parents = _adjacency(edges)
+    adj = _adjacency(edges)
     # reverse-topological pass, iterative because recursion overflows on deep chains
-    out_degree = {node: sum(1 for child in children.get(node, []) if child in nodes) for node in nodes}
+    out_degree = {node: sum(1 for child in adj.children.get(node, []) if child in nodes) for node in nodes}
     queue = deque(node for node in nodes if out_degree[node] == 0)
     resolved: dict[str, timedelta | None] = {}
     while queue:
@@ -130,12 +136,12 @@ def compute_effective_cadences(
         candidates: list[timedelta] = []
         if node in declared_targets:
             candidates.append(declared_targets[node])
-        for child in children.get(node, []):
+        for child in adj.children.get(node, []):
             if child in nodes and (child_effective := resolved[child]) is not None:
                 candidates.append(child_effective)
         # min = the finest demand wins (smaller timedelta = fresher)
         resolved[node] = min(candidates) if candidates else None
-        for parent in parents.get(node, []):
+        for parent in adj.parents.get(node, []):
             if parent in nodes:
                 out_degree[parent] -= 1
                 if out_degree[parent] == 0:
@@ -158,9 +164,9 @@ def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, 
     than O(N^2). STREAMING for a derived node with no parents. Nodes in a cycle are omitted
     (callers default them to STREAMING; the scheduling path rejects cycles upstream).
     """
-    children, parents = _adjacency(edges)
+    adj = _adjacency(edges)
     all_ids = set(source_intervals) | {node for edge in edges for node in edge}
-    in_degree = {node: len(parents.get(node, [])) for node in all_ids}
+    in_degree = {node: len(adj.parents.get(node, [])) for node in all_ids}
     queue = deque(node for node in all_ids if in_degree[node] == 0)
     floor: dict[str, timedelta] = {}
     while queue:
@@ -168,8 +174,8 @@ def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, 
         if node in source_intervals:
             floor[node] = source_intervals[node]
         else:
-            floor[node] = min((floor[parent] for parent in parents.get(node, [])), default=STREAMING)
-        for child in children.get(node, []):
+            floor[node] = min((floor[parent] for parent in adj.parents.get(node, [])), default=STREAMING)
+        for child in adj.children.get(node, []):
             in_degree[child] -= 1
             if in_degree[child] == 0:
                 queue.append(child)
@@ -181,17 +187,17 @@ def all_consumer_ceilings(
 ) -> dict[str, timedelta | None]:
     """Every node's consumer ceiling (finest declared target among strict descendants) in one
     reverse pass. None when no descendant declares a target. Cyclic nodes are omitted."""
-    children, parents = _adjacency(edges)
+    adj = _adjacency(edges)
     all_ids = set(declared_targets) | {node for edge in edges for node in edge}
-    out_degree = {node: len(children.get(node, [])) for node in all_ids}
+    out_degree = {node: len(adj.children.get(node, [])) for node in all_ids}
     queue = deque(node for node in all_ids if out_degree[node] == 0)
     ceiling: dict[str, timedelta | None] = {}
     while queue:
         node = queue.popleft()
-        candidates = [declared_targets[child] for child in children.get(node, []) if child in declared_targets]
-        candidates += [c for child in children.get(node, []) if (c := ceiling.get(child)) is not None]
+        candidates = [declared_targets[child] for child in adj.children.get(node, []) if child in declared_targets]
+        candidates += [c for child in adj.children.get(node, []) if (c := ceiling.get(child)) is not None]
         ceiling[node] = min(candidates) if candidates else None
-        for parent in parents.get(node, []):
+        for parent in adj.parents.get(node, []):
             out_degree[parent] -= 1
             if out_degree[parent] == 0:
                 queue.append(parent)

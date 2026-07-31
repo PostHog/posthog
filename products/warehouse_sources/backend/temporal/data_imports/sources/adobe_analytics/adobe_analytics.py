@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 # Adobe IMS issues the access token for OAuth Server-to-Server credentials. JWT ("Service
@@ -214,19 +215,21 @@ def resolve_window(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     today: date,
-) -> tuple[date, date]:
+) -> SyncWindow[date]:
     earliest = today - timedelta(days=MAX_BACKFILL_DAYS)
 
     if should_use_incremental_field and db_incremental_field_last_value is not None:
         last_value = parse_date(db_incremental_field_last_value)
         if last_value is not None:
-            return max(min(last_value - timedelta(days=INCREMENTAL_LOOKBACK_DAYS), today), earliest), today
+            return SyncWindow(
+                start=max(min(last_value - timedelta(days=INCREMENTAL_LOOKBACK_DAYS), today), earliest), end=today
+            )
 
     configured = parse_date(start_date)
     if configured is not None:
-        return max(min(configured, today), earliest), today
+        return SyncWindow(start=max(min(configured, today), earliest), end=today)
 
-    return today - timedelta(days=DEFAULT_BACKFILL_DAYS), today
+    return SyncWindow(start=today - timedelta(days=DEFAULT_BACKFILL_DAYS), end=today)
 
 
 def build_report_body(
@@ -408,7 +411,7 @@ def get_rows(
         yield from _metadata_batches(client, endpoint, report_suite_id, resumable_source_manager, resume)
         return
 
-    start, end = resolve_window(
+    window = resolve_window(
         start_date,
         should_use_incremental_field,
         db_incremental_field_last_value,
@@ -419,8 +422,8 @@ def get_rows(
         report_suite_id,
         (report_dimension or DEFAULT_REPORT_DIMENSION).strip() or DEFAULT_REPORT_DIMENSION,
         parse_metrics(report_metrics),
-        start,
-        end,
+        window.start,
+        window.end,
         resumable_source_manager,
         resume,
         logger,

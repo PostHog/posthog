@@ -356,10 +356,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
         await stage_chunk_for_person_property_sink(self._person_property_sink, index, pa_table)
 
-        (
-            self._last_incremental_field_value,
-            self._earliest_incremental_field_value,
-        ) = await update_incremental_field_values(
+        incremental_values = await update_incremental_field_values(
             self._schema,
             pa_table,
             self._resource,
@@ -367,6 +364,8 @@ class PipelineNonDLT(Generic[ResumableData]):
             self._earliest_incremental_field_value,
             self._logger,
         )
+        self._last_incremental_field_value = incremental_values.last_value
+        self._earliest_incremental_field_value = incremental_values.earliest_value
 
         await update_row_tracking_after_batch(
             self._job.id, self._job.team_id, self._schema.id, pa_table.num_rows, self._logger

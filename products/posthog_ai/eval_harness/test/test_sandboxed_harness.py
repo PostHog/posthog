@@ -18,6 +18,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.live_server import EvalLiveServer
 from products.posthog_ai.eval_harness.harness.providers import ModalProviderStrategy, SandboxProviderStrategy
+from products.tasks.backend.facade.agents import TurnPollResult
 
 
 class _FakeWorkflowHandle:
@@ -149,7 +150,11 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
     _patch_runner_boundaries(
         monkeypatch,
         handle,
-        AsyncMock(return_value=("done", '{"notification": {}}', None, None)),
+        AsyncMock(
+            return_value=TurnPollResult(
+                last_message="done", full_log='{"notification": {}}', total_lines=0, printed_lines=0
+            )
+        ),
     )
 
     case_task = asyncio.create_task(
@@ -223,7 +228,11 @@ async def test_unconfirmed_success_is_an_infrastructure_error(monkeypatch: pytes
     _patch_runner_boundaries(
         monkeypatch,
         handle,
-        AsyncMock(return_value=("done", '{"notification": {}}', None, None)),
+        AsyncMock(
+            return_value=TurnPollResult(
+                last_message="done", full_log='{"notification": {}}', total_lines=0, printed_lines=0
+            )
+        ),
     )
     monkeypatch.setattr(runner, "WORKFLOW_COMPLETION_GRACE_SECONDS", 0.01)
     monkeypatch.setattr(runner, "WORKFLOW_CANCELLATION_GRACE_SECONDS", 0.01)

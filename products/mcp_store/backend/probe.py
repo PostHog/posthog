@@ -250,13 +250,13 @@ def _build_authorize_url(metadata: dict, client_id: str) -> str | None:
     if not isinstance(authorization_endpoint, str) or not authorization_endpoint:
         return None
 
-    _code_verifier, code_challenge = generate_pkce()
+    # The probe never exchanges the code, so the verifier is deliberately discarded.
     query_params = {
         "client_id": client_id,
         "redirect_uri": _probe_redirect_uri(),
         "response_type": "code",
         "state": secrets.token_urlsafe(16),
-        "code_challenge": code_challenge,
+        "code_challenge": generate_pkce().code_challenge,
         "code_challenge_method": "S256",
     }
     if scopes := requested_oauth_scopes(metadata):

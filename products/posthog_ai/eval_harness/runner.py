@@ -111,10 +111,8 @@ async def run_eval_case(
         workflow_id = task_run.get_workflow_id(task.id, task_run.id)
         client = await async_connect()
         handle = client.get_workflow_handle(workflow_id)
-        last_message, full_log_opt, _, _ = await poll_for_turn(
-            task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg)
-        )
-        full_log = full_log_opt or ""
+        turn = await poll_for_turn(task_run, verbose=True, output_fn=lambda msg: logger.info("agent: %s", msg))
+        full_log = turn.full_log or ""
 
         duration = time.monotonic() - start
         logger.info(
@@ -122,7 +120,7 @@ async def run_eval_case(
             case.name,
             duration,
             len(full_log),
-            last_message or "(none)",
+            turn.last_message or "(none)",
         )
         artifacts = _parse_artifacts_from_log(full_log, duration, agent_finished=True)
         completion_task = asyncio.create_task(_finish_workflow(handle, status="completed", reason=None))
