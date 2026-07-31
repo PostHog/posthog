@@ -13,7 +13,6 @@ from PIL import Image
 
 from posthog.models.comment import Comment
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.person.person import Person
 from posthog.models.team import Team
 
 from products.conversations.backend.mailgun import (
@@ -945,6 +944,7 @@ class TestWidgetAckThreading(BaseTest):
             widget_session_id="widget-session",
             distinct_id="verified-distinct-id",
             identity_verified=True,
+            email_from="customer@test.com",
         )
         Comment.objects.create(
             team=self.team,
@@ -956,13 +956,9 @@ class TestWidgetAckThreading(BaseTest):
 
     @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
     @patch("products.conversations.backend.services.email_delivery.send_mime")
-    @patch("products.conversations.backend.services.email_delivery.get_persons_by_distinct_ids")
-    def test_reply_to_ack_lands_on_the_same_ticket(
-        self, mock_persons: MagicMock, mock_send_mime: MagicMock, _mock_sig: MagicMock
-    ):
+    def test_reply_to_ack_lands_on_the_same_ticket(self, mock_send_mime: MagicMock, _mock_sig: MagicMock):
         from products.conversations.backend.services.email_delivery import send_widget_ack_email
 
-        mock_persons.return_value = [Person(team_id=self.team.id, properties={"email": "customer@test.com"})]
         assert send_widget_ack_email(self.ticket) is True
         ack_message_id = EmailMessageMapping.objects.get(ticket=self.ticket).message_id
 

@@ -80,6 +80,17 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
     session_context = serializers.DictField(
         required=False, default=dict, help_text="Session context (replay URL, current URL, etc.)"
     )
+    identity_email = serializers.EmailField(
+        required=False,
+        max_length=254,
+        help_text="Server-attested email for ticket replies (requires identity_email_hash)",
+    )
+    identity_email_hash = serializers.CharField(
+        required=False,
+        min_length=64,
+        max_length=64,
+        help_text="HMAC-SHA256 of 'identity_distinct_id:identity_email' using team secret_api_token",
+    )
 
     def validate(self, data):
         data = super().validate(data)
@@ -89,6 +100,13 @@ class WidgetMessageSerializer(WidgetAuthSerializer):
             data["distinct_id"] = data["identity_distinct_id"]
         elif has_session and not has_identity and "distinct_id" not in data:
             raise serializers.ValidationError("distinct_id is required when using widget_session_id")
+
+        has_email = "identity_email" in data
+        has_email_hash = "identity_email_hash" in data
+        if has_email != has_email_hash:
+            raise serializers.ValidationError("identity_email and identity_email_hash are required together")
+        if has_email and not has_identity:
+            raise serializers.ValidationError("identity_email requires identity_distinct_id and identity_hash")
         return data
 
     def validate_message(self, value):

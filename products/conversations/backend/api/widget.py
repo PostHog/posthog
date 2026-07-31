@@ -7,6 +7,9 @@ Security model:
 - `widget_session_id`: Random UUID generated client-side, stored in localStorage. Used for ACCESS CONTROL.
 - `distinct_id`: PostHog's user identifier. Used for PERSON LINKING only, not access control.
 - `identity_distinct_id` + `identity_hash`: HMAC-signed identity for verified users (opt-in).
+- `identity_email` + `identity_email_hash`: HMAC-signed email claim bound to the verified
+  distinct_id (opt-in, message endpoint only). The only recipient source for widget email replies:
+  person properties and widget traits are client-writable, so neither is trusted for delivery.
 
 Anonymous users are controlled by widget_session_id. Verified users are controlled by distinct_id.
 """
@@ -52,7 +55,7 @@ from products.conversations.backend.cache import (
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import ChannelDetail
 from products.conversations.backend.services.email_delivery import widget_email_replies_enabled
-from products.conversations.backend.services.identity import verify_identity_hash
+from products.conversations.backend.services.identity import verify_identity_email_hash, verify_identity_hash
 from products.conversations.backend.tasks import send_widget_ticket_ack
 
 logger = logging.getLogger(__name__)
@@ -81,6 +84,26 @@ def _verify_identity(data: dict, team: Team) -> str | None:
         raise IdentityVerificationFailed("Invalid identity hash")
 
     return distinct_id
+
+
+def _verify_identity_email(data: dict, team: Team, verified_distinct_id: str | None) -> str | None:
+    """
+    Verify the host-signed email claim bound to the verified distinct_id.
+    Returns the attested email, or None if no claim was made.
+    Raises IdentityVerificationFailed if a claim was attempted but failed.
+    """
+    email = data.get("identity_email")
+    hash_value = data.get("identity_email_hash")
+    if not email or not hash_value:
+        return None
+
+    if verified_distinct_id is None or not team.secret_api_token:
+        raise IdentityVerificationFailed("identity_email requires a verified identity")
+
+    if not verify_identity_email_hash(verified_distinct_id, email, hash_value, team.secret_api_token):
+        raise IdentityVerificationFailed("Invalid identity email hash")
+
+    return email
 
 
 class WidgetMessageView(APIView):
@@ -148,6 +171,7 @@ class WidgetMessageView(APIView):
 
         try:
             verified_distinct_id = _verify_identity(serializer.validated_data, team)
+            verified_email = _verify_identity_email(serializer.validated_data, team, verified_distinct_id)
         except IdentityVerificationFailed:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -209,6 +233,9 @@ class WidgetMessageView(APIView):
                 if verified_distinct_id is not None:
                     ticket.identity_verified = True
 
+                if verified_email and not ticket.email_from and widget_email_replies_enabled(team):
+                    ticket.email_from = verified_email
+
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
                 ticket.save(
@@ -219,6 +246,7 @@ class WidgetMessageView(APIView):
                         "session_context",
                         "unread_team_count",
                         "identity_verified",
+                        "email_from",
                         "updated_at",
                     ]
                 )
@@ -246,6 +274,7 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
                 identity_verified=verified_distinct_id is not None,
+                email_from=verified_email if (verified_email and widget_email_replies_enabled(team)) else None,
             )
 
             try:
@@ -267,7 +296,7 @@ class WidgetMessageView(APIView):
         # explicit invalidation here since the signal doesn't cover it.
         invalidate_unread_count_cache(team.id)
 
-        if not ticket_id and verified_distinct_id is not None and widget_email_replies_enabled(team):
+        if not ticket_id and verified_email is not None and widget_email_replies_enabled(team):
             new_ticket_id = str(ticket.id)
             transaction.on_commit(
                 lambda: cast(Any, send_widget_ticket_ack).delay(ticket_id=new_ticket_id, team_id=team.id)

@@ -8,7 +8,6 @@ from django.db import transaction
 from parameterized import parameterized
 
 from posthog.models.comment import Comment
-from posthog.models.person.person import Person
 
 from products.conversations.backend.models import EmailChannel, EmailMessageMapping, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel
@@ -470,8 +469,6 @@ class TestEmailReplySignalGuard(BaseTest):
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
 class TestWidgetEmailLegSignal(BaseTest):
-    PERSON_LOOKUP = "products.conversations.backend.services.email_delivery.get_persons_by_distinct_ids"
-
     def setUp(self):
         super().setUp()
         self.team.conversations_settings = {"email_enabled": True, "widget_email_replies_enabled": True}
@@ -491,6 +488,7 @@ class TestWidgetEmailLegSignal(BaseTest):
             widget_session_id=str(uuid.uuid4()),
             distinct_id="verified-distinct-id",
             identity_verified=True,
+            email_from="customer@external.com",
         )
         Comment.objects.create(
             team=self.team,
@@ -499,9 +497,6 @@ class TestWidgetEmailLegSignal(BaseTest):
             content="  My  dashboards\nare broken  ",
             item_context={"author_type": "customer", "is_private": False},
         )
-
-    def _persons(self, email: str | None):
-        return [Person(team_id=self.team.id, properties={"email": email} if email is not None else {})]
 
     def _reply(self) -> Comment:
         return Comment.objects.create(
@@ -514,8 +509,7 @@ class TestWidgetEmailLegSignal(BaseTest):
         )
 
     def test_widget_reply_creates_outbox_and_stamps_ticket(self, _mock_on_commit):
-        with patch(self.PERSON_LOOKUP, return_value=self._persons("customer@external.com")):
-            self._reply()
+        self._reply()
 
         assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 1
         self.ticket.refresh_from_db()
@@ -526,20 +520,18 @@ class TestWidgetEmailLegSignal(BaseTest):
 
     @parameterized.expand(
         [
-            ("setting_absent", {"email_enabled": True}, {}, {}, "customer@external.com"),
-            ("setting_false", {"email_enabled": True, "widget_email_replies_enabled": False}, {}, {}, "c@ext.com"),
-            ("setting_non_bool", {"email_enabled": True, "widget_email_replies_enabled": "false"}, {}, {}, "c@ext.com"),
-            ("identity_unverified", None, {"identity_verified": False}, {}, "customer@external.com"),
-            ("identity_unknown", None, {"identity_verified": None}, {}, "customer@external.com"),
-            ("channel_not_default", None, {}, {"is_default": False}, "customer@external.com"),
-            ("channel_unverified", None, {}, {"domain_verified": False}, "customer@external.com"),
-            ("person_has_no_email", None, {}, {}, None),
-            ("person_email_invalid", None, {}, {}, "not-an-email"),
-            ("no_person_found", None, {}, {}, "__none__"),
+            ("setting_absent", {"email_enabled": True}, {}, {}),
+            ("setting_false", {"email_enabled": True, "widget_email_replies_enabled": False}, {}, {}),
+            ("setting_non_bool", {"email_enabled": True, "widget_email_replies_enabled": "false"}, {}, {}),
+            ("identity_unverified", None, {"identity_verified": False}, {}),
+            ("identity_unknown", None, {"identity_verified": None}, {}),
+            ("channel_not_default", None, {}, {"is_default": False}),
+            ("channel_unverified", None, {}, {"domain_verified": False}),
+            ("no_attested_email", None, {"email_from": None}, {}),
         ]
     )
     def test_widget_email_leg_not_created(
-        self, _mock_on_commit, _name, settings_override, ticket_override, channel_override, person_email
+        self, _mock_on_commit, _name, settings_override, ticket_override, channel_override
     ):
         if settings_override is not None:
             self.team.conversations_settings = settings_override
@@ -553,34 +545,15 @@ class TestWidgetEmailLegSignal(BaseTest):
                 setattr(self.config, field, field_value)
             self.config.save(update_fields=list(channel_override))
 
-        persons = [] if person_email == "__none__" else self._persons(person_email)
-        with patch(self.PERSON_LOOKUP, return_value=persons):
-            reply = self._reply()
+        reply = self._reply()
 
         assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 0
         assert Comment.objects.filter(id=reply.id).exists()
         self.ticket.refresh_from_db()
-        assert self.ticket.email_from is None
         assert self.ticket.email_config_id is None
-
-    def test_person_lookup_failure_is_isolated(self, _mock_on_commit):
-        with patch(self.PERSON_LOOKUP, side_effect=Exception("personhog unavailable")):
-            reply = self._reply()
-
-        assert Comment.objects.filter(id=reply.id).exists()
-        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 0
-
-    def test_stamped_ticket_skips_person_lookup(self, _mock_on_commit):
-        with patch(self.PERSON_LOOKUP, return_value=self._persons("customer@external.com")) as mock_lookup:
-            self._reply()
-            self._reply()
-
-        mock_lookup.assert_called_once()
-        assert EmailOutboxMessage.objects.filter(ticket=self.ticket).count() == 2
 
 
 class TestWidgetAckEmail(BaseTest):
-    PERSON_LOOKUP = "products.conversations.backend.services.email_delivery.get_persons_by_distinct_ids"
     SEND_MIME = "products.conversations.backend.services.email_delivery.send_mime"
 
     def setUp(self):
@@ -602,6 +575,7 @@ class TestWidgetAckEmail(BaseTest):
             widget_session_id=str(uuid.uuid4()),
             distinct_id="verified-distinct-id",
             identity_verified=True,
+            email_from="customer@external.com",
         )
         Comment.objects.create(
             team=self.team,
@@ -610,9 +584,6 @@ class TestWidgetAckEmail(BaseTest):
             content="Dashboards are broken",
             item_context={"author_type": "customer", "is_private": False},
         )
-
-    def _persons(self, email: str | None = "customer@external.com"):
-        return [Person(team_id=self.team.id, properties={"email": email} if email else {})]
 
     def _send(self):
         from products.conversations.backend.services.email_delivery import send_widget_ack_email
@@ -624,10 +595,7 @@ class TestWidgetAckEmail(BaseTest):
         self.ticket.refresh_from_db()
         stats_before = (self.ticket.message_count, self.ticket.unread_customer_count, self.ticket.last_message_text)
 
-        with (
-            patch(self.PERSON_LOOKUP, return_value=self._persons()),
-            patch(self.SEND_MIME) as mock_send_mime,
-        ):
+        with patch(self.SEND_MIME) as mock_send_mime:
             assert self._send() is True
 
         mock_send_mime.assert_called_once()
@@ -660,10 +628,7 @@ class TestWidgetAckEmail(BaseTest):
         }
         self.team.save()
 
-        with (
-            patch(self.PERSON_LOOKUP, return_value=self._persons()),
-            patch(self.SEND_MIME) as mock_send_mime,
-        ):
+        with patch(self.SEND_MIME) as mock_send_mime:
             assert self._send() is True
 
         mime = mock_send_mime.call_args[0][1]
@@ -672,15 +637,15 @@ class TestWidgetAckEmail(BaseTest):
 
     @parameterized.expand(
         [
-            ("setting_disabled", {"email_enabled": True}, {}, {}, "customer@external.com"),
-            ("setting_non_bool", {"email_enabled": True, "widget_email_replies_enabled": "false"}, {}, {}, "c@e.com"),
-            ("identity_unverified", None, {"identity_verified": False}, {}, "customer@external.com"),
-            ("channel_not_default", None, {}, {"is_default": False}, "customer@external.com"),
-            ("channel_unverified", None, {}, {"domain_verified": False}, "customer@external.com"),
-            ("person_has_no_email", None, {}, {}, None),
+            ("setting_disabled", {"email_enabled": True}, {}, {}),
+            ("setting_non_bool", {"email_enabled": True, "widget_email_replies_enabled": "false"}, {}, {}),
+            ("identity_unverified", None, {"identity_verified": False}, {}),
+            ("channel_not_default", None, {}, {"is_default": False}),
+            ("channel_unverified", None, {}, {"domain_verified": False}),
+            ("no_attested_email", None, {"email_from": None}, {}),
         ]
     )
-    def test_ack_not_sent(self, _name, settings_override, ticket_override, channel_override, person_email):
+    def test_ack_not_sent(self, _name, settings_override, ticket_override, channel_override):
         if settings_override is not None:
             self.team.conversations_settings = settings_override
             self.team.save()
@@ -693,20 +658,14 @@ class TestWidgetAckEmail(BaseTest):
                 setattr(self.config, field, field_value)
             self.config.save(update_fields=list(channel_override))
 
-        with (
-            patch(self.PERSON_LOOKUP, return_value=self._persons(person_email)),
-            patch(self.SEND_MIME) as mock_send_mime,
-        ):
+        with patch(self.SEND_MIME) as mock_send_mime:
             assert self._send() is False
 
         mock_send_mime.assert_not_called()
         assert not EmailMessageMapping.objects.filter(ticket=self.ticket).exists()
 
     def test_ack_is_idempotent_once_a_thread_anchor_exists(self):
-        with (
-            patch(self.PERSON_LOOKUP, return_value=self._persons()),
-            patch(self.SEND_MIME) as mock_send_mime,
-        ):
+        with patch(self.SEND_MIME) as mock_send_mime:
             assert self._send() is True
             assert self._send() is False
 

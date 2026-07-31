@@ -11,7 +11,7 @@ from posthog.models.comment import Comment
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import ChannelDetail, Status
-from products.conversations.backend.services.identity import compute_identity_hash
+from products.conversations.backend.services.identity import compute_identity_email_hash, compute_identity_hash
 
 
 class TestWidgetAPI(BaseTest):
@@ -613,6 +613,8 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.distinct_id = "user_123"
         self.identity_hash = compute_identity_hash(self.distinct_id, self.secret)
+        self.identity_email = "customer@external.com"
+        self.identity_email_hash = compute_identity_email_hash(self.distinct_id, self.identity_email, self.secret)
         self.widget_session_id = str(uuid.uuid4())
 
         self.client = APIClient()
@@ -699,15 +701,14 @@ class TestWidgetIdentityVerification(BaseTest):
 
     @parameterized.expand(
         [
-            ("verified_with_setting_on", True, True, 1),
-            ("verified_with_setting_off", True, False, 0),
-            ("anonymous_with_setting_on", False, True, 0),
+            ("email_claim_with_setting_on", "email_claim", True, 1),
+            ("email_claim_with_setting_off", "email_claim", False, 0),
+            ("verified_without_email_claim", "identity_only", True, 0),
+            ("anonymous_with_setting_on", "anonymous", True, 0),
         ]
     )
     @patch("products.conversations.backend.api.widget.send_widget_ticket_ack")
-    def test_ack_enqueued_only_for_verified_tickets_when_enabled(
-        self, _name, verified, setting_on, expected_calls, mock_ack
-    ):
+    def test_ack_enqueued_only_for_attested_email_when_enabled(self, _name, mode, setting_on, expected_calls, mock_ack):
         if setting_on:
             self.team.conversations_settings = {
                 **self.team.conversations_settings,
@@ -715,11 +716,15 @@ class TestWidgetIdentityVerification(BaseTest):
             }
             self.team.save()
 
-        payload = (
-            {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash}
-            if verified
-            else {"widget_session_id": self.widget_session_id, "distinct_id": self.distinct_id}
-        )
+        if mode == "anonymous":
+            payload = {"widget_session_id": self.widget_session_id, "distinct_id": self.distinct_id}
+        else:
+            payload = {"identity_distinct_id": self.distinct_id, "identity_hash": self.identity_hash}
+            if mode == "email_claim":
+                payload.update(
+                    identity_email=self.identity_email,
+                    identity_email_hash=self.identity_email_hash,
+                )
         with self.captureOnCommitCallbacks(execute=True):
             response = self.client.post(
                 "/api/conversations/v1/widget/message",
@@ -744,6 +749,8 @@ class TestWidgetIdentityVerification(BaseTest):
                 {
                     "identity_distinct_id": self.distinct_id,
                     "identity_hash": self.identity_hash,
+                    "identity_email": self.identity_email,
+                    "identity_email_hash": self.identity_email_hash,
                     "message": "Adding more detail",
                     "ticket_id": str(ticket.id),
                 },
@@ -751,6 +758,107 @@ class TestWidgetIdentityVerification(BaseTest):
             )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_ack.delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("setting_on", True, "customer@external.com"),
+            ("setting_off", False, None),
+        ]
+    )
+    def test_email_claim_stamps_new_ticket_only_when_setting_enabled(self, _name, setting_on, expected_email_from):
+        if setting_on:
+            self.team.conversations_settings = {
+                **self.team.conversations_settings,
+                "widget_email_replies_enabled": True,
+            }
+            self.team.save()
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                "identity_email": self.identity_email,
+                "identity_email_hash": self.identity_email_hash,
+                "message": "Hello",
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket = Ticket.objects.get(id=response.json()["ticket_id"])
+        self.assertEqual(ticket.email_from, expected_email_from)
+
+    def test_email_claim_stamps_existing_ticket_on_followup(self):
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "widget_email_replies_enabled": True,
+        }
+        self.team.save()
+        ticket = self._create_ticket()
+        self.assertIsNone(ticket.email_from)
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+                "identity_email": self.identity_email,
+                "identity_email_hash": self.identity_email_hash,
+                "message": "Adding more detail",
+                "ticket_id": str(ticket.id),
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.email_from, self.identity_email)
+
+    @parameterized.expand(
+        [
+            ("wrong_hash", {"identity_email_hash": "0" * 64}, status.HTTP_403_FORBIDDEN),
+            ("hash_for_other_email", {"identity_email": "attacker@evil.com"}, status.HTTP_403_FORBIDDEN),
+            ("email_without_hash", {"identity_email_hash": None}, status.HTTP_400_BAD_REQUEST),
+            ("hash_without_email", {"identity_email": None}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_invalid_email_claim_rejected(self, _name, overrides, expected_status):
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "widget_email_replies_enabled": True,
+        }
+        self.team.save()
+
+        payload = {
+            "identity_distinct_id": self.distinct_id,
+            "identity_hash": self.identity_hash,
+            "identity_email": self.identity_email,
+            "identity_email_hash": self.identity_email_hash,
+            "message": "Hello",
+        }
+        for key, value in overrides.items():
+            if value is None:
+                payload.pop(key)
+            else:
+                payload[key] = value
+
+        response = self.client.post("/api/conversations/v1/widget/message", payload, **self._get_headers())
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(Ticket.objects.filter(team=self.team).count(), 0)
+
+    def test_email_claim_without_identity_rejected(self):
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            {
+                "widget_session_id": self.widget_session_id,
+                "distinct_id": self.distinct_id,
+                "identity_email": self.identity_email,
+                "identity_email_hash": self.identity_email_hash,
+                "message": "Hello",
+            },
+            **self._get_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Ticket.objects.filter(team=self.team).count(), 0)
 
     def test_anonymous_message_creates_unverified_ticket(self):
         # A widget_session_id-only (no HMAC) request is not server-attested.

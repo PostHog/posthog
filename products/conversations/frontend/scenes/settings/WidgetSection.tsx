@@ -102,11 +102,11 @@ export function WidgetSection(): JSX.Element {
                         <p className="text-xs text-muted-alt">
                             Also send your replies by email, so customers can respond from their inbox instead of
                             returning to your app. Their email replies appear in the same ticket. This applies to
-                            tickets where the customer's identity is verified and their profile has an email address.
+                            tickets where the customer's identity is verified and includes a signed email address.
                         </p>
                     </div>
                     <LemonSwitch
-                        checked={!!currentTeam?.conversations_settings?.widget_email_replies_enabled}
+                        checked={currentTeam?.conversations_settings?.widget_email_replies_enabled === true}
                         onChange={(checked) => {
                             updateCurrentTeam({
                                 conversations_settings: {
@@ -123,7 +123,7 @@ export function WidgetSection(): JSX.Element {
                     />
                 </div>
 
-                {currentTeam?.conversations_settings?.widget_email_replies_enabled && (
+                {currentTeam?.conversations_settings?.widget_email_replies_enabled === true && (
                     <div className="flex items-start gap-4 justify-between pl-4">
                         <div>
                             <label className="w-40 shrink-0 font-medium">Acknowledgment email</label>

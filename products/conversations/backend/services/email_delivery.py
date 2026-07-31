@@ -3,14 +3,10 @@ import html as html_mod
 from email.utils import formataddr, make_msgid
 
 from django.core import mail
-from django.core.exceptions import ValidationError
-from django.core.validators import validate_email
 
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
-from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.conversations.backend.mailgun import send_mime
 from products.conversations.backend.models import Channel, EmailChannel, EmailMessageMapping
@@ -34,30 +30,6 @@ def widget_email_replies_enabled(team: Team) -> bool:
 def get_default_verified_email_channel(team: Team) -> EmailChannel | None:
     """Resolve the team's send-from identity for tickets that didn't pick a channel."""
     return EmailChannel.objects.filter(team=team, is_default=True, domain_verified=True).first()
-
-
-def resolve_verified_customer_email(team: Team, ticket: Ticket) -> str | None:
-    """Resolve the requester's email from the attested person profile, never from widget traits."""
-    if ticket.identity_verified is not True or not ticket.distinct_id:
-        return None
-
-    with personhog_caller_tag("conversations/widget-email-leg"):
-        persons = get_persons_by_distinct_ids(team.id, [ticket.distinct_id], distinct_id_limit=0)
-
-    if not persons:
-        return None
-
-    email = (persons[0].properties or {}).get("email")
-    if not isinstance(email, str):
-        return None
-
-    email = email.strip()
-    try:
-        validate_email(email)
-    except ValidationError:
-        return None
-
-    return email
 
 
 def get_first_customer_comment(ticket: Ticket) -> Comment | None:
@@ -87,20 +59,22 @@ def _derive_email_subject(ticket: Ticket) -> str | None:
 
 
 def ensure_widget_email_leg(ticket: Ticket) -> bool:
-    """Stamp a widget ticket with the fields the email outbox needs, and report whether it can send."""
-    if ticket.email_from and ticket.email_config and ticket.email_config.domain_verified:
+    """Stamp a widget ticket with the fields the email outbox needs, and report whether it can send.
+
+    Never resolve a recipient here: email_from comes only from the host-signed email
+    claim at widget-message time. Person properties and widget traits are client-writable.
+    """
+    if ticket.identity_verified is not True or not ticket.email_from:
+        return False
+
+    if ticket.email_config and ticket.email_config.domain_verified:
         return True
 
     channel = get_default_verified_email_channel(ticket.team)
     if not channel:
         return False
 
-    email = ticket.email_from or resolve_verified_customer_email(ticket.team, ticket)
-    if not email:
-        return False
-
-    update_fields = ["email_from", "email_config", "updated_at"]
-    ticket.email_from = email
+    update_fields = ["email_config", "updated_at"]
     ticket.email_config = channel
 
     if not ticket.email_subject:
