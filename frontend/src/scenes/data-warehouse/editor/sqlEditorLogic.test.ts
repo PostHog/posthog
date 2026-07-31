@@ -112,6 +112,34 @@ const MOCK_INSIGHT: QueryBasedInsightModel = {
     user_access_level: 'none',
 } as QueryBasedInsightModel
 
+const MOCK_BUILDER_INSIGHT_SHORT_ID = 'bldr01' as InsightShortId
+
+// Mirrors a real builder insight: compiled SQL in source.query, self-consistent builder config
+const MOCK_BUILDER_INSIGHT_QUERY: DataVisualizationNode = {
+    kind: NodeKind.DataVisualizationNode,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT\n    event AS event,\n    count(properties) AS count_properties\nFROM events_copied\nGROUP BY event\nORDER BY event ASC',
+    },
+    display: ChartDisplayType.ActionsBar,
+    builder: {
+        enabled: true,
+        baseQuery: 'select * from events_copied limit 300000;',
+        baseView: 'events_copied',
+        rows: [],
+        columns: [{ column: 'event' }],
+        values: [{ column: 'properties', aggregation: 'count' }],
+    },
+}
+
+const MOCK_BUILDER_INSIGHT: QueryBasedInsightModel = {
+    ...MOCK_INSIGHT,
+    id: 77,
+    short_id: MOCK_BUILDER_INSIGHT_SHORT_ID,
+    name: 'Rows by event',
+    query: MOCK_BUILDER_INSIGHT_QUERY,
+}
+
 // An AI-created insight: no explicit name, only a derived one (the API returns name: null
 // even though the frontend type declares it as string)
 const MOCK_DERIVED_NAME_INSIGHT: QueryBasedInsightModel = {
@@ -211,6 +239,9 @@ describe('sqlEditorLogic', () => {
                     }
                     if (shortId === MOCK_LEGACY_CONNECTION_INSIGHT.short_id) {
                         return [200, { results: [MOCK_LEGACY_CONNECTION_INSIGHT] }]
+                    }
+                    if (shortId === MOCK_BUILDER_INSIGHT_SHORT_ID) {
+                        return [200, { results: [MOCK_BUILDER_INSIGHT] }]
                     }
                     return [200, { results: [] }]
                 },
@@ -1199,6 +1230,42 @@ describe('sqlEditorLogic', () => {
 
             expect(logic.values.lastRunQuery?.source.query).toEqual('SELECT plan FROM payments')
             expect(logic.values.sourceQuery.source.query).toEqual(compiled)
+        })
+
+        it('keeps an adopted base through tab flips after opening a builder insight from the URL', async () => {
+            // Reproduces: open a builder insight, type a new base, Run, flip Visualization/Source —
+            // the edit must survive; the URL sync on tab changes must not re-open the insight and
+            // revert the buffer to the stored base
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR], {
+                [FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR]: true,
+            })
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            openInsightByUrl(MOCK_BUILDER_INSIGHT_SHORT_ID)
+            await expectLogic(logic).toDispatchActions(['editInsight', 'createTab']).toFinishAllListeners()
+
+            expect(logic.values.queryInput).toEqual('select * from events_copied limit 300000;')
+
+            const edited = 'select toDate(timestamp) as day, count() from events group by day'
+            logic.actions.setQueryInput(edited)
+            logic.actions.runQuery()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.sourceQuery.builder?.baseQuery).toEqual(edited)
+            expect(logic.values.basePreviewSource?.query).toEqual(edited)
+
+            logic.actions.setActiveTab(OutputTab.Visualization)
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setActiveTab(OutputTab.Results)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.queryInput).toEqual(edited)
+            expect(logic.values.sourceQuery.builder?.baseQuery).toEqual(edited)
         })
 
         it('adopts an edited buffer as the new base on a whole-buffer run of a builder tab', async () => {
