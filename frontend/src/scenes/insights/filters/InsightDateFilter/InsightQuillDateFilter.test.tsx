@@ -12,12 +12,13 @@ import { FunnelsQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-gen
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
+import type { IsoDayOfWeek } from './daysOfWeekFilterUtils'
 import { InsightQuillDateFilter } from './InsightQuillDateFilter'
 
 const Insight123 = '123' as InsightShortId
 const insightProps = { dashboardItemId: Insight123 }
 
-function makeTrendsQuery(daysOfWeek: number[] | null = null): TrendsQuery {
+function makeTrendsQuery(daysOfWeek: IsoDayOfWeek[] | null = null): TrendsQuery {
     return {
         kind: NodeKind.TrendsQuery,
         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
@@ -25,7 +26,7 @@ function makeTrendsQuery(daysOfWeek: number[] | null = null): TrendsQuery {
     }
 }
 
-function makeFunnelsStepsQuery(daysOfWeek: number[] | null = null): FunnelsQuery {
+function makeFunnelsStepsQuery(daysOfWeek: IsoDayOfWeek[] | null = null): FunnelsQuery {
     return {
         kind: NodeKind.FunnelsQuery,
         series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
