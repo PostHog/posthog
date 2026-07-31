@@ -19,7 +19,6 @@ import {
     buildKpiWindow,
     buildToolDailySeries,
     deltaPct,
-    lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
@@ -216,27 +215,6 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(result.successes).toHaveLength(bucketKeys.length)
             expect(result.errors).toHaveLength(bucketKeys.length)
             expect(result.successes).toEqual([0, 5, 0])
-        })
-    })
-
-    describe('lastBucketIsInProgress', () => {
-        const tz = 'UTC'
-        const keys = ['2026-06-27 00:00:00', '2026-06-28 00:00:00', '2026-06-29 00:00:00']
-
-        it('flags the tail when the last bucket is the interval containing now', () => {
-            const now = dayjs.tz('2026-06-29 09:15:00', tz)
-            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
-        })
-
-        it('leaves the tail solid when the window ends in the past', () => {
-            const now = dayjs.tz('2026-07-05 09:15:00', tz)
-            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(false)
-        })
-
-        it('does not dash when there is no segment to dash', () => {
-            const now = dayjs.tz('2026-06-29 09:15:00', tz)
-            expect(lastBucketIsInProgress(['2026-06-29 00:00:00'], tz, 'day', now)).toBe(false)
-            expect(lastBucketIsInProgress([], tz, 'day', now)).toBe(false)
         })
     })
 
