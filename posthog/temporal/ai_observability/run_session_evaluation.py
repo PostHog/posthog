@@ -1,9 +1,9 @@
 """Session-level evaluation: fetch, payload caps, Hog globals and judge transcript.
 
-Sits beside `run_trace_evaluation` rather than inside it because the shared post-settle
-activities still live there (see the spec's deferred module move) and a session module that
-imported them while they imported it back would be a cycle. The settle phase and the emit
-activity are shared; only the fetch-and-evaluate half is session-specific.
+Sits beside `run_trace_evaluation` rather than inside it because the shared emit activity lives
+there, and this module already imports a constant from it; if `run_trace_evaluation` ever imported
+something back from here, the two would cycle. The settle phase and the emit activity are shared;
+only the fetch-and-evaluate half is session-specific.
 """
 
 from dataclasses import dataclass
@@ -62,10 +62,16 @@ _SESSION_SKIP_REASONING = {
     ),
 }
 
+# Matches the ai_events table's default retention_days (posthog/clickhouse/hcl/roles/ai_events).
+# A session that started before this can never be fetched whole regardless of how the lookback is
+# computed, so it doubles as the floor on how far back a fetch is allowed to search.
+AI_EVENTS_RETENTION_DAYS = 30
+
 # Structural activity only, matching the settle poll: $ai_evaluation / $ai_feedback / $ai_metric
-# are post-hoc annotations and are not part of the unit under evaluation.
+# are post-hoc annotations and are not part of the unit under evaluation. minOrNull(timestamp)
+# rides the same scan as the count, so finding the session's real start costs nothing extra.
 _SESSION_EVENT_COUNT_SQL = """
-SELECT count() AS event_count
+SELECT count() AS event_count, minOrNull(timestamp) AS first_seen
 FROM posthog.ai_events AS ai_events
 WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_trace')
   AND session_id = {session_id}
@@ -75,10 +81,13 @@ WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_trace')
 
 
 def session_fetch_lookback(max_age_seconds: int) -> timedelta:
-    """How far back from the workflow start to look for session events.
+    """How far back the settle poll's liveness/runaway-count check searches for recent activity.
 
-    A session can have begun well before the evaluation's condition first matched, so the window
-    has to cover the whole settle budget rather than the trace path's fixed 24h.
+    Not used for the fetch's own `date_from`: `max_age_seconds` is a forward budget (how long the
+    workflow waits after the first matching generation), which says nothing about how long the
+    session was already running, so `fetch_session_for_evaluation` derives its window from the
+    session's actual first event instead. This lookback only needs to cover the settle window
+    itself, which is what `check_session_settled_activity` uses it for.
     """
     return max(TRACE_EVENTS_LOOKBACK, timedelta(seconds=max_age_seconds))
 
@@ -90,8 +99,15 @@ class SessionFetchOutcome:
     event_count: int
 
 
-def _count_session_events(team: Team, session_id: str, date_from: datetime, date_to: datetime) -> int:
-    """Cheap preflight so a runaway session id is skipped before pulling its payload.
+@dataclass
+class _SessionEventCount:
+    event_count: int
+    first_seen: datetime | None
+
+
+def _count_session_events(team: Team, session_id: str, date_from: datetime, date_to: datetime) -> _SessionEventCount:
+    """Cheap preflight so a runaway session id is skipped before pulling its payload, and the
+    source of the session's real start time (see `fetch_session_for_evaluation`).
 
     `fall_back_to_events=False` and an ungrouped aggregate on purpose: the aggregate always
     returns exactly one row, so query_ai_events's empty-result probe never fires and a session
@@ -109,22 +125,39 @@ def _count_session_events(team: Team, session_id: str, date_from: datetime, date
         fall_back_to_events=False,
         workload=Workload.OFFLINE,
     )
-    return int(result.results[0][0]) if result.results else 0
+    if not result.results:
+        return _SessionEventCount(event_count=0, first_seen=None)
+    event_count, first_seen = result.results[0]
+    return _SessionEventCount(event_count=int(event_count), first_seen=first_seen)
 
 
-def fetch_session_for_evaluation(
-    team_id: int, session_id: str, window_start: datetime, max_age_seconds: int
-) -> SessionFetchOutcome:
-    """Fetch every trace of a session for an online evaluation, bounded by the settle budget."""
+def fetch_session_for_evaluation(team_id: int, session_id: str, window_start: datetime) -> SessionFetchOutcome:
+    """Fetch every trace of a session for an online evaluation, bounded by retention.
+
+    Deliberately not bounded by `max_age_seconds`: that's a forward budget (how long the workflow
+    waits after the first matching generation), which says nothing about how long the session had
+    already been running when that generation arrived. So the initial preflight searches back to
+    the full retention window instead of guessing a lookback from `max_age_seconds`, reads the
+    session's real start time off the same scan (`minOrNull(timestamp)`, free per the comment on
+    `_SESSION_EVENT_COUNT_SQL`), and narrows `date_from` to that start for the actual fetch.
+    Retention is the floor: a session that began before it can't be fetched whole no matter what
+    window is chosen.
+    """
     team = Team.objects.get(id=team_id)
-    date_from = window_start - session_fetch_lookback(max_age_seconds)
+    retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
     date_to = datetime.now(UTC)
 
-    event_count = _count_session_events(team, session_id, date_from, date_to)
-    if event_count == 0:
+    preflight = _count_session_events(team, session_id, retention_floor, date_to)
+    if preflight.event_count == 0:
         return SessionFetchOutcome(traces=None, skip_reason="session_not_found", event_count=0)
-    if event_count > MAX_SESSION_EVAL_EVENTS:
-        return SessionFetchOutcome(traces=None, skip_reason="session_too_large", event_count=event_count)
+    if preflight.event_count > MAX_SESSION_EVAL_EVENTS:
+        return SessionFetchOutcome(traces=None, skip_reason="session_too_large", event_count=preflight.event_count)
+
+    event_count = preflight.event_count
+    date_from = preflight.first_seen or retention_floor
+    if date_from.tzinfo is None:
+        date_from = date_from.replace(tzinfo=UTC)
+    date_from = max(date_from, retention_floor)
 
     runner = SessionQueryRunner(
         team=team,
@@ -197,16 +230,23 @@ user's conversation, in order — according to this criteria:
 {config.instructions}"""
 
 
-def format_session_for_judge(traces: list[LLMTrace]) -> str:
+def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     """Render a session as the canonical text representation, one section per trace.
 
     The char budget is split evenly across traces so one long trace can't crowd the others out,
     which matters for "did the user accomplish their goal" — the answer often lives in the
     opening and closing turns, not the biggest one.
+
+    Returns `None` when even the per-trace floor overshoots the overall budget, meaning a final
+    slice would silently drop trailing traces. The caller must treat that as a `session_truncated`
+    skip rather than judge a transcript that's missing its close — the same rule the trace-count
+    path in `fetch_session_for_evaluation` already applies for a session with too many traces.
     """
     if not traces:
         return ""
     per_trace_budget = max(JUDGE_SESSION_MAX_CHARS // len(traces), _MIN_TRACE_CHARS_IN_SESSION)
+    if per_trace_budget * len(traces) > JUDGE_SESSION_MAX_CHARS:
+        return None
     options: FormatterOptions = {
         "include_markers": False,
         "collapsed": False,
@@ -219,7 +259,7 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str:
         trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
         text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
         sections.append(f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n{text}")
-    return "\n\n".join(sections)[:JUDGE_SESSION_MAX_CHARS]
+    return "\n\n".join(sections)
 
 
 def build_session_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:
@@ -288,15 +328,18 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
         inputs.team_id,
         inputs.session_id,
         datetime.fromisoformat(inputs.window_start),
-        inputs.max_age_seconds,
     )
     if outcome.skip_reason or outcome.traces is None:
         return build_session_skip_result(allows_na, outcome.skip_reason or "session_not_found")
 
+    transcript = format_session_for_judge(outcome.traces)
+    if transcript is None:
+        return build_session_skip_result(allows_na, "session_truncated")
+
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=build_session_system_prompt(prompt, allows_na),
-        user_prompt=format_session_for_judge(outcome.traces),
+        user_prompt=transcript,
         allows_na=allows_na,
     )
 
@@ -323,7 +366,6 @@ async def execute_session_hog_eval_activity(inputs: ExecuteSessionEvaluationInpu
             inputs.team_id,
             inputs.session_id,
             datetime.fromisoformat(inputs.window_start),
-            inputs.max_age_seconds,
         )
         if outcome.skip_reason or outcome.traces is None:
             return None, outcome.skip_reason or "session_not_found"

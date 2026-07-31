@@ -14,10 +14,12 @@ from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _MIN_TRACE_CHARS_IN_SESSION,
     _SESSION_EVENT_COUNT_SQL,
+    AI_EVENTS_RETENTION_DAYS,
     JUDGE_SESSION_MAX_CHARS,
     ExecuteSessionEvaluationInputs,
     SessionFetchOutcome,
     _count_session_events,
+    _SessionEventCount,
     build_session_hog_globals,
     execute_session_hog_eval_activity,
     execute_session_llm_judge_activity,
@@ -112,21 +114,23 @@ class TestBuildSessionHogGlobals:
 
 
 class TestFormatSessionForJudge:
-    def test_stays_inside_the_char_budget(self):
+    def test_returns_none_rather_than_silently_dropping_trailing_traces(self):
         # 260 traces of 100 events each render past JUDGE_SESSION_MAX_CHARS even after the
         # per-trace floor split, because each trace's own rendered text already exceeds the
-        # floor; only the final [:JUDGE_SESSION_MAX_CHARS] slice keeps the total in budget.
+        # floor. A final [:JUDGE_SESSION_MAX_CHARS] slice would drop the closing traces with no
+        # marker, so the caller must skip the session instead of judging a partial transcript.
         traces = [_trace(f"t{i}", cost=0, latency=0, event_count=100) for i in range(260)]
         # Fails loudly if a constant change makes the floor fit inside the budget again, which
-        # would leave this test passing without the final slice.
+        # would leave this test passing without exercising the overflow path.
         assert max(JUDGE_SESSION_MAX_CHARS // len(traces), _MIN_TRACE_CHARS_IN_SESSION) * len(traces) > (
             JUDGE_SESSION_MAX_CHARS
         )
-        assert len(format_session_for_judge(traces)) <= JUDGE_SESSION_MAX_CHARS
+        assert format_session_for_judge(traces) is None
 
     def test_every_trace_appears(self):
         traces = [_trace("t-alpha", cost=0, latency=0), _trace("t-beta", cost=0, latency=0)]
         rendered = format_session_for_judge(traces)
+        assert rendered is not None
         assert "t-alpha" in rendered
         assert "t-beta" in rendered
 
@@ -143,13 +147,15 @@ class TestCountSessionEvents:
         assert "HAVING" not in normalized
 
     def test_never_falls_back_to_the_stripped_events_table(self):
+        first_seen = datetime(2026, 7, 1, tzinfo=UTC)
         with patch(
             "posthog.temporal.ai_observability.run_session_evaluation.query_ai_events",
-            return_value=Mock(results=[[7]]),
+            return_value=Mock(results=[[7, first_seen]]),
         ) as mock_query_ai_events:
-            count = _count_session_events(Mock(), "s-1", datetime.now(UTC), datetime.now(UTC))
+            result = _count_session_events(Mock(), "s-1", datetime.now(UTC), datetime.now(UTC))
 
-        assert count == 7
+        assert result.event_count == 7
+        assert result.first_seen == first_seen
         assert mock_query_ai_events.call_args.kwargs["fall_back_to_events"] is False
 
 
@@ -159,7 +165,7 @@ class TestFetchSessionForEvaluation:
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
-                return_value=3,
+                return_value=_SessionEventCount(event_count=3, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),
             ),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
@@ -168,7 +174,7 @@ class TestFetchSessionForEvaluation:
             mock_session_query_runner.return_value.calculate.return_value = Mock(
                 results=[_trace("t1", cost=0, latency=0)], hasMore=False
             )
-            fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), 3600)
+            fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC))
 
         kwargs = mock_session_query_runner.call_args.kwargs
         assert kwargs["for_evaluation"] is True
@@ -177,6 +183,53 @@ class TestFetchSessionForEvaluation:
         # SessionQueryRunner defaults to 100 rows under LimitContext.QUERY, which would drop the
         # tail of any session past 100 traces, so the fetch must ask for the export ceiling instead.
         assert kwargs["query"].limit == MAX_SELECT_TRACES_LIMIT_EXPORT
+
+    def test_widens_date_from_to_the_sessions_real_start(self):
+        # A session that had been running for days before window_start must not have its opening
+        # cut just because a forward-looking budget (max_age) happened to be shorter than that.
+        first_seen = datetime(2026, 7, 10, tzinfo=UTC)
+        window_start = datetime(2026, 7, 20, tzinfo=UTC)
+        with (
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
+                return_value=_SessionEventCount(event_count=3, first_seen=first_seen),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
+            ) as mock_session_query_runner,
+        ):
+            mock_session_query_runner.return_value.calculate.return_value = Mock(
+                results=[_trace("t1", cost=0, latency=0)], hasMore=False
+            )
+            fetch_session_for_evaluation(1, "s-1", window_start)
+
+        query = mock_session_query_runner.call_args.kwargs["query"]
+        assert query.dateRange.date_from == first_seen.isoformat()
+
+    def test_floors_date_from_at_retention_for_a_session_older_than_retention(self):
+        # A session's real start is unreachable past ai_events retention regardless of the
+        # lookback math, so the fetch must not ask ClickHouse for data it can never return.
+        window_start = datetime(2026, 7, 20, tzinfo=UTC)
+        first_seen = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS + 10)
+        retention_floor = window_start - timedelta(days=AI_EVENTS_RETENTION_DAYS)
+        with (
+            patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
+                return_value=_SessionEventCount(event_count=3, first_seen=first_seen),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
+            ) as mock_session_query_runner,
+        ):
+            mock_session_query_runner.return_value.calculate.return_value = Mock(
+                results=[_trace("t1", cost=0, latency=0)], hasMore=False
+            )
+            fetch_session_for_evaluation(1, "s-1", window_start)
+
+        query = mock_session_query_runner.call_args.kwargs["query"]
+        assert query.dateRange.date_from == retention_floor.isoformat()
 
     def test_returns_traces_oldest_first_even_though_the_runner_orders_newest_first(self):
         # SessionQueryRunner orders `first_timestamp DESC` for the UI session list. The judge's
@@ -189,7 +242,7 @@ class TestFetchSessionForEvaluation:
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
-                return_value=3,
+                return_value=_SessionEventCount(event_count=3, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),
             ),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
@@ -198,7 +251,7 @@ class TestFetchSessionForEvaluation:
             mock_session_query_runner.return_value.calculate.return_value = Mock(
                 results=[newest, middle, oldest], hasMore=False
             )
-            outcome = fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), 3600)
+            outcome = fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC))
 
         assert outcome.traces is not None
         assert [trace.id for trace in outcome.traces] == ["t-oldest", "t-middle", "t-newest"]
@@ -208,7 +261,7 @@ class TestFetchSessionForEvaluation:
             patch("posthog.temporal.ai_observability.run_session_evaluation.Team"),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation._count_session_events",
-                return_value=3,
+                return_value=_SessionEventCount(event_count=3, first_seen=datetime(2026, 7, 19, tzinfo=UTC)),
             ),
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.SessionQueryRunner"
@@ -217,7 +270,7 @@ class TestFetchSessionForEvaluation:
             mock_session_query_runner.return_value.calculate.return_value = Mock(
                 results=[_trace("t1", cost=0, latency=0)], hasMore=True
             )
-            outcome = fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC), 3600)
+            outcome = fetch_session_for_evaluation(1, "s-1", datetime(2026, 7, 20, tzinfo=UTC))
 
         assert outcome.traces is None
         assert outcome.skip_reason == "session_truncated"
@@ -287,6 +340,36 @@ class TestExecuteSessionActivities:
         assert result["skipped"] is True
         assert result["skip_reason"] == "session_truncated"
         # The whole point of the truncation-as-skip choice: never grade a partial transcript.
+        mock_call_llm_judge.assert_not_called()
+
+    def test_judge_skips_without_judging_when_the_rendered_transcript_would_overflow(self):
+        # The fetch itself succeeds (session_truncated wasn't raised there), but the session has
+        # enough traces that format_session_for_judge's char budget can't fit all of them. This is
+        # the overflow path the fetch-side truncation check above can't catch.
+        traces = [_trace(f"t{i}", cost=0, latency=0, event_count=100) for i in range(260)]
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+                return_value=SessionFetchOutcome(traces=traces, skip_reason=None, event_count=len(traces)),
+            ),
+            patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
+        ):
+            result = execute_session_llm_judge_activity(
+                ExecuteSessionEvaluationInputs(
+                    evaluation={
+                        "evaluation_type": "llm_judge",
+                        "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
+                        "output_type": "boolean",
+                        "output_config": {"allows_na": False},
+                    },
+                    team_id=1,
+                    session_id="s-1",
+                    window_start=datetime.now(UTC).isoformat(),
+                    max_age_seconds=86400,
+                )
+            )
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "session_truncated"
         mock_call_llm_judge.assert_not_called()
 
     def test_our_bug_page_names_the_session_target(self):
