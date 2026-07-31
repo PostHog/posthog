@@ -8397,7 +8397,7 @@ class TestLivingArtifactChartRequestValidation(SimpleTestCase):
 
 
 class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
-    CHART_QUERY = {
+    CHART_QUERY: ClassVar[dict[str, Any]] = {
         "kind": "InsightVizNode",
         "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
     }
@@ -8467,7 +8467,7 @@ class TestTaskRunLivingArtifactChartAPI(BaseTaskAPITest):
         self.assertEqual(sent_query["source"]["kind"], self.CHART_QUERY["source"]["kind"])
         self.assertEqual(sent_query["source"]["series"], self.CHART_QUERY["source"]["series"])
         expected_url = absolute_uri(f"/project/{self.team.id}/insights/new") + f"#q={quote(json.dumps(sent_query))}"
-        self.assertEqual(data["posthog_url"], expected_url)
+        self.assertEqual(data["url"], expected_url)
         mock_asset.get_subscription_delivery_content_url.assert_called_once_with(expiry_delta=CHART_IMAGE_URL_TTL)
         self.assertEqual(
             mock_create.call_args.kwargs["artifact"],

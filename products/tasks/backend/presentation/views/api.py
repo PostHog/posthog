@@ -48,7 +48,7 @@ from posthog.utils import absolute_uri
 from products.exports.backend.facade.api import render_png_export
 
 if TYPE_CHECKING:
-    from products.exports.backend.models.exported_asset import ExportedAsset
+    from products.exports.backend.facade.api import ExportedAsset
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
@@ -2560,7 +2560,7 @@ class TaskRunLivingArtifactViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             asset.delete()
             return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
         serializer = TaskRunLivingArtifactChartResponseSerializer(
-            {"artifact": artifact, "export_asset_id": asset.id, "posthog_url": url}
+            {"artifact": artifact, "export_asset_id": asset.id, "url": url}
         )
         return Response(serializer.data)
 
