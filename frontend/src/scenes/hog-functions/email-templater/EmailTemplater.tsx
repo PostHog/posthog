@@ -1,5 +1,3 @@
-import './EmailTemplater.scss'
-
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ChildFunctionProps, Form } from 'kea-forms'
@@ -855,7 +853,6 @@ function EmailTemplaterModal(): JSX.Element {
             <LemonModal
                 isOpen={isModalOpen}
                 fullScreen
-                overlayClassName="EmailTemplaterModal__overlay"
                 onClose={() => closeWithConfirmation()}
                 hasUnsavedInput={emailTemplateChanged}
             >
