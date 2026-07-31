@@ -6,7 +6,7 @@ from posthog.migration_helpers import CreateIndexConcurrently
 class Migration(migrations.Migration):
     atomic = False
 
-    dependencies = [("posthog", "1277_transfer_push_token_ownership")]
+    dependencies = [("posthog", "1280_transfer_push_token_ownership")]
 
     operations = [
         migrations.SeparateDatabaseAndState(

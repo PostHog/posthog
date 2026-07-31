@@ -12,7 +12,7 @@ def keep_latest_token_owner(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1276_untrack_legacy_provisioning_columns")]
+    dependencies = [("posthog", "1279_drop_duckgresserverteam_table")]
 
     operations = [
         migrations.RunPython(keep_latest_token_owner, migrations.RunPython.noop),
