@@ -76,15 +76,32 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             lm = dspy.LM(
                                 "openai/gpt-5-mini",
                                 api_key="your_openai_api_key",
-                                metadata={"$ai_session_id": "conversation-abc"},  # Groups calls into one session
+                                metadata={
+                                    "user_id": "user_123",  # Maps to PostHog distinct_id
+                                    "$ai_session_id": "conversation-abc",  # Groups calls into one session
+                                },
                             )
                             dspy.configure(lm=lm)
                         `}
                     />
 
                     <Markdown>
-                        Pass `$ai_session_id` in `metadata` to group every call made through that LM into one PostHog
-                        session — it forwards straight through LiteLLM's callback like any other metadata key.
+                        Pass `user_id` and `$ai_session_id` in `metadata` to identify the caller and group every call
+                        made through that LM into one PostHog session. Both forward straight through LiteLLM's callback
+                        like any other metadata key.
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            \`user_id\` ties this call to a person, mapped to PostHog's \`distinct_id\`, so you can
+                            see everything one user asked for and know who hit an error or ran up cost.
+                            \`$ai_session_id\` groups every call made through that LM into one conversation, so a
+                            multi-turn exchange reads as a single thread instead of separate, unrelated calls. A
+                            trace covers one call, and a session covers the whole conversation: passing the same
+                            session id across every call is what connects them. Together, they give you a complete
+                            view: who made the request, which conversation it's part of, and every generation and
+                            tool call inside it.
+                        `}
                     </Markdown>
 
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
@@ -133,6 +150,93 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                     </Markdown>
 
                     {NotableGenerationProperties && <NotableGenerationProperties />}
+                </>
+            ),
+        },
+        {
+            title: 'Capture tool calls as spans',
+            badge: 'optional',
+            content: (
+                <>
+                    <Markdown>
+                        {dedent`
+                            LiteLLM's PostHog callback captures the \`$ai_generation\` event for each LLM call DSPy
+                            makes, but it never sees a retrieval step or any other work your own code does around
+                            it. Capture that as a span yourself.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            LiteLLM has no \`posthog_trace_id\` parameter, so generate the trace id yourself and
+                            pass it to \`dspy.LM()\` alongside \`$ai_session_id\`. Reuse that same trace id when you
+                            capture the span, so it nests under the same trace as the generation that follows it.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        language="python"
+                        code={dedent`
+                            from posthog import Posthog
+                            import time, uuid
+
+                            posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
+
+                            session_id = "conversation-abc"  # same across every turn of the conversation
+                            trace_id = str(uuid.uuid4())     # one per turn
+                            user_id = "user_123"
+
+                            lm = dspy.LM(
+                                "openai/gpt-5-mini",
+                                api_key="your_openai_api_key",
+                                metadata={
+                                    "user_id": user_id,
+                                    "$ai_session_id": session_id,
+                                    "$ai_trace_id": trace_id,
+                                },
+                            )
+                            dspy.configure(lm=lm)
+
+                            # retrieve() is your existing retrieval setup
+                            start = time.time()
+                            context = retrieve("hedgehog facts")
+
+                            posthog.capture(
+                                distinct_id=user_id,
+                                event="$ai_span",
+                                properties={
+                                    "$ai_trace_id": trace_id,
+                                    "$ai_session_id": session_id,
+                                    "$ai_span_id": str(uuid.uuid4()),
+                                    "$ai_span_name": "retrieve",
+                                    "$ai_input_state": "hedgehog facts",
+                                    "$ai_output_state": context,
+                                    "$ai_latency": time.time() - start,
+                                },
+                            )
+
+                            predictor = dspy.Predict(QA)
+                            question = f"Using this context, answer what a fun fact about hedgehogs is: {context}"
+                            result = predictor(question=question)
+                            print(result.answer)
+                        `}
+                    />
+
+                    <Markdown>
+                        {dedent`
+                            The span must carry the same \`$ai_trace_id\` as the generation it belongs to, or it
+                            won't nest under the same trace. Nothing measures duration for you: time your own code
+                            and pass the result as \`$ai_latency\`. Set \`$ai_span_type\` to describe the kind of
+                            work, for example \`tool\`, \`chain\`, \`retriever\`, or \`agent\`.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            See [spans](https://posthog.com/docs/ai-observability/spans) for the full list of span
+                            properties.
+                        `}
+                    </Markdown>
                 </>
             ),
         },
