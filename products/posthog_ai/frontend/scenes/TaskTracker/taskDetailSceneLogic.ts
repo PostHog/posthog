@@ -33,6 +33,7 @@ export interface taskDetailSceneLogicValues {
     taskError: string | null // taskLogic
     taskLoading: boolean // taskLogic
     taskNotFound: boolean // taskLogic
+    runTaskInFlight: boolean // taskLogic
     canEditRepository: boolean
     isHeaderLoading: boolean
     isRunPending: boolean
@@ -146,7 +147,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     key((props) => props.taskId),
 
     connect((props: TaskDetailSceneLogicProps) => ({
-        values: [taskLogic(props), ['task', 'taskLoading', 'taskNotFound', 'taskError']],
+        values: [taskLogic(props), ['task', 'taskLoading', 'taskNotFound', 'taskError', 'runTaskInFlight']],
         actions: [
             taskLogic(props),
             ['loadTask', 'loadTaskSuccess', 'runTask', 'runTaskSuccess', 'deleteTask', 'updateTask'],

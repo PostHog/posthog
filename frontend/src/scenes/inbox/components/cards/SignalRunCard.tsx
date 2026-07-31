@@ -6,6 +6,7 @@ import { LemonTag, Link } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
+import { captureInboxRunOpened } from '../../inboxAnalytics'
 import { SignalRun } from '../../types'
 import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
 import { resolveRunVariant, VARIANT_META } from './runStatusVariant'
@@ -24,6 +25,9 @@ export function SignalRunCard({ run }: { run: SignalRun }): JSX.Element {
                 column so it isn't nested inside this link. */}
             <Link
                 to={urls.taskDetail(run.task_id)}
+                onClick={() =>
+                    captureInboxRunOpened({ kind: run.kind, status: run.status, hasReport: !!run.report_id })
+                }
                 className="flex min-w-0 flex-1 items-start gap-2.5 text-left text-inherit no-underline"
             >
                 {/* One small color-coded dot carries the status — no separate orb or status tag. */}
