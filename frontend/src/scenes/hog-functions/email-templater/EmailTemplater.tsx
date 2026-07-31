@@ -30,7 +30,6 @@ import { urls } from 'scenes/urls'
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
-import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLogic } from './emailTemplaterLogic'
 
@@ -236,7 +235,6 @@ function DestinationEmailTemplaterForm({
                                             imageEditor: true,
                                             stockImages: false,
                                         },
-                                        customJS: [collapseToolsPanelCustomJs],
                                     }}
                                 />
                             </div>
@@ -684,7 +682,7 @@ function NativeEmailTemplaterForm({
                                             stockImages: false,
                                         },
                                         projectId: unlayerEditorProjectId,
-                                        customJS: [unsubscribeLinkToolCustomJs, collapseToolsPanelCustomJs],
+                                        customJS: [unsubscribeLinkToolCustomJs],
                                         fonts: unlayerEditorProjectId
                                             ? {
                                                   showDefaultFonts: true,
