@@ -15254,7 +15254,24 @@ export namespace Schemas {
       data_interval_end: string;
     }
 
-    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest;
+    export type FileDownloadHogQLRequestModel = typeof FileDownloadHogQLRequestModel[keyof typeof FileDownloadHogQLRequestModel];
+
+
+    export const FileDownloadHogQLRequestModel = {
+      Hogql: 'hogql',
+    } as const;
+
+    /**
+     * Typed configuration for the hogql model.
+     */
+    export interface FileDownloadHogQLRequest {
+      file: FileDownloadDestinationFileConfig;
+      model: FileDownloadHogQLRequestModel;
+      /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+      hogql_query: string;
+    }
+
+    export type CreateFileDownloadRequest = FileDownloadEventsRequest | FileDownloadPersonsRequest | FileDownloadSessionsRequest | FileDownloadHogQLRequest;
 
     /**
      * * `cost` - cost
@@ -18748,6 +18765,10 @@ export namespace Schemas {
      * * `Clay` - Clay
      * * `TradableBits` - TradableBits
      * * `Swan` - Swan
+     * * `Hyros` - Hyros
+     * * `Odoo` - Odoo
+     * * `Airbridge` - Airbridge
+     * * `Snovio` - Snovio
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -20025,6 +20046,10 @@ export namespace Schemas {
       Clay: 'Clay',
       TradableBits: 'TradableBits',
       Swan: 'Swan',
+      Hyros: 'Hyros',
+      Odoo: 'Odoo',
+      Airbridge: 'Airbridge',
+      Snovio: 'Snovio',
     } as const;
 
     /**
@@ -21315,7 +21340,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -23040,7 +23069,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -30276,7 +30309,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -31585,7 +31622,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -32281,6 +32322,7 @@ export namespace Schemas {
      * * `events` - events
      * * `persons` - persons
      * * `sessions` - sessions
+     * * `hogql` - hogql
      */
     export type FileDownloadBatchExportOnDemandModelEnum = typeof FileDownloadBatchExportOnDemandModelEnum[keyof typeof FileDownloadBatchExportOnDemandModelEnum];
 
@@ -32289,6 +32331,7 @@ export namespace Schemas {
       Events: 'events',
       Persons: 'persons',
       Sessions: 'sessions',
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -32299,8 +32342,12 @@ export namespace Schemas {
       model: FileDownloadBatchExportOnDemandModelEnum;
       include?: string[];
       exclude?: string[];
-      data_interval_start: string;
-      data_interval_end: string;
+      /** HogQL SELECT query whose results are exported. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. The query runs as of thetime the export starts; events ingested moments before may not be included yet. */
+      hogql_query?: string;
+      /** Start of the data interval to export */
+      data_interval_start?: string;
+      /** End of the data interval to export */
+      data_interval_end?: string;
     }
 
     /**
@@ -32311,6 +32358,16 @@ export namespace Schemas {
 
     export const FileDownloadEventsRequestModelEnum = {
       Events: 'events',
+    } as const;
+
+    /**
+     * * `hogql` - hogql
+     */
+    export type FileDownloadHogQLRequestModelEnum = typeof FileDownloadHogQLRequestModelEnum[keyof typeof FileDownloadHogQLRequestModelEnum];
+
+
+    export const FileDownloadHogQLRequestModelEnum = {
+      Hogql: 'hogql',
     } as const;
 
     /**
@@ -40510,7 +40567,7 @@ export namespace Schemas {
       function_name: string;
       /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
       parent_run_id: string;
-      /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoint currently returns only 'email'. */
+      /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
       kind: string;
       /** The recipient's distinct_id. */
       distinct_id: string;
@@ -46493,6 +46550,8 @@ export namespace Schemas {
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
       uploaded_at: string;
+      /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+      url?: string;
     }
 
     /**
@@ -53177,8 +53236,10 @@ export namespace Schemas {
     } as const;
 
     export interface PatchedReviewUserSettings {
-      /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
+      /** Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request. */
       review_inbox_prs?: boolean;
+      /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
+      stamphog_review_inbox_prs?: boolean;
       /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
       review_labeled_prs?: boolean;
       /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
@@ -53189,6 +53250,8 @@ export namespace Schemas {
       urgency_threshold?: UrgencyThresholdEnum;
       /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
       readonly can_trigger_reviews?: boolean;
+      /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
+      readonly stamphog_connected?: boolean;
     }
 
     export interface PatchedReviewValidatorConfigSelect {
@@ -55573,8 +55636,8 @@ export namespace Schemas {
     }
 
     export interface PersonDeletePropertyRequest {
-      /** The property key to remove from this person. */
-      $unset: string;
+      /** A property key, or a list of property keys, to remove from this person. */
+      $unset: string | string[];
     }
 
     /**
@@ -61988,8 +62051,10 @@ export namespace Schemas {
     }
 
     export interface ReviewUserSettings {
-      /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
+      /** Automatically review pull requests opened by self-driving implementations from the user's Inbox: ReviewHog reviews each one and posts its findings to the pull request. */
       review_inbox_prs?: boolean;
+      /** Also have hosted Stamphog review those same Inbox pull requests: an approve-first review that posts a real GitHub approval when the change passes, and a comment when it doesn't. Only takes effect when the project has a synced, enabled Stamphog repository (see stamphog_connected). */
+      stamphog_review_inbox_prs?: boolean;
       /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
       review_labeled_prs?: boolean;
       /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
@@ -62000,6 +62065,8 @@ export namespace Schemas {
       urgency_threshold?: UrgencyThresholdEnum;
       /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog team while the product is in alpha). */
       readonly can_trigger_reviews: boolean;
+      /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
+      readonly stamphog_connected: boolean;
     }
 
     export interface ReviewValidatorConfig {
@@ -63305,6 +63372,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly last_run_at: string | null;
+      /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
+      readonly consecutive_failure_count: number;
       readonly created_at: string;
     }
 
@@ -65224,7 +65293,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -66541,7 +66614,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -67850,7 +67927,11 @@ export namespace Schemas {
        * * `Directus` - Directus
        * * `Clay` - Clay
        * * `TradableBits` - TradableBits
-       * * `Swan` - Swan */
+       * * `Swan` - Swan
+       * * `Hyros` - Hyros
+       * * `Odoo` - Odoo
+       * * `Airbridge` - Airbridge
+       * * `Snovio` - Snovio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -80604,13 +80685,13 @@ export namespace Schemas {
     before?: string;
     format?: PersonsEmailsListFormat;
     /**
-     * Maximum number of emails to return (1-500, default 50).
+     * Maximum number of assets to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
      */
     limit?: number;
     /**
-     * Number of emails to skip, for pagination.
+     * Number of assets to skip, for pagination.
      * @minimum 0
      */
     offset?: number;
@@ -80632,6 +80713,39 @@ export namespace Schemas {
 
 
     export const PersonsPropertiesTimelineRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type PersonsPushNotificationsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    format?: PersonsPushNotificationsListFormat;
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number;
+    };
+
+    export type PersonsPushNotificationsListFormat = typeof PersonsPushNotificationsListFormat[keyof typeof PersonsPushNotificationsListFormat];
+
+
+    export const PersonsPushNotificationsListFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
