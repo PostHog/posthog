@@ -43,6 +43,7 @@ from slack_sdk.errors import SlackApiError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from posthog.cache_utils import cache_for
+from posthog.credentials import AWSKeyPair
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
@@ -1882,8 +1883,14 @@ class SlackIntegration:
         return config
 
 
-def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
-    """Sign a body with the Slack HMAC-SHA256 scheme; returns (signature, timestamp).
+@dataclass(frozen=True)
+class SlackRequestSignature:
+    signature: str
+    timestamp: str
+
+
+def sign_slack_request(body: bytes, signing_secret: str) -> SlackRequestSignature:
+    """Sign a body with the Slack HMAC-SHA256 scheme.
 
     Used by both prod (PostHog→PostHog cross-region calls that reuse the Slack signing scheme)
     and tests. The matching verifier is `validate_slack_request` below.
@@ -1891,7 +1898,7 @@ def sign_slack_request(body: bytes, signing_secret: str) -> tuple[str, str]:
     ts = str(int(time.time()))
     sig_basestring = f"v0:{ts}:{body.decode('utf-8')}".encode()
     signature = "v0=" + hmac.new(signing_secret.encode("utf-8"), sig_basestring, digestmod=hashlib.sha256).hexdigest()
-    return signature, ts
+    return SlackRequestSignature(signature=signature, timestamp=ts)
 
 
 def validate_slack_request(request: HttpRequest | Request, signing_secret: str) -> None:
@@ -4097,11 +4104,10 @@ class S3CredentialIntegrationError(Exception):
     pass
 
 
-def _read_s3_credentials(integration: Integration) -> tuple[str, str]:
+def _read_s3_credentials(integration: Integration) -> AWSKeyPair:
     try:
-        return (
-            integration.sensitive_config["aws_access_key_id"],
-            integration.sensitive_config["aws_secret_access_key"],
+        return AWSKeyPair.unsafe_from_strings(
+            integration.sensitive_config["aws_access_key_id"], integration.sensitive_config["aws_secret_access_key"]
         )
     except KeyError as e:
         raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
@@ -4245,7 +4251,9 @@ class AwsS3Integration:
                 f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
             )
         self.integration = integration
-        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+        credentials = _read_s3_credentials(integration)
+        self.aws_access_key_id = credentials.access_key_id
+        self.aws_secret_access_key = credentials.secret_access_key
 
     @property
     def aws_account_id(self) -> str | None:
@@ -4344,7 +4352,9 @@ class S3CompatibleIntegration:
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
         self.integration = integration
-        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+        credentials = _read_s3_credentials(integration)
+        self.aws_access_key_id = credentials.access_key_id
+        self.aws_secret_access_key = credentials.secret_access_key
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:
