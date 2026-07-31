@@ -7,6 +7,8 @@ from unittest.mock import patch
 from django.test import RequestFactory, SimpleTestCase
 from django.test.utils import override_settings
 
+from parameterized import parameterized
+
 from posthog.session.risk import (
     Baseline,
     Context,
@@ -72,14 +74,13 @@ class TestSignalsAndTiers(BaseTest):
         base.update(kw)
         return Context(**base)
 
-    def test_impossible_travel_fires_high(self):
+    def test_impossible_travel_fires(self):
         b = self._baseline()
         # Tokyo, 10 minutes later
         ctx = self._ctx(latitude=35.6, longitude=139.7, country_code="JP")
         now = self.BASELINE_TIME + timedelta(minutes=10)
         signals = evaluate_signals(b, ctx, now=now)
         self.assertIn(RiskSignal.IMPOSSIBLE_TRAVEL, signals)
-        self.assertEqual(tier_for(signals), RiskTier.HIGH)
 
     def test_short_hop_not_impossible(self):
         b = self._baseline()
@@ -112,9 +113,27 @@ class TestSignalsAndTiers(BaseTest):
         self.assertEqual(signals, {RiskSignal.UA_CHANGE})
         self.assertEqual(tier_for(signals), RiskTier.MEDIUM)
 
-    def test_two_mediums_escalate_to_high(self):
-        signals = {RiskSignal.UA_CHANGE, RiskSignal.NEW_COUNTRY}
-        self.assertEqual(tier_for(signals), RiskTier.HIGH)
+    @parameterized.expand(
+        [
+            ("no_signals", set(), RiskTier.NONE),
+            ("ua_change_alone", {RiskSignal.UA_CHANGE}, RiskTier.MEDIUM),
+            ("new_country_alone", {RiskSignal.NEW_COUNTRY}, RiskTier.MEDIUM),
+            ("impossible_travel_alone", {RiskSignal.IMPOSSIBLE_TRAVEL}, RiskTier.MEDIUM),
+            ("both_geo_signals", {RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY}, RiskTier.MEDIUM),
+            ("new_country_and_ua", {RiskSignal.NEW_COUNTRY, RiskSignal.UA_CHANGE}, RiskTier.HIGH),
+            ("impossible_travel_and_ua", {RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.UA_CHANGE}, RiskTier.HIGH),
+            (
+                "all_three",
+                {RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY, RiskSignal.UA_CHANGE},
+                RiskTier.HIGH,
+            ),
+        ]
+    )
+    def test_tier_requires_cross_axis_corroboration(self, _name, signals, expected):
+        # HIGH ends the session, so it takes a network anomaly *and* a device anomaly. Counting any
+        # two signals as corroboration over-escalates: impossible_travel and new_country both come
+        # from one geoip lookup on one IP, so together they are a single observation, not two.
+        self.assertEqual(tier_for(signals), expected)
 
     def test_null_baseline_no_signals(self):
         b = Baseline(latitude=None, longitude=None, country_code=None, ua_signature=None, baseline_at=None)

@@ -112,12 +112,23 @@ def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[
     return signals
 
 
+# The independent axes a signal can observe. impossible_travel and new_country are both derived from
+# a single geoip lookup on a single IP, so they corroborate each other only in appearance.
+NETWORK_SIGNALS = frozenset({RiskSignal.IMPOSSIBLE_TRAVEL, RiskSignal.NEW_COUNTRY})
+DEVICE_SIGNALS = frozenset({RiskSignal.UA_CHANGE})
+
+
 def tier_for(signals: set[RiskSignal]) -> RiskTier:
-    if RiskSignal.IMPOSSIBLE_TRAVEL in signals or len(signals) >= 2:
+    """HIGH ends the session, so it requires corroboration across both axes: the request came from an
+    unexpected network *and* an unexpected device. A hijacked session shows both, while VPN, relay and
+    carrier-NAT egress moves the apparent location on its own — which is why network signals alone,
+    however many, only warrant a step-up re-auth.
+    """
+    if not signals:
+        return RiskTier.NONE
+    if signals & NETWORK_SIGNALS and signals & DEVICE_SIGNALS:
         return RiskTier.HIGH
-    if signals:
-        return RiskTier.MEDIUM
-    return RiskTier.NONE
+    return RiskTier.MEDIUM
 
 
 @dataclass
