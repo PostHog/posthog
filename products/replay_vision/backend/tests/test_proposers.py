@@ -128,12 +128,20 @@ def test_classifier_patch_applies_tag_ops() -> None:
         {"op": "rename", "tag": "missing", "to": "renamed"},  # nothing to rename
         {"op": "add"},  # malformed: no tag
         {"tag": "orphan"},  # malformed: no op
+        "payment_failed",  # malformed: a bare string, not a dict
+        ["add", "payment_failed"],  # malformed: a list
+        {"op": "add", "tag": 42},  # malformed: non-string tag
+        {"op": "add", "tag": "   "},  # malformed: blank tag
+        {"op": "add", "tag": "!!!"},  # slugifies to nothing, so it could never be applied
+        {"op": "rename", "tag": "checkout", "to": 7},  # malformed: non-string destination
+        {"op": "drop", "tag": "checkout"},  # not one of the three operations
+        {"op": "add", "tag": "Checkout"},  # same slug as an existing tag, so uniqueness would reject it
     ],
 )
-def test_classifier_patch_ignores_ops_that_dont_apply(op: dict[str, Any]) -> None:
+def test_classifier_patch_ignores_ops_that_dont_apply(op: Any) -> None:
     # An LLM tag op can reference a tag that's already gone/present/never existed, or be malformed (a model
-    # response the schema should have rejected). _apply_tag_ops must leave the vocabulary untouched rather
-    # than duplicate a tag or raise a KeyError (which would 500 the whole generation instead of a usable one).
+    # response the schema should have rejected). This runs outside the generation fallbacks, so anything that
+    # raises here loses the whole suggestion — including an otherwise usable rewritten prompt.
     proposer = get_proposer("classifier")
     base = {"prompt": "p", "tags": ["checkout"]}
     llm = {"suggested_prompt": "p", "tag_ops": [op], "rationale": "r"}
@@ -143,6 +151,21 @@ def test_classifier_patch_ignores_ops_that_dont_apply(op: dict[str, Any]) -> Non
     assert suggested["tags"] == ["checkout"]
     # A no-op op must not emit a change, or an unchanged config would wrongly be marked pending.
     assert proposer.to_changes(base, suggested, llm) == []
+
+
+@pytest.mark.parametrize("tag_ops", [None, "add checkout", {"op": "add", "tag": "x"}, 5])
+def test_classifier_patch_survives_tag_ops_that_arent_a_list(tag_ops: Any) -> None:
+    # Iterating a dict yields its keys and a string yields characters, so an unguarded loop would either
+    # silently apply nonsense or raise and lose the suggestion.
+    proposer = get_proposer("classifier")
+    base = {"prompt": "p", "tags": ["checkout"]}
+    llm = {"suggested_prompt": "p2", "tag_ops": tag_ops, "rationale": "r"}
+
+    suggested = proposer.to_config_patch(llm, base)
+
+    assert suggested["tags"] == ["checkout"]
+    assert suggested["prompt"] == "p2"
+    assert [c.kind for c in proposer.to_changes(base, suggested, llm)] == ["prompt"]
 
 
 @pytest.mark.parametrize(
@@ -199,6 +222,9 @@ def test_summarizer_patch_defends_against_missing_or_invalid_length() -> None:
         ("monitor", {"prompt": "p", "allow_inconclusive": True}, "allow_inconclusive: true"),
         ("scorer", {"prompt": "p", "scale": {"min": 1, "max": 5, "label": "frustration"}}, "1 to 5 (frustration)"),
         ("scorer", {"prompt": "p", "scale": {"min": 0, "max": 10}}, "0 to 10."),
+        # No stored scale: say which one applies, or the model invents a range and the patch records it
+        # as a deliberate change complete with a rationale.
+        ("scorer", {"prompt": "p"}, "1.0 to 5.0"),
         ("summarizer", {"prompt": "p"}, "length: medium"),
         ("summarizer", {"prompt": "p", "length": "long"}, "length: long"),
     ],

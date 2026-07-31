@@ -177,6 +177,33 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub seeder_bands_per_day: u16,
 
+    /// Enable the person-property seed path: discovery widens to `person_property` runs and the
+    /// planning/scan/emission pipeline arms. Default off — the processor's decode arm and
+    /// `COHORT_SEED_PERSON_APPLY_ENABLED` must be deployed everywhere first, or an old processor
+    /// skip-and-commits the seeds.
+    #[envconfig(default = "false")]
+    pub seeder_person_seeds_enabled: bool,
+
+    /// Person-seed produce rate, shared across concurrent person chunks and separate from
+    /// `seeder_tiles_per_sec` so the two throughputs tune independently.
+    #[envconfig(default = "2000")]
+    pub seeder_person_seeds_per_sec: u32,
+
+    /// Target persons per planned UUID-range chunk; the planning scan keeps every Nth id as a
+    /// range boundary. Sized so one chunk's paced emission completes in single-digit minutes —
+    /// settings validation refuses a value the ClickHouse execution-time budget cannot cover.
+    #[envconfig(default = "1000000")]
+    pub seeder_persons_per_chunk: u64,
+
+    /// The person path's own chunk-slot budget, so a person scan never occupies a behavioral slot.
+    #[envconfig(default = "1")]
+    pub seeder_person_max_concurrent_chunks: usize,
+
+    /// Emit empty-`matched` seeds for scanned non-matchers. They heal stale-TRUE state and cost
+    /// only a point-read on absent records (the consumer's no-create rule).
+    #[envconfig(default = "true")]
+    pub seeder_person_emit_nonmatchers: bool,
+
     #[envconfig(default = "14400")]
     pub seeder_ch_max_execution_time_secs: u64,
 
@@ -185,6 +212,13 @@ pub struct Config {
 
     #[envconfig(default = "20000000000")]
     pub seeder_ch_max_bytes_before_external_sort: u64,
+
+    /// Runaway guard on sets built from `IN (SELECT …)` subqueries, which nothing else bounds — the
+    /// person boundary scan's horizon prefilter builds one id set covering a whole team, unchunked.
+    /// Exceeding it throws a set-size error naming the limit rather than pushing the server toward
+    /// an OOM that takes unrelated queries down with it.
+    #[envconfig(default = "20000000000")]
+    pub seeder_ch_max_bytes_in_set: u64,
 
     #[envconfig(default = "grace_hash")]
     pub seeder_ch_join_algorithm: String,

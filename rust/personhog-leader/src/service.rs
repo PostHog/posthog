@@ -17,7 +17,8 @@ use uuid::Uuid;
 use personhog_common::partitioning::partition_for_person;
 
 use crate::cache::{
-    CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey,
+    approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
+    PersonCacheKey,
 };
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
@@ -664,6 +665,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             }
         }
 
+        let approx_bytes = approx_person_bytes(jsonb_column_size(&new_properties));
         let updated_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
@@ -672,6 +674,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             created_at: person.created_at,
             version: person.version + 1,
             is_identified: person.is_identified,
+            approx_bytes,
         };
 
         // Final applyability assertions on the identity fields, which

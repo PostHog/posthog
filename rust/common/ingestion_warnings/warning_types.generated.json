@@ -56,6 +56,12 @@
       "captureProduced": true
     },
     {
+      "type": "distinct_id_truncated",
+      "category": "event",
+      "severity": "warning",
+      "captureProduced": true
+    },
+    {
       "type": "duplicate_event_uuid",
       "category": "event",
       "severity": "error",
@@ -102,6 +108,12 @@
       "category": "size",
       "severity": "error",
       "captureProduced": false
+    },
+    {
+      "type": "high_volume_distinct_id",
+      "category": "quota",
+      "severity": "warning",
+      "captureProduced": true
     },
     {
       "type": "ignored_invalid_timestamp",
@@ -185,7 +197,7 @@
       "type": "message_size_too_large",
       "category": "size",
       "severity": "error",
-      "captureProduced": false
+      "captureProduced": true
     },
     {
       "type": "message_timestamp_diff_too_large",

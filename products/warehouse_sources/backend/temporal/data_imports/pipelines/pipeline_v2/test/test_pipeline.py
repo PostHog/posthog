@@ -12,19 +12,22 @@ _PIPELINE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pip
 
 
 @pytest.mark.asyncio
-async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
-    # Regression: run()'s finally calls get_delta_table() (object-storage I/O) purely for
-    # memory cleanup. When that raised — e.g. a transient object-storage blip — it replaced
-    # the in-flight import error, so a connection failure already classified as non-retryable
+async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_import_error(monkeypatch):
+    # Regression: run()'s finally used to call get_delta_table() (object-storage I/O) purely for
+    # memory cleanup, even on a run that failed before ever fetching a delta table (nothing
+    # cached, nothing to clean up). A transient object-storage blip on that spurious call then
+    # replaced the in-flight import error, so a failure already classified as non-retryable
     # surfaced as the unrelated cleanup error and the job retried to its maximum instead of
-    # stopping. The body error must propagate; the cleanup error must be swallowed.
+    # stopping. Cleanup must pop whatever's cached instead of recomputing it, so it can no
+    # longer make its own object-storage call at all.
     pipeline = PipelineNonDLT.__new__(PipelineNonDLT)
     pipeline._logger = AsyncMock()
     pipeline._resumable_source_manager = None
     pipeline._cdp_producer = cast(CDPProducer, object())  # unused: the patched clear-chunks ignores it
     pipeline._resource = cast(SourceResponse, object())
-    pipeline._delta_table_helper = AsyncMock()
-    pipeline._delta_table_helper.get_delta_table.side_effect = OSError("object storage unavailable")
+    delta_table_helper = AsyncMock()
+    delta_table_helper.get_delta_table.cache_pop.return_value = None
+    pipeline._delta_table_helper = delta_table_helper
 
     class ImportError_(Exception):
         pass
@@ -40,7 +43,10 @@ async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
     with pytest.raises(ImportError_, match="Can't connect to MySQL server on"):
         await pipeline.run()
 
-    pipeline._logger.aexception.assert_awaited_once_with("Failed to clean up delta table helper")
+    # run()'s finally `del self._delta_table_helper`s afterward, so assert on the captured
+    # reference rather than re-reading it off `pipeline`.
+    delta_table_helper.get_delta_table.assert_not_called()
+    delta_table_helper.get_delta_table.cache_pop.assert_called_once_with(delta_table_helper)
 
 
 @pytest.mark.asyncio

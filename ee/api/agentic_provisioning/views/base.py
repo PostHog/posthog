@@ -21,10 +21,7 @@ from rest_framework.views import APIView
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.authentication import (
-    ConfidentialPartnerAuthentication,
-    ProvisioningBearerAuthentication,
-)
+from ee.api.agentic_provisioning.authentication import GitHubGrantsAuthentication, ProvisioningBearerAuthentication
 from ee.api.agentic_provisioning.exceptions import Envelope, ProvisioningError, render_provisioning_error
 from ee.api.agentic_provisioning.region_proxy import RegionProxyMixin
 from ee.api.agentic_provisioning.serializers import first_error_message
@@ -65,7 +62,7 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
             raise TypeError(
                 f"{cls.__name__} declares no authentication_classes. Provisioning endpoints are "
                 "partner-facing, so set authentication_classes (for example to "
-                "ConfidentialPartnerAuthentication) or, if it must authenticate inside the "
+                "GitHubGrantsAuthentication) or, if it must authenticate inside the "
                 "handler, set authenticates_in_handler = True."
             )
 
@@ -119,15 +116,16 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
         return serializer.validated_data
 
 
-class ConfidentialPartnerAPIView(ProvisioningAPIView):
-    """Base for confidential-partner endpoints (GitHub grants).
+class GitHubGrantsAPIView(ProvisioningAPIView):
+    """Base for the GitHub grant endpoints.
 
     The partner rides ``request.auth``, having proven itself with either a signed
     ``private_key_jwt`` assertion or a verified client secret. A public partner is identified
-    only by a client_id anyone can send, so it never reaches these endpoints.
+    only by a client_id anyone can send, so it never reaches these endpoints, and a confidential
+    one still needs ``can_use_github_grants`` granted.
     """
 
-    authentication_classes = [ConfidentialPartnerAuthentication]
+    authentication_classes = [GitHubGrantsAuthentication]
 
 
 class BearerResourceAPIView(ProvisioningAPIView):

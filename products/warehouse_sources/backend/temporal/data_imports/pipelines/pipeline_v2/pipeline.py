@@ -28,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
-    run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     stage_chunk_for_person_property_sink,
@@ -53,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import setup_partitioning
@@ -206,11 +206,10 @@ class PipelineNonDLT(Generic[ResumableData]):
             # Defensive pre-write compaction so a sync that arrived at a fragmented
             # Delta target (e.g. earlier attempts that failed before reaching
             # `_post_run_operations`) cleans up before adding more small files. Skipped
-            # cheaply when the table is healthy. Shared implementation lives in
-            # `extract.run_pre_write_defensive_compact` so the v3 pipeline matches.
+            # cheaply when the table is healthy; see DeltaMaintenance.run_scheduled.
             if not is_first_ever_sync:
-                await run_pre_write_defensive_compact(
-                    self._delta_table_helper, self._schema, self._resource, self._logger
+                await DeltaMaintenance(self._delta_table_helper).run_scheduled(
+                    self._schema, partition_count_fallback=self._resource.partition_count
                 )
 
             async for item in async_iterate(self._resource.items()):
@@ -272,19 +271,16 @@ class PipelineNonDLT(Generic[ResumableData]):
                 result["prepared_queryable_folder"] = prepared_queryable_folder
             return result
         finally:
-            # Help reduce the memory footprint of each job. This is best-effort cleanup:
-            # `get_delta_table` does object-storage I/O, so a transient storage blip here
-            # must not mask the real import error from the try body — which drives
-            # retry classification and the user-facing message — nor fail an otherwise
-            # successful sync.
+            # Help reduce the memory footprint of each job. This is best-effort cleanup of
+            # whatever `get_delta_table` already cached this run — pop rather than call, so a
+            # run that failed before ever fetching the delta table (nothing to release) doesn't
+            # make a fresh, unrelated object-storage call here that can itself raise and get
+            # captured, obscuring the real import error that's already driving retry
+            # classification and the user-facing message.
             await self._logger.adebug("Cleaning up delta table helper")
-            try:
-                delta_table = await self._delta_table_helper.get_delta_table()
-                self._delta_table_helper.get_delta_table.cache_clear()
-                if delta_table:
-                    del delta_table
-            except Exception:
-                await self._logger.aexception("Failed to clean up delta table helper")
+            delta_table = self._delta_table_helper.get_delta_table.cache_pop(self._delta_table_helper)
+            if delta_table:
+                del delta_table
 
             del self._resource
             del self._delta_table_helper

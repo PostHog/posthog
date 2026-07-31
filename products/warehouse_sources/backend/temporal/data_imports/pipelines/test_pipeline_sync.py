@@ -1,9 +1,10 @@
 import uuid
 
+import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 
 from parameterized import parameterized
 
@@ -16,7 +17,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     build_table_name,
     resolve_table_and_folder_names,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import merge_columns
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    merge_columns,
+    update_last_synced_at,
+)
+
+_PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
+_DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 
 
 class TestResolveTableAndFolderNames:
@@ -271,3 +278,31 @@ class TestRegisterCDCCompanionTable(BaseTest):
             deleted=False,
         )
         assert companions.count() == 0
+
+
+class TestUpdateLastSyncedAt:
+    @pytest.mark.asyncio
+    async def test_retries_transient_query_wait_timeout_then_succeeds(self):
+        # A saturated pgbouncer pool can reject either read with `query_wait_timeout` before the
+        # query ever reaches Postgres, so retrying the whole lookup+save is safe and avoids
+        # failing the whole import activity over a momentary blip.
+        job = MagicMock()
+        get_job = MagicMock(side_effect=[OperationalError("query_wait_timeout"), job])
+        schema = MagicMock()
+        get_schema = MagicMock(return_value=schema)
+
+        with (
+            patch(f"{_PIPELINE_SYNC_MODULE}.ExternalDataJob.objects.get", get_job),
+            patch(
+                f"{_PIPELINE_SYNC_MODULE}.ExternalDataSchema.objects.exclude", return_value=MagicMock(get=get_schema)
+            ),
+            patch(f"{_DB_RETRY_MODULE}.close_old_connections") as close,
+            patch(f"{_DB_RETRY_MODULE}.time.sleep") as sleep,
+        ):
+            await update_last_synced_at(job_id="job-1", schema_id="schema-1", team_id=1)
+
+        assert get_job.call_count == 2
+        assert schema.last_synced_at == job.created_at
+        schema.save.assert_called_once_with(skip_activity_log=True)
+        close.assert_called_once()
+        sleep.assert_called_once_with(2)

@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
     _MAX_CONNECT_ATTEMPTS,
+    NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     YIELD_TARGET_ROWS,
     ClickHouseColumn,
     ClickHouseConnectionError,
@@ -669,6 +670,9 @@ class TestClickHouseSourceNonRetryableErrors:
             # SSH tunnel to the customer's bastion couldn't be brought up — the import path only
             # checks this per-source dict, so the entry must be here to stop it retrying forever.
             "Could not establish session to SSH gateway",
+            # Host answered 2xx with a non-ClickHouse body — `_get_client` wraps the driver's
+            # "too many values to unpack" probe error into this message.
+            NOT_A_CLICKHOUSE_HTTP_RESPONSE,
         ],
     )
     def test_permanent_errors_are_non_retryable(self, source, error_msg):
@@ -714,6 +718,11 @@ class TestClickHouseSourceRetryableErrors:
             "Tunnel connection failed: 504 Gateway Timeout",
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
+            # The source dropped the connection mid-stream while reading Arrow batches
+            # (urllib3 ProtocolError wrapping http.client.IncompleteRead). Byte counts vary.
+            "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
+            "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
+            "IncompleteRead(12345 bytes read, 67 more expected))",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):
@@ -861,6 +870,20 @@ class TestGetClientTransientRetry:
         assert mock_get_client.call_count == 1
         mock_sleep.assert_not_called()
 
+    def test_wraps_non_clickhouse_response_probe_error(self):
+        # clickhouse-connect's construction-time probe unpacks the reply into two values;
+        # a non-ClickHouse 2xx body raises a bare ValueError. We wrap it as a connection
+        # error (deterministic, no retry) instead of leaking the cryptic ValueError.
+        probe_error = ValueError("too many values to unpack (expected 2)")
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(ch_module, "get_client", side_effect=probe_error) as mock_get_client,
+        ):
+            with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
+                self._connect()
+        assert mock_get_client.call_count == 1
+        mock_sleep.assert_not_called()
+
 
 class TestGetClientSessionSettings:
     """`_get_client` applies tuning settings after connect, tolerating a
@@ -917,7 +940,11 @@ class TestTranslateError:
         translated = ClickHouseSource._translate_error(msg)
         assert translated is not None
         assert "404" in translated
-        assert translated != GENERIC_CONNECTION_ERROR
+
+    def test_non_clickhouse_response_maps_to_actionable_message(self):
+        # The wrapped probe error must surface the actionable "not serving ClickHouse"
+        # message during onboarding, not fall through to the generic one.
+        assert ClickHouseSource._translate_error(NOT_A_CLICKHOUSE_HTTP_RESPONSE) == NOT_A_CLICKHOUSE_HTTP_RESPONSE
 
     @pytest.mark.parametrize("code", ["429", "502", "503", "504"])
     def test_transient_gateway_responses_ask_to_retry(self, code):

@@ -830,6 +830,32 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "Missing incremental field error should surface an actionable message"
         assert "incremental field" in friendly[0]
 
+    @pytest.mark.parametrize(
+        "builder",
+        [
+            # schema, table_name, should_use_incremental_field, table_type, incremental_field,
+            # incremental_field_type, db_incremental_field_last_value
+            lambda: _build_query("public", "my_table", True, None, "xmin", IncrementalFieldType.XID, None),
+            # _build_count_query has no `table_type` parameter
+            lambda: _build_count_query("public", "my_table", True, "xmin", IncrementalFieldType.XID, None),
+        ],
+    )
+    def test_xmin_as_incremental_field_is_non_retryable(self, source, builder):
+        # `xmin` is only valid through the dedicated xmin replication sync type. Picking it as a
+        # plain incremental/append field used to build `"xmin" >= 0`, which Postgres rejects with
+        # `UndefinedFunction: operator does not exist: xid >= integer`. Drive the real raise sites so
+        # a message change that breaks the classifier key is caught.
+        with pytest.raises(ValueError) as exc_info:
+            builder()
+        error_msg = str(exc_info.value)
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"xmin-as-incremental-field error should be non-retryable: {error_msg}"
+
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "xmin-as-incremental-field error should surface an actionable message"
+        assert "xmin replication" in friendly[0]
+
     def test_exhausted_recovery_conflict_retries_are_non_retryable(self, source):
         error_msg = str(_recovery_conflict_abort_error(10))
         non_retryable = source.get_non_retryable_errors()
@@ -991,6 +1017,27 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'unit "week" not supported for type interval',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'FeatureNotSupported: unit "week" not supported for type interval',
+        ],
+    )
+    def test_interval_unit_not_supported_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unsupported interval-unit error should be non-retryable: {error_msg}"
+
+    def test_interval_unit_not_supported_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'unit "week" not supported for type interval'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Unsupported interval-unit error should surface an actionable message"
+        assert "interval" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1510,6 +1557,14 @@ class TestIsConnectionDroppedError:
             # deadline as a ConnectionFailure — a transient drop the in-process recovery must catch.
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
+            ),
+            # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
+            # user record) times out waiting for the backend, reporting a bare OperationalError
+            # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential
+            # rejection — transient and recovers once the secret is cached.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) auth_query secret check timed out"
             ),
             # pgcat refuses to hand out a backend when every pooled server is banned/down, reporting
             # it as SQLSTATE 58000 (psycopg's SystemError, an OperationalError) rather than the

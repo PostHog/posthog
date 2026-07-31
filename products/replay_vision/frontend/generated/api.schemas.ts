@@ -385,6 +385,14 @@ export interface RunActionResponseApi {
 }
 
 /**
+ * The shape every Replay Vision error response uses, so generated clients read one key.
+ */
+export interface ReplayVisionErrorApi {
+    /** Human-readable explanation of why the request was refused. */
+    detail: string
+}
+
+/**
  * * `running` - Running
  * * `completed` - Completed
  * * `failed` - Failed
@@ -724,7 +732,7 @@ export const ScannerProviderEnumApi = {
 
 /**
  * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
- * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
  * * `gemini-3.6-flash` - Gemini 3.6 Flash
  */
 export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
@@ -807,7 +815,7 @@ export interface ReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -901,7 +909,7 @@ export interface PatchedReplayScannerApi {
     /** Concrete model to use for this scanner.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
     /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
@@ -1193,6 +1201,24 @@ export interface ScorerStatsApi {
     histogram: ScorerHistogramApi | null
 }
 
+export interface FacetCountApi {
+    /** The facet value as emitted by the summarizer (lowercased). */
+    term: string
+    /** Number of succeeded observations that emitted this value. */
+    count: number
+}
+
+export interface SummarizerStatsApi {
+    /** Top friction points by emission count. */
+    friction_ranked: FacetCountApi[]
+    /** Top keywords by emission count. */
+    keyword_ranked: FacetCountApi[]
+    /** Succeeded observations that emitted at least one friction point or keyword. */
+    total_with_facets: number
+    /** Succeeded observations that reported at least one friction point. */
+    total_with_friction: number
+}
+
 export interface ObservationStatsApi {
     /** Counts of observations by terminal status. */
     status_counts: ObservationStatusCountsApi
@@ -1208,6 +1234,8 @@ export interface ObservationStatsApi {
     classifier: ClassifierStatsApi | null
     /** Scorer-type aggregates; null when the scanner is not a scorer. */
     scorer: ScorerStatsApi | null
+    /** Summarizer-type facet aggregates; null when the scanner is not a summarizer. */
+    summarizer: SummarizerStatsApi | null
 }
 
 /**
@@ -1396,7 +1424,7 @@ export interface EstimateRequestApi {
     /** Proposed model; determines `credits_per_observation` in the response.
      *
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
-     * * `gemini-3-flash-preview` - Gemini 3 Flash (preview)
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.6-flash` - Gemini 3.6 Flash */
     model?: ScannerModelEnumApi
 }

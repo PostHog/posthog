@@ -1,5 +1,16 @@
-import { InstallationProgress, InstallationStep, InstallationStepStatus } from './installationProgressLogic'
+import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
+
+import type { InstallationProgress, InstallationStep, InstallationStepStatus } from './installationProgressLogic'
 import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
+
+// Prefer a real name; fall back to email so we never render a blank attribution.
+export function startedByFromSession(session: WizardSessionDTOApi | null): { name: string; email: string } | null {
+    const createdBy = session?.created_by
+    if (!createdBy) {
+        return null
+    }
+    return { name: createdBy.first_name || createdBy.email, email: createdBy.email }
+}
 
 // Ceiling on the displayed elapsed time. The clock is driven by a persisted handle that outlives the
 // run it names, so without a cap a run nobody ever settled counts up for as long as the browser keeps
@@ -184,4 +195,19 @@ export function pipClass(status: InstallationStepStatus): string {
         default:
             return 'bg-border'
     }
+}
+
+export function localModeLabel(startedByLabel?: string | null): string {
+    return startedByLabel ? `On ${startedByLabel}'s machine` : 'On your machine'
+}
+
+/** The teammate's name, or null for the viewer's own run (matched on email) or an unknown initiator. */
+export function resolveStartedByLabel(
+    startedBy: InstallationProgress['startedBy'],
+    currentUserEmail: string | undefined
+): string | null {
+    if (!startedBy || startedBy.email === currentUserEmail) {
+        return null
+    }
+    return startedBy.name
 }

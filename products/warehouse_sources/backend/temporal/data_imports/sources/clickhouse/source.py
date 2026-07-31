@@ -8,6 +8,7 @@ from sshtunnel import BaseSSHTunnelForwarderError
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -20,6 +21,7 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.clickhouse import (
+    NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     ClickHouseConnectionError,
     _get_client,
     clickhouse_source,
@@ -85,6 +87,9 @@ ClickHouseErrors: dict[str, str] = {
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
     # as the sync-time non-retryable handling.
     "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # `_get_client` raises this when the host answers 2xx with a body that isn't a
+    # ClickHouse response (a proxy/LB page, or a different service on the host/port).
+    "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
     "returned response code 429": _TEMPORARILY_UNAVAILABLE,
     "returned response code 502": _TEMPORARILY_UNAVAILABLE,
     "returned response code 503": _TEMPORARILY_UNAVAILABLE,
@@ -110,7 +115,8 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
-            releaseStatus="beta",
+            keywords=["sql"],
+            releaseStatus=ReleaseStatus.GA,
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
             docsUrl="https://posthog.com/docs/cdp/sources/clickhouse",
@@ -223,6 +229,12 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # answers queries with 404, so retrying can't recover. We match only
             # 404, not transient gateway codes (502/503/504), which stay retryable.
             "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # `_get_client` wraps the driver's construction-time probe failure ("too many
+            # values to unpack") into this message when the host answers 2xx with a body that
+            # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
+            # interface, so retrying replays the identical failure. We match the stable phrase
+            # from the wrapped message, not the volatile per-request URL or host.
+            "did not return a valid ClickHouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
             # MEMORY_LIMIT_EXCEEDED — the source ClickHouse server (per-query
             # `max_memory_usage` budget or a server-wide OvercommitTracker kill)
             # ran out of memory running our extraction query. We already stream
@@ -282,6 +294,13 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "returned response code 502",
             "returned response code 503",
             "returned response code 504",
+            # urllib3 raises this when the source drops the connection mid-transfer while
+            # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
+            # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time
+            # drops above, this happens after the client is already constructed, so
+            # `_get_client`'s in-process retry never sees it; Temporal's activity retry
+            # reopens a fresh tunnel + client and resumes from the last committed cursor.
+            "Connection broken: IncompleteRead",
         }
 
     @contextmanager

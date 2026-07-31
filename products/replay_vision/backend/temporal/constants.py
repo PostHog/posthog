@@ -12,11 +12,19 @@ OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT * 2
 # Bounds one reaper pass; a backlog beyond this drains across subsequent reconciler ticks.
 REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500
 REAP_ORPHANED_OBSERVATIONS_TIMEOUT = dt.timedelta(minutes=3)
+# The reaper heartbeats between phases; a pass that goes quiet this long is stalled, not slow.
+REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
 
 # Per-action vision-action child, fire-and-forgot by the sweep. Name + timeout live here (not in the
 # workflow-def module) so the sweep can start it without cross-importing another @wf.defn module.
 PROCESS_VISION_ACTION_WORKFLOW_NAME = "process-vision-action"
 PROCESS_VISION_ACTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
+
+# Running runs older than twice the process execution timeout are provably stuck (the final
+# update activity failed or the workflow was terminated without reaching it).
+VISION_ACTION_RUN_STUCK_CUTOFF = PROCESS_VISION_ACTION_EXECUTION_TIMEOUT * 2
+REAP_STUCK_VISION_ACTION_RUNS_BATCH_SIZE = 500
+REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT = dt.timedelta(minutes=3)
 
 
 def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:

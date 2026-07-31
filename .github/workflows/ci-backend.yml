@@ -17,15 +17,17 @@ on:
         # turbo-tests (product tests) still skip drafts. Ready PRs run the full
         # matrices — that full run is the merge gate, and ready_for_review re-triggers
         # it when a PR leaves draft. To force the full matrices on a draft, add the
-        # `run-ci-backend` label — labeled/unlabeled re-trigger the run so the matrices
-        # start without needing a new push. Cheap checks still run on drafts.
+        # `run-ci-backend` label. Cheap checks still run on drafts.
         # The `no-ci` label does the opposite: it silences this workflow on a draft
-        # entirely (prototypes/spikes), until the label is removed or the PR is
-        # marked ready for review.
+        # entirely (prototypes/spikes).
+        # No labeled/unlabeled triggers: GitHub cannot filter a label trigger by name,
+        # so every unrelated label re-ran these matrices against a commit CI had
+        # already covered. A label here takes effect from the next push, or from
+        # ready_for_review.
         # The `test-new-events-schema` label opts a PR into the doubled matrices that
         # rerun everything with CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=true; unlabeled
         # PRs run legacy-schema only (master runs always cover both).
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -436,6 +438,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Restore test durations from cache
               # Shard counts are derived from .test_durations (Amdahl). Restore the newest
@@ -804,26 +807,29 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure
 
+            # Dedicated app: this product matrix alone is ~half the offloadable
+            # setup-action volume, enough to threaten any shared 15k/hr bucket.
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -1924,7 +1930,9 @@ jobs:
             - name: Post CH migration SQL to CI report comment
               # Sticky section in the shared CI report comment so pushes don't spam the PR.
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
                   CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}
