@@ -14,6 +14,7 @@ export class DesktopPiRuntimeFactory implements PiRuntimeFactory {
   ) {}
 
   async create(input: {
+    taskId: string;
     cwd: string;
     model?: string;
     sessionFile?: string;

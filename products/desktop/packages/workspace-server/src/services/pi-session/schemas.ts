@@ -36,6 +36,21 @@ export const resumePiSessionInput = z.object({
 
 export const piSessionTaskInput = z.object({ taskId: z.string() });
 
+export const mcpToolPermissionRequestSchema = z.object({
+  requestId: z.string(),
+  serverName: z.string(),
+  toolName: z.string(),
+  installationId: z.string(),
+  arguments: z.record(z.string(), z.unknown()),
+  description: z.string().optional(),
+});
+
+export const respondMcpToolPermissionInput = z.object({
+  taskId: z.string(),
+  request: mcpToolPermissionRequestSchema,
+  decision: z.enum(["allow", "allow_always", "reject"]),
+});
+
 export const piSessionConfigInput = z.object({ downloadUrl: z.url() });
 
 export const piSessionConfigOutput = z

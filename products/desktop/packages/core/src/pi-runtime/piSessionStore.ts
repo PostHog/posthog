@@ -9,6 +9,7 @@ import type {
 import type {
   AgentConversationEvent,
   GatewayLimitCause,
+  McpToolPermissionRequest,
   PromptFailureKind,
   SessionStatus,
   TaskRunStatus,
@@ -41,6 +42,7 @@ export interface PiControllerSessionState {
   error?: PiSessionError;
   authRestoring: boolean;
   isBashRunning: boolean;
+  mcpToolPermissionRequests: Map<string, McpToolPermissionRequest>;
 }
 
 export interface PiSessionState {
@@ -63,6 +65,7 @@ export function createEmptyPiControllerSession(): PiControllerSessionState {
     thinkingLevelsLoaded: false,
     commands: [],
     queue: { steering: [], followUp: [] },
+    mcpToolPermissionRequests: new Map(),
     authRestoring: false,
     isBashRunning: false,
   };

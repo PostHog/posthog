@@ -161,6 +161,7 @@ describe("PiSessionService task session config", () => {
       {} as PiRuntimeFactory,
       {} as ITaskMetadataRepository,
       {} as ProcessTrackingService,
+      { approveMcpTool: vi.fn() },
       rootLogger,
     );
 
@@ -187,6 +188,8 @@ describe("PiSessionService start", () => {
       }),
       setThinkingLevel,
       prompt,
+      onMcpToolPermissionRequest: vi.fn(),
+      respondMcpToolPermission: vi.fn(),
     } as unknown as PiRpcClient;
     const runtimeFactory = {
       create: vi.fn(async () => ({
@@ -203,10 +206,12 @@ describe("PiSessionService start", () => {
       register: vi.fn(),
       unregister: vi.fn(),
     } as unknown as ProcessTrackingService;
+    const mcpToolPolicyUpdater = { approveMcpTool: vi.fn() };
     const service = new PiSessionService(
       runtimeFactory,
       taskMetadataRepository,
       processTracking,
+      mcpToolPolicyUpdater,
       rootLogger,
     );
 
@@ -220,6 +225,29 @@ describe("PiSessionService start", () => {
     expect(setThinkingLevel).toHaveBeenCalledWith("high");
     expect(setThinkingLevel.mock.invocationCallOrder[0]).toBeLessThan(
       prompt.mock.invocationCallOrder[0],
+    );
+
+    const request = {
+      requestId: "call-1",
+      serverName: "Cloudflare",
+      toolName: "search",
+      installationId: "installation-1",
+      arguments: { query: "workers" },
+    };
+    const onRequest = (
+      client.onMcpToolPermissionRequest as ReturnType<typeof vi.fn>
+    ).mock.calls[0]?.[0];
+    onRequest(request);
+    expect(service.getPendingMcpToolPermissions("task-1")).toEqual([request]);
+    await service.respondMcpToolPermission("task-1", request, "allow");
+
+    expect(mcpToolPolicyUpdater.approveMcpTool).toHaveBeenCalledWith(
+      "installation-1",
+      "search",
+    );
+    expect(client.respondMcpToolPermission).toHaveBeenCalledWith(
+      "call-1",
+      "allow",
     );
   });
 });
@@ -248,6 +276,7 @@ describe("PiSessionService RPC request pinning", () => {
             requestResolvers.push(resolve);
           }),
       ),
+      onMcpToolPermissionRequest: vi.fn(),
       getQueue: vi.fn(
         () =>
           new Promise<{ steering: string[]; followUp: string[] }>((resolve) => {
@@ -263,6 +292,7 @@ describe("PiSessionService RPC request pinning", () => {
         sessionFile: "/tmp/second.jsonl",
       }),
       send: vi.fn(),
+      onMcpToolPermissionRequest: vi.fn(),
     } as unknown as PiRpcClient;
     const thirdClient = {
       start: vi.fn().mockResolvedValue(undefined),
@@ -272,6 +302,7 @@ describe("PiSessionService RPC request pinning", () => {
         sessionFile: "/tmp/third.jsonl",
       }),
       send: vi.fn(),
+      onMcpToolPermissionRequest: vi.fn(),
     } as unknown as PiRpcClient;
     const clients = [firstClient, secondClient, thirdClient];
     const runtimeFactory = {
@@ -306,6 +337,7 @@ describe("PiSessionService RPC request pinning", () => {
       runtimeFactory,
       taskMetadataRepository,
       processTracking,
+      { approveMcpTool: vi.fn() },
       rootLogger,
     );
 

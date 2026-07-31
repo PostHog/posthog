@@ -34,6 +34,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
   ) {}
 
   async create(input: {
+    taskId: string;
     cwd: string;
     model?: string;
     sessionFile?: string;
@@ -45,13 +46,16 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
 
     const baseUrl = await this.getProxyUrl(credentials.region);
 
-    const runtimeMcpServers = createRuntimeMcpServers(
-      await this.mcpServerSource.getMcpServerConnections(),
-    );
+    const mcpConfiguration =
+      await this.mcpServerSource.getMcpRuntimeConfiguration();
+    const runtimeMcpServers = createRuntimeMcpServers(mcpConfiguration.servers);
 
     return createPiRpcClient({
-      ...input,
+      cwd: input.cwd,
+      model: input.model,
+      sessionFile: input.sessionFile,
       runtimeMcpServers,
+      mcpToolPolicies: mcpConfiguration.policies,
       providerOptions: {
         region: credentials.region,
         baseUrl,

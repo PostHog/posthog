@@ -17,6 +17,8 @@ export default defineConfig({
     "src/extensions/posthog-provider/oauth.ts",
     "src/extensions/posthog-provider/gateway.ts",
     "src/extensions/posthog-provider/gateway-auth.ts",
+    "src/extensions/posthog-mcp-policy/extension.ts",
+    "src/extensions/posthog-mcp-policy/index.ts",
     "src/extensions/background-jobs/extension.ts",
     "src/extensions/background-jobs/index.ts",
     "src/extensions/background-jobs/jobs.ts",

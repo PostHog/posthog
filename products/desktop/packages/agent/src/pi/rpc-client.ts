@@ -8,13 +8,25 @@ import {
   type RpcClientOptions,
 } from "@earendil-works/pi-coding-agent";
 import type { McpConfig } from "@posthog/harness/extensions/mcp/config";
-import type { McpServerConnection } from "@posthog/shared";
+import type {
+  McpServerConnection,
+  McpToolPermissionDecision,
+  McpToolPermissionRequest,
+  McpToolPolicy,
+} from "@posthog/shared";
 import { safePiEnvironment } from "./rpc-environment";
 import type { PiQueueSnapshot } from "./types";
 
 export type PiRpcClient = RpcClient & {
   getQueue(): Promise<PiQueueSnapshot>;
   clearQueue(): Promise<PiQueueSnapshot>;
+  onMcpToolPermissionRequest(
+    listener: (request: McpToolPermissionRequest) => void,
+  ): () => void;
+  respondMcpToolPermission(
+    requestId: string,
+    decision: McpToolPermissionDecision,
+  ): void;
 };
 
 export interface PiRpcProviderOptions {
@@ -68,12 +80,24 @@ export function createRuntimeMcpServers(
 interface PiRpcBootstrap {
   providerOptions: PiRpcProviderOptions;
   runtimeMcpServers?: PiRuntimeMcpServers;
+  mcpToolPolicies?: McpToolPolicy[];
 }
 
 interface PiHostRequest {
   type: "posthog_pi_host_request";
   id: string;
   method: "get_queue" | "clear_queue";
+}
+
+interface PiMcpPermissionRequestMessage {
+  type: "posthog_pi_mcp_permission_request";
+  request: McpToolPermissionRequest;
+}
+
+interface PiMcpPermissionResponseMessage {
+  type: "posthog_pi_mcp_permission_response";
+  requestId: string;
+  decision: McpToolPermissionDecision;
 }
 
 interface PiHostResponse {
@@ -104,6 +128,9 @@ function attachJsonlReader(
 }
 
 class SecurePiRpcClient extends RpcClient {
+  private readonly mcpPermissionListeners = new Set<
+    (request: McpToolPermissionRequest) => void
+  >();
   private readonly hostRequests = new Map<
     string,
     {
@@ -165,7 +192,10 @@ class SecurePiRpcClient extends RpcClient {
       internals.rejectPendingRequests(error);
       this.rejectHostRequests(error);
     });
-    child.on("message", (message: unknown) => this.handleHostResponse(message));
+    child.on("message", (message: unknown) => {
+      this.handleHostResponse(message);
+      this.handleMcpPermissionRequest(message);
+    });
     child.once("error", (error) => {
       if (internals.process !== child) {
         return;
@@ -274,6 +304,39 @@ class SecurePiRpcClient extends RpcClient {
     request.resolve(response.data);
   }
 
+  onMcpToolPermissionRequest(
+    listener: (request: McpToolPermissionRequest) => void,
+  ): () => void {
+    this.mcpPermissionListeners.add(listener);
+    return () => this.mcpPermissionListeners.delete(listener);
+  }
+
+  respondMcpToolPermission(
+    requestId: string,
+    decision: McpToolPermissionDecision,
+  ): void {
+    const child = (this as unknown as RpcClientProcessAccess).process;
+    child?.send({
+      type: "posthog_pi_mcp_permission_response",
+      requestId,
+      decision,
+    } satisfies PiMcpPermissionResponseMessage);
+  }
+
+  private handleMcpPermissionRequest(message: unknown): void {
+    const permissionMessage = message as Partial<PiMcpPermissionRequestMessage>;
+    if (
+      permissionMessage.type !== "posthog_pi_mcp_permission_request" ||
+      !permissionMessage.request
+    ) {
+      return;
+    }
+
+    for (const listener of this.mcpPermissionListeners) {
+      listener(permissionMessage.request);
+    }
+  }
+
   private rejectHostRequests(error: Error): void {
     for (const request of this.hostRequests.values()) {
       clearTimeout(request.timeout);
@@ -296,11 +359,17 @@ export type PiRpcClientOptions = Pick<
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
   runtimeMcpServers?: PiRuntimeMcpServers;
+  mcpToolPolicies?: McpToolPolicy[];
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
-  const { sessionFile, providerOptions, runtimeMcpServers, ...rpcOptions } =
-    options;
+  const {
+    sessionFile,
+    providerOptions,
+    runtimeMcpServers,
+    mcpToolPolicies,
+    ...rpcOptions
+  } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
   const cliPath =
     rpcOptions.cliPath ??
@@ -312,6 +381,6 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       cliPath,
       provider: "posthog",
     },
-    { providerOptions, runtimeMcpServers },
+    { providerOptions, runtimeMcpServers, mcpToolPolicies },
   );
 }

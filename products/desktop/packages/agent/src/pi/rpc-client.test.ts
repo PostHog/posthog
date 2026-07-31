@@ -134,6 +134,61 @@ process.stdin.resume();
     }
   });
 
+  it("routes MCP permission requests over the private host channel", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "pi-mcp-permission-"));
+    const hostPath = join(directory, "host.mjs");
+    const capturePath = join(directory, "capture.json");
+    await writeFile(
+      hostPath,
+      `
+import { closeSync, writeFileSync } from "node:fs";
+
+closeSync(3);
+process.stdin.resume();
+process.send({
+  type: "posthog_pi_mcp_permission_request",
+  request: {
+    requestId: "call-1",
+    serverName: "Cloudflare",
+    toolName: "search",
+    installationId: "installation-1",
+    arguments: { query: "workers" },
+  },
+});
+process.on("message", (response) => {
+  if (response.type === "posthog_pi_mcp_permission_response") {
+    writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify(response));
+  }
+});
+`,
+    );
+    const requestMcpToolPermission = vi.fn();
+    const client = createPiRpcClient({
+      cliPath: hostPath,
+      cwd: directory,
+      providerOptions: { apiKey: "proxy-key" },
+    });
+    client.onMcpToolPermissionRequest((request) => {
+      requestMcpToolPermission(request);
+      client.respondMcpToolPermission(request.requestId, "allow");
+    });
+
+    try {
+      await client.start();
+      await vi.waitFor(async () => {
+        await expect(readFile(capturePath, "utf8")).resolves.toContain(
+          '"decision":"allow"',
+        );
+      });
+      expect(requestMcpToolPermission).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: "call-1" }),
+      );
+    } finally {
+      await client.stop();
+      await rm(directory, { recursive: true });
+    }
+  });
+
   it("uses the private host channel without changing Pi RPC", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-host-channel-"));
     const hostPath = join(directory, "host.mjs");

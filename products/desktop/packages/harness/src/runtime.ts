@@ -71,6 +71,8 @@ export async function createHarnessRuntime(
     credentialStore,
     posthogOAuthCredentials,
     runtimeMcpServers: _runtimeMcpServers,
+    mcpToolPolicies: _mcpToolPolicies,
+    requestMcpToolPermission: _requestMcpToolPermission,
     ...runtimeOptions
   } = options;
   // Pi reads its application branding when the SDK is first evaluated. Keep

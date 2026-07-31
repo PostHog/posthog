@@ -8,6 +8,8 @@ import type {
 import {
   type AgentConversationEvent,
   classifyPromptFailure,
+  type McpToolPermissionDecision,
+  type McpToolPermissionRequest,
   type PiMessagingMode,
   type PiRuntimeHealth,
   type PromptFailure,
@@ -67,6 +69,14 @@ export interface PiSession {
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): () => void;
+  onMcpToolPermissionRequest?(
+    onRequest: (request: McpToolPermissionRequest) => void,
+    onError: (error: unknown) => void,
+  ): () => void;
+  respondMcpToolPermission?(
+    request: McpToolPermissionRequest,
+    decision: McpToolPermissionDecision,
+  ): Promise<void>;
 }
 
 export interface PiSessionFactory {
@@ -207,6 +217,7 @@ export class PiSessionController {
     this.queueRevisions.delete(taskId);
     this.queuesToRestore.delete(taskId);
     this.activeTaskIds.delete(taskId);
+    this.updateSession(taskId, { mcpToolPermissionRequests: new Map() });
   }
 
   async retry(taskId: string): Promise<void> {
@@ -227,6 +238,21 @@ export class PiSessionController {
     } catch (error) {
       throw this.recordOperationFailure(taskId, "retry", error);
     }
+  }
+
+  async respondMcpToolPermission(
+    taskId: string,
+    request: McpToolPermissionRequest,
+    decision: McpToolPermissionDecision,
+  ): Promise<void> {
+    const session = await this.getPiSession(taskId);
+    if (!session.respondMcpToolPermission) {
+      throw new Error("MCP tool permissions are unavailable for this session");
+    }
+    await session.respondMcpToolPermission(request, decision);
+    const requests = new Map(this.getSession(taskId).mcpToolPermissionRequests);
+    requests.delete(request.requestId);
+    this.updateSession(taskId, { mcpToolPermissionRequests: requests });
   }
 
   async clearQueue(taskId: string): Promise<PiQueueSnapshot> {
@@ -525,7 +551,8 @@ export class PiSessionController {
     }
 
     let disposed = false;
-    let unsubscribe: (() => void) | undefined;
+    let unsubscribeConversation: (() => void) | undefined;
+    let unsubscribePermission: (() => void) | undefined;
     void this.getPiSession(taskId)
       .then((session) => {
         if (disposed) {
@@ -533,16 +560,29 @@ export class PiSessionController {
         }
         this.applyPersistedConfig(taskId, session);
         this.updateSession(taskId, { cloudStatus: session.cloudStatus });
-        unsubscribe = session.onConversationEvent(
+        unsubscribeConversation = session.onConversationEvent(
           (event) => this.handleEvent(taskId, event),
           (error) => this.applySessionError(taskId, error),
           (cloudStatus) => this.updateSession(taskId, { cloudStatus }),
+        );
+        unsubscribePermission = session.onMcpToolPermissionRequest?.(
+          (request) => {
+            const requests = new Map(
+              this.getSession(taskId).mcpToolPermissionRequests,
+            );
+            requests.set(request.requestId, request);
+            this.updateSession(taskId, {
+              mcpToolPermissionRequests: requests,
+            });
+          },
+          (error) => this.applySessionError(taskId, error),
         );
       })
       .catch((error) => this.applySessionError(taskId, error));
     this.subscriptions.set(taskId, () => {
       disposed = true;
-      unsubscribe?.();
+      unsubscribeConversation?.();
+      unsubscribePermission?.();
     });
   }
 
@@ -652,6 +692,7 @@ export class PiSessionController {
             : undefined,
         authRestoring: currentSession.authRestoring,
         isBashRunning: false,
+        mcpToolPermissionRequests: currentSession.mcpToolPermissionRequests,
       });
 
       await this.restoreQueueIfNeeded(taskId, session, resolvedStatus);

@@ -217,6 +217,12 @@ export type {
   LocalMcpTransport,
   McpServerConnection,
 } from "./local-mcp-domain";
+export type {
+  McpToolApprovalState,
+  McpToolPermissionDecision,
+  McpToolPermissionRequest,
+  McpToolPolicy,
+} from "./mcp-tool-policy-domain";
 export {
   formatMention,
   type MentionSegment,
