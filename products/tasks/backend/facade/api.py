@@ -72,6 +72,7 @@ from products.tasks.backend.models import (
     TaskThreadMessageMention,
 )
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
+from products.tasks.backend.run_matching import find_task_run
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
 from . import contracts
@@ -502,10 +503,6 @@ def find_signal_implementation_run(
     The caller passes the repository the PR event came from and owns fork safety: match on branch
     only when the PR's head repo is that repository.
     """
-    # Deferred: webhooks imports this module back (signal_workflow_completion), so a
-    # module-level import here would be circular.
-    from products.tasks.backend.webhooks import find_task_run  # noqa: PLC0415
-
     run = find_task_run(pr_url=pr_url, branch=head_branch, repository=repository, team_id=team_id, live_only=True)
     if run is None or run.team_id != team_id:
         return None

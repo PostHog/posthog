@@ -20,7 +20,8 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
 from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
-from products.tasks.backend.webhooks import _account_type, find_task_run
+from products.tasks.backend.run_matching import find_task_run
+from products.tasks.backend.webhooks import _account_type
 
 
 class TestAccountType(TestCase):

@@ -3,7 +3,6 @@ import uuid
 import hashlib
 
 from django.db import transaction
-from django.db.models import Case, IntegerField, Value, When
 from django.http import HttpResponse
 
 import structlog
@@ -18,103 +17,9 @@ from products.signals.backend.models import InvalidStatusTransition, SignalRepor
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
+from products.tasks.backend.run_matching import TERMINAL_RUN_STATUSES, find_task_run
 
 logger = structlog.get_logger(__name__)
-
-TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
-
-_TERMINAL_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
-
-
-def find_task_run(
-    pr_url: str | None = None,
-    branch: str | None = None,
-    repository: str | None = None,
-    *,
-    team_id: int | None = None,
-    live_only: bool = False,
-) -> TaskRun | None:
-    repository = repository.strip() if repository else None
-
-    def _scope(runs):
-        # TaskRun has no team-scoped manager, so this spans every team, which the webhook backstop
-        # needs. A caller that knows its team must filter first, or another team's run can win the pick.
-        if team_id is not None:
-            runs = runs.filter(team_id=team_id)
-        # The self-driving carve-out may act only on a run that is still live and still owned, so
-        # this drops terminal runs and soft-deleted tasks the same way the wizard branch below does.
-        if live_only:
-            runs = runs.filter(task__deleted=False).exclude(status__in=_TERMINAL_RUN_STATUSES)
-        return runs
-
-    if pr_url:
-        # A resumed wizard run inherits its predecessor's head branch, so a terminal
-        # original and its live resume can both claim the same PR URL. Scope to the
-        # webhook's repo and prefer non-terminal runs so merge handling lands on the
-        # run that can still act on it.
-        runs = _scope(TaskRun.objects.filter(output__pr_url=pr_url))
-        if repository:
-            runs = runs.filter(task__repository__iexact=repository)
-        # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
-        # variant that must not leak into the plain-queryset legs below.
-        task_run: TaskRun | None = (
-            runs.annotate(
-                terminal_rank=Case(
-                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
-                    default=Value(0),
-                    output_field=IntegerField(),
-                )
-            )
-            .order_by("terminal_rank", "-created_at")
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
-        if task_run:
-            return task_run
-
-    # Branch-only lookups must be scoped to the repository the webhook came from.
-    # Without this, a PR opened on an unrelated repo with a colliding branch name
-    # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
-    if branch and repository:
-        # Wizard runs are excluded here: their `branch` column holds the checkout (base)
-        # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
-        # otherwise claim the run before the dedicated leg below is consulted.
-        task_run = (
-            _scope(
-                TaskRun.objects.filter(
-                    branch=branch,
-                    task__repository__iexact=repository,
-                    state__wizard_head_branch__isnull=True,
-                )
-            )
-            .select_related(*TASK_RUN_SELECT_RELATED)
-            .first()
-        )
-        if task_run:
-            return task_run
-
-        # Wizard cloud runs push to a server-generated head branch stored in run state.
-        # The prefix check keeps this leg off the hot path for ordinary PR webhooks, and
-        # terminal runs are excluded so a reopened branch can't fire events on a dead run
-        # (post-merge events for bound runs resolve via the pr_url leg above).
-        if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
-            task_run = (
-                _scope(
-                    TaskRun.objects.filter(
-                        state__wizard_head_branch=branch,
-                        task__repository__iexact=repository,
-                        task__deleted=False,
-                    )
-                )
-                .exclude(status__in=_TERMINAL_RUN_STATUSES)
-                .select_related(*TASK_RUN_SELECT_RELATED)
-                .first()
-            )
-            if task_run:
-                return task_run
-
-    return None
 
 
 def verify_github_signature(payload: bytes, signature: str | None, secret: str) -> bool:
@@ -298,7 +203,7 @@ def _complete_wizard_run_on_merge(task_run: TaskRun) -> None:
         return
     if task_run.environment != TaskRun.Environment.CLOUD:
         return
-    if task_run.status in _TERMINAL_RUN_STATUSES:
+    if task_run.status in TERMINAL_RUN_STATUSES:
         return
 
     def _signal() -> None:
@@ -326,7 +231,7 @@ def _cancel_wizard_run_on_close(task_run: TaskRun) -> None:
         return
     if task_run.environment != TaskRun.Environment.CLOUD:
         return
-    if task_run.status in _TERMINAL_RUN_STATUSES:
+    if task_run.status in TERMINAL_RUN_STATUSES:
         return
 
     def _cancel() -> None:
