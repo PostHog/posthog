@@ -219,6 +219,28 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(service_names)
         self.assertEqual(sparkline_services, service_names)
 
+    @freeze_time("2025-12-16T10:33:00Z")
+    def test_services_accepts_flat_filter_group(self):
+        # The MCP tool and other callers send filterGroup as a flat array of leaf
+        # filters rather than the nested PropertyGroupFilter shape every other
+        # logs action normalizes via _normalize_filter_group. `services` used to
+        # pass this straight to LogsQuery, which raised a pydantic ValidationError
+        # (surfaced as a 500) instead of running the query.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/services",
+            data={
+                "query": {
+                    "dateRange": {"date_from": "2025-12-16T00:00:00Z", "date_to": "2025-12-16T23:59:59Z"},
+                    "severityLevels": [],
+                    "filterGroup": [
+                        {"key": "service.name", "operator": "exact", "value": "api", "type": "log_resource_attribute"}
+                    ],
+                    "serviceNames": [],
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

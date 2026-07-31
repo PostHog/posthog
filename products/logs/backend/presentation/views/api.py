@@ -16,15 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 
-from posthog.schema import (
-    DateRange,
-    FilterLogicalOperator,
-    LogAttributesQuery,
-    LogsOrderBy,
-    LogsQuery,
-    LogValuesQuery,
-    PropertyGroupFilter,
-)
+from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery, LogValuesQuery, PropertyGroupFilter
 
 from posthog.hogql.errors import QueryError
 
@@ -1462,16 +1454,12 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         tag_queries(product=Product.LOGS, feature=Feature.QUERY)
         query_data = request.data.get("query", {})
 
-        filter_group = query_data.get("filterGroup", None)
-        if filter_group is None:
-            filter_group = PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[])
-
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
             severityLevels=query_data.get("severityLevels", []),
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
-            filterGroup=filter_group,
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
 
         runner = ServicesQueryRunner(team=self.team, query=query)
