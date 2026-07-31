@@ -154,19 +154,25 @@ mod tests {
 
     /// An entry-count capacity cannot bound memory: documents grow in
     /// place and vary by orders of magnitude. This pins the byte
-    /// denomination — sustained inserts far beyond the byte capacity
-    /// must evict most of them. Foyer shards its capacity and evicts
-    /// lazily on later inserts to the same shard, so the bound is
-    /// asserted with per-shard slack rather than exactly.
+    /// denomination — sustained inserts whose combined weight far
+    /// exceeds the byte capacity must evict most, but not all, of them.
+    /// Foyer splits capacity across eight shards and evicts lazily on
+    /// later inserts to the same shard, so entries are sized well under
+    /// the per-shard budget (admission must succeed for eviction to be
+    /// what's under test) and the bound is asserted with per-shard
+    /// slack rather than exactly.
     #[test]
     fn byte_weights_evict_under_capacity_pressure() {
-        let cache = PersonCache::new(8 * 1024);
-        let fat = "x".repeat(4 * 1024);
-        for person_id in 0..32 {
+        // 64 KiB capacity → ~8 KiB per shard; ~2 KiB entries fit a
+        // shard several times over, and 128 of them (~224 KiB) overrun
+        // the total capacity by more than 3x.
+        let cache = PersonCache::new(64 * 1024);
+        let blob = "x".repeat(1536);
+        for person_id in 0..128 {
             let mut person = test_person();
             person.id = person_id;
-            person.properties = serde_json::json!({ "blob": fat.clone() });
-            person.approx_bytes = approx_person_bytes(4 * 1024);
+            person.properties = serde_json::json!({ "blob": blob.clone() });
+            person.approx_bytes = approx_person_bytes(1536);
             cache.put(
                 PersonCacheKey {
                     team_id: 42,
@@ -175,7 +181,7 @@ mod tests {
                 person,
             );
         }
-        let resident = (0..32)
+        let resident = (0..128)
             .filter(|id| {
                 cache
                     .get(&PersonCacheKey {
@@ -186,9 +192,13 @@ mod tests {
             })
             .count();
         assert!(
-            resident <= 16,
-            "128KB of inserts against an 8KB byte capacity retained {resident} \
-             of 32 entries — byte weights are not driving eviction"
+            resident > 0,
+            "every entry fits its shard several times over, so admission must retain some"
+        );
+        assert!(
+            resident <= 64,
+            "224KiB of inserts against a 64KiB byte capacity retained {resident} \
+             of 128 entries — byte weights are not driving eviction"
         );
     }
 

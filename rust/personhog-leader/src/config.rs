@@ -12,8 +12,12 @@ pub struct Config {
 
     /// Per-partition person-cache capacity in bytes. Entries are weighed
     /// by their approximate serialized size, so this bounds memory, not
-    /// entry count. 32 MiB per partition by default.
-    #[envconfig(default = "33554432")]
+    /// entry count. Sized against full ownership: a lone survivor owns
+    /// every partition, so the worst-case cache footprint is this value
+    /// times the partition count — 16 MiB × 16 partitions = 256 MiB —
+    /// and in-memory size can run a small multiple of serialized weight
+    /// for key-dense documents.
+    #[envconfig(default = "16777216")]
     pub cache_memory_capacity_bytes: usize,
 
     #[envconfig(default = "9102")]
