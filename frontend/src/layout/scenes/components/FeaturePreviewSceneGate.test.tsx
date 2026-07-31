@@ -260,6 +260,28 @@ describe('FeaturePreviewSceneGate', () => {
             expect(screen.getByText('Open feature previews')).toBeInTheDocument()
             expect(screen.queryByRole('switch')).not.toBeInTheDocument()
         })
+
+        test('disables the toggle switch on a self-hosted instance since it has no effect there', () => {
+            setupMocks({
+                earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false }],
+                cloud: false,
+            })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByRole('switch')).toBeDisabled()
+        })
+
+        test('keeps the toggle switch enabled on cloud', () => {
+            setupMocks({
+                earlyAccessFeatures: [{ flagKey: BASE_CONFIG.flag, enabled: false }],
+                cloud: true,
+            })
+
+            render(<FeaturePreviewSceneGate config={BASE_CONFIG}>{CHILDREN}</FeaturePreviewSceneGate>)
+
+            expect(screen.getByRole('switch')).toBeEnabled()
+        })
     })
 
     describe('request access', () => {

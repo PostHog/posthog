@@ -9,6 +9,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { areClientFeatureFlagsHonored } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { Label } from 'lib/ui/Label/Label'
 import { userLogic } from 'scenes/userLogic'
 
@@ -43,6 +45,7 @@ const hasPosthogJsFailedToLoadFeaturePreviews = (): boolean => !!window.POSTHOG_
 export function FeaturePreviews(): JSX.Element {
     const { filteredEarlyAccessFeatures, rawEarlyAccessFeaturesLoading, searchTerm } = useValues(featurePreviewsLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { preflight } = useValues(preflightLogic)
     const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
@@ -55,9 +58,16 @@ export function FeaturePreviews(): JSX.Element {
     const shouldShowEmptyState =
         filteredEarlyAccessFeatures.length === 0 && !rawEarlyAccessFeaturesLoading && !searchTerm
     const failedToLoadFeaturePreviews = shouldShowEmptyState && hasPosthogJsFailedToLoadFeaturePreviews()
+    const flagsHonored = areClientFeatureFlagsHonored(preflight)
 
     return (
         <div className="flex flex-col gap-2">
+            {!flagsHonored && !shouldShowEmptyState && (
+                <LemonBanner type="info" className="mb-2">
+                    Feature previews on this instance are controlled by the PERSISTED_FEATURE_FLAGS environment
+                    variable, not the toggles below.
+                </LemonBanner>
+            )}
             {failedToLoadFeaturePreviews && (
                 <LemonBanner type="warning" className="mb-2">
                     <div className="flex flex-col gap-2">
@@ -262,6 +272,8 @@ interface FeaturePreviewProps {
 
 function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element {
     const { activeFeedbackFlagKey, activeFeedbackFlagKeyLoading } = useValues(featurePreviewsLogic)
+    const { preflight } = useValues(preflightLogic)
+    const flagsHonored = areClientFeatureFlagsHonored(preflight)
     const {
         beginEarlyAccessFeatureFeedback,
         cancelEarlyAccessFeatureFeedback,
@@ -292,6 +304,10 @@ function FeaturePreview({ feature, warning }: FeaturePreviewProps): JSX.Element 
                     <Label className="flex items-center gap-2 cursor-pointer" htmlFor={`${feature.flagKey}-switch`}>
                         <LemonSwitch
                             checked={enabled}
+                            disabledReason={
+                                !flagsHonored &&
+                                'This toggle has no effect on self-hosted instances. Feature previews here are controlled by the PERSISTED_FEATURE_FLAGS environment variable.'
+                            }
                             onChange={(newChecked) =>
                                 updateEarlyAccessFeatureEnrollment(flagKey, newChecked, feature.stage)
                             }
