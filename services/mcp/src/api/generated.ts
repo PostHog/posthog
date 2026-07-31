@@ -14556,6 +14556,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `connected` - connected
+     */
+    export type ConnectionStateEnum = typeof ConnectionStateEnum[keyof typeof ConnectionStateEnum];
+
+
+    export const ConnectionStateEnum = {
+      NotConfigured: 'not_configured',
+      Waiting: 'waiting',
+      Connected: 'connected',
+    } as const;
+
+    /**
      * Response containing a JWT token for direct sandbox connection
      */
     export interface ConnectionTokenResponse {
@@ -62960,6 +62974,46 @@ export namespace Schemas {
       team_sdk_count: number;
       /** Per-SDK health assessments. */
       sdks: SdkAssessment[];
+    }
+
+    export interface SecureConnection {
+      /** Stable identifier for this connection. */
+      id: string;
+      /** Name advertised by the connection proxy. */
+      name: string;
+      /** Type of service exposed by this connection. */
+      connection_type: string;
+      /** Current status reported by the connection service. */
+      connection_status: string;
+    }
+
+    export interface SecureConnectionEnrollment {
+      /** One-time response credential used to enroll a connection proxy. */
+      enrollment_key: string;
+      /** Tenant-scoped credential used by the proxy to report its available services. */
+      advertisement_token: string;
+      /** Tenant identifier used by the connection proxy. */
+      tenant_id: string;
+      /** Control server URL used by the connection proxy. */
+      control_url: string;
+    }
+
+    export interface SecureConnectionStatus {
+      /** Current setup state for this project's secure connection.
+       *
+       * * `not_configured` - not_configured
+       * * `waiting` - waiting
+       * * `connected` - connected */
+      connection_state: ConnectionStateEnum;
+      /** Services currently advertised through the secure connection. */
+      connections: SecureConnection[];
+    }
+
+    export interface SecureConnectionTest {
+      /** Whether at least one active connection was found. */
+      success: boolean;
+      /** Result of the connection check. */
+      detail: string;
     }
 
     export interface SendInvitesRequest {
