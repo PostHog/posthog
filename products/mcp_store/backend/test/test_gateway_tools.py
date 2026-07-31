@@ -73,7 +73,7 @@ class TestMCPGatewayToolPoliciesAPI(APIBaseTest):
     def _member_row(self, server: MCPGatewayServer) -> dict:
         response = self.client.get(
             f"/api/projects/{self.team.id}/mcp_gateway/servers/{server.id}/tools/",
-            {"scope_type": "member", "scope_user_id": self.user.id},
+            {"scope_type": "member", "scope_user_id": str(self.user.id)},
         )
         assert response.status_code == status.HTTP_200_OK
         return response.json()["results"][0]
