@@ -49,7 +49,9 @@ the row lists both.
 | Source                           | Comm method                 | Primary library                                                 | Tracked transport           |
 | -------------------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | ably                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| adjust                           | HTTP                        | requests                                                        | ✅                          |
 | adobe_analytics                  | HTTP                        | requests                                                        | ✅                          |
+| adobe_commerce                   | HTTP                        | requests                                                        | ✅                          |
 | adroll                           | HTTP                        | requests                                                        | ✅                          |
 | adyen                            | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                         | HTTP                        | requests                                                        | ✅                          |
@@ -69,9 +71,11 @@ the row lists both.
 | apify_dataset                    | HTTP                        | requests                                                        | ✅                          |
 | apitally                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | apollo                           | HTTP                        | requests                                                        | ✅                          |
+| app_store_connect                | HTTP                        | requests                                                        | ✅                          |
 | appdynamics                      | HTTP                        | requests                                                        | ✅                          |
 | appfigures                       | HTTP                        | requests                                                        | ✅                          |
 | appfollow                        | HTTP                        | requests                                                        | ✅                          |
+| applovin                         | HTTP                        | requests                                                        | ✅                          |
 | appsflyer                        | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | appsignal                        | HTTP (REST + GraphQL)       | requests                                                        | ✅                          |
 | appstack                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -87,6 +91,7 @@ the row lists both.
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
+| aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                         | HTTP                        | requests                                                        | ✅                          |
@@ -214,6 +219,7 @@ the row lists both.
 | dropbox_sign                     | HTTP                        | requests                                                        | ✅                          |
 | drip                             | HTTP                        | requests                                                        | ✅                          |
 | dub                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| dynamodb                         | HTTP                        | requests                                                        | ✅                          |
 | dynatrace                        | HTTP                        | requests                                                        | ✅                          |
 | e2b                              | HTTP                        | requests                                                        | ✅                          |
 | e_conomic                        | HTTP                        | requests                                                        | ✅                          |
@@ -706,7 +712,6 @@ doesn't conflict with concurrent PRs.
 - active_campaign
 - acuity_scheduling
 - adapty
-- adjust
 - adobe_commerce
 - adp_workforce_now
 - aftership
@@ -732,7 +737,6 @@ doesn't conflict with concurrent PRs.
 - anodot_cost
 - anomalo
 - apaleo
-- app_store_connect
 - appcues
 - appdirect
 - appfolio
@@ -759,7 +763,6 @@ doesn't conflict with concurrent PRs.
 - aws_connect
 - aws_cost_and_usage_report
 - aws_cost_anomaly_detection
-- aws_cost_explorer
 - aws_glue_data_catalog
 - aws_guardduty
 - aws_health
@@ -801,9 +804,12 @@ doesn't conflict with concurrent PRs.
 - back_market
 - backblaze
 - basecamp
+- bcms
 - beehiiv
+- bexio
 - bigcommerce
 - bigeye
+- billit
 - billomat
 - bing_webmaster_tools
 - bitly
@@ -844,6 +850,7 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - classy
+- clay
 - clazar
 - cleartax
 - clever
@@ -865,6 +872,7 @@ doesn't conflict with concurrent PRs.
 - constant_contact
 - conta_azul
 - contentsquare
+- convonite
 - copper
 - cosmosdb
 - couchbase
@@ -883,6 +891,7 @@ doesn't conflict with concurrent PRs.
 - deputy
 - develocity
 - dialpad
+- directus
 - discord
 - display_video_360
 - dodopayments
@@ -899,7 +908,6 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - dynamics365
 - dynamics_365_business_central
-- dynamodb
 - e2b
 - easybill
 - ebay
@@ -925,6 +933,7 @@ doesn't conflict with concurrent PRs.
 - fintoc
 - firebase
 - firebolt
+- first_promoter
 - five9
 - flagsmith
 - flexera_cloud_cost
@@ -1021,6 +1030,7 @@ doesn't conflict with concurrent PRs.
 - holded
 - honeybadger
 - honeycomb
+- hookdeck
 - hostaway
 - housecall_pro
 - hubplanner
@@ -1036,6 +1046,7 @@ doesn't conflict with concurrent PRs.
 - insightful
 - instagram
 - interzoid
+- inth
 - iyzico
 - jobber
 - jobtread
@@ -1050,6 +1061,7 @@ doesn't conflict with concurrent PRs.
 - kestra
 - kick
 - kickscale
+- kickstarter
 - kinde
 - kion
 - kisi
@@ -1080,6 +1092,7 @@ doesn't conflict with concurrent PRs.
 - m3ter
 - mailtrap
 - mantle
+- manychat
 - mastodon
 - meetup
 - memberful
@@ -1120,6 +1133,7 @@ doesn't conflict with concurrent PRs.
 - mono
 - moodle
 - motherduck
+- moxie
 - mycase
 - nager_date
 - nasa
@@ -1316,6 +1330,7 @@ doesn't conflict with concurrent PRs.
 - surveymonkey
 - survicate
 - svix
+- swan
 - swonkie
 - synthesia
 - systeme
@@ -1344,8 +1359,10 @@ doesn't conflict with concurrent PRs.
 - toast
 - toggl
 - track_pms
+- tradable_bits
 - transistor
 - tremendous
+- triple_whale
 - trustpilot
 - trustradius
 - turso
@@ -1355,8 +1372,10 @@ doesn't conflict with concurrent PRs.
 - twitter_ads
 - two_c2p
 - tyntec_sms
+- typesense
 - uk_companies_house
 - uk_ons
+- umami
 - un_comtrade
 - uppromote
 - uptick
@@ -1408,6 +1427,7 @@ doesn't conflict with concurrent PRs.
 - zellify
 - zenefits
 - zenloop
+- zero
 - zluri
 - zoho_analytics
 - zoho_bigin

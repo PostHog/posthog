@@ -36,6 +36,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
@@ -332,7 +335,8 @@ async def _handle_import_error(
     (``posthog/temporal/common/posthog_client.py``) from reporting whatever exception type escapes
     the activity; only that marker type does. ``RESTClientRetryableError`` gets the same treatment
     by type, since it's already a ``NonReportableError`` subclass and every REST-based source hits
-    that condition already.
+    that condition already. A transient object-store hiccup talking to our own data-warehouse
+    bucket is re-raised as ``NonReportableError`` the same way.
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -378,7 +382,25 @@ async def _handle_import_error(
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         raise error
 
-    non_retryable_errors = source_cls.get_non_retryable_errors()
+    # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS
+    # blip, SlowDown throttling) that surfaced during this run — e.g. resetting or opening the
+    # Delta table. Not a PostHog defect and not a customer credential problem (see
+    # TRANSIENT_OBJECT_STORE_ERRORS), and retrying resolves it, so it shouldn't page anyone.
+    if is_transient_object_store_error(error):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient object-store error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
+    # auth, a widened column type) are raised from shared pipeline code, not any one source. The
+    # finalization activity already consults this shared dict; this in-activity handler decides whether
+    # to re-raise for a full retry, so without it a shared config error retries the activity's whole
+    # budget and reports on every attempt. Merge it in — source-specific entries win on overlap.
+    from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (  # noqa: PLC0415 — deferred to break the external_data_job -> import_data_sync import cycle
+        Any_Source_Errors,
+    )
+
+    non_retryable_errors = {**Any_Source_Errors, **source_cls.get_non_retryable_errors()}
     if any(match in error_msg for match in non_retryable_errors):
         await handle_non_retryable_error(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, error_msg, logger, error

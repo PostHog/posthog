@@ -3,7 +3,7 @@ import decimal
 import hashlib
 import datetime
 from ipaddress import IPv4Address, IPv6Address
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -17,6 +17,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.errors import NonReportableError
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     SchemaColumnTypeChangedException,
@@ -24,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     _to_list_array,
     align_incoming_decimals_to_delta,
     apply_enabled_columns_projection,
+    conditional_lru_cache_async,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
@@ -92,6 +94,9 @@ def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_e
     assert "revenue" in message
     assert "N/A" in message
     assert "<blank>" in message
+    # The message must stay matched by an Any_Source_Errors entry so the schema is paused with
+    # guidance instead of retrying the same non-numeric cells forever, on every source.
+    assert [key for key in Any_Source_Errors if key in message]
 
 
 def test_table_from_py_list_numeric_column_coerces_numeric_string_values():
@@ -928,9 +933,13 @@ class TestEvolveSchemaFirstPass:
         assert values[1] == 3661.0
         assert values[2] is None
 
-    def test_nanosecond_timestamp_normalized_to_microseconds(self):
-        ns_ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp("ns"))
-        arrow_table = pa.table({"ts": ns_ts})
+    @pytest.mark.parametrize("unit", ["ns", "ms", "s"])
+    def test_non_microsecond_timestamp_normalized_to_microseconds(self, unit: Literal["ns", "ms", "s"]):
+        # Delta only accepts microsecond-precision timestamps. "s"/"ms" reach here e.g. when
+        # a Snowflake batch returns zero rows: the connector's empty-table path ignores
+        # `force_microsecond_precision` and falls back to a second-precision schema.
+        ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp(unit))
+        arrow_table = pa.table({"ts": ts})
         result = evolve_pyarrow_schema(arrow_table, None)
         assert result.schema.field("ts").type == pa.timestamp("us")
 
@@ -1528,3 +1537,33 @@ def test_billing_limit_exception_is_non_reportable_error():
     # Subclassing NonReportableError is what keeps the intentional billing-limit halt out of
     # error tracking (the activity interceptor re-raises these without capturing them).
     assert issubclass(BillingLimitsWillBeReachedException, NonReportableError)
+
+
+class TestConditionalLruCacheAsyncCachePop:
+    @pytest.mark.asyncio
+    async def test_pop_on_cache_miss_returns_none_without_calling_func(self):
+        # A best-effort cleanup path (e.g. releasing an already-fetched delta table) must be able
+        # to check the cache without ever triggering the wrapped function's own I/O — a miss here
+        # used to mean "call the real function", which made cleanup do an unrelated object-storage
+        # call and risk masking the real error with a fresh, spurious one.
+        calls = []
+
+        @conditional_lru_cache_async(maxsize=1)
+        async def fetch(key: str) -> str:
+            calls.append(key)
+            return f"value-{key}"
+
+        assert fetch.cache_pop("a") is None
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_pop_on_cache_hit_returns_and_removes_cached_value(self):
+        @conditional_lru_cache_async(maxsize=1)
+        async def fetch(key: str) -> str:
+            return f"value-{key}"
+
+        assert await fetch("a") == "value-a"
+
+        assert fetch.cache_pop("a") == "value-a"
+        # Popped, not just read — a second pop finds nothing left to remove.
+        assert fetch.cache_pop("a") is None

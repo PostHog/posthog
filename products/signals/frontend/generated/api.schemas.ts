@@ -214,7 +214,7 @@ export interface SignalReportApi {
      */
     readonly actionability: string | null
     /**
-     * Whether the issue appears already fixed, from the actionability judgment artefact.
+     * Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.
      * @nullable
      */
     readonly already_addressed: boolean | null
@@ -516,6 +516,7 @@ export interface SignalReportRefundResponseApi {
  * * `intercom` - intercom
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
+ * * `google_search_console` - google_search_console
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -568,6 +569,7 @@ export const SignalSourceProductApi = {
     Intercom: 'intercom',
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
 } as const
 
 /**
@@ -592,6 +594,7 @@ export const SignalSourceProductApi = {
  * * `ci_flaky_check` - ci_flaky_check
  * * `ci_broken_default_branch` - ci_broken_default_branch
  * * `ci_duration_regression` - ci_duration_regression
+ * * `search_opportunity` - search_opportunity
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -617,6 +620,7 @@ export const SignalSourceTypeApi = {
     CiFlakyCheck: 'ci_flaky_check',
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
+    SearchOpportunity: 'search_opportunity',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -1184,6 +1188,16 @@ export interface HubspotTicketSignalExtraApi {
     createdate: string | null
 }
 
+export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
+    page: string
+    query: string
+    date: string
+    clicks: number
+    impressions: number
+    ctr: number
+    position: number
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -1237,6 +1251,7 @@ export type SignalExtraApi =
     | JudgemeReviewsReviewSignalExtraApi
     | IntercomTicketSignalExtraApi
     | HubspotTicketSignalExtraApi
+    | GoogleSearchConsoleSearchOpportunitySignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -1323,7 +1338,8 @@ export interface SignalNodeApi {
      * * `judgeme_reviews` - judgeme_reviews
      * * `intercom` - intercom
      * * `hubspot` - hubspot
-     * * `engineering_analytics` - engineering_analytics */
+     * * `engineering_analytics` - engineering_analytics
+     * * `google_search_console` - google_search_console */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -1347,7 +1363,8 @@ export interface SignalNodeApi {
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
-     * * `ci_duration_regression` - ci_duration_regression */
+     * * `ci_duration_regression` - ci_duration_regression
+     * * `search_opportunity` - search_opportunity */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -1738,6 +1755,35 @@ export const ScoutOriginEnumApi = {
 } as const
 
 /**
+ * * `active` - Active
+ * * `pending_pause` - Pending pause
+ * * `paused_by_system` - Paused by system
+ * * `paused_by_user` - Paused by user
+ */
+export type ScoutConfigStatusEnumApi = (typeof ScoutConfigStatusEnumApi)[keyof typeof ScoutConfigStatusEnumApi]
+
+export const ScoutConfigStatusEnumApi = {
+    Active: 'active',
+    PendingPause: 'pending_pause',
+    PausedBySystem: 'paused_by_system',
+    PausedByUser: 'paused_by_user',
+} as const
+
+/**
+ * * `no_output` - No output
+ * * `ignored` - Ignored
+ * * `repeated_failures` - Repeated failures
+ */
+export type ScoutConfigPauseReasonEnumApi =
+    (typeof ScoutConfigPauseReasonEnumApi)[keyof typeof ScoutConfigPauseReasonEnumApi]
+
+export const ScoutConfigPauseReasonEnumApi = {
+    NoOutput: 'no_output',
+    Ignored: 'ignored',
+    RepeatedFailures: 'repeated_failures',
+} as const
+
+/**
  * Read shape for a per-(team, skill) scout config.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
@@ -1751,8 +1797,21 @@ export interface SignalScoutConfigApi {
     readonly description: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
-    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
     readonly enabled: boolean
+    /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
+     *
+     * * `active` - Active
+     * * `pending_pause` - Pending pause
+     * * `paused_by_system` - Paused by system
+     * * `paused_by_user` - Paused by user */
+    readonly status: ScoutConfigStatusEnumApi
+    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (its output received no human engagement), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+     *
+     * * `no_output` - No output
+     * * `ignored` - Ignored
+     * * `repeated_failures` - Repeated failures */
+    readonly pause_reason: ScoutConfigPauseReasonEnumApi | null
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**
@@ -1819,7 +1878,7 @@ export interface SignalScoutConfigCreateApi {
  * Editable schedule, enablement, and emit posture for one scout config.
  */
 export interface PatchedSignalScoutConfigUpdateApi {
-    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
@@ -1940,7 +1999,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
     origin: string
 }
 
@@ -2099,10 +2158,15 @@ export interface ScoutFleetEntryApi {
      */
     last_emitted_at: string | null
     /**
-     * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+     * Why this scout is in the `disabled` bucket: `turned_off` (a person or seed posture set it off), `auto_paused` (the system paused it), or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
      * @nullable
      */
     not_running_reason: string | null
+    /**
+     * The cause behind an `auto_paused` entry: `no_output`, `ignored`, or `repeated_failures`. Null for every other entry.
+     * @nullable
+     */
+    pause_reason: string | null
 }
 
 /**
@@ -3046,7 +3110,7 @@ export interface EmitReportRequestApi {
      * * `requires_human_input` - requires_human_input
      * * `not_actionable` - not_actionable */
     actionability: ActionabilityEnumApi
-    /** Whether the issue already appears fixed in recent changes (tracked separately). */
+    /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
      * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
@@ -3358,6 +3422,7 @@ export interface ForgetResponseApi {
  * * `intercom` - Intercom
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
+ * * `google_search_console` - Google Search Console
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -3411,6 +3476,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     Intercom: 'intercom',
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
 } as const
 
 /**

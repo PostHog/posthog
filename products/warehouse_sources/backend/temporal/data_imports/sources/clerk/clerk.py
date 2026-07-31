@@ -163,10 +163,14 @@ TIMESTAMP_FIELDS = [
 def _convert_timestamps(item: dict[str, Any]) -> dict[str, Any]:
     """Convert Clerk timestamp fields from milliseconds to seconds."""
     for field in TIMESTAMP_FIELDS:
-        if field in item and item[field] is not None:
-            # Clerk returns timestamps in milliseconds, convert to seconds
-            # Use integer division to maintain int64 type for delta table compatibility
-            item[field] = item[field] // 1000
+        value = item.get(field)
+        # Some endpoints return these fields as an ISO string (or other non-numeric shape)
+        # rather than epoch milliseconds; leave those untouched instead of crashing on `//`.
+        # bool is an int subclass, so exclude it explicitly.
+        if isinstance(value, int) and not isinstance(value, bool):
+            # Clerk returns timestamps in milliseconds, convert to seconds.
+            # Use integer division to maintain int64 type for delta table compatibility.
+            item[field] = value // 1000
     return item
 
 

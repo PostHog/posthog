@@ -81,7 +81,6 @@ export function AIObservabilityDigestScoutButton(): JSX.Element | null {
 
     return (
         <ScoutCreateButton
-            creationMode="manual"
             initialValues={getAIObservabilityDigestScoutInitialValues()}
             type="secondary"
             data-attr="create-ai-observability-digest-scout"

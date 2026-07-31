@@ -4938,6 +4938,41 @@ class TestIntegrationRequestAccessAPI(APIBaseTest):
         mock_report.assert_not_called()
 
 
+class TestPushIdentityVerificationAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # Setting the policy requires admin, and the base test user is a plain member.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @patch("posthog.models.integration.GoogleRequest")
+    @patch("posthog.models.integration.service_account.Credentials.from_service_account_info")
+    def test_setting_the_mode_reaches_the_integration(self, mock_from_sa, _mock_google_request):
+        # The serializer builds each provider's arguments from named config fields, so a key it doesn't
+        # know about is dropped before it ever reaches the integration. That silently made the setup
+        # UI's toggle inert; this covers the plumbing rather than just the model helper underneath it.
+        credentials = MagicMock()
+        credentials.token = "access-token"
+        credentials.expiry.timestamp.return_value = time.time() + 3600
+        mock_from_sa.return_value = credentials
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "firebase",
+                "config": {
+                    "key_info": {"type": "service_account", "project_id": "my-firebase-project"},
+                    "push_identity_verification": "required",
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        integration = Integration.objects.get(team=self.team, kind="firebase")
+        assert integration.config["push_identity_verification"] == "required"
+
+
 class TestIntegrationMembershipPermissions(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -4966,6 +5001,42 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
+
+    @parameterized.expand(["required", "disabled"])
+    def test_member_cannot_set_push_identity_verification(self, mode):
+        # Creating a *new* APNs integration sidesteps the overwrite check below, because a different
+        # Apple team id makes a different integration_id. But the push endpoint resolves the strictest
+        # verification mode across every integration sharing a bundle_id, so a member could otherwise
+        # set `required` on a lookalike and block the real app's device registrations.
+        #
+        # `disabled` is rejected too: the overwrite check reads existing ids before the write, so a
+        # member racing the first setup would look like a create and could land `disabled` over a
+        # policy an admin had just written.
+        Integration.objects.create(
+            team=self.team,
+            kind="apns",
+            integration_id="REALTEAM.com.example.app",
+            config={"bundle_id": "com.example.app", "team_id": "REALTEAM", "key_id": "KEY1"},
+            sensitive_config={},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "apns",
+                "config": {
+                    "signing_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+                    "key_id": "KEY2",
+                    "team_id_apple": "ATTACKER",
+                    "bundle_id": "com.example.app",
+                    "push_identity_verification": mode,
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not Integration.objects.filter(team=self.team, integration_id="ATTACKER.com.example.app").exists()
 
     def test_member_cannot_overwrite_existing_integration(self):
         # POST is an upsert (update_or_create keyed on team/kind/integration_id), so re-submitting the

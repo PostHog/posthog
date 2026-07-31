@@ -7,9 +7,6 @@ import { PlayerController } from '~/session-replay/recording-rasterizer/capture/
 import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { CaptureConfig } from '~/session-replay/recording-rasterizer/types'
 
-// Not `{ virtual: true }`: puppeteer-capture is a real dependency, and marking it virtual keys the mock by the raw
-// specifier rather than the resolved path. Any earlier test file in the same worker that loads the real module (an
-// automock of `capture/recorder` pulls it in transitively) then wins, and these tests drive the real capture library.
 jest.mock('puppeteer-capture', () => {
     const recorder = {
         start: jest.fn().mockResolvedValue(undefined),
@@ -271,6 +268,29 @@ describe('capturePlayback', () => {
             'something broke'
         )
         expect(mockRecorder.stop).toHaveBeenCalled()
+    })
+
+    it.each([
+        {
+            name: 'attributes an unexpected stop to fatalError when set',
+            fatal: new RasterizationError(
+                'beginFrame timeout (15s) — compositor deadlock',
+                true,
+                'BEGINFRAME_DEADLOCK'
+            ),
+            code: 'BEGINFRAME_DEADLOCK',
+        },
+        { name: 'falls back to CAPTURE_ABORTED without fatalError', fatal: null, code: 'CAPTURE_ABORTED' },
+    ])('$name', async ({ fatal, code }) => {
+        const player = mockPlayer({ fatalError: fatal })
+        mockRecorder.waitForTimeout.mockImplementation(() => {
+            const onCall = mockRecorder.on.mock.calls.find(([event]: [string]) => event === 'captureStopped')
+            onCall?.[1]()
+        })
+
+        await expect(capturePlayback(player, baseCaptureConfig(), outputPath, jest.fn())).rejects.toMatchObject({
+            code,
+        })
     })
 
     it('removes captureStopped listener and page listeners in finally block', async () => {

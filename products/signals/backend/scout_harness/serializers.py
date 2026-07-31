@@ -613,14 +613,18 @@ class ScoutNoteSerializer(serializers.Serializer):
     )
     # A plain CharField rather than a ChoiceField: `origin` is a collision-prone enum field name
     # (a saved query carries one too), and the generated enum component isn't worth an
-    # ENUM_NAME_OVERRIDES entry for a two-value read-only projection with no frontend consumer.
+    # ENUM_NAME_OVERRIDES entry for a small read-only projection with no frontend consumer. That
+    # makes this help text the only place the value set is documented — keep it in step with
+    # `SignalScoutNote.Origin`.
     origin = serializers.CharField(
         help_text=(
-            "Where the note came from: `human` for one left directly through this API, or "
+            "Where the note came from. `human` for one left directly through this API. "
             "`report_dismissal` for one forwarded from the note someone typed when they dismissed, "
-            "snoozed, or restored one or more inbox reports. A `report_dismissal` note is one "
-            "reviewer's verdict on the reports its content names, so weigh it as evidence about "
-            "those reports rather than as fleet-level steering."
+            "snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports "
+            "its content names, so weigh it as evidence about those reports rather than as "
+            "fleet-level steering. `report_discussion` for the question someone asked when they "
+            "opened a discussion on a report: context to weigh, neither a verdict on the report nor "
+            "a directive."
         ),
     )
 
@@ -922,7 +926,11 @@ class EmitReportRequestSerializer(serializers.Serializer):
     already_addressed = serializers.BooleanField(
         required=False,
         default=False,
-        help_text="Whether the issue already appears fixed in recent changes (tracked separately).",
+        help_text=(
+            "Whether the issue is already being handled — fixed in recent changes, or with a fix in "
+            "flight (an open PR, a recently active branch, an assigned / in-progress issue or agent "
+            "task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately."
+        ),
     )
     repository = serializers.CharField(
         required=False,
@@ -1194,9 +1202,17 @@ class ScoutFleetEntrySerializer(serializers.Serializer):
     not_running_reason = serializers.CharField(
         allow_null=True,
         help_text=(
-            "Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or "
-            "`skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it "
-            "never dispatches). Null for scouts that actually run."
+            "Why this scout is in the `disabled` bucket: `turned_off` (a person or seed posture set it "
+            "off), `auto_paused` (the system paused it), or `skill_unavailable` (left on, but its skill "
+            "was deleted, superseded, or withheld, so it never dispatches). Null for scouts that "
+            "actually run."
+        ),
+    )
+    pause_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The cause behind an `auto_paused` entry: `no_output`, `ignored`, or `repeated_failures`. "
+            "Null for every other entry."
         ),
     )
 
@@ -1880,7 +1896,31 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     )
     enabled = serializers.BooleanField(
         read_only=True,
-        help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+        help_text=(
+            "Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. "
+            "Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses."
+        ),
+    )
+    status = serializers.ChoiceField(
+        choices=SignalScoutConfig.Status.choices,
+        read_only=True,
+        help_text=(
+            "Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but "
+            "flagged by the system to pause soon unless something changes (any config edit clears it). "
+            "`paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. "
+            "`paused_by_user`: switched off by a person and never resumed automatically."
+        ),
+    )
+    pause_reason = serializers.ChoiceField(
+        choices=SignalScoutConfig.PauseReason.choices,
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the "
+            "evaluation window), `ignored` (its output received no human engagement), or "
+            "`repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` "
+            "or `paused_by_system`."
+        ),
     )
     emit = serializers.BooleanField(
         read_only=True,
@@ -1932,6 +1972,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "description",
             "scout_origin",
             "enabled",
+            "status",
+            "pause_reason",
             "emit",
             "run_interval_minutes",
             "run_cron_schedule",
@@ -1972,7 +2014,13 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
 
     enabled = serializers.BooleanField(
         required=False,
-        help_text="Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.",
+        help_text=(
+            "Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. "
+            "Turning this off records a user pause (`status` becomes `paused_by_user`, which the system "
+            "never overrides); turning it on resumes the scout from any pause. Only a change of value "
+            "is a lifecycle action: re-sending the current value leaves the existing status and its "
+            "ownership untouched."
+        ),
     )
     emit = serializers.BooleanField(
         required=False,
@@ -2014,6 +2062,30 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             field in validated_data and validated_data[field] != getattr(instance, field) for field in schedule_fields
         ):
             validated_data["schedule_changed_at"] = timezone.now()
+        # This serializer is the human write path, so it moves `status` through `enabled`:
+        # false is a user pause the system must never override, true resumes from any pause.
+        # Only a CHANGED `enabled` value is a lifecycle action — clients (MCP callers
+        # especially) resend whole config objects, and a re-sent `enabled=false` on a
+        # system-paused scout must not silently escalate it to a user pause the system may
+        # never resume. Any other non-empty edit still clears a pending pause, since a human
+        # tending the config is exactly the signal the warning exists to detect; an empty
+        # PATCH is not an edit and must not count as human contact.
+        if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
+            target = (
+                SignalScoutConfig.Status.ACTIVE
+                if validated_data["enabled"]
+                else SignalScoutConfig.Status.PAUSED_BY_USER
+            )
+        elif validated_data and instance.status == SignalScoutConfig.Status.PENDING_PAUSE:
+            target = SignalScoutConfig.Status.ACTIVE
+        else:
+            target = None
+        if target is not None and target != instance.status:
+            request = self.context.get("request")
+            validated_data["status"] = target
+            validated_data["pause_reason"] = None
+            validated_data["status_changed_at"] = timezone.now()
+            validated_data["status_changed_by"] = getattr(request, "user", None)
         return super().update(instance, validated_data)
 
     class Meta:
