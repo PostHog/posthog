@@ -833,14 +833,22 @@ class AccessControlViewSetMixin(_GenericViewSet):
         membership: OrganizationMembership | None = None,
         role: Role | None = None,
     ) -> Response:
-        """Object-level rules belonging to one subject (a member or a role).
+        """Object-level rules belonging to one subject: a member, a role, or the project itself.
+
+        Passing neither a member nor a role targets the project-wide rules, the ones that apply to
+        everyone without a rule of their own.
 
         Each rule carries the level that would take over if the rule were removed, resolved the same
         way `UserAccessControl` resolves object access: other explicit rules on the object win, then
         the subject's access to the resource, then a project-wide rule on the object, then the built-in
         default.
         """
-        rule_filter = {"organization_member": membership} if membership is not None else {"role": role}
+        is_project_default = membership is None and role is None
+        rule_filter: dict[str, Any] = {"organization_member": membership, "role": role}
+        if membership is not None:
+            rule_filter = {"organization_member": membership}
+        elif role is not None:
+            rule_filter = {"role": role}
         rows = list(
             AccessControl.objects.filter(team=team, resource_id__isnull=False, **rule_filter).exclude(
                 resource="project"
@@ -899,7 +907,9 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 continue
             key = (ac.resource, ac.resource_id)
             if not role_id and not member_id:
-                object_default_levels[key] = level
+                # For the project-wide scope this row is the rule itself, not something it falls back to
+                if not is_project_default:
+                    object_default_levels[key] = level
             elif role_id and role_id in subject_role_ids and role_id != own_role_id:
                 # Another of the member's roles — it still applies once the subject's own rule is gone
                 object_other_levels[key].append(level)
@@ -982,6 +992,20 @@ class AccessControlViewSetMixin(_GenericViewSet):
             )
         results.sort(key=lambda r: (r["property_type"], (r["property"] or "").lower()))
         return Response({"results": results})
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_default_objects")
+    def access_control_default_objects(self, request: Request, *args, **kwargs):
+        """Object-level access rules that apply to everyone without a rule of their own."""
+        team = cast(Team, self.team)  # type: ignore
+        return self._object_rules_response(team)
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_default_properties")
+    def access_control_default_properties(self, request: Request, *args, **kwargs):
+        """Property restrictions that apply to everyone without a rule of their own."""
+        team = cast(Team, self.team)  # type: ignore
+        return self._property_rules_response(team, organization_member=None, role=None)
 
     @extend_schema(exclude=True)
     @action(methods=["GET"], detail=True, url_path="access_control_member_objects")

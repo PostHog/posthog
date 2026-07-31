@@ -38,13 +38,16 @@ function resourceNoun(resource: string): string {
 }
 
 /** What takes over on this object once the subject's own rule is gone. */
-function inheritedFor(o: AccessObjectRule, subjectNoun: string): InheritedAccess | null {
+function inheritedFor(o: AccessObjectRule, scopeType: AccessScope, subjectNoun: string): InheritedAccess | null {
     if (!o.inherited_access_level) {
         return null
     }
     const reasons: Record<AccessObjectRule['inherited_access_level_source'], string> = {
         role: 'Based on role permissions for this object',
-        resource: `Based on this ${subjectNoun}'s access to ${resourceNoun(o.resource)}s`,
+        resource:
+            scopeType === 'default'
+                ? `Based on the default for ${resourceNoun(o.resource)}s`
+                : `Based on this ${subjectNoun}'s access to ${resourceNoun(o.resource)}s`,
         object_default: 'Based on the default for this object',
         built_in: `Based on the default for ${resourceNoun(o.resource)}s`,
         organization_admin: 'Organization admins always have full access',
@@ -96,7 +99,11 @@ export function ObjectAccessRules({
     return (
         <AccessDetailSection
             title="One-off access overrides"
-            description={`Specific dashboards, insights, notebooks and warehouse tables this ${subjectNoun} is given access to, or blocked from, regardless of the tools above.`}
+            description={
+                scopeType === 'default'
+                    ? 'Specific dashboards, insights, notebooks and warehouse tables everyone is given access to, or blocked from, regardless of the defaults above.'
+                    : `Specific dashboards, insights, notebooks and warehouse tables this ${subjectNoun} is given access to, or blocked from, regardless of the tools above.`
+            }
         >
             <AddObjectRuleModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />
             <LemonTable
@@ -137,7 +144,7 @@ export function ObjectAccessRules({
                                     levels={OBJECT_LEVELS}
                                     onChange={(level) => setObjectRule(o.resource, o.resource_id, level)}
                                     disabledReason={!canEdit ? 'You cannot edit this' : undefined}
-                                    inherited={inheritedFor(o, subjectNoun)}
+                                    inherited={inheritedFor(o, scopeType, subjectNoun)}
                                 />
                             </div>
                         ),
@@ -147,7 +154,7 @@ export function ObjectAccessRules({
                         key: 'actions',
                         width: 0,
                         render: (_, o: AccessObjectRule) => {
-                            const inherited = inheritedFor(o, subjectNoun)
+                            const inherited = inheritedFor(o, scopeType, subjectNoun)
                             return (
                                 // Negative margins pull the button into the cell's own padding, which is
                                 // wider than an icon button needs
@@ -171,7 +178,11 @@ export function ObjectAccessRules({
                 ]}
                 dataSource={objects}
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                emptyState={`No one-off access overrides for this ${subjectNoun}.`}
+                emptyState={
+                    scopeType === 'default'
+                        ? 'No one-off access overrides for this project.'
+                        : `No one-off access overrides for this ${subjectNoun}.`
+                }
             />
             <div>
                 <LemonButton
@@ -206,7 +217,11 @@ function AddObjectRuleModal({
             isOpen={isOpen}
             onClose={closeModal}
             title="Add access rule"
-            description={`Grant or restrict this ${scopeType === 'role' ? 'role' : 'member'}'s access to a specific object.`}
+            description={
+                scopeType === 'default'
+                    ? "Grant or restrict everyone's access to a specific object."
+                    : `Grant or restrict this ${scopeType === 'role' ? 'role' : 'member'}'s access to a specific object.`
+            }
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeModal}>

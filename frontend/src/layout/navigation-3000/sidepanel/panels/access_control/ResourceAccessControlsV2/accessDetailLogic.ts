@@ -13,7 +13,8 @@ import {
 } from 'products/access_control/frontend/generated/api'
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
-export type AccessScope = 'member' | 'role'
+/** Who a set of rules belongs to. 'default' is the project itself: rules that apply to everyone. */
+export type AccessScope = 'member' | 'role' | 'default'
 
 /** Where the level that takes over on removing a rule comes from. */
 export type AccessInheritedSource = 'role' | 'resource' | 'object_default' | 'built_in' | 'organization_admin'
@@ -72,14 +73,21 @@ export function objectRouteFor(resource: string): string {
 
 function endpoint(props: AccessDetailLogicProps, kind: 'objects' | 'properties'): string {
     const base = `api/projects/${props.projectId}`
+    if (props.scopeType === 'default') {
+        return `${base}/access_control_default_${kind}`
+    }
     if (props.scopeType === 'role') {
         return `${base}/access_control_role_${kind}?role_id=${props.subjectId}`
     }
     return `${base}/access_control_member_${kind}?member_id=${props.subjectId}`
 }
 
-// The access-control write APIs target either an org member or a role, depending on the page's scope.
+// The access-control write APIs target an org member or a role. Sending neither writes the
+// project-wide rule, which is what the defaults scope wants.
 function subjectBody(props: AccessDetailLogicProps): Record<string, string> {
+    if (props.scopeType === 'default') {
+        return {}
+    }
     return props.scopeType === 'role' ? { role: props.subjectId } : { organization_member: props.subjectId }
 }
 

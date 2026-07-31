@@ -38,7 +38,11 @@ export function PropertyAccessRules({
     return (
         <AccessDetailSection
             title="Restricted properties"
-            description={`Properties this ${subjectNoun} cannot read & write freely. Default for every property is read & write.`}
+            description={
+                scopeType === 'default'
+                    ? 'Properties nobody can read & write freely, unless they have a rule of their own. Default for every property is read & write.'
+                    : `Properties this ${subjectNoun} cannot read & write freely. Default for every property is read & write.`
+            }
         >
             <AddPropertyRuleModal projectId={projectId} scopeType={scopeType} subjectId={subjectId} />
             <LemonTable
@@ -97,7 +101,11 @@ export function PropertyAccessRules({
                 ]}
                 dataSource={properties}
                 pagination={{ pageSize: 20, hideOnSinglePage: true }}
-                emptyState={`No restricted properties for this ${subjectNoun}.`}
+                emptyState={
+                    scopeType === 'default'
+                        ? 'No restricted properties for this project.'
+                        : `No restricted properties for this ${subjectNoun}.`
+                }
             />
             <div>
                 <LemonButton
@@ -132,7 +140,11 @@ function AddPropertyRuleModal({
             isOpen={isOpen}
             onClose={closeModal}
             title="Restrict a property"
-            description={`Limit this ${scopeType === 'role' ? 'role' : 'member'}'s access to a specific property.`}
+            description={
+                scopeType === 'default'
+                    ? "Limit everyone's access to a specific property."
+                    : `Limit this ${scopeType === 'role' ? 'role' : 'member'}'s access to a specific property.`
+            }
             footer={
                 <>
                     <LemonButton type="secondary" onClick={closeModal}>
