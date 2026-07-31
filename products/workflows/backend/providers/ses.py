@@ -47,6 +47,70 @@ class SESProvider:
     def _tenant_name_for_team(self, team_id: int) -> str:
         return f"team-{team_id}"
 
+    def get_tenant_reputation(self, team_id: int) -> dict[str, Any] | None:
+        """
+        Sending status and open reputation findings for the team's SES tenant, or None when the
+        tenant doesn't exist. AWS judges tenant reputation from signals we can't see (mailbox
+        provider feedback loops, third-party listings), so this is the authoritative health source;
+        our own app metrics only provide the per-workflow diagnosis.
+        """
+        tenant_name = self._tenant_name_for_team(team_id)
+        try:
+            tenant = self.ses_v2_client.get_tenant(TenantName=tenant_name)["Tenant"]
+        except ClientError as e:
+            if e.response["Error"]["Code"] in ("NotFoundException", "BadRequestException"):
+                return None
+            raise
+
+        sending_status: str = tenant.get("SendingStatus", "ENABLED")
+        tenant_arn = tenant.get("TenantArn")
+        reputation_impact: str | None = None
+        findings: list[dict[str, Any]] = []
+
+        if tenant_arn:
+            try:
+                entity = self.ses_v2_client.get_reputation_entity(
+                    ReputationEntityReference=tenant_arn, ReputationEntityType="RESOURCE"
+                )["ReputationEntity"]
+            except ClientError as e:
+                # A tenant with no attributed sends yet has no reputation entity.
+                if e.response["Error"]["Code"] != "NotFoundException":
+                    raise
+                entity = {}
+            reputation_impact = entity.get("ReputationImpact")
+            # The aggregate folds in both AWS-managed and customer-managed pauses.
+            sending_status = entity.get("SendingStatusAggregate", sending_status)
+
+            # RESOURCE_ARN is the only filter key AWS documents as usable on its own with this
+            # scoping; STATUS is filtered locally because the documented two-key combinations
+            # (STATUS+IMPACT, STATUS+TYPE) don't include RESOURCE_ARN.
+            finding_filter: dict[Any, str] = {"RESOURCE_ARN": tenant_arn}
+            next_token: str | None = None
+            while True:
+                if next_token:
+                    page = self.ses_v2_client.list_recommendations(Filter=finding_filter, NextToken=next_token)
+                else:
+                    page = self.ses_v2_client.list_recommendations(Filter=finding_filter)
+                findings.extend(
+                    {
+                        "finding_type": recommendation.get("Type", ""),
+                        "impact": recommendation.get("Impact", "LOW"),
+                        "description": recommendation.get("Description", ""),
+                        "last_updated_at": recommendation.get("LastUpdatedTimestamp"),
+                    }
+                    for recommendation in page.get("Recommendations", [])
+                    if recommendation.get("Status") == "OPEN"
+                )
+                next_token = page.get("NextToken")
+                if not next_token:
+                    break
+
+        return {
+            "sending_status": sending_status,
+            "reputation_impact": reputation_impact,
+            "findings": findings,
+        }
+
     @cached_property
     def _aws_account_id(self) -> str:
         return self.sts_client.get_caller_identity()["Account"]

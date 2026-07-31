@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -96,6 +97,7 @@ from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.batch_audience import (
     PERSON_BATCH_SIZE as WORKFLOWS_PERSON_BATCH_SIZE,
     SUPPORTED_DEDUPE_KEYS,
@@ -1152,6 +1154,50 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
     }
 
 
+AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
+
+
+def _aws_tenant_health(sending_status: str, reputation_impact: str | None) -> str:
+    if sending_status == "DISABLED":
+        return "suspended"
+    if reputation_impact == "HIGH":
+        return "critical"
+    if reputation_impact == "LOW":
+        return "warning"
+    return "healthy"
+
+
+def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
+    """
+    AWS-side tenant state for the reputation endpoint, cached briefly: the endpoint reloads on every
+    search keystroke and three SES API round-trips per keystroke would be slow and rate-limited.
+    Failures return None (the response field is nullable) so AWS being unreachable never breaks the
+    rates display; errors aren't cached, so the next request retries.
+    """
+    if not settings.SES_ACCESS_KEY_ID:
+        return None
+    cache_key = f"workflows_ses_tenant_reputation_{team_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached["value"]
+    try:
+        raw = SESProvider().get_tenant_reputation(team_id)
+    except Exception:
+        logger.exception("Failed to fetch SES tenant reputation", team_id=team_id)
+        return None
+    value = (
+        {
+            "health": _aws_tenant_health(raw["sending_status"], raw["reputation_impact"]),
+            "sending_status": raw["sending_status"],
+            "findings": raw["findings"],
+        }
+        if raw is not None
+        else None
+    )
+    cache.set(cache_key, {"value": value}, AWS_TENANT_REPUTATION_CACHE_SECONDS)
+    return value
+
+
 class EmailSendingRatesSerializer(serializers.Serializer):
     """Bounce/complaint rates over the last 30 days of workflow email, computed on the fly from app metrics."""
 
@@ -1182,7 +1228,71 @@ class WorkflowEmailSendingRatesSerializer(EmailSendingRatesSerializer):
     )
 
 
+class AwsTenantFindingSerializer(serializers.Serializer):
+    """An open reputation finding AWS SES raised for this project's email sending."""
+
+    finding_type = serializers.ChoiceField(
+        choices=["DKIM", "DMARC", "SPF", "BIMI", "COMPLAINT", "BOUNCE", "FEEDBACK_3P", "IP_LISTING"],
+        read_only=True,
+        help_text=(
+            "What the finding is about: authentication setup (DKIM/DMARC/SPF/BIMI), recipient signals "
+            "(COMPLAINT/BOUNCE/FEEDBACK_3P), or a blocklist listing (IP_LISTING)."
+        ),
+    )
+    impact = serializers.ChoiceField(
+        choices=["LOW", "HIGH"],
+        read_only=True,
+        help_text="AWS's impact rating. HIGH-impact findings can pause the project's sending automatically.",
+    )
+    description = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text=(
+            "AWS's short description of the finding. Often a terse disambiguator (e.g. DKIM1) rather "
+            "than full remediation prose — finding_type carries the remediation category."
+        ),
+    )
+    last_updated_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When AWS last updated this finding."
+    )
+
+
+class AwsTenantReputationSerializer(serializers.Serializer):
+    """Authoritative reputation for this project's SES tenant, as judged and enforced by AWS."""
+
+    health = serializers.ChoiceField(
+        choices=["healthy", "warning", "critical", "suspended"],
+        read_only=True,
+        help_text=(
+            "Overall health derived from AWS's verdicts: healthy (no findings), warning (low-impact "
+            "findings), critical (high-impact findings — sending may be paused), suspended (the SES "
+            "tenant's sending is paused). Reflects AWS state only; PostHog-initiated suspensions are "
+            "reported separately via email_sending_suspended."
+        ),
+    )
+    sending_status = serializers.ChoiceField(
+        choices=["ENABLED", "REINSTATED", "DISABLED"],
+        read_only=True,
+        help_text=(
+            "The tenant's aggregate sending status. REINSTATED means sending was re-enabled after a "
+            "pause and AWS is re-monitoring it."
+        ),
+    )
+    findings = AwsTenantFindingSerializer(
+        many=True, read_only=True, help_text="Open findings, if any, with AWS's remediation guidance."
+    )
+
+
 class TeamEmailReputationResponseSerializer(serializers.Serializer):
+    aws = AwsTenantReputationSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Sending health as judged and enforced by AWS SES for this project's tenant; null when "
+            "the caller lacks project-wide workflow access, no tenant is provisioned, or AWS is "
+            "unreachable."
+        ),
+    )
     reputation = EmailSendingRatesSerializer(
         allow_null=True,
         read_only=True,
@@ -3215,10 +3325,12 @@ class HogFlowViewSet(
     def team_reputation(self, request: Request, **kwargs) -> Response:
         """
         Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
-        the fly from app metrics: a project-wide aggregate plus per-workflow rows (worst first,
-        capped). Display only — reputation judgment and enforcement live with AWS SES tenant
-        management, which attributes sends per team.
+        the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+        capped), together with the authoritative AWS SES tenant verdict — sending status and open
+        reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
         """
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
         # The project-wide aggregate pools ALL workflows' email (that's its point), so it can't be
         # filtered per object grant — only members with project-wide workflow read access get it.
         # Members holding just object-level grants still get their (filtered) per-workflow rows.
@@ -3329,6 +3441,9 @@ class HogFlowViewSet(
         return Response(
             TeamEmailReputationResponseSerializer(
                 {
+                    # Same gate as `reputation`: the tenant verdict pools ALL workflows' email,
+                    # so members holding only object-level grants don't get it.
+                    "aws": _fetch_aws_tenant_reputation(self.team_id) if can_read_all_workflows else None,
                     "reputation": reputation,
                     "workflows": workflow_rows,
                     "email_sending_suspended": suspended_at is not None,
