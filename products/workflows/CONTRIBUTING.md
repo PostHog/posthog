@@ -318,7 +318,7 @@ So `hog_flow` reads stay exactly as they are, and `hog_flow_version` is always `
 
 Nothing reads the versioned series yet.
 `/metrics` and `/metrics/totals` always return the version-agnostic one, and adding a filter to them is the natural next step.
-Until then, query it directly in HogQL, where the table is exposed as `app_metrics` (it maps to `app_metrics2`; the undecorated `app_metrics2` name is a different, deprecated table in raw ClickHouse):
+Until then, query it directly in HogQL, where the table is exposed as `app_metrics` (the HogQL name maps to the `app_metrics2` table; raw ClickHouse separately has a deprecated v1 table literally named `app_metrics`):
 
 ```sql
 SELECT metric_name, sum(count)
