@@ -25,7 +25,10 @@ import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
 const mswServer = setupServer(...handlers, contextMillHandler)
 
-function createInMemoryRedis(): RedisLike & { ping(): Promise<string> } {
+function createInMemoryRedis(): RedisLike & {
+    ping(): Promise<string>
+    incrby(key: string, increment: number): Promise<number>
+} {
     const store = new Map<string, string>()
     return {
         get: async (key) => store.get(key) ?? null,

@@ -47,19 +47,16 @@ DELTA_REPARTITION_SKIP_TOTAL = Counter(
     labelnames=["team_id", "reason"],
 )
 
-# deltalite shadow verification (rollout canary). `outcome` is one of:
-#   match      - deltalite produced byte-identical logical content to the delta-rs MERGE
-#   mismatch   - deltalite disagreed with MERGE (a correctness bug; investigate before rollout)
-#   skipped    - not run (sampled out, over the affected-bytes cap, SCD2, or no affected partitions)
-#   unsupported- deltalite refused the table (deletion vectors / column mapping)
-#   error      - the shadow itself failed (never affects the real sync)
-DELTALITE_SHADOW_TOTAL = Counter(
-    "warehouse_load_deltalite_shadow_total",
-    "deltalite shadow verifications against the delta-rs MERGE, by outcome",
+# deltalite real-write path (phase 2). `outcome` is one of:
+#   written    - deltalite performed the incremental merge and committed
+#   fallback   - deltalite was enabled but failed (or refused), so the delta-rs MERGE ran instead
+DELTALITE_WRITE_TOTAL = Counter(
+    "warehouse_load_deltalite_write_total",
+    "Incremental merges routed to deltalite's real write path, by outcome",
     labelnames=["outcome"],
 )
 
-DELTALITE_SHADOW_DURATION_SECONDS = Histogram(
-    "warehouse_load_deltalite_shadow_duration_seconds",
-    "Wall-clock time of a deltalite shadow verification (seed + upsert + compare)",
+DELTALITE_WRITE_DURATION_SECONDS = Histogram(
+    "warehouse_load_deltalite_write_duration_seconds",
+    "Wall-clock time of a deltalite real write (DeltaLiteTable.upsert)",
 )

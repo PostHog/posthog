@@ -18,6 +18,7 @@ from posthog.models.user import User
 
 from products.signals.backend.models import SignalReport
 from products.signals.backend.task_run_artefacts import append_task_run_artefact
+from products.tasks.backend.facade.api import find_signal_implementation_run
 from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
 from products.tasks.backend.webhooks import _account_type, find_task_run
 
@@ -1354,3 +1355,156 @@ class TestGitHubWebhookFanout(TestCase):
     def test_unified_url_get_returns_405(self):
         response = self.client.get("/webhooks/github/")
         self.assertEqual(response.status_code, 405)
+
+
+class TestFindSignalImplementationRun(TestCase):
+    """The tasks-facade linkage other products gate automation on (stamphog's inbox carve-out)."""
+
+    STAMPED_BRANCH = "posthog-self-driving/fix-the-thing-3f9a2c"
+
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+    user: ClassVar[User]
+    report: ClassVar[SignalReport]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Link Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Link Team")
+        cls.user = User.objects.create(email="link@example.com", distinct_id="link-user")
+        cls.report = SignalReport.objects.create(
+            team=cls.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
+        )
+
+    def _make_run(
+        self,
+        *,
+        with_report: bool = True,
+        internal: bool = True,
+        ai_stage: str | None = "implementation",
+        stamped_branch: str | None = STAMPED_BRANCH,
+        output: dict | None = None,
+        branch=None,
+        team: Team | None = None,
+        status: str = TaskRun.Status.IN_PROGRESS,
+        task_deleted: bool = False,
+    ):
+        team = team or self.team
+        task = Task.objects.create(
+            team=team,
+            created_by=self.user,
+            title="Self-driving implementation",
+            description="",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            repository="posthog/posthog",
+            signal_report=self.report if with_report else None,
+            internal=internal,
+            deleted=task_deleted,
+        )
+        # Production stamps ai_stage="implementation" and the server-generated head branch at run
+        # creation (signals' auto_start); the facade matches on the branch stamp and gates on
+        # ai_stage, so the fixture carries both to reflect the real self-driving shape.
+        state: dict = {}
+        if ai_stage:
+            state["ai_stage"] = ai_stage
+        if stamped_branch:
+            state["self_driving_head_branch"] = stamped_branch
+        return TaskRun.objects.create(
+            task=task,
+            team=team,
+            status=status,
+            output=output or {},
+            branch=branch,
+            state=state,
+        )
+
+    def test_head_branch_match_returns_the_run(self):
+        run = self._make_run()
+
+        # Repository passed with GitHub's casing: task rows lowercase the slug, so the match must
+        # be case-insensitive or every real webhook misses.
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="PostHog/posthog", head_branch=self.STAMPED_BRANCH
+        )
+
+        assert found is not None
+        assert found.run_id == run.id
+        assert found.task_id == run.task_id
+        assert found.signal_report_id == self.report.id
+        assert found.task_created_by_id == self.user.id
+
+    def test_completed_run_still_matches(self):
+        # Success flips the run to COMPLETED right after the PR opens, so treating COMPLETED as
+        # dead would end webhook re-reviews for every successful implementation the moment it
+        # finishes, dismissing the standing approval on the next push with no replacement.
+        run = self._make_run(status=TaskRun.Status.COMPLETED)
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="posthog/posthog", head_branch=self.STAMPED_BRANCH
+        )
+
+        assert found is not None
+        assert found.run_id == run.id
+
+    def test_caller_writable_fields_never_match(self):
+        # The security property the stamp exists for: a run whose API-writable fields (output.pr_url,
+        # output.head_branch, the branch column) all point at the PR must still NOT match without the
+        # server-side stamp — reintroducing a fallback on any of them reopens the forgeable link.
+        self._make_run(
+            stamped_branch=None,
+            branch="posthog-code/sd-fix",
+            output={"pr_url": "https://github.com/posthog/posthog/pull/9", "head_branch": "posthog-code/sd-fix"},
+        )
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="posthog/posthog", head_branch="posthog-code/sd-fix"
+        )
+
+        assert found is None
+
+    @parameterized.expand(
+        [
+            # Every rejection means "treat as an ordinary PR" downstream — each of these leaking
+            # through would hand a bot PR the self-driving carve-out it must not have. The pipeline's
+            # research/repo_selection runs share signal_report_id + internal=True with the
+            # implementation run and differ only by ai_stage, so a non-implementation stage must miss.
+            ("non_implementation_stage_run", {"ai_stage": "research"}, {}),
+            ("task_without_signal_report", {"with_report": False}, {}),
+            ("other_team", {}, {"team_id_offset": 1}),
+            ("wrong_repository", {}, {"repository": "posthog/other-repo"}),
+            # The caller contract for forks: an attacker-controlled fork head ref is never passed.
+            ("fork_pr_branch_not_consulted", {}, {"head_branch": None}),
+            # A disowned or dead run must not keep the carve-out alive on later pushes.
+            ("cancelled_run", {"status": TaskRun.Status.CANCELLED}, {}),
+            ("failed_run", {"status": TaskRun.Status.FAILED}, {}),
+            ("soft_deleted_task", {"task_deleted": True}, {}),
+        ]
+    )
+    def test_non_qualifying_runs_return_none(self, _name, run_kwargs, call_overrides):
+        self._make_run(**run_kwargs)
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id + call_overrides.pop("team_id_offset", 0),
+            repository=call_overrides.pop("repository", "posthog/posthog"),
+            head_branch=call_overrides.pop("head_branch", self.STAMPED_BRANCH),
+        )
+
+        assert found is None
+
+    def test_cross_team_run_does_not_shadow_the_teams_own_run(self):
+        # Without the in-query team scope, a newer run in another tenant carrying the same stamped
+        # branch would win the pick and the team-mismatch check would return None — silently
+        # suppressing the legitimate team's self-driving re-review. Scoping the query keeps the
+        # tenant's own run findable. (Branch names carry a random suffix, so a genuine collision is
+        # unlikely; this pins the tenant boundary, not a probable event.)
+        legitimate = self._make_run()
+        other_team = Team.objects.create(organization=self.organization, name="Shadow Team")
+        # Created after the legitimate run, so it is the newer one an unscoped query would prefer.
+        self._make_run(with_report=False, team=other_team)
+
+        found = find_signal_implementation_run(
+            team_id=self.team.id, repository="posthog/posthog", head_branch=self.STAMPED_BRANCH
+        )
+
+        assert found is not None
+        assert found.run_id == legitimate.id

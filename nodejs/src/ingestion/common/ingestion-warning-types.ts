@@ -29,7 +29,9 @@ export type IngestionWarningSeverity = 'info' | 'warning' | 'error'
  */
 export const INGESTION_WARNING_TYPES = {
     // Size limits — payload or property blobs exceeding Kafka/Postgres limits
-    message_size_too_large: { category: 'size', severity: 'error' },
+    // captureProduced: capture's Kafka sink hits the same MessageSizeTooLarge
+    // limit this pipeline reports at emit time, so both producers share the type.
+    message_size_too_large: { category: 'size', severity: 'error', captureProduced: true },
     // The personhog leader trimmed or rejected a person property update at
     // admission to fit the Postgres size constraint.
     person_properties_size_violation: { category: 'size', severity: 'error' },
@@ -51,6 +53,9 @@ export const INGESTION_WARNING_TYPES = {
     event_name_too_long: { category: 'event', severity: 'error', captureProduced: true },
     missing_distinct_id: { category: 'event', severity: 'error', captureProduced: true },
     distinct_id_too_large: { category: 'event', severity: 'error', captureProduced: true },
+    // Legacy capture ingests the event after cutting the distinct_id down to
+    // the 200-char cap (v1 drops it instead, as distinct_id_too_large above).
+    distinct_id_truncated: { category: 'event', severity: 'warning', captureProduced: true },
     invalid_event_timestamp: { category: 'event', severity: 'error', captureProduced: true },
     malformed_event_properties: { category: 'event', severity: 'error', captureProduced: true },
     invalid_options: { category: 'event', severity: 'error', captureProduced: true },
