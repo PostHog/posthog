@@ -239,8 +239,7 @@ def validate_secret_token_generation(team: Team, user: User) -> None:
         send_feature_flag_events=False,
     ):
         raise exceptions.ValidationError(
-            "The feature flags secure API key is deprecated. Create a project secret API key with the "
-            "feature_flag:read scope instead."
+            "The feature flags secure API key is deprecated. Create a project secret API key instead."
         )
 
 
@@ -2019,8 +2018,26 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        validate_secret_token_generation(team, cast(User, request.user))
+        try:
+            validate_secret_token_generation(team, cast(User, request.user))
+        except exceptions.ValidationError:
+            report_user_action(
+                cast(User, request.user),
+                "secret api key generation rejected",
+                {"team_id": team.id},
+                team=team,
+                request=request,
+            )
+            raise
+        verb = "rotated" if team.secret_api_token else "generated"
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
+        report_user_action(
+            cast(User, request.user),
+            f"secret api key {verb}",
+            {"team_id": team.id},
+            team=team,
+            request=request,
+        )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(

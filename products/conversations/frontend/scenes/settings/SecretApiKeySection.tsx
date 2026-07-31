@@ -12,6 +12,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 export function SecretApiKeySection(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { rotateSecretToken, deleteSecretTokenBackup } = useActions(teamLogic)
+    const actionVerb = currentTeam?.secret_api_token ? 'rotate' : 'generate'
 
     const openRotateDialog = (): void => {
         const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
@@ -50,18 +51,27 @@ export function SecretApiKeySection(): JSX.Element {
                                 onClick={openRotateDialog}
                                 disabledReason={
                                     !isTeamTokenResetAvailable
-                                        ? 'You do not have permission to rotate this key'
+                                        ? 'You need to be a project admin to do this'
                                         : undefined
                                 }
-                                tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
                             />
                         }
                         className={currentTeam?.secret_api_token ? '' : 'text-muted'}
                         thing="Secret API key"
                     >
-                        {currentTeam?.secret_api_token || 'Click the generate button on the right to create a new key.'}
+                        {currentTeam?.secret_api_token ||
+                            (isTeamTokenResetAvailable
+                                ? 'Click the generate button on the right to create a new key.'
+                                : 'Ask a project admin to generate a key.')}
                     </CodeSnippet>
                 </div>
+
+                {!isTeamTokenResetAvailable && (
+                    <LemonBanner type="info" className="my-2">
+                        You need to be a project admin to {actionVerb} the secret API key. Ask an admin on this
+                        project for help.
+                    </LemonBanner>
+                )}
 
                 {currentTeam?.secret_api_token && (
                     <LemonBanner type="warning" className="my-2">
