@@ -7,64 +7,41 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import * as zod from 'zod'
+import {
+    ActivateVersionRequestApi,
+    CreateAppInputApi,
+    CreateVersionFromSourceInputApi,
+    PatchedUpdateAppInputApi,
+    UpdateAppInputApi,
+    UploadVersionRequestApi,
+} from './api.zod.schemas'
 
 /**
  * @summary Create a streamlit app
  */
-export const StreamlitAppsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().describe('Name of the app.'),
-    description: zod.string().optional().describe('Optional description of the app.'),
-    cpu_cores: zod.number().optional().describe('CPU cores allocated to the sandbox.'),
-    memory_gb: zod.number().optional().describe('Memory in GB allocated to the sandbox.'),
-})
+export const StreamlitAppsCreateBody = CreateAppInputApi
 
 /**
  * @summary Update a streamlit app
  */
-export const StreamlitAppsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().optional().describe('New name for the app.'),
-    description: zod.string().optional().describe('New description for the app.'),
-    cpu_cores: zod.number().optional().describe('New CPU core allocation for the sandbox.'),
-    memory_gb: zod.number().optional().describe('New memory (GB) allocation for the sandbox.'),
-})
+export const StreamlitAppsUpdateBody = UpdateAppInputApi
 
 /**
  * @summary Partially update a streamlit app
  */
-export const StreamlitAppsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().optional().describe('New name for the app.'),
-    description: zod.string().optional().describe('New description for the app.'),
-    cpu_cores: zod.number().optional().describe('New CPU core allocation for the sandbox.'),
-    memory_gb: zod.number().optional().describe('New memory (GB) allocation for the sandbox.'),
-})
+export const StreamlitAppsPartialUpdateBody = PatchedUpdateAppInputApi
 
 /**
  * @summary Activate an existing app version
  */
-export const StreamlitAppsActivateVersionCreateBody = /* @__PURE__ */ zod.object({
-    version_number: zod
-        .number()
-        .describe('Version number to activate. Must reference an existing version of this app.'),
-})
+export const StreamlitAppsActivateVersionCreateBody = ActivateVersionRequestApi
 
 /**
  * @summary Create an app version from source code
  */
-export const streamlitAppsCreateVersionFromSourceCreateBodySourceMax = 1048576
-
-export const StreamlitAppsCreateVersionFromSourceCreateBody = /* @__PURE__ */ zod.object({
-    source: zod
-        .string()
-        .max(streamlitAppsCreateVersionFromSourceCreateBodySourceMax)
-        .describe(
-            "Full Python source for the Streamlit app's root app.py file, as free text (max 1 MB). Becomes a new version and is set as the active version."
-        ),
-})
+export const StreamlitAppsCreateVersionFromSourceCreateBody = CreateVersionFromSourceInputApi
 
 /**
  * @summary Upload a new app version
  */
-export const StreamlitAppsUploadVersionCreateBody = /* @__PURE__ */ zod.object({
-    file: zod.url().describe('Zip archive containing the Streamlit app sources (max 10 MB).'),
-})
+export const StreamlitAppsUploadVersionCreateBody = UploadVersionRequestApi

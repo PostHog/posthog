@@ -7,189 +7,29 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import * as zod from 'zod'
+import {
+    BulkUpdateTagsRequestApi,
+    ColumnConfigurationApi,
+    ElementApi,
+    InsightApi,
+    InsightBulkDeleteRequestApi,
+    InsightViewedRequestApi,
+    PatchedColumnConfigurationApi,
+    PatchedElementApi,
+    PatchedInsightApi,
+} from './api.zod.schemas'
 
-export const columnConfigurationsCreateBodyContextKeyMax = 255
+export const ColumnConfigurationsCreateBody = ColumnConfigurationApi
 
-export const columnConfigurationsCreateBodyNameMax = 255
+export const ColumnConfigurationsUpdateBody = ColumnConfigurationApi
 
-export const ColumnConfigurationsCreateBody = /* @__PURE__ */ zod.object({
-    context_key: zod.string().max(columnConfigurationsCreateBodyContextKeyMax),
-    columns: zod.array(zod.string()).optional(),
-    name: zod.string().max(columnConfigurationsCreateBodyNameMax).optional(),
-    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
-    order_by: zod
-        .array(zod.string())
-        .nullish()
-        .describe(
-            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
-        ),
-    properties: zod
-        .unknown()
-        .optional()
-        .describe(
-            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
-        ),
-    visibility: zod
-        .enum(['private', 'shared'])
-        .optional()
-        .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
-})
+export const ColumnConfigurationsPartialUpdateBody = PatchedColumnConfigurationApi
 
-export const columnConfigurationsUpdateBodyContextKeyMax = 255
+export const ElementsCreateBody = ElementApi
 
-export const columnConfigurationsUpdateBodyNameMax = 255
+export const ElementsUpdateBody = ElementApi
 
-export const ColumnConfigurationsUpdateBody = /* @__PURE__ */ zod.object({
-    context_key: zod.string().max(columnConfigurationsUpdateBodyContextKeyMax),
-    columns: zod.array(zod.string()).optional(),
-    name: zod.string().max(columnConfigurationsUpdateBodyNameMax).optional(),
-    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
-    order_by: zod
-        .array(zod.string())
-        .nullish()
-        .describe(
-            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
-        ),
-    properties: zod
-        .unknown()
-        .optional()
-        .describe(
-            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
-        ),
-    visibility: zod
-        .enum(['private', 'shared'])
-        .optional()
-        .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
-})
-
-export const columnConfigurationsPartialUpdateBodyContextKeyMax = 255
-
-export const columnConfigurationsPartialUpdateBodyNameMax = 255
-
-export const ColumnConfigurationsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    context_key: zod.string().max(columnConfigurationsPartialUpdateBodyContextKeyMax).optional(),
-    columns: zod.array(zod.string()).optional(),
-    name: zod.string().max(columnConfigurationsPartialUpdateBodyNameMax).optional(),
-    filters: zod.unknown().optional().describe('Column filter state persisted with this view configuration.'),
-    order_by: zod
-        .array(zod.string())
-        .nullish()
-        .describe(
-            'Ordered list of HogQL expressions describing the table sort. Null preserves the current sort on apply (legacy rows); an empty list explicitly means no sort.'
-        ),
-    properties: zod
-        .unknown()
-        .optional()
-        .describe(
-            'Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display).'
-        ),
-    visibility: zod
-        .enum(['private', 'shared'])
-        .optional()
-        .describe('\* `private` - Private (only visible to creator)\n\* `shared` - Shared with team'),
-})
-
-export const elementsCreateBodyTextMax = 10000
-
-export const elementsCreateBodyTagNameMax = 1000
-
-export const elementsCreateBodyAttrClassItemMax = 200
-
-export const elementsCreateBodyHrefMax = 10000
-
-export const elementsCreateBodyAttrIdMax = 10000
-
-export const elementsCreateBodyNthChildMin = -2147483648
-export const elementsCreateBodyNthChildMax = 2147483647
-
-export const elementsCreateBodyNthOfTypeMin = -2147483648
-export const elementsCreateBodyNthOfTypeMax = 2147483647
-
-export const elementsCreateBodyOrderMin = -2147483648
-export const elementsCreateBodyOrderMax = 2147483647
-
-export const ElementsCreateBody = /* @__PURE__ */ zod.object({
-    text: zod.string().max(elementsCreateBodyTextMax).nullish(),
-    tag_name: zod.string().max(elementsCreateBodyTagNameMax).nullish(),
-    attr_class: zod.array(zod.string().max(elementsCreateBodyAttrClassItemMax)).nullish(),
-    href: zod.string().max(elementsCreateBodyHrefMax).nullish(),
-    attr_id: zod.string().max(elementsCreateBodyAttrIdMax).nullish(),
-    nth_child: zod.number().min(elementsCreateBodyNthChildMin).max(elementsCreateBodyNthChildMax).nullish(),
-    nth_of_type: zod.number().min(elementsCreateBodyNthOfTypeMin).max(elementsCreateBodyNthOfTypeMax).nullish(),
-    attributes: zod.unknown().optional(),
-    order: zod.number().min(elementsCreateBodyOrderMin).max(elementsCreateBodyOrderMax).nullish(),
-})
-
-export const elementsUpdateBodyTextMax = 10000
-
-export const elementsUpdateBodyTagNameMax = 1000
-
-export const elementsUpdateBodyAttrClassItemMax = 200
-
-export const elementsUpdateBodyHrefMax = 10000
-
-export const elementsUpdateBodyAttrIdMax = 10000
-
-export const elementsUpdateBodyNthChildMin = -2147483648
-export const elementsUpdateBodyNthChildMax = 2147483647
-
-export const elementsUpdateBodyNthOfTypeMin = -2147483648
-export const elementsUpdateBodyNthOfTypeMax = 2147483647
-
-export const elementsUpdateBodyOrderMin = -2147483648
-export const elementsUpdateBodyOrderMax = 2147483647
-
-export const ElementsUpdateBody = /* @__PURE__ */ zod.object({
-    text: zod.string().max(elementsUpdateBodyTextMax).nullish(),
-    tag_name: zod.string().max(elementsUpdateBodyTagNameMax).nullish(),
-    attr_class: zod.array(zod.string().max(elementsUpdateBodyAttrClassItemMax)).nullish(),
-    href: zod.string().max(elementsUpdateBodyHrefMax).nullish(),
-    attr_id: zod.string().max(elementsUpdateBodyAttrIdMax).nullish(),
-    nth_child: zod.number().min(elementsUpdateBodyNthChildMin).max(elementsUpdateBodyNthChildMax).nullish(),
-    nth_of_type: zod.number().min(elementsUpdateBodyNthOfTypeMin).max(elementsUpdateBodyNthOfTypeMax).nullish(),
-    attributes: zod.unknown().optional(),
-    order: zod.number().min(elementsUpdateBodyOrderMin).max(elementsUpdateBodyOrderMax).nullish(),
-})
-
-export const elementsPartialUpdateBodyTextMax = 10000
-
-export const elementsPartialUpdateBodyTagNameMax = 1000
-
-export const elementsPartialUpdateBodyAttrClassItemMax = 200
-
-export const elementsPartialUpdateBodyHrefMax = 10000
-
-export const elementsPartialUpdateBodyAttrIdMax = 10000
-
-export const elementsPartialUpdateBodyNthChildMin = -2147483648
-export const elementsPartialUpdateBodyNthChildMax = 2147483647
-
-export const elementsPartialUpdateBodyNthOfTypeMin = -2147483648
-export const elementsPartialUpdateBodyNthOfTypeMax = 2147483647
-
-export const elementsPartialUpdateBodyOrderMin = -2147483648
-export const elementsPartialUpdateBodyOrderMax = 2147483647
-
-export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    text: zod.string().max(elementsPartialUpdateBodyTextMax).nullish(),
-    tag_name: zod.string().max(elementsPartialUpdateBodyTagNameMax).nullish(),
-    attr_class: zod.array(zod.string().max(elementsPartialUpdateBodyAttrClassItemMax)).nullish(),
-    href: zod.string().max(elementsPartialUpdateBodyHrefMax).nullish(),
-    attr_id: zod.string().max(elementsPartialUpdateBodyAttrIdMax).nullish(),
-    nth_child: zod
-        .number()
-        .min(elementsPartialUpdateBodyNthChildMin)
-        .max(elementsPartialUpdateBodyNthChildMax)
-        .nullish(),
-    nth_of_type: zod
-        .number()
-        .min(elementsPartialUpdateBodyNthOfTypeMin)
-        .max(elementsPartialUpdateBodyNthOfTypeMax)
-        .nullish(),
-    attributes: zod.unknown().optional(),
-    order: zod.number().min(elementsPartialUpdateBodyOrderMin).max(elementsPartialUpdateBodyOrderMax).nullish(),
-})
+export const ElementsPartialUpdateBody = PatchedElementApi
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -199,9 +39,7 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const InsightsCreateBody = InsightApi
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -211,9 +49,7 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const InsightsUpdateBody = InsightApi
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -223,9 +59,7 @@ export const InsightsUpdateBody = /* @__PURE__ */ zod
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const InsightsPartialUpdateBody = PatchedInsightApi
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -235,39 +69,17 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsSuggestionsCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const InsightsSuggestionsCreateBody = InsightApi
 
 /**
  * Soft-delete insights in bulk by ID. Mirrors the single-insight delete: sets deleted=True, soft-deletes the insights' dashboard tiles, and removes their linked alerts. Insights the requester cannot edit are skipped and reported in `skipped`. Reversible via the bulk_restore endpoint.
  */
-
-export const insightsBulkDeleteCreateBodyIdsMax = 1000
-
-export const InsightsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number().min(1))
-        .max(insightsBulkDeleteCreateBodyIdsMax)
-        .describe(
-            'Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.'
-        ),
-})
+export const InsightsBulkDeleteCreateBody = InsightBulkDeleteRequestApi
 
 /**
  * Restore soft-deleted insights in bulk by ID — the inverse of bulk_delete. Sets deleted=False and re-activates the insights' dashboard tiles on dashboards that still exist. Linked alerts are not restored (they are removed on delete). Insights the requester cannot edit are reported in `skipped`.
  */
-
-export const insightsBulkRestoreCreateBodyIdsMax = 1000
-
-export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number().min(1))
-        .max(insightsBulkRestoreCreateBodyIdsMax)
-        .describe(
-            'Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.'
-        ),
-})
+export const InsightsBulkRestoreCreateBody = InsightBulkDeleteRequestApi
 
 /**
  * Bulk update tags on multiple objects.
@@ -288,21 +100,7 @@ export const InsightsBulkRestoreCreateBody = /* @__PURE__ */ zod.object({
  * - "remove": Remove specific tags from each object
  * - "set": Replace all tags on each object with the provided list
  */
-export const insightsBulkUpdateTagsCreateBodyIdsMax = 500
-
-export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.number())
-        .max(insightsBulkUpdateTagsCreateBodyIdsMax)
-        .describe('List of object IDs to update tags on.'),
-    action: zod
-        .enum(['add', 'remove', 'set'])
-        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
-        .describe(
-            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
-        ),
-    tags: zod.array(zod.string()).describe('Tag names to add, remove, or set.'),
-})
+export const InsightsBulkUpdateTagsCreateBody = BulkUpdateTagsRequestApi
 
 /**
  * DRF ViewSet mixin that gates coalesced responses behind permission checks.
@@ -312,25 +110,14 @@ export const InsightsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod.object({
  * initial() (auth + permissions + throttling) before returning the
  * cached response, ensuring the request is authorized.
  */
-export const InsightsCancelCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const InsightsCancelCreateBody = InsightApi
 
 /**
  * Generate an AI-suggested name and description for an insight based on its query configuration.
  */
-export const InsightsGenerateMetadataCreateBody = /* @__PURE__ */ zod
-    .record(zod.string(), zod.unknown())
-    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+export const InsightsGenerateMetadataCreateBody = InsightApi
 
 /**
  * Record that the current user has just viewed one or more insights. Submitted ids that do not belong to the current project or that point at deleted insights are silently dropped. Returns 201 on success regardless of how many ids were retained.
  */
-export const insightsViewedCreateBodyInsightIdsMax = 2500
-
-export const InsightsViewedCreateBody = /* @__PURE__ */ zod.object({
-    insight_ids: zod
-        .array(zod.number())
-        .max(insightsViewedCreateBodyInsightIdsMax)
-        .describe('Insight IDs that were just viewed by the current user. At most 2500 ids per request.'),
-})
+export const InsightsViewedCreateBody = InsightViewedRequestApi

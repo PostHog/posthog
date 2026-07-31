@@ -7,43 +7,10 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import * as zod from 'zod'
+import { CreateGroupApi, GroupApi } from './api.zod.schemas'
 
-export const groupsCreateBodyGroupTypeIndexMin = -2147483648
-export const groupsCreateBodyGroupTypeIndexMax = 2147483647
+export const GroupsCreateBody = CreateGroupApi
 
-export const groupsCreateBodyGroupKeyMax = 400
+export const GroupsDeletePropertyCreateBody = GroupApi
 
-export const GroupsCreateBody = /* @__PURE__ */ zod.object({
-    group_type_index: zod.number().min(groupsCreateBodyGroupTypeIndexMin).max(groupsCreateBodyGroupTypeIndexMax),
-    group_key: zod.string().max(groupsCreateBodyGroupKeyMax),
-    group_properties: zod.unknown().optional(),
-})
-
-export const groupsDeletePropertyCreateBodyGroupTypeIndexMin = -2147483648
-export const groupsDeletePropertyCreateBodyGroupTypeIndexMax = 2147483647
-
-export const groupsDeletePropertyCreateBodyGroupKeyMax = 400
-
-export const GroupsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
-    group_type_index: zod
-        .number()
-        .min(groupsDeletePropertyCreateBodyGroupTypeIndexMin)
-        .max(groupsDeletePropertyCreateBodyGroupTypeIndexMax),
-    group_key: zod.string().max(groupsDeletePropertyCreateBodyGroupKeyMax),
-    group_properties: zod.unknown().optional(),
-})
-
-export const groupsUpdatePropertyCreateBodyGroupTypeIndexMin = -2147483648
-export const groupsUpdatePropertyCreateBodyGroupTypeIndexMax = 2147483647
-
-export const groupsUpdatePropertyCreateBodyGroupKeyMax = 400
-
-export const GroupsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
-    group_type_index: zod
-        .number()
-        .min(groupsUpdatePropertyCreateBodyGroupTypeIndexMin)
-        .max(groupsUpdatePropertyCreateBodyGroupTypeIndexMax),
-    group_key: zod.string().max(groupsUpdatePropertyCreateBodyGroupKeyMax),
-    group_properties: zod.unknown().optional(),
-})
+export const GroupsUpdatePropertyCreateBody = GroupApi

@@ -7,39 +7,29 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import * as zod from 'zod'
+import { BatchImportApi, PatchedBatchImportApi } from './api.zod.schemas'
 
 /**
  * Create a new managed migration/batch import.
  */
-export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
+export const ManagedMigrationsCreateBody = BatchImportApi
 
 /**
  * Viewset for BatchImport model
  */
-export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
+export const ManagedMigrationsUpdateBody = BatchImportApi
 
 /**
  * Viewset for BatchImport model
  */
-export const ManagedMigrationsPartialUpdateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
+export const ManagedMigrationsPartialUpdateBody = PatchedBatchImportApi
 
 /**
  * Pause a running batch import.
  */
-export const ManagedMigrationsPauseCreateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
+export const ManagedMigrationsPauseCreateBody = BatchImportApi
 
 /**
  * Resume a paused batch import.
  */
-export const ManagedMigrationsResumeCreateBody = /* @__PURE__ */ zod
-    .looseObject({})
-    .describe('Serializer for BatchImport model')
+export const ManagedMigrationsResumeCreateBody = BatchImportApi
