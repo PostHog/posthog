@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -172,6 +173,31 @@ class TestStorageOptionsCommitSafety:
 
         assert options["conditional_put"] == "etag"
         assert ("AWS_S3_ALLOW_UNSAFE_RENAME" in options) is allow_unsafe
+
+    # The proxy bypass and the commit-safety options are assembled in the same dict; dropping either
+    # while editing the other is silent (S3 traffic quietly returns to the egress proxy, or commits
+    # lose conflict detection).
+    def test_proxy_bypass_options_merge_with_commit_safety(self) -> None:
+        from products.data_warehouse.backend import s3_proxy
+
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        s3_proxy._flag_enabled.cache_clear()
+
+        with (
+            override_settings(
+                USE_LOCAL_SETUP=False,
+                DATA_WAREHOUSE_S3_REGION="us-east-1",
+                BUCKET_URL="s3://posthog-s3-datawarehouse-us-east-1/dlt",
+            ),
+            patch.object(s3_proxy.posthoganalytics, "feature_enabled", return_value=True),
+            patch.dict(os.environ, {"HTTPS_PROXY": "http://egress-proxy.test:4750"}),
+        ):
+            options = helper.get_storage_options()
+
+        s3_proxy._flag_enabled.cache_clear()
+
+        assert options["conditional_put"] == "etag"
+        assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
 
 
 class TestDeltaMergeSpillKwargs:

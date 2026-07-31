@@ -9,6 +9,8 @@ import boto3
 import botocore
 import botocore.exceptions
 
+from products.data_warehouse.backend.s3_proxy import boto_proxy_config_kwargs
+
 
 def get_s3_client():
     # Defaults for localhost dev and test suites
@@ -23,7 +25,8 @@ def get_s3_client():
             skip_instance_cache=True,
         )
 
-    return s3fs.S3FileSystem()
+    # config_kwargs reaches botocore's Config — see s3_proxy for why these clients skip the proxy.
+    return s3fs.S3FileSystem(config_kwargs=boto_proxy_config_kwargs())
 
 
 @contextlib.asynccontextmanager
@@ -48,7 +51,9 @@ async def aget_s3_client(*, fresh_instance: bool = False):
             asynchronous=True,
         )
     else:
-        s3 = s3fs.S3FileSystem(asynchronous=True, skip_instance_cache=fresh_instance)
+        s3 = s3fs.S3FileSystem(
+            asynchronous=True, skip_instance_cache=fresh_instance, config_kwargs=boto_proxy_config_kwargs()
+        )
 
     await s3.set_session()
 
