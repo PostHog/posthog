@@ -134,7 +134,7 @@ def _self_driving_pr_author_login() -> str | None:
     """The GitHub login that authors genuine self-driving PRs on this instance.
 
     Signal-report implementation runs push with ``PrAuthorshipMode.BOT``, so the PR is opened by the
-    team's PostHog Code GitHub App and authored by its machine user, ``<slug>[bot]``. Returns ``None``
+    team's PostHog GitHub App and authored by its machine user, ``<slug>[bot]``. Returns ``None``
     when the App slug isn't configured, so callers fail closed instead of trusting an identity they
     can't verify (the same posture as ``allow_any_bot=False`` on the approval writes).
     """
@@ -147,7 +147,7 @@ def _is_self_driving_pr(pr: dict[str, Any], repo: str) -> bool:
 
     ``TaskRun.output.pr_url``, the task->PR link the carve-out relies on, is writable by any team
     member through the task-run APIs. So before granting the bot/fork/mode/write bypass, confirm two
-    things no member can forge: the PR was opened by this instance's PostHog Code App machine user,
+    things no member can forge: the PR was opened by this instance's PostHog GitHub App machine user,
     and its head is in the base repo, never a fork (a fork's head.ref is attacker-controlled while
     ``repository.full_name`` stays the base repo). Otherwise a member could aim a signal-report run
     at any bot-authored PR and get an approve-first review past every gate. Returns False when the
@@ -184,7 +184,7 @@ def _inbox_rereview_carve_out(
 ) -> _InboxCarveOut:
     """Whether this delivery re-reviews a self-driving inbox PR, and with what provenance.
 
-    Self-driving inbox PRs are bot-authored drafts opened by a PostHog Code signals implementation
+    Self-driving inbox PRs are bot-authored drafts opened by a self-driving Inbox implementation
     run, so they trip every pre-filter and gate on this path (bot author, draft, author association,
     write permission, review mode). Their real gate is the acting reviewer's
     ``stamphog_review_inbox_prs`` toggle. A carve-out comes back only when everything is identified:

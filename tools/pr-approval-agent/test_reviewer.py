@@ -255,7 +255,7 @@ def test_prompt_provenance_renders_only_for_self_driving_runs() -> None:
     assert "Provenance:" not in prompt_with({})
 
     self_driving_prompt = prompt_with({"self_driving": True})
-    assert "Provenance: this PR was opened by a PostHog Code self-driving implementation task" in self_driving_prompt
+    assert "Provenance: this PR was opened by a self-driving implementation task" in self_driving_prompt
     # The block is trust guidance, not trust itself — it must sit in the TRUSTED region, above the
     # untrusted PR content. rindex: the anti-injection notice at the top of the prompt also quotes
     # the marker text, so the real delimiter is the last occurrence.

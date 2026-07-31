@@ -685,13 +685,13 @@ class Reviewer:
 
         The author is a machine user, so the author-trust context the prompt normally leans on
         (familiarity, org membership) says nothing here. This block replaces it with the one fact
-        that holds: the platform verified the PR came from a PostHog Code implementation task behind
+        that holds: the platform verified the PR came from a self-driving Inbox implementation run behind
         a team member's Inbox report. That is provenance, not an endorsement of the diff.
         """
         if not cl.get("self_driving"):
             return ""
         return (
-            "\nProvenance: this PR was opened by a PostHog Code self-driving implementation task "
+            "\nProvenance: this PR was opened by a self-driving implementation task "
             "from a team member's Inbox report (verified by task linkage, not author identity). "
             "The author is a machine user, so author familiarity, org membership, and merged-PR "
             "history carry no signal here — judge the diff strictly on its own merits. It is a "

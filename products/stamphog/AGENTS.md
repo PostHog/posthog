@@ -81,8 +81,8 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 
 Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`),
 the engine (`review_pr.py::_refuse_bot_author`, mirrored by `review_local.py`), and the
-Action's job gates — with ONE deliberate exception: a PR **positively linked** to a PostHog
-Code self-driving implementation run (a signal-report-carrying TaskRun at
+Action's job gates — with ONE deliberate exception: a PR **positively linked** to a
+self-driving Inbox implementation run (a signal-report-carrying TaskRun at
 `ai_stage="implementation"`, matched through the tasks facade), one of whose assigned reviewers
 opted in via ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception
 narrow:
@@ -92,14 +92,15 @@ narrow:
   through the tasks facade (the pipeline's research and repo-selection runs share
   `signal_report_id` and `internal=True`, so stage is what selects the PR-opening run). The
   identity half, `_is_self_driving_pr`, requires two facts only GitHub attests — the PR is authored
-  by this instance's PostHog Code App machine user (`<GITHUB_APP_SLUG>[bot]`) on a repo-native head
+  by this instance's PostHog GitHub App machine user (`<GITHUB_APP_SLUG>[bot]`) on a repo-native head
   (never a fork) — enforced on **both** the receiver leg (`process_inbox_pr_review`) and the
   webhook leg (`_inbox_rereview_carve_out`), failing closed when the App slug is unconfigured.
   This is a positive App-identity match, not the general "any bot" rule: `github.py::is_bot_author`
   must not be weakened, and dependabot / renovate / posthog-bot / any foreign App fail it even if a
   forged `output.pr_url` fakes the task link.
-- **Known residual risk, not closed here.** `<GITHUB_APP_SLUG>[bot]` is the core PostHog Code App and
-  opens every PostHog Code PR, so the identity check proves "a PostHog Code PR in this repo", not
+- **Known residual risk, not closed here.** `<GITHUB_APP_SLUG>[bot]` is the core PostHog GitHub App and
+  opens every agent-authored PR (wizard and manual tasks included), so the identity check proves
+  "an App-authored PR in this repo", not
   "the PR this run produced". Anyone with `task:write` on the team's signal-report tasks can rewrite
   `output.pr_url`, `TaskRun.branch`, `Task.repository`, and `suggested_reviewers`, so they can aim a
   genuine live run at a different same-App PR and pick whose toggle gates it. Both legs pin the

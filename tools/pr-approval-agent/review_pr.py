@@ -199,8 +199,9 @@ class Pipeline:
         self.repo = repo
         self.dry_run = dry_run
         self.verbose = verbose
-        # Set only by the hosted runtime, for PRs it verified came from a PostHog Code implementation
-        # task. It relaxes two gates (bot author, draft) and swaps author trust for task provenance.
+        # Set only by the hosted runtime, for PRs it verified came from a self-driving Inbox
+        # implementation run. It relaxes two gates (bot author, draft) and swaps author trust for
+        # task provenance.
         self.self_driving = self_driving
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
