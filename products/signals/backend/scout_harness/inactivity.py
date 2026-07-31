@@ -41,7 +41,9 @@ report evidence (findings-only, Slack-routed, or all reports too fresh) is left 
 The sweep speaks the scout lifecycle vocabulary rather than keeping fields of its own. Every
 write goes through `transition_status_by_system`, whose writer-scoped ownership rule keeps this
 sweep and the failure breaker (`repeated_failures`) from touching each other's pauses (the sweep
-owns both of its reasons, so it may reclassify its own `no_output` warning to `ignored`), and
+owns both of its reasons, so it may reclassify its own warning in either direction: a `no_output`
+warning becomes `ignored` when report evidence establishes, and an `ignored` warning downgrades
+to `no_output` when its evidence ages out, so a pause never lands on stale grounds), and
 whose `evaluated_at` check makes a racing human edit win over a sweep decision made on stale
 reads. There is no half-open probe on this axis: an inactivity pause never runs again on its
 own; a human re-enable is the only exit, and the update serializer marks that re-enable
@@ -231,6 +233,24 @@ def _apply_verdict(config: SignalScoutConfig, assessment: TeamAssessment, outcom
 
     # Silent, with no report evidence either way. Warn so a human looks at it, but never pause:
     # a watch scout that only speaks when something is wrong looks exactly like this.
+    if sweep_warned and config.pause_reason == SignalScoutConfig.PauseReason.IGNORED:
+        # The evidence behind the scheduled pause is gone (the touching runs aged past the
+        # lookback, or the scout was re-routed to Slack since the warning), so the pause must not
+        # land on stale grounds. Downgrade to the badge-only warning. Deliberately not capped:
+        # deferring a downgrade would leave the scout scheduled to pause. Appended to `warned` so
+        # the analytics event re-fires with the corrected reason.
+        if _transition(
+            config, SignalScoutConfig.Status.PENDING_PAUSE, SignalScoutConfig.PauseReason.NO_OUTPUT, evaluated_at=now
+        ):
+            outcome.warned.append(config)
+            outcome.had_output[config.pk] = False
+            logger.info(
+                "signals_scout inactivity sweep: warned",
+                team_id=config.team_id,
+                skill_name=config.skill_name,
+                reason=config.pause_reason,
+            )
+        return
     if config.status == SignalScoutConfig.Status.ACTIVE:
         if len(outcome.warned) >= MAX_WARNS_PER_SWEEP:
             outcome.deferred += 1

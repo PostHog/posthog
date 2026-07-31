@@ -51,14 +51,17 @@ export function ScoutLifecycleBadge({ config }: { config: SignalScoutConfig }): 
         return null
     }
     if (config.status === 'pending_pause') {
-        const title =
-            config.pause_reason === 'ignored'
-                ? "Nothing has come of this scout's recent reports, so it pauses in about a week unless that changes. Turn on 'Keep running while quiet' in its settings to leave it running."
-                : "This scout hasn't surfaced anything in the last two weeks. It keeps running, but check that it's watching the right things. Turn on 'Keep running while quiet' in its settings if quiet is expected."
+        // The two warnings say different things at a glance: `ignored` schedules a pause and can
+        // apply to a scout that files plenty of reports, so labeling it "Quiet" would misread as
+        // a benign watchdog.
+        const ignored = config.pause_reason === 'ignored'
+        const title = ignored
+            ? "Nothing has come of this scout's recent reports, so it pauses in about a week unless that changes. Turn on 'Opt out of auto-pause' in its settings to leave it running."
+            : "This scout hasn't surfaced anything in the last two weeks. It keeps running, but check that it's watching the right things. Turn on 'Opt out of auto-pause' in its settings if quiet is expected."
         return (
             <Tooltip title={title}>
                 <LemonTag type="caution" size="small">
-                    Quiet
+                    {ignored ? 'Pausing soon' : 'Quiet'}
                 </LemonTag>
             </Tooltip>
         )

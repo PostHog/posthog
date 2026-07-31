@@ -166,6 +166,27 @@ class TestScoutInactivitySweep(BaseTest):
         assert sweep_inactive_scouts(now=self.now + timedelta(days=1)).paused == []
         assert [c.pk for c in sweep_inactive_scouts(now=self._pause_time).paused] == [self.config.pk]
 
+    def test_an_ignored_warning_whose_evidence_aged_out_downgrades_instead_of_stranding(self) -> None:
+        # Once warned `ignored`, the pause re-derives its evidence each sweep. If the touching
+        # runs age past the lookback before the grace elapses, the scout must not pause off stale
+        # grounds, and must not freeze in `pending_pause` forever either: it downgrades to the
+        # badge-only `no_output` warning.
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.IGNORED,
+            status_changed_at=self.now - WARNING_GRACE - timedelta(days=1),
+        )
+        self._silent_runs()
+
+        outcome = sweep_inactive_scouts(now=self.now)
+
+        downgraded = self._reload()
+        assert outcome.paused == []
+        assert [c.pk for c in outcome.warned] == [self.config.pk]
+        assert downgraded.status == SignalScoutConfig.Status.PENDING_PAUSE
+        assert downgraded.pause_reason == SignalScoutConfig.PauseReason.NO_OUTPUT
+        assert sweep_inactive_scouts(now=self._pause_time).paused == []
+
     @parameterized.expand(
         [
             ("log_artefact", SignalReportArtefact.ArtefactType.NOTE, None),
