@@ -189,7 +189,6 @@ export interface supportTicketSceneLogicValues {
     eventsQuery: DataTableNode | null
     exceptionsQuery: DataTableNode | null
     feedbackByMessageId: Record<string, AiReplyFeedbackRating>
-    hasDraftContent: boolean
     hasMoreMessages: boolean
     hasPendingWork: boolean
     hasUnsavedChanges: boolean
@@ -436,8 +435,7 @@ export interface supportTicketSceneLogicMeta {
             ticket: Ticket | null,
             unsavedTicketChanges: string[]
         ) => boolean
-        hasDraftContent: (draftContent: JSONContent | null) => boolean
-        hasPendingWork: (hasUnsavedChanges: boolean, hasDraftContent: boolean) => boolean
+        hasPendingWork: (hasUnsavedChanges: boolean, draftContent: JSONContent | null) => boolean
         chatMessages: (messages: CommentType[], ticket: Ticket | null) => ChatMessage[]
         eventsQuery: (ticket: Ticket | null) => DataTableNode | null
         exceptionsQuery: (ticket: Ticket | null) => DataTableNode | null
@@ -875,15 +873,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 return status !== ticket.status || unsavedTicketChanges.length > 0
             },
         ],
-        // A draft with any content counts as unsent work: handleUpdate normalizes an empty editor
-        // to null, so a non-null draft means the input has one or more characters.
-        hasDraftContent: [
-            (s) => [s.draftContent],
-            (draftContent: JSONContent | null): boolean => draftContent !== null,
-        ],
+        // Unsent draft text is pending work too: the editor normalizes an empty document to null,
+        // so a non-null draft means there's at least one character to warn about before leaving.
         hasPendingWork: [
-            (s) => [s.hasUnsavedChanges, s.hasDraftContent],
-            (hasUnsavedChanges: boolean, hasDraftContent: boolean): boolean => hasUnsavedChanges || hasDraftContent,
+            (s) => [s.hasUnsavedChanges, s.draftContent],
+            (hasUnsavedChanges: boolean, draftContent: JSONContent | null): boolean =>
+                hasUnsavedChanges || draftContent !== null,
         ],
         chatPanelWidth: [
             () => [],
