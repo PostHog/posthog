@@ -57821,7 +57821,7 @@ export namespace Schemas {
        * * `approve` - approve */
       merge_mode: MergeModeEnum;
       /**
-         * Head SHA the client last saw. Required for 'merge', which is the only mode that can land a branch that moved since the client last looked.
+         * Head SHA the client last saw. Required for 'merge' and 'approve', the two modes that act on a specific commit and so must not act on a branch that moved since the client last looked.
          * @nullable
          */
       sha?: string | null;

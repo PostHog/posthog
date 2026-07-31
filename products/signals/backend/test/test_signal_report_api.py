@@ -2608,9 +2608,46 @@ class TestSignalReportPrMergeAuth(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_merge_now_requires_the_head_sha_it_saw(self):
-        # Without a SHA GitHub merges whatever the head is at that moment, so a branch that moved after
-        # the user reviewed it would land silently. Only 'merge' needs it; auto-merge re-checks at merge time.
+    @parameterized.expand([("merge",), ("approve",)])
+    def test_acting_on_a_commit_requires_the_head_sha_it_saw(self, mode):
+        # Without a SHA GitHub acts on whatever the head is at that moment, so a branch that moved after
+        # the user reviewed it would be merged, or carry their approval, silently. Auto-merge needs no SHA
+        # of its own; GitHub re-checks at merge time.
         report = self._create_report()
-        response = self.client.post(self._merge_url(str(report.id)), {"merge_mode": "merge"}, format="json")
+        response = self.client.post(self._merge_url(str(report.id)), {"merge_mode": mode}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("branch_moved", "sha-pushed-since", status.HTTP_409_CONFLICT, False),
+            ("branch_unchanged", "sha-reviewed", status.HTTP_200_OK, True),
+        ]
+    )
+    def test_approval_only_lands_on_the_reviewed_head(self, _name, current_head, expected_status, expect_approved):
+        # The agent pushes to its own PR while a human is reading it. A review submitted without a commit
+        # attaches to whatever is at head when it arrives, and branch protection won't dismiss it as stale,
+        # so an approval could carry onto commits the user never saw.
+        report = self._create_report()
+        UserIntegration.objects.create(user=self.user, kind=UserIntegration.IntegrationKind.GITHUB, integration_id="42")
+        user_github = patch("products.signals.backend.views.UserGitHubIntegration").start()
+        github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()
+        self.addCleanup(patch.stopall)
+        user_github.return_value.approve_pull_request.return_value = {"success": True}
+        github.return_value.get_pull_request_merge_readiness.return_value = {
+            "success": True,
+            "readiness": {"head_sha": current_head},
+        }
+
+        with patch(
+            "products.signals.backend.views.fetch_implementation_pr_urls_for_reports",
+            return_value={str(report.id): "https://github.com/PostHog/posthog/pull/7"},
+        ):
+            response = self.client.post(
+                self._merge_url(str(report.id)), {"merge_mode": "approve", "sha": "sha-reviewed"}, format="json"
+            )
+
+        assert response.status_code == expected_status
+        if expect_approved:
+            assert user_github.return_value.approve_pull_request.call_args.kwargs["commit_id"] == "sha-reviewed"
+        else:
+            user_github.return_value.approve_pull_request.assert_not_called()

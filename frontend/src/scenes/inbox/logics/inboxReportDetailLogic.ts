@@ -1359,7 +1359,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         },
         // Approve the PR as the user, then merge the usual way: merge now when checks are already green,
         // or arm auto-merge when they're still pending. GitHub re-evaluates mergeability at merge time,
-        // so the direct merge is safe right after the approval lands.
+        // so the direct merge is safe right after the approval lands. The approval carries the head sha
+        // too, so it can only land on the commits that were on screen.
         approveAndMerge: async () => {
             const teamId = teamLogic.values.currentTeamId
             const readiness = values.prMergeReadiness
@@ -1370,6 +1371,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             try {
                 await signalsReportPrMerge(String(teamId), props.reportId, {
                     merge_mode: 'approve',
+                    sha: readiness.head_sha ?? undefined,
                 })
                 const method = (readiness.merge_method as MergeMethodEnumApi | null) ?? undefined
                 if (readiness.ci_status === 'pending' && readiness.auto_merge_allowed) {

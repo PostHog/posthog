@@ -502,14 +502,22 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             "status_code": response.status_code,
         }
 
-    def approve_pull_request(self, repository: str, pr_number: int) -> dict[str, Any]:
+    def approve_pull_request(self, repository: str, pr_number: int, *, commit_id: str | None = None) -> dict[str, Any]:
         """Submit an approving review as the user (REST ``POST .../reviews`` with ``event: APPROVE``).
 
         Used by "Approve and merge" when a required review is the only thing blocking a merge. GitHub
         rejects approving your own PR (422), which surfaces as ``{"success": False, "error": ...}``.
+
+        ``commit_id`` records which commit was approved. Without it GitHub attaches the review to
+        whatever is at head when the request lands, so an approval could end up on commits the reviewer
+        never saw — and branch protection's stale-approval dismissal wouldn't fire, since such an
+        approval isn't stale.
         """
         token = self.get_usable_user_access_token()
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        body: dict[str, Any] = {"event": "APPROVE"}
+        if commit_id:
+            body["commit_id"] = commit_id
         response = github_request(
             "POST",
             f"https://api.github.com/repos/{repo_path}/pulls/{pr_number}/reviews",
@@ -518,7 +526,7 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             installation_id=self.github_installation_id,
             priority=Priority.CRITICAL,
             endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
-            json={"event": "APPROVE"},
+            json=body,
             timeout=15,
         )
         raise_if_github_rate_limited(response)

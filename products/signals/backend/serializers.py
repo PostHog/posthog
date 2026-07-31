@@ -1176,8 +1176,8 @@ class PullRequestMergeRequestSerializer(serializers.Serializer):
     sha = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Head SHA the client last saw. Required for 'merge', which is the only mode that can "
-        "land a branch that moved since the client last looked.",
+        help_text="Head SHA the client last saw. Required for 'merge' and 'approve', the two modes that "
+        "act on a specific commit and so must not act on a branch that moved since the client last looked.",
     )
     merge_method = serializers.ChoiceField(
         choices=["squash", "merge", "rebase"],
@@ -1186,8 +1186,8 @@ class PullRequestMergeRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        if attrs["merge_mode"] == "merge" and not attrs.get("sha"):
-            raise serializers.ValidationError({"sha": "A head SHA is required to merge now."})
+        if attrs["merge_mode"] in ("merge", "approve") and not attrs.get("sha"):
+            raise serializers.ValidationError({"sha": "A head SHA is required to merge or approve."})
         return attrs
 
 

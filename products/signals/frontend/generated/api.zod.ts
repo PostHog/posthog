@@ -64,7 +64,7 @@ export const SignalsReportPrMergeBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe(
-                "Head SHA the client last saw. Required for 'merge', which is the only mode that can land a branch that moved since the client last looked."
+                "Head SHA the client last saw. Required for 'merge' and 'approve', the two modes that act on a specific commit and so must not act on a branch that moved since the client last looked."
             ),
         merge_method: zod
             .enum(['squash', 'merge', 'rebase'])

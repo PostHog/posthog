@@ -2512,9 +2512,10 @@ class SignalReportViewSet(
                 description="The action's outcome — merged now, auto-merge armed/cancelled — and the "
                 "report's resulting status.",
             ),
-            400: OpenApiResponse(description="Missing node id for an auto-merge action."),
+            400: OpenApiResponse(description="Missing the head SHA that merging or approving requires."),
             403: OpenApiResponse(description="No usable personal GitHub connection, or no write access to the repo."),
             404: OpenApiResponse(description="Report has no implementation PR."),
+            409: OpenApiResponse(description="The branch moved since the client last read it, so it wasn't approved."),
             502: OpenApiResponse(description="GitHub rejected the merge (conflicts, protection, or a moved branch)."),
         },
         summary="Merge a report's implementation PR, or arm/cancel auto-merge",
@@ -2537,8 +2538,22 @@ class SignalReportViewSet(
         merge_method = params.get("merge_method") or "merge"
 
         if mode == "approve":
+            # An approval has to land on the commit the user actually read. The agent pushes to its own
+            # PR while a human is reading it, and a review submitted without a commit attaches to
+            # whatever is at head when it arrives — so the head is re-read here and the approval refused
+            # when it moved, the same guard the merge below gets from its sha.
+            reviewed_sha = params["sha"]
+            current_sha = self._current_pr_head_sha(report, repository, pr_number)
+            if isinstance(current_sha, Response):
+                return current_sha
+            if current_sha != reviewed_sha:
+                self._bust_pr_merge_readiness_cache(repository, pr_number)
+                return Response(
+                    {"error": "New commits were pushed since you opened this. Reload to see them before approving."},
+                    status=status.HTTP_409_CONFLICT,
+                )
             result = self._run_user_github_write(
-                lambda: user_github.approve_pull_request(repository, pr_number),
+                lambda: user_github.approve_pull_request(repository, pr_number, commit_id=reviewed_sha),
                 repository,
                 pr_number,
                 noun="approval",
@@ -2632,6 +2647,33 @@ class SignalReportViewSet(
                 "signals pr merge: branch cleanup failed", repository=repository, pr_number=pr_number, exc_info=True
             )
         return report_status
+
+    def _current_pr_head_sha(self, report: SignalReport, repository: str, pr_number: int) -> str | Response:
+        """The PR's head SHA, read fresh from GitHub — deliberately not through the readiness read cache,
+        which is what a client checking whether the branch moved would be comparing against."""
+        github, repo, prn, error = self._github_for_report_pr(report, reference=(repository, pr_number))
+        if error is not None:
+            return error
+        assert github is not None  # `error is None` guarantees a resolved integration
+        try:
+            result = github.get_pull_request_merge_readiness(repo, prn)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        except GitHubEgressBudgetExhausted:
+            return Response(
+                {"error": "GitHub is temporarily busy. Try again shortly."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
+            logger.warning("signals pr head sha fetch errored", repository=repository, pr_number=pr_number)
+            result = {}
+        head_sha = (result.get("readiness") or {}).get("head_sha") if result.get("success") else None
+        if not isinstance(head_sha, str) or not head_sha:
+            return Response(
+                {"error": "GitHub could not confirm the pull request's latest commit."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return head_sha
 
     def _bust_pr_merge_readiness_cache(self, repository: str, pr_number: int) -> None:
         """Drop the merge-readiness read cache so the next poll reflects a just-made merge/auto-merge action."""
