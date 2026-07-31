@@ -21,11 +21,7 @@ export function openJumpToTimestampModal(): void {
 
 function JumpToTimestampModalContent({ onClose }: { onClose: () => void }): JSX.Element {
     const handleSubmit = (dateFrom: string, dateTo: string): void => {
-        const baseQuery = getDefaultEventsSceneQuery()
-        const query = {
-            ...baseQuery,
-            source: { ...baseQuery.source, after: dateFrom, before: dateTo },
-        }
+        const query = getDefaultEventsSceneQuery(undefined, { after: dateFrom, before: dateTo })
         const url = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
         onClose()
         router.actions.push(url)
