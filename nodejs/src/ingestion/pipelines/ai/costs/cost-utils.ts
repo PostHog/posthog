@@ -1,33 +1,33 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
 /**
- * Read a numeric property from the event's properties bag, returning zero for
- * any value that is missing, non-finite, or not numeric. Accepts numeric
- * strings (e.g. `"100"`) as well as numbers — third-party SDKs and OTel
- * collectors occasionally serialise token counts as strings, and the cost
- * pipeline must bill those tokens correctly rather than silently zeroing them.
+ * Read a numeric property from the event's properties bag, defaulting to zero.
+ * Numeric strings count as numbers — third-party SDKs and OTel collectors
+ * occasionally serialize token counts as strings, and the cost pipeline must
+ * bill those tokens rather than silently zeroing them.
  */
 export const numericProperty = (event: PluginEvent, key: string): number => {
-    const value = event.properties?.[key]
-    return finiteNumberOrUndefined(value) ?? 0
+    return finiteNumberOrUndefined(event.properties?.[key]) ?? 0
 }
 
 /**
- * Coerce a raw property value to a finite number, returning `undefined` for any
- * value that is missing, non-finite, or not numeric. Accepts numeric strings
- * (e.g. `"0.001"`) like {@link numericProperty}. Unlike `numericProperty`, this
- * distinguishes "absent or invalid" from a legitimate `0`, so callers can fall
- * back to a different pricing source rather than billing at a rate of zero.
- * Used to sanitise custom token prices (`$ai_input_token_price` etc.) before
- * they reach `js-big-decimal`, which throws `Parameter is not a number` on any
- * non-numeric input.
+ * Coerce a raw property value to a finite number, or `undefined` when it isn't
+ * one. Unlike {@link numericProperty} this keeps "absent or unusable" distinct
+ * from a legitimate `0`, so callers can fall back to another pricing source
+ * instead of billing at a rate of zero. Everything reaching `js-big-decimal`
+ * must pass through here first — it throws on operands it can't parse.
  */
 export const finiteNumberOrUndefined = (value: unknown): number | undefined => {
     if (typeof value === 'number') {
         return Number.isFinite(value) ? value : undefined
     }
-    if (typeof value === 'string' && value.length > 0) {
-        const parsed = Number(value)
+    if (typeof value === 'string') {
+        // Number(' ') is 0, so a blank string would otherwise bill at rate zero.
+        const trimmed = value.trim()
+        if (trimmed.length === 0) {
+            return undefined
+        }
+        const parsed = Number(trimmed)
         return Number.isFinite(parsed) ? parsed : undefined
     }
     return undefined

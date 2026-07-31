@@ -766,6 +766,28 @@ describe('processAiEvent()', () => {
 
             expect(result.properties!.$ai_request_cost_usd).toBe(0.02)
         })
+
+        // A pre-calculated cost is only worth preserving if bigDecimal can add it up,
+        // so an unusable one has to be recomputed instead of being trusted.
+        it.each([
+            '$ai_input_cost_usd',
+            '$ai_output_cost_usd',
+            '$ai_request_cost_usd',
+            '$ai_web_search_cost_usd',
+            '$ai_total_cost_usd',
+        ])('recomputes costs when the pre-calculated %s is not a number', (property) => {
+            event.properties!.$ai_model = 'gpt-4'
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties![property] = 'abc'
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(20, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 6)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(30, 6)
+        })
     })
 
     describe('custom token pricing', () => {
@@ -1002,18 +1024,19 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_provider).toBe('openai')
         })
 
-        // A non-numeric custom price used to sail past the `!== undefined` guard and
-        // reach js-big-decimal, which throws "Parameter is not a number". It must now
-        // be treated as unset and fall through to model-based pricing instead.
+        // A price js-big-decimal can't parse has to count as unset, so the event bills
+        // at model rates rather than throwing or silently billing at a rate of zero.
         it.each<{ description: string; inputPrice: unknown; outputPrice: unknown }>([
             { description: 'non-numeric string input price', inputPrice: '$0.001', outputPrice: 0.002 },
+            { description: 'whitespace-only input price', inputPrice: ' ', outputPrice: 0.002 },
             { description: 'null input price', inputPrice: null, outputPrice: 0.002 },
             { description: 'object input price', inputPrice: { value: 0.001 }, outputPrice: 0.002 },
+            { description: 'boolean input price', inputPrice: true, outputPrice: 0.002 },
             { description: 'non-numeric string output price', inputPrice: 0.001, outputPrice: '$0.002' },
             { description: 'NaN output price', inputPrice: 0.001, outputPrice: Number.NaN },
         ])('falls back to model pricing for $description', ({ inputPrice, outputPrice }) => {
-            event.properties!.$ai_input_token_price = inputPrice as any
-            event.properties!.$ai_output_token_price = outputPrice as any
+            event.properties!.$ai_input_token_price = inputPrice
+            event.properties!.$ai_output_token_price = outputPrice
             event.properties!.$ai_input_tokens = 100
             event.properties!.$ai_output_tokens = 50
 
@@ -1024,6 +1047,67 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_provider).toBe('openai')
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(20, 6)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 6)
+        })
+
+        // Every optional price is garbage at once, so dropping the coercion on any
+        // single one puts it back in front of js-big-decimal.
+        it('ignores unusable optional prices and keeps custom pricing', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_cache_read_token_price = '$0.10'
+            event.properties!.$ai_cache_write_token_price = { value: 0.1 }
+            event.properties!.$ai_cache_write_1h_token_price = 'free'
+            event.properties!.$ai_request_price = Number.NaN
+            event.properties!.$ai_web_search_price = ' '
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_request_count = 3
+            event.properties!.$ai_web_search_count = 2
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('custom')
+            // Cache reads fall back to the 0.5 multiplier: 60 * 0.001 + 40 * 0.001 * 0.5.
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.1, 6)
+            expect(result.properties!.$ai_request_cost_usd).toBe(0)
+            expect(result.properties!.$ai_web_search_cost_usd).toBe(0)
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.18, 6)
+        })
+
+        it('treats a null cache read price as unset rather than free', () => {
+            event.properties!.$ai_provider = 'openai'
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_cache_read_token_price = null
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_cache_read_input_tokens = 40
+            event.properties!.$ai_output_tokens = 50
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.08, 6)
+        })
+
+        // A request count defaults to 1 when absent, a web search count to nothing, so
+        // an unusable value has to land on each default rather than on bigDecimal.
+        it.each<{ property: string; costProperty: string; expected: number }>([
+            { property: '$ai_request_count', costProperty: '$ai_request_cost_usd', expected: 0.01 },
+            { property: '$ai_web_search_count', costProperty: '$ai_web_search_cost_usd', expected: 0 },
+        ])('prices the event when $property is not a number', ({ property, costProperty, expected }) => {
+            event.properties!.$ai_input_token_price = 0.001
+            event.properties!.$ai_output_token_price = 0.002
+            event.properties!.$ai_request_price = 0.01
+            event.properties!.$ai_web_search_price = 0.02
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties![property] = 'lots'
+
+            const result = processAiEvent(event)
+
+            expect(result.properties![costProperty]).toBeCloseTo(expected, 6)
         })
 
         it('accepts numeric-string custom prices', () => {

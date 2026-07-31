@@ -32,8 +32,10 @@ const setPropertyIfValidOrMissing = (properties: Properties, key: string, value:
     }
 }
 
+// `bigDecimal` throws on anything it can't parse, so "is a string or a number"
+// isn't enough — a pre-calculated cost of "abc" has to count as missing.
 const isBigDecimalInput = (value: unknown): value is string | number => {
-    return typeof value === 'string' || typeof value === 'number'
+    return finiteNumberOrUndefined(value) !== undefined
 }
 
 const trackCostOutcome = (totalCost: number): void => {
@@ -121,10 +123,8 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
         return event
     }
 
-    // If custom token pricing is provided, use it to calculate costs. Prices are
-    // sanitised through finiteNumberOrUndefined so a non-numeric value (e.g. a
-    // string like "$0.001", null, or an object) falls through to model-based
-    // pricing instead of crashing js-big-decimal with "Parameter is not a number".
+    // A non-numeric price throws inside js-big-decimal, so treat one as absent and
+    // fall back to model pricing rather than billing at a rate of zero.
     const inputTokenPrice = finiteNumberOrUndefined(event.properties['$ai_input_token_price'])
     const outputTokenPrice = finiteNumberOrUndefined(event.properties['$ai_output_token_price'])
 
