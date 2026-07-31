@@ -853,10 +853,14 @@ function EmailTemplaterModal(): JSX.Element {
             <LemonModal
                 isOpen={isModalOpen}
                 fullScreen
+                simple
+                title=""
                 onClose={() => closeWithConfirmation()}
                 hasUnsavedInput={emailTemplateChanged}
             >
-                <div className="h-full flex relative">
+                {/* simple puts us directly in the modal's flex column, so flex-1 fills the screen;
+                    a percentage height would collapse inside the default non-flex content wrapper. */}
+                <div className="flex-1 min-h-0 flex relative p-4">
                     <LemonButton
                         type="tertiary"
                         size="small"
