@@ -21,8 +21,9 @@ def digest_name_for_scanner(scanner: "ReplayScanner") -> str:
 
 def unique_digest_name(team_id: int, base: str) -> str:
     """A team-unique variant of `base`, suffixing " (2)", " (3)", … when the plain name is taken.
-    VisionAction names are unique per team, but the base derives from the scanner name, which isn't
-    unique — so two scanners sharing a name would otherwise collide on their digest name."""
+    Scanner names are team-unique, so two scanners can't produce the same derived name; the
+    collision source is another VisionAction already holding it, such as a user-named action or a
+    digest that was demoted earlier and kept its name."""
     base = base[:255]
     # One query over the team's names beating this base; the count per team is small.
     taken = set(VisionAction.objects.for_team(team_id).filter(name__startswith=base).values_list("name", flat=True))
