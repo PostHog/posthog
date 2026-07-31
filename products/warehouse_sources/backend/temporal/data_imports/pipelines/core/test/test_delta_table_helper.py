@@ -1379,7 +1379,7 @@ class TestDeltaliteWritePath:
 
     _FLAG = (
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.core."
-        "deltalite_shadow.is_deltalite_write_enabled"
+        "deltalite_write.is_deltalite_write_enabled"
     )
 
     def _helper(self) -> DeltaTableHelper:
