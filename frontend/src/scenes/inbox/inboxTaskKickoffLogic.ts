@@ -16,6 +16,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { captureInboxReportActionCompleted } from './inboxAnalytics'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -207,6 +208,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             // run endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'discuss',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
                 actions.discussReportFailure()
                 return
             }
@@ -218,15 +225,23 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     'Discuss report',
                     DISCUSS_RUNTIME
                 )
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start discussion')
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'failure' })
                 actions.discussReportFailure()
             }
         },
         createPrFromReport: async ({ report }) => {
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'create_pr',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
                 actions.createPrFailure()
                 return
             }
@@ -238,9 +253,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     'Implement report fix',
                     CREATE_PR_RUNTIME
                 )
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start PR task')
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
                 actions.createPrFailure()
             }
         },

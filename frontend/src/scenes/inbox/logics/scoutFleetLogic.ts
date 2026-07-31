@@ -28,6 +28,12 @@ import type {
 import { llmSkillsNameArchiveCreate } from 'products/skills/frontend/generated/api'
 import { RunSourceEnumApi, TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
+import {
+    captureScoutAction,
+    captureScoutChatStarted,
+    captureScoutConfigChanged,
+    ScoutChatType,
+} from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
 import {
@@ -37,6 +43,9 @@ import {
     isSettledRun,
     prettifyScoutSkillName,
     reconcileById,
+    SCOUT_AUTHOR_PROMPT,
+    SCOUT_FLEET_OVERVIEW_PROMPT,
+    SCOUT_RECENT_SIGNALS_PROMPT,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -44,6 +53,35 @@ import {
 
 type SignalScoutConfig = SignalScoutConfigApi
 type SignalScoutConfigUpdate = PatchedSignalScoutConfigUpdateApi
+
+// Which CTA a chat task came from, keyed off the templated prompt so the callers stay untouched.
+const SCOUT_CHAT_TYPES: Record<string, ScoutChatType> = {
+    [SCOUT_AUTHOR_PROMPT]: 'author_scout',
+    [SCOUT_FLEET_OVERVIEW_PROMPT]: 'fleet_overview',
+    [SCOUT_RECENT_SIGNALS_PROMPT]: 'recent_signals',
+}
+
+/**
+ * One `Scout config changed` per field the request carried. A schedule switch patches both
+ * `run_interval_minutes` and `run_cron_schedule` at once, and collapsing those into a single event
+ * would make the `setting` breakdown misreport which control the user actually moved.
+ */
+function captureScoutConfigUpdates(
+    config: SignalScoutConfig | undefined,
+    updates: SignalScoutConfigUpdate,
+    success: boolean
+): void {
+    for (const [setting, newValue] of Object.entries(updates)) {
+        captureScoutConfigChanged({
+            skillName: config?.skill_name ?? '',
+            scoutOrigin: config?.scout_origin ?? null,
+            setting,
+            oldValue: config ? (config as unknown as Record<string, unknown>)[setting] : null,
+            newValue,
+            success,
+        })
+    }
+}
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
 // stay live without hammering the capped runs endpoint (desktop: 60s).
@@ -575,7 +613,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             try {
                 while (updatesToSend) {
                     const previousCronSchedule = confirmedConfig?.run_cron_schedule
+                    const previousConfig = confirmedConfig
                     const updated = await signalsScoutConfigUpdate(String(teamId), configId, updatesToSend)
+                    captureScoutConfigUpdates(previousConfig, updatesToSend, true)
                     confirmedConfig = updated
 
                     if (updatesToSend.run_cron_schedule === null && previousCronSchedule) {
@@ -596,6 +636,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 }
             } catch (error: any) {
                 queuedUpdatesAfterFailure = pendingUpdates.get(configId)
+                if (updatesToSend) {
+                    captureScoutConfigUpdates(confirmedConfig, updatesToSend, false)
+                }
                 if (confirmedConfig) {
                     actions.patchScoutConfigLocally(configId, confirmedConfig)
                 }
@@ -661,8 +704,20 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     // Remove only after the backend confirms — deletion is irreversible, so no optimistic
                     // drop that would have to be re-inserted (and re-sorted) on failure.
                     actions.removeScoutConfigLocally(configId)
+                    captureScoutAction({
+                        actionType: 'delete_scout',
+                        surface: 'fleet_list',
+                        skillName: config.skill_name,
+                        extra: { scout_origin: config.scout_origin, success: true },
+                    })
                     lemonToast.success(`Deleted ${displayName}`)
                 } catch (error: any) {
+                    captureScoutAction({
+                        actionType: 'delete_scout',
+                        surface: 'fleet_list',
+                        skillName: config.skill_name,
+                        extra: { scout_origin: config.scout_origin, success: false },
+                    })
                     lemonToast.error(error?.detail || error?.message || 'Failed to delete scout')
                     // A partial failure (skill archived but config delete failed) could desync the list
                     // from the backend — reload the truth so the row reflects reality.
@@ -682,6 +737,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 lemonToast.error(values.aiConsentDisabledReason)
                 actions.startScoutChatTaskFailure()
                 return
+            }
+            const chatType = SCOUT_CHAT_TYPES[prompt]
+            if (chatType) {
+                captureScoutChatStarted({ chatType, surface: 'fleet_list' })
             }
             try {
                 // Deliberately repo-less: these prompts read PostHog data over MCP and never touch

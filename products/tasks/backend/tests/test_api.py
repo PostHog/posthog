@@ -25,9 +25,11 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal
+from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -230,6 +232,67 @@ class BaseTaskAPITest(TestCase):
             timezone="Europe/London",
             enabled=True,
         )
+
+
+class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
+    def _built_in_agent_client(self) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Built-in agent sandbox",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_task_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope=f"task:read task:write {MCP_BUILT_IN_AGENT_SCOPE}",
+            scoped_teams=[self.team.id],
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
+    def test_can_read_and_create_tasks(self) -> None:
+        self.create_task()
+        client = self._built_in_agent_client()
+
+        assert client.get("/api/projects/@current/tasks/").status_code == status.HTTP_200_OK
+        response = client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Child task", "description": "Follow-up work"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert Task.objects.filter(title="Child task").exists()
+
+    def test_cannot_create_or_run_task_automations(self) -> None:
+        automation = self.create_automation()
+        client = self._built_in_agent_client()
+
+        assert (
+            client.post(
+                "/api/projects/@current/task_automations/",
+                {
+                    "name": "Scheduled child",
+                    "prompt": "Escape agent grants later",
+                    "repository": "posthog/posthog",
+                    "cron_expression": "0 9 * * *",
+                    "timezone": "UTC",
+                },
+                format="json",
+            ).status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert (
+            client.post(f"/api/projects/@current/task_automations/{automation.id}/run/").status_code
+            == status.HTTP_403_FORBIDDEN
+        )
+        assert not TaskAutomation.objects.filter(task__title="Scheduled child").exists()
 
 
 class TestTaskCreatorScoping(BaseTaskAPITest):
@@ -1338,20 +1401,38 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
+    def test_create_task_with_posthog_ai_origin_product(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New PostHog AI task",
+                "description": "Created from the PostHog AI task tracker",
+                "origin_product": Task.OriginProduct.POSTHOG_AI,
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.POSTHOG_AI)
+
     @parameterized.expand(
         [
-            ("image_builder",),
-            ("experiments",),
-            ("onboarding",),
+            (Task.OriginProduct.IMAGE_BUILDER,),
+            (Task.OriginProduct.EXPERIMENTS,),
+            (Task.OriginProduct.SIGNALS_SCOUT,),
+            (Task.OriginProduct.SUPPORT_REPLY,),
+            (Task.OriginProduct.ONBOARDING,),
         ]
     )
-    def test_create_task_rejects_internal_origin(self, origin: str):
+    def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
         response = self.client.post(
             "/api/projects/@current/tasks/",
             {
                 "title": "New Task",
                 "description": "New Description",
-                "origin_product": origin,
+                "origin_product": origin_product,
                 "repository": "posthog/posthog",
             },
             format="json",
@@ -4704,6 +4785,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
+                "ai_stage": "research",
+                "self_driving_head_branch": "posthog-self-driving/real-3f9a2c",
                 "runtime_adapter": "claude",
                 "provider": "anthropic",
                 "model": "claude-sonnet-5",
@@ -4748,6 +4831,10 @@ class TestTaskRunAPI(BaseTaskAPITest):
                         }
                     ],
                     "pending_external_followups_generation": 999,
+                    # implementation provenance is what the self-driving review carve-outs trust
+                    "ai_stage": "implementation",
+                    # the stamped branch is the unforgeable run->PR link; a writable value re-aims it
+                    "self_driving_head_branch": "posthog-self-driving/attacker-000000",
                     "runtime_adapter": "codex",
                     "provider": "openai",
                     "model": "claude-opus-4-8",
@@ -4778,6 +4865,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
+        assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
+        assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
         assert run.state["runtime_adapter"] == "claude"
         assert run.state["provider"] == "anthropic"
         assert run.state["model"] == "claude-sonnet-5"
@@ -6386,7 +6475,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["artifacts"], run.artifacts)
+        returned_artifacts = response.json()["artifacts"]
+        # The finalize response augments each entry with a presigned download URL that is not
+        # persisted on the manifest, so compare the stored fields separately from the URL.
+        self.assertEqual([{k: v for k, v in a.items() if k != "url"} for a in returned_artifacts], run.artifacts)
+        self.assertTrue(all(a.get("url") for a in returned_artifacts))
         mock_head_object.assert_not_called()
         mock_tag.assert_not_called()
 

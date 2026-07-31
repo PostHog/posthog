@@ -1412,6 +1412,7 @@ ${scopeResolveBlock}${prepareFallbackBlock}        return await prepareConfirmed
             actionLabel: ${JSON.stringify(actionLabel)},
             messageTemplate: ${JSON.stringify(messageTemplate)},
             codec: __runtime.codec,
+            stash: __runtime.stash,
 ${prepareScopeField}        })
 `
 
@@ -1424,6 +1425,7 @@ ${scopeResolveBlock}        const __guard = await executeConfirmedAction<z.infer
             purpose: ${JSON.stringify(toolName)},
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
 ${executeScopeField}        })
         if (!__guard.ok) {
             return __guard.result as never

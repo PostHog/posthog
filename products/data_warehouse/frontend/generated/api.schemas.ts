@@ -2554,6 +2554,10 @@ export interface CredentialApi {
  * * `Clay` - Clay
  * * `TradableBits` - TradableBits
  * * `Swan` - Swan
+ * * `Hyros` - Hyros
+ * * `Odoo` - Odoo
+ * * `Airbridge` - Airbridge
+ * * `Snovio` - Snovio
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3831,6 +3835,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Clay: 'Clay',
     TradableBits: 'TradableBits',
     Swan: 'Swan',
+    Hyros: 'Hyros',
+    Odoo: 'Odoo',
+    Airbridge: 'Airbridge',
+    Snovio: 'Snovio',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

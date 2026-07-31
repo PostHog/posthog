@@ -42,6 +42,14 @@ common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Install a process-wide rustls CryptoProvider before any TLS use. kube's
+    // HTTPS client (controller discovery) uses rustls 0.23, which can't
+    // auto-pick a provider with both aws-lc-rs and ring compiled in — it
+    // panics. Matches personhog-router / cymbal / ingestion-consumer.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring CryptoProvider");
+
     let config = Config::init_from_env().expect("Invalid configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
@@ -63,8 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting personhog-leader service");
     tracing::info!("gRPC address: {}", config.grpc_address);
     tracing::info!(
-        "Cache memory capacity: {} entries",
-        config.cache_memory_capacity
+        "Cache capacity: {} bytes per partition",
+        config.cache_memory_capacity_bytes
     );
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!("etcd endpoints: {}", config.etcd_endpoints);
@@ -137,7 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // Initialize partitioned cache and Kafka producer
-    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity));
+    let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
 
     let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
         Ok(producer) => producer,

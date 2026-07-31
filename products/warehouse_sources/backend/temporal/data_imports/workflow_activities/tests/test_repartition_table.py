@@ -3,8 +3,11 @@ import uuid
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
+    _maybe_flag_pre_extraction,
     _maybe_repartition_table,
 )
 
@@ -83,3 +86,48 @@ class TestRepartitionActivityDeltaFolder:
         assert await_args is not None
         assert await_args.kwargs["helper"] is mock_helper_cls.return_value
         assert mock_job_model.objects.get.call_args.kwargs == {"id": JOB_ID}
+
+
+class TestMaybeFlagPreExtraction:
+    @parameterized.expand(
+        [
+            (
+                "generic_s3_error",
+                OSError(
+                    "Generic S3 error: Error getting list response body: HTTP error: "
+                    "request or response body error: operation timed out"
+                ),
+            ),
+            (
+                "credential_provider_timeout",
+                OSError(
+                    "Operation not supported: an error occurred while loading credentials: "
+                    "dispatch failure: timeout: client error (Connect): HTTP connect timeout occurred: timed out"
+                ),
+            ),
+        ]
+    )
+    @patch(f"{MODULE}.capture_exception")
+    def test_transient_object_store_error_is_not_reported(
+        self, _name: str, error: OSError, mock_capture: MagicMock
+    ) -> None:
+        schema = _schema(name="stripe_charge", s3_folder_name=None)
+        helper = MagicMock()
+        helper.get_delta_table = AsyncMock(side_effect=error)
+
+        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock(), enabled=True)
+
+        assert result is None
+        mock_capture.assert_not_called()
+
+    @patch(f"{MODULE}.capture_exception")
+    def test_non_transient_error_is_still_reported(self, mock_capture: MagicMock) -> None:
+        schema = _schema(name="stripe_charge", s3_folder_name=None)
+        helper = MagicMock()
+        error = ValueError("unexpected schema drift")
+        helper.get_delta_table = AsyncMock(side_effect=error)
+
+        result = _maybe_flag_pre_extraction(schema, MagicMock(), helper, MagicMock(), enabled=True)
+
+        assert result is None
+        mock_capture.assert_called_once_with(error)

@@ -1311,6 +1311,8 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
+    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    url?: string
 }
 
 /**
@@ -1503,7 +1505,7 @@ export interface TaskCreateApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -1640,7 +1642,7 @@ export interface TaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -1762,7 +1764,7 @@ export interface PatchedTaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -2854,9 +2856,10 @@ export const JsonrpcEnumApi = {
  * * `queue_get` - queue_get
  * * `queue_clear` - queue_clear
  */
-export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
+export type TaskRunCommandRequestMethodEnumApi =
+    (typeof TaskRunCommandRequestMethodEnumApi)[keyof typeof TaskRunCommandRequestMethodEnumApi]
 
-export const MethodEnumApi = {
+export const TaskRunCommandRequestMethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
@@ -2887,7 +2890,7 @@ export interface TaskRunCommandRequestApi {
      * * `pi/rpc` - pi/rpc
      * * `queue_get` - queue_get
      * * `queue_clear` - queue_clear */
-    method: MethodEnumApi
+    method: TaskRunCommandRequestMethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
     /** Optional JSON-RPC request ID (string or number) */

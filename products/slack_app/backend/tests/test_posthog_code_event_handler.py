@@ -9,6 +9,7 @@ from django.test.client import RequestFactory
 
 from parameterized import parameterized
 from rest_framework.test import APIClient
+from structlog.testing import capture_logs
 
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -19,20 +20,20 @@ from products.slack_app.backend.models import SlackUserProfileCache
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
 
-class TestPostHogCodeEventHandler(TestCase):
+class TestPostHogCodeEventHandler(SimpleTestCase):
     def setUp(self):
         self.client = APIClient()
         self.signing_secret = "posthog-code-test-secret"
 
     def _post_event(self, payload: dict, **extra_headers) -> Any:
         body = json.dumps(payload).encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        signed = sign_slack_request(body, self.signing_secret)
         return self.client.post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
             **extra_headers,
         )
 
@@ -53,12 +54,16 @@ class TestPostHogCodeEventHandler(TestCase):
     def test_retry_returns_200(self, mock_config):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         body = json.dumps({"type": "event_callback", "event": {"type": "app_mention"}}).encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        signed = sign_slack_request(body, self.signing_secret)
         response = self.client.post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts, "x-slack-retry-num": "1"},
+            headers={
+                "x-slack-signature": signed.signature,
+                "x-slack-request-timestamp": signed.timestamp,
+                "x-slack-retry-num": "1",
+            },
         )
         assert response.status_code == 200
 
@@ -101,6 +106,46 @@ class TestPostHogCodeEventHandler(TestCase):
             mock_route.assert_called_once()
         else:
             mock_route.assert_not_called()
+
+    @patch("products.slack_app.backend.api.route_posthog_code_event_to_relevant_region")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_link_shared_logs_unfurl_context(self, mock_config, mock_route):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_route.return_value = "handled_locally"
+        payload = {
+            "type": "event_callback",
+            "team_id": "T12345",
+            "event_id": "Ev12345",
+            "is_ext_shared_channel": True,
+            "event": {
+                "type": "link_shared",
+                "channel": "C001",
+                "message_ts": "1234.5678",
+                "user": "U123",
+                "links": [
+                    {"url": "https://us.posthog.com/project/2/insights/abc123"},
+                    {"url": "https://us.posthog.com/project/2/dashboard/456"},
+                    {"url": "https://example.com/project/2/insights/not-posthog"},
+                ],
+            },
+        }
+
+        with capture_logs() as logs:
+            response = self._post_event(payload)
+
+        assert response.status_code == 202
+        unfurl_log = next(log for log in logs if log["event"] == "slack_link_unfurl_received")
+        assert unfurl_log == {
+            "event": "slack_link_unfurl_received",
+            "slack_team_id": "T12345",
+            "event_id": "Ev12345",
+            "channel": "C001",
+            "message_ts": "1234.5678",
+            "is_ext_shared_channel": True,
+            "is_ext_shared_channel_type": "bool",
+            "resources": [{"type": "insight", "ref": "abc123"}, {"type": "dashboard", "ref": "456"}],
+            "log_level": "info",
+        }
 
 
 class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
@@ -1095,13 +1140,13 @@ class TestChannelApprovalGate(TestCase):
             "event": {"type": "app_mention", "channel": "C_EXT", "user": "U123", "ts": "1.0"},
         }
         body = json.dumps(envelope).encode()
-        signature, ts = sign_slack_request(body, "secret")
+        signed = sign_slack_request(body, "secret")
         APIClient().post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
         mock_route.assert_called_once()
