@@ -42,6 +42,8 @@ function cluster(id: number, overrides: Partial<MCPIntentClusterApi> = {}): MCPI
         ],
         sample_intents: [`intent ${id}`],
         journey: null,
+        switches: [],
+        self_retries: [],
         ...overrides,
     }
 }
@@ -60,11 +62,29 @@ const SNAPSHOT: MCPIntentClusterSnapshotApi = {
         // only enters the visible set under the errors sort.
         cluster(i, i === HIGH_ERROR_ID ? { error_rate_pct: 50, error_count: 10 } : {})
     ),
+    // The tool pivot has its own fixtures further down, so the cluster/heatmap
+    // selectors under test here see an empty one.
+    tools: [],
+    tool_overlaps: [],
     computed_with: {
         distance_threshold: 0.2,
         embedding_model: 'test',
         n_intents: N_CLUSTERS,
         n_clusters: N_CLUSTERS,
+        // Coverage metadata feeds ClusteringCoverageBanner, not these selectors.
+        corpus: null,
+        sampled_sessions: null,
+        window_sessions: null,
+        session_coverage_pct: null,
+        intent_coverage_pct: null,
+        imputed_call_pct: null,
+        unattributed_call_pct: null,
+        corpus_call_coverage_pct: null,
+        advertisement_coverage_pct: null,
+        n_tools: null,
+        dropped_tools: null,
+        dropped_overlap_pairs: null,
+        description_coverage_pct: null,
     },
 }
 
