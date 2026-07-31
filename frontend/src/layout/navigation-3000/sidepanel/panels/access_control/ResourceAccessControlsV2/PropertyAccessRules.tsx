@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonLabel, LemonModal, LemonSelect, LemonTable } from '@posthog/lemon-ui'
 
+import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'scenes/data-management/definition/PropertyAccessControl'
+
 import { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
 import { AccessPropertyRule, accessDetailLogic } from './accessDetailLogic'
@@ -10,10 +12,9 @@ import { AccessDetailSection } from './AccessDetailSection'
 import { addPropertyRestrictionModalLogic } from './addPropertyRestrictionModalLogic'
 import type { ScopeType } from './types'
 
-const PROPERTY_LEVEL_OPTIONS = [
-    { value: AccessLevelEnumApi.Read, label: 'Read only' },
-    { value: AccessLevelEnumApi.None, label: 'Hidden' },
-]
+// The same levels and labels as the property definition page, minus read & write — a rule at
+// read & write is the default, expressed here by removing the rule.
+const PROPERTY_LEVEL_OPTIONS = PROPERTY_ACCESS_LEVEL_OPTIONS.filter((o) => o.value !== AccessLevelEnumApi.ReadWrite)
 
 export interface PropertyAccessRulesProps {
     projectId: string
