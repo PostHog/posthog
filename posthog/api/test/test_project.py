@@ -1,12 +1,18 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import (
+    ANY,
+    MagicMock,
+    call as mock_call,
+    patch,
+)
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.project import ProjectViewSet
+from posthog.api.project import ProjectBackwardCompatSerializer, ProjectViewSet
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
@@ -15,6 +21,22 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
+
+
+class TestProjectBackwardCompatSerializerNameValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("missing", {}, "required"),
+            ("blank", {"name": ""}, "blank"),
+            ("whitespace_only", {"name": "   "}, "blank"),
+        ]
+    )
+    def test_rejects_invalid_name(self, _name: str, data: dict, expected_code: str) -> None:
+        serializer = ProjectBackwardCompatSerializer(data=data)
+
+        self.assertFalse(serializer.is_valid())
+
+        self.assertEqual(serializer.errors["name"][0].code, expected_code)
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -121,6 +143,32 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         for i in range(5):
             response = self.client.post("/api/projects/", {"name": f"Project {i}"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_project_creation_requires_name(self):
+        self._set_unlimited_projects()
+
+        response = self.client.post("/api/projects/", {})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "name")
+
+    @patch("posthoganalytics.capture")
+    def test_project_creation_reports_user_action(self, mock_capture: MagicMock) -> None:
+        self._set_unlimited_projects()
+
+        response = self.client.post("/api/projects/", {"name": "Reported Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn(
+            mock_call(
+                distinct_id=self.user.distinct_id,
+                event="project created",
+                properties=ANY,
+                groups=ANY,
+                send_feature_flags=False,
+            ),
+            mock_capture.call_args_list,
+        )
 
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]

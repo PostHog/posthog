@@ -809,7 +809,11 @@ class ProjectBackwardCompatSerializer(
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
         # Prioritized for the fields agents most commonly update via the settings endpoint.
         extra_kwargs = {
-            "name": {"help_text": "Human-readable project name."},
+            # The model default ("Default project") is for internal bootstrap callers (e.g. org signup)
+            # that call Project.objects.create_with_team() directly, bypassing this serializer. DRF infers
+            # required=False from that model default, so it must be overridden here to keep the API from
+            # silently minting duplicate "Default project" projects when a client omits the name.
+            "name": {"help_text": "Human-readable project name.", "required": True, "allow_blank": False},
             "product_description": {
                 "help_text": "Short description of what the project is about. This is helpful to give our AI agents context about your project."
             },
@@ -1100,6 +1104,7 @@ class ProjectBackwardCompatSerializer(
             activity="created",
             detail=Detail(name=str(team.name)),
         )
+        report_user_action(request.user, "project created", {"project_name": project.name}, team=team, request=request)
 
         return project
 
