@@ -376,6 +376,23 @@ describe('dashboardBreakdownColors', () => {
 
             expect(merged).toEqual([{ breakdownValue: '123', breakdownType: 'event', colorToken: 'preset-1' }])
         })
+
+        it.each([
+            ['a non-array config list', { foo: 'bar' } as any],
+            ['a null config list', null as any],
+            ['a list containing a non-object entry', ['not-an-object'] as any],
+        ])(
+            // dashboard.breakdown_colors is a bare JSONField, so a persisted non-list value used to throw
+            // "r is not iterable" here instead of being treated as having no colors.
+            'skips %s instead of throwing',
+            (_, badConfigs) => {
+                const merged = mergeBreakdownColorConfigs(badConfigs, [
+                    { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' },
+                ])
+
+                expect(merged).toEqual([{ breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' }])
+            }
+        )
     })
 
     describe('findBreakdownColorConfig', () => {
@@ -410,6 +427,10 @@ describe('dashboardBreakdownColors', () => {
         it('returns undefined for null or undefined dataset values', () => {
             expect(findBreakdownColorConfig(configs, undefined, 'event')).toBeUndefined()
             expect(findBreakdownColorConfig(configs, null, 'event')).toBeUndefined()
+        })
+
+        it('returns undefined instead of throwing when configs is not an array', () => {
+            expect(findBreakdownColorConfig({ foo: 'bar' } as any, 'Chrome', 'event')).toBeUndefined()
         })
     })
 })

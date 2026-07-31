@@ -307,6 +307,8 @@ export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
 export type DashboardApiTilesItem = { [key: string]: unknown }
 
+export type DashboardApiBreakdownColorsItem = { [key: string]: unknown }
+
 /**
  * Serializer mixin that handles tags for objects.
  */
@@ -336,8 +338,8 @@ export interface DashboardApi {
     readonly filters: DashboardApiFilters
     /** @nullable */
     readonly variables: DashboardApiVariables
-    /** Custom color mapping for breakdown values. */
-    breakdown_colors?: unknown
+    /** Custom color mapping for breakdown values, as a list of breakdown color config objects. */
+    breakdown_colors?: DashboardApiBreakdownColorsItem[]
     /**
      * ID of the color theme used for chart visualizations.
      * @nullable
@@ -837,6 +839,8 @@ export interface DashboardPatchTileOpenApiApi {
     widget?: DashboardPatchWidgetOpenApiApi
 }
 
+export type PatchedPatchedDashboardOpenApiApiBreakdownColorsItem = { [key: string]: unknown }
+
 /**
  * OpenAPI-only PATCH body for dashboards (agents/MCP).
  *
@@ -853,8 +857,8 @@ export interface PatchedPatchedDashboardOpenApiApi {
     pinned?: boolean
     /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
     filters?: DashboardFiltersOpenApiApi
-    /** Custom color mapping for breakdown values. */
-    breakdown_colors?: unknown
+    /** Custom color mapping for breakdown values, as a list of breakdown color config objects. */
+    breakdown_colors?: PatchedPatchedDashboardOpenApiApiBreakdownColorsItem[]
     /**
      * ID of the color theme used for chart visualizations.
      * @nullable

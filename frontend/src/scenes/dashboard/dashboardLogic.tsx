@@ -1435,7 +1435,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         const persistedFilters = currentDashboard.persisted_filters || {}
                         const persistedVariables = currentDashboard.persisted_variables || {}
-                        const persistedBreakdownColors = currentDashboard.breakdown_colors || []
+                        const persistedBreakdownColors = Array.isArray(currentDashboard.breakdown_colors)
+                            ? currentDashboard.breakdown_colors
+                            : []
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
 
                         const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
@@ -2937,7 +2939,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ): BreakdownColorConfig[] => {
                 const merged = mergeBreakdownColorConfigs(
                     temporaryBreakdownColors,
-                    dashboard?.breakdown_colors ?? []
+                    Array.isArray(dashboard?.breakdown_colors) ? dashboard.breakdown_colors : []
                 ).filter((config) => !!config.colorToken)
 
                 if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]) {
@@ -2972,7 +2974,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 temporaryDataColorThemeId: { themeId: number | null } | null,
                 dashboard: DashboardType<QueryBasedInsightModel> | null
             ): boolean => {
-                const persisted = dashboard?.breakdown_colors ?? []
+                const persisted = Array.isArray(dashboard?.breakdown_colors) ? dashboard.breakdown_colors : []
                 const colorsChanged = temporaryBreakdownColors.some((config) => {
                     const persistedConfig = findBreakdownColorConfig(
                         persisted,

@@ -64,18 +64,26 @@ export function findBreakdownColorConfig(
     breakdownValue: unknown,
     breakdownType: BreakdownFilter['breakdown_type'] | null | undefined
 ): BreakdownColorConfig | undefined {
-    if (normalizeBreakdownValue(breakdownValue) == null) {
+    if (normalizeBreakdownValue(breakdownValue) == null || !Array.isArray(configs)) {
         return undefined
     }
-    return configs?.find((config) => breakdownConfigMatches(config, breakdownValue, breakdownType))
+    return configs.find((config) => breakdownConfigMatches(config, breakdownValue, breakdownType))
 }
 
 /** Merge configs by (breakdownValue, breakdownType), earlier lists winning over later ones.
- * Values are normalized on the way out, migrating legacy non-string entries on the next save. */
+ * Values are normalized on the way out, migrating legacy non-string entries on the next save.
+ * Persisted `breakdown_colors` is an unvalidated JSONField, so a list here isn't guaranteed —
+ * non-array inputs and non-object entries are skipped rather than thrown on. */
 export function mergeBreakdownColorConfigs(...configLists: BreakdownColorConfig[][]): BreakdownColorConfig[] {
     const merged: BreakdownColorConfig[] = []
     for (const configs of configLists) {
+        if (!Array.isArray(configs)) {
+            continue
+        }
         for (const config of configs) {
+            if (typeof config !== 'object' || config === null) {
+                continue
+            }
             const breakdownValue = normalizeBreakdownValue(config.breakdownValue)
             if (breakdownValue == null) {
                 continue
