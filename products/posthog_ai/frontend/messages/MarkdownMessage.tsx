@@ -1,6 +1,7 @@
 import { marked } from 'marked'
 import { memo, useMemo } from 'react'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
@@ -9,6 +10,12 @@ function parseMarkdownIntoBlocks(markdown: string): string[] {
     const tokens = marked.lexer(withLineBreaks)
     return tokens.map((token) => token.raw)
 }
+
+// Above this, content is shown collapsed in a scrollable code block rather than parsed as markdown —
+// otherwise an oversized message or tool result (e.g. a raw HTML/CSS document) renders in full and
+// buries the rest of the thread.
+const OVERSIZED_CONTENT_LENGTH = 20_000
+const OVERSIZED_CONTENT_VISIBLE_LINES = 40
 
 /**
  * The optimized markdown renderer for messages.
@@ -23,7 +30,19 @@ export const MarkdownMessage = memo(function MarkdownMessage({
     id: string
     className?: string
 }): JSX.Element {
-    const blocks = useMemo(() => parseMarkdownIntoBlocks(content), [content])
+    const isOversized = content.length > OVERSIZED_CONTENT_LENGTH
+    const blocks = useMemo(() => (isOversized ? [] : parseMarkdownIntoBlocks(content)), [content, isOversized])
+
+    if (isOversized) {
+        return (
+            <LemonMarkdown.Container className={className}>
+                <CodeSnippet language={Language.Text} wrap maxLinesWithoutExpansion={OVERSIZED_CONTENT_VISIBLE_LINES}>
+                    {content}
+                </CodeSnippet>
+            </LemonMarkdown.Container>
+        )
+    }
+
     return (
         <LemonMarkdown.Container className={className}>
             {blocks.map((block, index) => (

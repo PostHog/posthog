@@ -99,7 +99,7 @@ export function LangGraphActivity({
                     summary={<span>{toolCall.name}</span>}
                     tooltip="Tool call arguments as JSON"
                 >
-                    <CodeSnippet language={Language.JSON} className="text-xs">
+                    <CodeSnippet language={Language.JSON} className="text-xs" maxLinesWithoutExpansion={40}>
                         {JSON.stringify(toolCall.args, null, 2)}
                     </CodeSnippet>
                 </ActivityToggleSection>
