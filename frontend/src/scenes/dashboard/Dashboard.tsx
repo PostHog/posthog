@@ -4,6 +4,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
+import { Link } from 'lib/lemon-ui/Link'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
@@ -13,6 +14,7 @@ import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardL
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
@@ -95,6 +97,7 @@ function DashboardScene({
         layoutEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
+        error404,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -118,8 +121,22 @@ function DashboardScene({
         return () => abortAnyRunningQuery()
     })
 
-    if (!dashboard && !itemsLoading && !dashboardFailedToLoad) {
-        return <NotFound object="dashboard" />
+    // Render "not found" only when a load has actually completed as a 404 (`error404`). The
+    // previous absence-based check (`!dashboard && !itemsLoading`) fired during the gap before the
+    // initial load action starts, wrongly flashing "not found" on healthy loads and inflating
+    // `not_found_shown`. While the load is pending we fall through to the empty/loading state.
+    if (error404 && !dashboard && !dashboardFailedToLoad) {
+        return (
+            <NotFound
+                object="dashboard"
+                caption={
+                    <>
+                        It may have been deleted, or the link is out of date.{' '}
+                        <Link to={urls.dashboards()}>Go to your dashboards</Link>.
+                    </>
+                }
+            />
+        )
     }
 
     if (accessDeniedToDashboard) {

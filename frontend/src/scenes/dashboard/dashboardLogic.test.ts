@@ -169,6 +169,9 @@ describe('dashboardLogic', () => {
             11: {
                 ...dashboardResult(11, [], { date_from: '-24h' }),
             },
+            13: {
+                ...dashboardResult(13, []),
+            },
         }
         useMocks({
             get: {
@@ -183,6 +186,7 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/dashboards/5/': { ...dashboards[5] },
                 '/api/environments/:team_id/dashboards/6/': { ...dashboards[6] },
                 '/api/environments/:team_id/dashboards/7/': () => [500, '💣'],
+                '/api/environments/:team_id/dashboards/13/': () => [404, { detail: 'Not found.' }],
                 '/api/environments/:team_id/dashboards/8/': { ...dashboards[8] },
                 '/api/environments/:team_id/dashboards/9/': { ...dashboards[9] },
                 '/api/environments/:team_id/dashboards/10/': { ...dashboards[10] },
@@ -1157,6 +1161,25 @@ describe('dashboardLogic', () => {
         it('allows consumers to respond', async () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({
                 dashboardFailedToLoad: true,
+            })
+        })
+
+        describe('classic 404 path', () => {
+            beforeEach(() => {
+                logic = dashboardLogic({ id: 13 })
+                logic.mount()
+            })
+
+            // The NotFound scene is gated on error404, so the classic loader must set it once a
+            // fetch settles as a 404 — and must NOT set it before the request has been made.
+            it('sets error404 after a settled 404 and not before', async () => {
+                expect(logic.values.error404).toBe(false)
+
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.dashboard).toBeNull()
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+                expect(logic.values.error404).toBe(true)
             })
         })
     })
