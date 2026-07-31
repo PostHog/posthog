@@ -246,14 +246,14 @@ export interface heatmapCreationLogicActions {
         url: string | null
     } // heatmapsBrowserLogic
     checkPagePreflightSuccess: (
-        pagePreflight: null | import('scenes/heatmaps/components/heatmapsBrowserLogic').PagePreflight,
+        pagePreflight: PagePreflight | null,
         payload?:
             | {
                   url: string | null
               }
             | undefined
     ) => {
-        pagePreflight: null | import('scenes/heatmaps/components/heatmapsBrowserLogic').PagePreflight
+        pagePreflight: PagePreflight | null
         payload?: {
             url: string | null
         }
