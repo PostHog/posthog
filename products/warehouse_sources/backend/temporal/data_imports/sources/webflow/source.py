@@ -67,6 +67,11 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
             # the site has unpublished changes. Both are deterministic state/config issues
             # that retrying can't resolve, so stop retrying and tell the user how to fix it.
             "409 Client Error: Conflict": "Webflow returned a 409 Conflict. For the Products and Orders tables this means the connected site does not have ecommerce enabled — enable ecommerce in Webflow or remove those tables from the sync. For other resources it can mean the site has unpublished changes; publish your Webflow site, then try again.",
+            # A CMS collection discovered when the table was set up can later be deleted or have its
+            # slug renamed in Webflow, so at sync time the slug no longer resolves to a collection.
+            # That's a deterministic upstream state change retrying can't fix. Match the stable
+            # prefix, not the schema name and site id that follow it.
+            "Webflow collection for schema": "A Webflow CMS collection PostHog was syncing no longer exists on your site. It was deleted or renamed in Webflow. Refresh this source's schemas to pick up your current collections, then remove the table for the collection that's gone.",
         }
 
     def get_schemas(

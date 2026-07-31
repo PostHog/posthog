@@ -303,19 +303,51 @@ class MCPSessionIntentSerializer(serializers.Serializer):
     )
 
 
+class MCPIntentThemeSerializer(serializers.Serializer):
+    name = serializers.CharField(read_only=True, help_text="Short sentence-case name for this group of intents.")
+    description = serializers.CharField(
+        read_only=True, help_text="One concrete sentence describing what agents in this theme are doing."
+    )
+    intent_count = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "How many of the analysed intents the LLM assigned to this theme, counted from the corpus rather "
+            "than reported by the LLM. Each intent belongs to at most one theme, so these never sum to more "
+            "than the digest's intent_count."
+        ),
+    )
+    example_intent = serializers.CharField(
+        read_only=True,
+        help_text="One of this theme's intents, verbatim from the corpus.",
+    )
+    tools = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="The MCP tool names recorded alongside this theme's intents, sorted, taken from the corpus.",
+    )
+
+
 class MCPIntentDigestSerializer(serializers.Serializer):
     digest = serializers.CharField(
         read_only=True,
         allow_null=True,
         help_text=(
-            "LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP "
-            "server, derived from the most recent recorded $mcp_intents across all sessions. Null when the "
+            "LLM-generated one-sentence summary of what agents are trying to do with this MCP server, "
+            "derived from the most recent recorded $mcp_intents across all sessions. Null when the "
             "project has no recorded intents yet."
         ),
     )
     intent_count = serializers.IntegerField(
         read_only=True,
         help_text="How many recorded intents (the most recent, capped at 100) the digest was derived from.",
+    )
+    themes = MCPIntentThemeSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Up to 5 semantic groupings of the analysed intents, largest first. May be empty when the digest "
+            "is null, or when none of the LLM's groupings resolved to recorded intents."
+        ),
     )
 
 

@@ -3,6 +3,8 @@ import uuid
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 import pyarrow as pa
 from parameterized import parameterized
 
@@ -12,9 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
     IncrementalFieldMissingFromDataError,
     get_incremental_field_value,
     run_post_load_operations,
+    update_job_row_count,
 )
 
 _LOAD_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load"
+_DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 _PIPELINE_SYNC_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync"
 _REPARTITION_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
@@ -280,3 +284,25 @@ class TestGetIncrementalFieldValue:
         schema = self._schema("updated_at", sync_type=sync_type)
 
         assert get_incremental_field_value(schema, table) is None
+
+
+class TestUpdateJobRowCount:
+    @pytest.mark.asyncio
+    async def test_retries_transient_query_wait_timeout_then_succeeds(self):
+        # A saturated pgbouncer pool rejects the row-count UPDATE with `query_wait_timeout`; the
+        # query never reached Postgres, so retrying it is safe and avoids failing the whole
+        # import activity (and redoing the batch pull) over a momentary blip.
+        update = MagicMock(side_effect=[OperationalError("query_wait_timeout"), None])
+        queryset = MagicMock(update=update)
+        logger = MagicMock(adebug=AsyncMock())
+
+        with (
+            patch(f"{_LOAD_MODULE}.ExternalDataJob.objects.filter", return_value=queryset),
+            patch(f"{_DB_RETRY_MODULE}.close_old_connections") as close,
+            patch(f"{_DB_RETRY_MODULE}.time.sleep") as sleep,
+        ):
+            await update_job_row_count("job-1", 5, logger)
+
+        assert update.call_count == 2
+        close.assert_called_once()
+        sleep.assert_called_once_with(2)

@@ -205,6 +205,54 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
 
+    def test_set_partitioning_enabled_save_skips_activity_log(self) -> None:
+        schema = self._create(sync_type_config={})
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.set_partitioning_enabled(
+                partitioning_keys=["id"],
+                partition_count=10,
+                partition_size=None,
+                partition_mode="md5",
+                partition_format=None,
+            )
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["partitioning_enabled"] is True
+
+    def test_stage_incremental_field_value_save_skips_activity_log(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.stage_incremental_field_value("run-1", 42)
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_staged"]["last_value"] == 42
+
+    def test_promote_staged_incremental_values_save_skips_activity_log(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field_type": IncrementalFieldType.Integer,
+                "incremental_staged": {"run_uuid": "run-1", "last_value": 42},
+            },
+        )
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            assert schema.promote_staged_incremental_values("run-1")
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+
     def test_bookkeeping_save_raises_instead_of_resurrecting_deleted_row(self) -> None:
         # Source (and its schema, via CASCADE) deleted concurrently with a sync still holding a
         # stale in-memory schema reference. Without force_update, Django's UUID-pk insert fallback
