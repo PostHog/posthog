@@ -292,4 +292,28 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.selectedOrganization).toBe(expectedOrg)
         expect(logic.values.oauthAuthorization.scoped_teams).toEqual(expectedTeams)
     })
+
+    // The regression: an https redirect used to leave the spinner up forever, because only the
+    // native branch ever ended the redirecting state.
+    const redirectResolutionCases: { name: string; isNative: boolean; expected: string }[] = [
+        {
+            name: 'an https redirect that never commits resolves via the fallback',
+            isNative: false,
+            expected: 'timeout',
+        },
+        { name: 'a native protocol handoff resolves immediately', isNative: true, expected: 'native' },
+    ]
+
+    it.each(redirectResolutionCases)('$name', ({ isNative, expected }) => {
+        jest.useFakeTimers()
+        try {
+            logic.actions.setRedirecting('https://claude.ai/api/mcp/auth_callback', isNative)
+            expect(logic.values.authorizationComplete).toBe(false)
+            jest.advanceTimersByTime(5000)
+            expect(logic.values.authorizationComplete).toBe(true)
+            expect(logic.values.redirectResolution).toBe(expected)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })

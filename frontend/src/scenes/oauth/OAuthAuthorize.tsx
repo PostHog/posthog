@@ -35,15 +35,31 @@ export const OAuthAuthorizeError = ({ title, description }: { title: string; des
     )
 }
 
-export const OAuthAuthorizeSuccess = ({ appName }: { appName: string }): JSX.Element => {
+export const OAuthAuthorizeSuccess = ({
+    appName,
+    continueUrl,
+}: {
+    appName: string
+    /** Set when the browser never left this page, so the user still needs a way back to the app. */
+    continueUrl?: string
+}): JSX.Element => {
     return (
-        <div className="flex flex-col items-center justify-center h-full gap-4 py-12">
+        <div className="flex flex-col items-center justify-center h-full gap-4 py-12 px-4">
             <IconCheckCircle className="text-success text-4xl" />
             <div className="text-xl font-semibold">Authorization successful</div>
-            <div className="text-sm text-muted text-center">
+            <div className="text-sm text-muted text-center max-w-md">
                 <p>{appName} has been authorized.</p>
-                <p className="mt-2">You can close this window.</p>
+                <p className="mt-2">
+                    {continueUrl
+                        ? `If ${appName} didn't pick this up, use the button below. Otherwise you can close this window.`
+                        : 'You can close this window.'}
+                </p>
             </div>
+            {continueUrl && (
+                <LemonButton type="primary" to={continueUrl} disableClientSideRouting>
+                    Continue to {appName}
+                </LemonButton>
+            )}
         </div>
     )
 }
@@ -144,6 +160,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         authorizationComplete,
         isRedirecting,
         redirectUrl,
+        redirectResolution,
         scopesWereDefaulted,
         isMcpResource,
         showCreateProject,
@@ -233,7 +250,13 @@ export const OAuthAuthorize = (): JSX.Element => {
     const appName = decode(oauthApplication.name)
 
     if (authorizationComplete) {
-        return <OAuthAuthorizeSuccess appName={appName} />
+        // Only the fallback path leaves the user stranded here — a native handoff already opened the app.
+        return (
+            <OAuthAuthorizeSuccess
+                appName={appName}
+                continueUrl={redirectResolution === 'timeout' ? redirectUrl : undefined}
+            />
+        )
     }
 
     if (isRedirecting) {

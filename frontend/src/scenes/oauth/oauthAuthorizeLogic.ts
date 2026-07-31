@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -110,6 +111,22 @@ const isNativeProtocol = (url: string): boolean => {
 
 type OAuthAuthorizeResult = { redirectTo: string; isNative: boolean }
 
+export type RedirectResolution = 'navigation' | 'timeout' | 'native'
+
+// Native protocol handlers (vscode://, cursor://) don't navigate the browser away, so the
+// handoff is done as soon as the URL is assigned.
+const NATIVE_RESOLVE_MS = 100
+// For http(s) redirect URIs we hand off to a cross-origin navigation we can't observe. If the
+// page is still here after this long, stop spinning and give the user a way out.
+const REDIRECT_FALLBACK_MS = 5000
+
+const redirectElapsedMs = (startedAt: number | null): number | null => (startedAt ? Date.now() - startedAt : null)
+
+const consentEventProperties = (): Record<string, any> => ({
+    client_id: router.values.searchParams['client_id'],
+    is_mcp_resource: oauthAuthorizeLogic.values.isMcpResource,
+})
+
 const oauthAuthorize = async (
     values: OAuthAuthorizationFormValues & { allow: boolean; scopes: string[] }
 ): Promise<OAuthAuthorizeResult | null> => {
@@ -176,6 +193,8 @@ export interface oauthAuthorizeLogicValues {
     oauthAuthorizationTouches: Record<string, boolean>
     oauthAuthorizationValidationErrors: DeepPartialMap<OAuthAuthorizationFormValues, ValidationErrorType>
     redirectDomain: string
+    redirectResolution: RedirectResolution | null
+    redirectStartedAt: number | null
     redirectUrl: string
     requiredAccessLevel: 'organization' | 'team' | null
     requiredScopeLevels: Map<string, RequiredLevel>
@@ -262,8 +281,15 @@ export interface oauthAuthorizeLogicActions {
     setOauthAuthorizationValues: (values: DeepPartial<OAuthAuthorizationFormValues>) => {
         values: DeepPartial<OAuthAuthorizationFormValues>
     }
-    setRedirecting: (redirectUrl: string) => {
+    setRedirecting: (
+        redirectUrl: string,
+        isNative: boolean
+    ) => {
+        isNative: boolean
         redirectUrl: string
+    }
+    resolveRedirect: (resolution: RedirectResolution) => {
+        resolution: RedirectResolution
     }
     setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => {
         requiredAccessLevel: 'organization' | 'team' | null
@@ -375,7 +401,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         cancel: () => ({}),
         setCanceling: (canceling: boolean) => ({ canceling }),
         setAuthorizationComplete: (complete: boolean) => ({ complete }),
-        setRedirecting: (redirectUrl: string) => ({ redirectUrl }),
+        setRedirecting: (redirectUrl: string, isNative: boolean) => ({ redirectUrl, isNative }),
+        resolveRedirect: (resolution: RedirectResolution) => ({ resolution }),
         setSelectedOrganization: (organizationId: string, preferredTeamId?: number) => ({
             organizationId,
             preferredTeamId,
@@ -418,6 +445,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     listeners(({ values, actions }) => ({
         cancel: async () => {
             actions.setCanceling(true)
+            posthog.capture('oauth authorize submitted', { ...consentEventProperties(), allow: false })
             try {
                 const result = await oauthAuthorize({
                     scoped_organizations: values.oauthAuthorization.scoped_organizations,
@@ -525,6 +553,18 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setRedirecting: (_, { redirectUrl }) => redirectUrl,
             },
         ],
+        redirectStartedAt: [
+            null as number | null,
+            {
+                setRedirecting: () => Date.now(),
+            },
+        ],
+        redirectResolution: [
+            null as RedirectResolution | null,
+            {
+                resolveRedirect: (_, { resolution }) => resolution,
+            },
+        ],
         selectedOrganization: [
             null as string | null,
             {
@@ -550,7 +590,58 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        setRedirecting: ({ isNative }) => {
+            posthog.capture('oauth authorize redirect started', {
+                ...consentEventProperties(),
+                is_native_protocol: isNative,
+            })
+            // The redirecting state used to only ever end for native protocol handlers, so an
+            // https redirect that never commits left the spinner running forever. Always
+            // schedule a resolution.
+            cache.disposables.add(
+                () => {
+                    const timer = window.setTimeout(
+                        () => actions.resolveRedirect(isNative ? 'native' : 'timeout'),
+                        isNative ? NATIVE_RESOLVE_MS : REDIRECT_FALLBACK_MS
+                    )
+                    return () => clearTimeout(timer)
+                },
+                'redirectFallback',
+                { pauseOnPageHidden: false }
+            )
+            // If the navigation does commit, the page unloads before the timer fires — record
+            // that as the resolution so we can tell a real handoff from a stalled one.
+            cache.disposables.add(
+                () => {
+                    const onPageHide = (): void => {
+                        posthog.capture(
+                            'oauth authorize redirect resolved',
+                            {
+                                ...consentEventProperties(),
+                                resolution: 'navigation',
+                                duration_ms: redirectElapsedMs(values.redirectStartedAt),
+                            },
+                            { transport: 'sendBeacon' }
+                        )
+                    }
+                    window.addEventListener('pagehide', onPageHide, { once: true })
+                    return () => window.removeEventListener('pagehide', onPageHide)
+                },
+                'redirectPageHide',
+                { pauseOnPageHidden: false }
+            )
+        },
+        resolveRedirect: ({ resolution }) => {
+            cache.disposables.dispose('redirectFallback')
+            cache.disposables.dispose('redirectPageHide')
+            posthog.capture('oauth authorize redirect resolved', {
+                ...consentEventProperties(),
+                resolution,
+                duration_ms: redirectElapsedMs(values.redirectStartedAt),
+            })
+            actions.setAuthorizationComplete(true)
+        },
         setRequiredAccessLevel: ({ requiredAccessLevel }) => {
             if (requiredAccessLevel === 'organization') {
                 actions.setOauthAuthorizationValue('access_type', 'organizations')
@@ -640,6 +731,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             }),
             submit: async (values: OAuthAuthorizationFormValues) => {
                 const scopes = oauthAuthorizeLogic.values.effectiveScopes
+                posthog.capture('oauth authorize submitted', {
+                    ...consentEventProperties(),
+                    allow: true,
+                    scope_count: scopes.length,
+                    access_type: values.access_type,
+                })
                 const result = await oauthAuthorize({
                     ...values,
                     allow: true,
@@ -652,13 +749,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 // while the browser navigates — for HTTP loopback redirects (Cursor,
                 // Claude Code, etc.) the browser may sit waiting for the local
                 // listener to respond, which makes the original screen feel hung.
-                actions.setRedirecting(result.redirectTo)
+                actions.setRedirecting(result.redirectTo, result.isNative)
                 location.href = result.redirectTo
-                if (result.isNative) {
-                    // Native protocol handlers (vscode://, cursor://, etc.) don't
-                    // navigate the browser away; show success after a brief delay.
-                    setTimeout(() => actions.setAuthorizationComplete(true), 100)
-                }
             },
         },
     })),

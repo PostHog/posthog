@@ -8,6 +8,10 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { OAuthAuthorizeRedirecting, OAuthAuthorizeSuccess } from './OAuthAuthorize'
+
+const EXAMPLE_REDIRECT_URL = 'https://claude.ai/api/mcp/auth_callback?code=example&state=example'
+
 // Override the server-injected oauth_application context for a story. Set synchronously before
 // the story (and its consent logic) mounts, and restored on unmount so story order can't leak.
 function withOAuthApplication(overrides: Record<string, unknown>): Decorator {
@@ -38,6 +42,9 @@ const pushAuthorize = (scope?: string): void => {
     })
     router.actions.push(`${urls.oauthAuthorize()}?${params.toString()}`)
 }
+
+// The redirect handoff states render standalone, outside the consent form.
+const terminalStateParameters = { testOptions: { waitForSelector: '.text-xl' } }
 
 const meta: Meta = {
     title: 'Scenes-App/OAuth/Authorize',
@@ -179,4 +186,18 @@ export const ManyOptionalScopes: Story = {
         )
         return <App />
     },
+}
+
+// What the user sees for the few seconds after hitting Authorize, while the browser is
+// handing off to the app's redirect URI.
+export const Redirecting: Story = {
+    parameters: terminalStateParameters,
+    render: () => <OAuthAuthorizeRedirecting appName="Claude" redirectUrl={EXAMPLE_REDIRECT_URL} />,
+}
+
+// Where the spinner lands when the redirect never visibly commits: a terminal state with a
+// prominent way back to the app, instead of spinning forever.
+export const RedirectFallback: Story = {
+    parameters: terminalStateParameters,
+    render: () => <OAuthAuthorizeSuccess appName="Claude" continueUrl={EXAMPLE_REDIRECT_URL} />,
 }
