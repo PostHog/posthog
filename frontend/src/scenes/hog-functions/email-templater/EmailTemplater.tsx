@@ -201,8 +201,9 @@ function DestinationEmailTemplaterForm({
                             <>
                                 <div
                                     className={clsx(
-                                        'flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100',
-                                        value ? 'opacity-0' : 'opacity-100' // Hide if there is content
+                                        'flex absolute inset-0 justify-center items-end p-2 transition-opacity',
+                                        // Persistent start buttons while empty; hover-reveal once there is content
+                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
@@ -585,8 +586,9 @@ function NativeEmailTemplaterForm({
                             <>
                                 <div
                                     className={clsx(
-                                        'flex absolute inset-0 justify-center items-center p-2 opacity-0 transition-opacity hover:opacity-100',
-                                        value ? 'opacity-0' : 'opacity-100' // Hide if there is content
+                                        'flex absolute inset-0 justify-center items-center p-2 transition-opacity',
+                                        // Persistent start buttons while empty; hover-reveal once there is content
+                                        value ? 'opacity-0 hover:opacity-100' : 'opacity-100'
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
