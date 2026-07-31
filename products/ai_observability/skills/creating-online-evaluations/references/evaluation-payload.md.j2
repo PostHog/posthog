@@ -42,8 +42,9 @@ Valid `(evaluation_type, output_type)` pairs: `(hog, boolean)`, `(llm_judge, boo
   - A session evaluation only fires for events that carry `$ai_session_id`. Producers set it on every
     generation or on none, so an SDK that never sets it will never trigger a session evaluation.
     `$ai_session_id` is not `$session_id`, PostHog's product-analytics session; the two are unrelated.
-  - A session is evaluated at most once per evaluation. A session that resumes after being evaluated
-    is not re-evaluated.
+  - A session is evaluated at most once per evaluation, for as long as the completed run stays inside
+    Temporal's retention window. A session that resumes long after being evaluated may be evaluated
+    again.
 
   > **Always send `strategy` explicitly for a `session` target.** The generated tool schema for
   > `target_config` is a plain union, not a discriminated one, so a payload that omits `strategy` is

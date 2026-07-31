@@ -109,9 +109,10 @@ every generation or on none, so an SDK that does not set it will never trigger a
 evaluation. `$ai_session_id` is not `$session_id`: the second is PostHog's product-analytics
 session and is unrelated.
 
-Sessions are evaluated at most once per evaluation. A session that resumes after being evaluated is
-not re-evaluated, so pick a quiet period long enough that the session is really finished. A longer
-quiet period costs only latency.
+A session is evaluated at most once per evaluation, for as long as the completed run stays inside
+Temporal's retention window. A session that resumes long after being evaluated may be evaluated
+again, so pick a quiet period long enough that the session is really finished. A longer quiet period
+costs only latency.
 
 Conditions still match the generation that triggers the run; the evaluator itself receives
 the complete trace or session. Sentiment evaluations support only the generation target.
