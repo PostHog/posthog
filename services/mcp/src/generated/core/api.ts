@@ -461,7 +461,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                         zod.union([
                             zod
                                 .object({
-                                    conversion_goal_id: zod.union([zod.string(), zod.null()]).optional(),
+                                    conversion_goal_id: zod.string(),
                                     conversion_goal_name: zod.string(),
                                     counts_as_customer: zod
                                         .union([zod.boolean(), zod.null()])
@@ -1097,7 +1097,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                 .describe('A conversion goal counted from events.'),
                             zod
                                 .object({
-                                    conversion_goal_id: zod.union([zod.string(), zod.null()]).optional(),
+                                    conversion_goal_id: zod.string(),
                                     conversion_goal_name: zod.string(),
                                     counts_as_customer: zod
                                         .union([zod.boolean(), zod.null()])
@@ -1725,7 +1725,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
                                 .describe('A conversion goal counted from an action.'),
                             zod
                                 .object({
-                                    conversion_goal_id: zod.union([zod.string(), zod.null()]).optional(),
+                                    conversion_goal_id: zod.string(),
                                     conversion_goal_name: zod.string(),
                                     counts_as_customer: zod
                                         .union([zod.boolean(), zod.null()])
