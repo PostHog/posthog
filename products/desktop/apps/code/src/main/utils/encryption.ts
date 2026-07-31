@@ -46,6 +46,7 @@ export function decrypt(encryptedJson: string): string | null {
       "aes-256-gcm",
       key,
       Buffer.from(iv, "base64"),
+      { authTagLength: 16 },
     );
     decipher.setAuthTag(Buffer.from(tag, "base64"));
 

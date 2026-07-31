@@ -36,6 +36,9 @@ The tree is a verbatim copy of the source at the pinned SHA except:
   `packages/ui/src/features/inbox/CLAUDE.md` renamed to `AGENTS.md` plus a symlink, and
   symlinks added in `packages/ui/src/features/{browser-tabs,canvas}/`. Upstream these to
   PostHog/code so resyncs do not reintroduce the violations.
+- Local security patches (reapply on resync until the pin includes the upstream fix):
+  `apps/code/src/main/utils/encryption.ts` passes `{ authTagLength: 16 }` to
+  `createDecipheriv` (semgrep `gcm-no-tag-length`, ERROR). Upstreamed to PostHog/code.
 
 The nested workspace is intentional: `products/desktop/` keeps its own `pnpm-workspace.yaml`,
 lockfile, Biome config and Node 22, and is NOT in the root `pnpm-workspace.yaml` globs.
@@ -63,9 +66,18 @@ separate project.
 - `.oxfmtrc.json`: `"desktop"` added to `ignorePatterns` (the frontend CI formats
   `**/*.{md,mdx,yaml,yml}` repo-wide; desktop keeps Biome formatting).
 - `.config/.markdownlint-cli2.jsonc`: `"products/desktop/**"` added to `ignores`.
-- `.github/workflows/ci-security.yaml`: `--exclude "desktop"` on every semgrep invocation.
-  Semgrep found real issues in desktop code that its own CI never checked for — see
-  follow-ups.
+- `.github/workflows/ci-security.yaml` (monorepo-native, not resynced): security scanning
+  for the import. Convention-only jobs still exclude `products/desktop` because imported code
+  does not follow the monorepo's custom rules (`semgrep-python`'s `.semgrep/rules/security`
+  hits 1 finding, `semgrep-devex` hits 206). The dead excludes on jobs that never scanned
+  `products/` (`semgrep-js`, `semgrep-general`, `semgrep-go`, `semgrep-rust`) and the clean
+  one (`semgrep-products-frontend`) were removed. A new `semgrep-desktop` job gives the tree
+  real static security coverage from the universal registry packs (p/javascript, p/python,
+  owasp-top-ten, security-audit, trailofbits) at ERROR severity, gated on `products/desktop/**`
+  and wired into the `Semgrep Checks Pass` aggregate.
+- `.github/scripts/desktop/react-doctor/{package.json,package-lock.json}`: pinned,
+  integrity-locked react-doctor so `desktop-react-doctor.yml` runs `npm ci` instead of
+  `npx --yes` (no unverified runtime fetch).
 
 ## Workflow mapping
 
@@ -160,6 +172,12 @@ ports from source using these rules.
     the allowlist guards pass. `desktop-pr-build-installer.yml`'s `comment` job posts a PR
     comment rather than gating, so it carries a `# hogli-lint: not-a-required-gate` opt-out
     above the job key.
+15. **react-doctor supply-chain hardening** (`desktop-react-doctor.yml`): the source runs
+    `npx --yes react-doctor@0.5.4`, which fetches and runs an unverified package at CI
+    runtime. The port installs it from the pinned, integrity-locked
+    `.github/scripts/desktop/react-doctor/` lockfile via `npm ci` and runs the local bin.
+    `pull-requests: write` is scoped to the `react-doctor` job (the sticky comment) instead
+    of workflow-wide. Upstreamed to PostHog/code.
 
 ## Intentional references still pointing at PostHog/code
 
@@ -194,11 +212,16 @@ ports from source using these rules.
   point `LOCAL_POSTHOG_CODE_MONOREPO_ROOT` (products/tasks `local_packages.py`) at the
   in-repo `products/desktop/` for local dev.
 - **hogli**: add a `desktop` category (`desktop:dev` etc.) to `hogli.yaml`.
-- **Semgrep findings to fix upstream in PostHog/code** (found when semgrep first scanned
-  this code; desktop is excluded from semgrep until they are fixed):
-  `apps/code/src/main/utils/encryption.ts` uses GCM `createDecipheriv` without an
-  explicit auth tag length; `packages/ui/src/features/canvas/freeform/FreeformCanvas.tsx`
-  posts messages with a `"*"` target origin.
+- **Semgrep coverage**: desktop now gets universal static security coverage from the
+  `semgrep-desktop` job (see root-repo changes). The one ERROR finding it caught,
+  `gcm-no-tag-length` in `apps/code/src/main/utils/encryption.ts`, is fixed (local patch,
+  upstreamed). Remaining WARNING-level items are informational and not gated:
+  `packages/ui/src/features/canvas/freeform/FreeformCanvas.tsx` posts to a `"*"` target
+  origin, which is required for its opaque-origin sandboxed srcDoc iframe.
+- **Dependency CVEs**: the imported `pnpm-lock.yaml` carries known advisories (critical:
+  protobufjs `<7.5.5`, simple-git `<3.32.3`, tar `<7.5.19`; high: axios `<1.16.0` and a
+  transitive tail). Fix by bumping upstream in PostHog/code and resyncing, not by editing
+  the imported lockfile.
 - **Visual Review baseline**: the committed `apps/code/snapshots.yml` is signed for the
   PostHog/code VR registration, so submitting from this repo flags every story as new and
   the job reds. In-app approval can't fix it (the VR bot can't commit a posthog-signed

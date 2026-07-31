@@ -15,7 +15,6 @@ on:
 
 permissions:
     contents: read
-    pull-requests: write
 
 concurrency:
     group: desktop-react-doctor-${{ github.head_ref || github.ref }}
@@ -25,6 +24,11 @@ jobs:
     react-doctor:
         runs-on: ubuntu-latest
         timeout-minutes: 15
+        # pull-requests: write is only needed to upsert the sticky PR comment; keep it
+        # on this job instead of granting it workflow-wide.
+        permissions:
+            contents: read
+            pull-requests: write
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -63,7 +67,12 @@ jobs:
                   fi
                   REPORT="${RUNNER_TEMP}/react-doctor-report.json"
                   status=0
-                  npx --yes react-doctor@0.5.4 . --blocking error --changed-files-from "$CHANGED" --json --json-compact --no-telemetry > "$REPORT" || status=$?
+                  # Pinned, integrity-locked install instead of `npx --yes`, which fetches
+                  # and runs an unverified package at CI runtime. The lockfile lives at
+                  # .github/scripts/desktop/react-doctor/.
+                  RD_DIR="${GITHUB_WORKSPACE}/.github/scripts/desktop/react-doctor"
+                  npm ci --prefix "$RD_DIR" --no-audit --no-fund
+                  "$RD_DIR/node_modules/.bin/react-doctor" . --blocking error --changed-files-from "$CHANGED" --json --json-compact --no-telemetry > "$REPORT" || status=$?
                   echo "exit-code=$status" >> "$GITHUB_OUTPUT"
                   echo "report=$REPORT" >> "$GITHUB_OUTPUT"
                   if [ "$status" -ne 0 ]; then
