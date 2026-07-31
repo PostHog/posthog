@@ -717,6 +717,9 @@ export interface dashboardLogicActions {
             source: DashboardEventSource
         }
     }
+    setDashboardStreamFailed: () => {
+        value: true
+    }
     setDataColorThemeId: (dataColorThemeId: number | null) => {
         dataColorThemeId: number | null
     }
