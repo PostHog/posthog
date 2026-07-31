@@ -125,26 +125,6 @@ class TestRefreshSandboxMcp:
         mcp_servers = mock_send_refresh.call_args.args[1]
         assert mcp_servers == [_make_mcp_config(token="fresh-token").to_dict()]
 
-    def test_team_mismatch_fails_before_resolving_configs(
-        self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep
-    ):
-        task_run = _make_task_run_mock(team_id=7)
-        task_run.task.team_id = 8
-
-        result = _refresh_sandbox_mcp(
-            task_run,
-            "read_only",
-            "jwt",
-            actor_user=task_run.task.created_by,
-            state=task_run.state,
-        )
-
-        assert result is False
-        mock_oauth.assert_not_called()
-        mock_ph_configs.assert_not_called()
-        mock_user_configs.assert_not_called()
-        mock_send_refresh.assert_not_called()
-
     def test_refresh_keeps_imported_mcp_servers(
         self, mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh, _sleep
     ):

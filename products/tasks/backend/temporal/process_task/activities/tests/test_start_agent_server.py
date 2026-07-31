@@ -190,7 +190,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert result.connect_token == "connect-token"
     create_event_ingest_token.assert_called_once()
     assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
-    task_queryset.get.assert_called_once_with(id="task-id", team_id=1)
+    task_queryset.get.assert_called_once_with(id="task-id")
     get_user_mcp_configs.assert_called_once_with(
         token="oauth-token",
         team_id=1,

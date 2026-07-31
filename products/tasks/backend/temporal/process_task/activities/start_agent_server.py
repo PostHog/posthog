@@ -197,7 +197,7 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
     try:
-        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id, team_id=ctx.team_id)
+        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
         actor_user = get_task_run_credential_user(task, ctx.state)
         access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
     except OAuthTokenError:
@@ -216,7 +216,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     # the agent falls back to POSTHOG_API_URL (Django).
     event_ingest_url: str | None = settings.TASKS_AGENT_PROXY_INGEST_URL if event_stream_ingest_enabled else None
     # Fetched once; serves both the ingest token and the imported MCP servers below.
-    task_run = TaskRun.objects.filter(id=ctx.run_id, task_id=ctx.task_id, team_id=task.team_id).first()
+    task_run = TaskRun.objects.filter(id=ctx.run_id, task_id=ctx.task_id, team_id=ctx.team_id).first()
     if task_run is None:
         raise SandboxExecutionError(
             "Task run not found for agent server launch",
@@ -240,7 +240,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
-        project_id=task.team_id,
+        project_id=ctx.team_id,
         scopes=scopes,
         interaction_origin=ctx.interaction_origin,
         task_id=str(ctx.task_id),
@@ -248,7 +248,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
     include_personal = _include_personal_mcp_for_task(task)
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,
-        team_id=task.team_id,
+        team_id=ctx.team_id,
         user_id=actor_user.id if actor_user else None,
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,

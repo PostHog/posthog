@@ -344,14 +344,6 @@ def _refresh_sandbox_mcp(
     up.
     """
     run_id = str(task_run.id)
-    if task_run.team_id != task_run.task.team_id:
-        logger.warning(
-            "refresh_mcp_task_team_mismatch",
-            run_id=run_id,
-            task_run_team_id=task_run.team_id,
-            task_team_id=task_run.task.team_id,
-        )
-        return False
     if actor_user is None:
         # Without a credential user the mint is guaranteed to fail; skip
         # quietly rather than warn on every message.
@@ -380,14 +372,14 @@ def _refresh_sandbox_mcp(
 
     mcp_configs = get_sandbox_ph_mcp_configs(
         token=access_token,
-        project_id=task_run.task.team_id,
+        project_id=task_run.team_id,
         scopes=scopes,
         interaction_origin=(state or {}).get("interaction_origin"),
         task_id=str(task_run.task_id),
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,
-        team_id=task_run.task.team_id,
+        team_id=task_run.team_id,
         user_id=actor_user.id,
         include_personal=not task_run.task.internal,
         interaction_origin=(state or {}).get("interaction_origin"),
