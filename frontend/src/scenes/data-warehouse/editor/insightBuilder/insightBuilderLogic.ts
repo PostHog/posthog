@@ -40,7 +40,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import type { DataWarehouseSavedQuery } from '../../../../types'
+import type { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, QueryBasedInsightModel } from '../../../../types'
 import { OutputTab, outputPaneLogic } from '../outputPaneLogic'
 import { sqlEditorLogic } from '../sqlEditorLogic'
 
@@ -120,6 +120,20 @@ export interface insightBuilderLogicActions {
     setSourceQuery: (sourceQuery: DataVisualizationNode) => {
         sourceQuery: DataVisualizationNode
     } // sqlEditorLogic
+    createTab: (
+        query?: string,
+        view?: DataWarehouseSavedQuery,
+        insight?: QueryBasedInsightModel,
+        draft?: DataWarehouseSavedQueryDraft
+    ) => {
+        draft: DataWarehouseSavedQueryDraft | undefined
+        insight: QueryBasedInsightModel | undefined
+        query: string | undefined
+        view: DataWarehouseSavedQuery | undefined
+    } // sqlEditorLogic
+    resetBuilder: () => {
+        value: true
+    }
     addField: (
         well: BuilderWell,
         column: string,
@@ -312,7 +326,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         ],
         actions: [
             sqlEditorLogic({ tabId: props.tabId }),
-            ['setSourceQuery', 'runQuery', 'setQueryInput'],
+            ['setSourceQuery', 'runQuery', 'setQueryInput', 'createTab'],
             outputPaneLogic({ tabId: props.tabId }),
             ['setActiveTab'],
         ],
@@ -353,6 +367,8 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         applyWells: true,
         loadBaseColumns: true,
         refreshBase: true,
+        // Clear all builder state — dispatched when the editor tab opens a different object
+        resetBuilder: true,
     }),
     loaders(({ values }) => ({
         baseFields: [
@@ -429,6 +445,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                           )
                         : state,
                 hydrateFromNode: (_, { builder }) => builder.rows,
+                resetBuilder: () => [],
             },
         ],
         columnDims: [
@@ -466,6 +483,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                           )
                         : state,
                 hydrateFromNode: (_, { builder }) => builder.columns,
+                resetBuilder: () => [],
             },
         ],
         measures: [
@@ -488,6 +506,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 setAggregation: (state, { index, aggregation }) =>
                     state.map((measure, i) => (i === index ? { ...measure, aggregation } : measure)),
                 hydrateFromNode: (_, { builder }) => builder.values,
+                resetBuilder: () => [],
             },
         ],
         collapsedColumns: [
@@ -509,6 +528,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 updateFilter: (state, { index, patch }) =>
                     state.map((filter, i) => (i === index ? { ...filter, ...patch } : filter)),
                 hydrateFromNode: (_, { builder }) => builder.filters ?? [],
+                resetBuilder: () => [],
             },
         ],
         builderDisplay: [
@@ -518,6 +538,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 seedBuilderDisplay: (_, { display }) => display,
                 hydrateFromNode: (state, { display }) =>
                     display && display !== ChartDisplayType.Auto ? display : state,
+                resetBuilder: () => ChartDisplayType.ActionsTable,
             },
         ],
         baseQuery: [
@@ -525,6 +546,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             {
                 setBaseSnapshot: (_, { baseQuery }) => baseQuery,
                 hydrateFromNode: (_, { builder }) => builder.baseQuery,
+                resetBuilder: () => '',
             },
         ],
         baseViewName: [
@@ -532,12 +554,14 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             {
                 setBaseSnapshot: (_, { baseViewName }) => baseViewName,
                 hydrateFromNode: (_, { builder }) => builder.baseView ?? null,
+                resetBuilder: () => null,
             },
         ],
         builderView: [
             'chart' as BuilderPreviewView,
             {
                 setBuilderView: (_, { view }) => view,
+                resetBuilder: () => 'chart' as BuilderPreviewView,
             },
         ],
     }),
@@ -740,6 +764,24 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 actions.seedBuilderDisplay(display)
             } else {
                 actions.applyWells()
+            }
+        },
+        // The editor tab now hosts a different object (insight, view, draft, fresh query) —
+        // stale wells from the previous one must never leak onto it: applyWells would attach
+        // the old builder config and its compiled SQL to the new node.
+        createTab: () => {
+            actions.resetBuilder()
+        },
+        resetBuilder: () => {
+            actions.loadBaseColumnsSuccess([])
+            // Re-seed from the incoming object when the canvas is showing: a builder node
+            // hydrates through the sourceQuery subscription; a plain query snapshots its base
+            if (
+                values.activeTab === OutputTab.Visualization &&
+                !values.sourceQuery.builder?.enabled &&
+                (values.queryInput ?? '').trim() !== ''
+            ) {
+                actions.refreshBase()
             }
         },
         // Opening the Visualization tab (the builder) snapshots the current base and loads its

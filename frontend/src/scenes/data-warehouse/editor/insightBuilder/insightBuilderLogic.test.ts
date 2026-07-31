@@ -302,6 +302,35 @@ describe('insightBuilderLogic', () => {
             expect(sqlLogic.values.queryInput).toEqual('SELECT edited_elsewhere FROM payments')
         })
 
+        it("does not attach the previous insight's wells to a legacy insight opened in the same tab", async () => {
+            // The wells are per editor tab and would otherwise survive switching insights — the
+            // next applyWells then writes the old builder config and its compiled SQL onto an
+            // insight that never had one
+            await expectLogic(builderLogic, () => {
+                sqlLogic.actions.setSourceQuery(BUILDER_NODE)
+            }).toDispatchActions(['hydrateFromNode'])
+
+            const legacyNode: DataVisualizationNode = {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT 99 AS x' },
+                display: ChartDisplayType.ActionsBar,
+            }
+            await expectLogic(builderLogic, () => {
+                // The open flow replaces the node, then re-creates the tab for the new object
+                sqlLogic.actions.setSourceQuery(legacyNode)
+                sqlLogic.actions.createTab('SELECT 99 AS x')
+            })
+                .toDispatchActions(['resetBuilder'])
+                .toMatchValues({ rows: [], measures: [], baseQuery: '' })
+
+            await expectLogic(builderLogic, () => {
+                builderLogic.actions.setActiveTab(OutputTab.Visualization)
+            }).delay(400)
+
+            expect(sqlLogic.values.sourceQuery.builder).toBeUndefined()
+            expect(sqlLogic.values.sourceQuery.source.query).toEqual('SELECT 99 AS x')
+        })
+
         it('a later consistent insight in the same tab still hydrates', async () => {
             // One externally edited insight must not poison the tab for the next one
             sqlLogic.actions.setSourceQuery(EDITED_NODE)
