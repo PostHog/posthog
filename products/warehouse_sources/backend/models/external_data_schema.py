@@ -445,7 +445,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partition_size_override", None)
         self.sync_type_config.pop("partition_mode_override", None)
         self.sync_type_config.pop("partitioning_keys_override", None)
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     # --- In-place repartition controller state ------------------------------------------------
     # These keys drive the automated, no-source-pull repartition that bounds per-partition memory
@@ -557,7 +559,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if earliest_value is not None:
             staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
         self.sync_type_config["incremental_staged"] = staged
-        self.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT (see save()).
+        self.save(skip_activity_log=True)
 
     def promote_staged_incremental_values(self, run_uuid: str) -> bool:
         staged = self.sync_type_config.get("incremental_staged")
@@ -568,7 +572,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         if "earliest_value" in staged:
             self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
         self.sync_type_config.pop("incremental_staged", None)
-        self.save()
+        self.save(skip_activity_log=True)
         return True
 
     def _serialize_incremental_value(self, value: Any) -> Any:

@@ -13,6 +13,12 @@ common-kafka = { path = "../common/kafka" }
 common-ingestion-warnings = { path = "../common/ingestion_warnings" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+k8s-awareness = { path = "../common/k8s-awareness" }
+kube = { version = "0.98", features = ["client"] }
+# Direct dep only to install a process-wide rustls CryptoProvider at startup (see
+# main.rs): kube's HTTPS client uses rustls 0.23, which can't auto-pick a provider
+# with both aws-lc-rs and ring in the tree. Matches personhog-router/cymbal.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }
@@ -28,6 +34,7 @@ rdkafka = { workspace = true }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
