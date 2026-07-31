@@ -610,7 +610,7 @@ jobs:
               run: |
                   ./target/debug/personhog-test-harness gate \
                     --leaders 3 --partitions 8 --persons 50 --concurrency 10 --duration 15s \
-                    --cache-capacity 10 --writer-pause-after 3s --writer-pause-duration 8s
+                    --cache-capacity 4096 --writer-pause-after 3s --writer-pause-duration 8s
 
             - name: Run the e2e gate under chaos (kill + scale-up)
               run: |

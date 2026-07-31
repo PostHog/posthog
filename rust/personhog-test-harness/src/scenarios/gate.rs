@@ -130,6 +130,9 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.external_router_url.is_some() && (!chaos.is_empty() || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
     }
+    if args.external_router_url.is_some() && !args.leader_env.is_empty() {
+        bail!("--leader-env requires a spawned stack; it cannot target --external-router-url");
+    }
     if args.create_via_identity
         && args.external_router_url.is_some()
         && args.external_identity_url.is_none()
