@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { useMocks } from '~/mocks/jest'
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType } from '~/types'
+import { ChartDisplayType, QueryBasedInsightModel } from '~/types'
 
 import { OutputTab } from '../outputPaneLogic'
 import { sqlEditorLogic } from '../sqlEditorLogic'
@@ -329,6 +329,26 @@ describe('insightBuilderLogic', () => {
 
             expect(sqlLogic.values.sourceQuery.builder).toBeUndefined()
             expect(sqlLogic.values.sourceQuery.source.query).toEqual('SELECT 99 AS x')
+        })
+
+        it('keeps hydration when an insight open re-creates the tab with the canvas mounted', async () => {
+            // Reloading straight into Visualization mounts the builder before the open flow
+            // finishes: the node lands (hydrates), then createTab resets the builder state —
+            // the reset must re-hydrate from the node the tab now owns, or the canvas sits on
+            // the empty state until a tab flip
+            await expectLogic(builderLogic, () => {
+                sqlLogic.actions.setSourceQuery(BUILDER_NODE)
+            }).toDispatchActions(['hydrateFromNode'])
+
+            await expectLogic(builderLogic, () => {
+                sqlLogic.actions.createTab('SELECT * FROM payments', undefined, {
+                    short_id: 'abc999',
+                    name: 'Builder insight',
+                    query: BUILDER_NODE,
+                } as unknown as QueryBasedInsightModel)
+            })
+                .toDispatchActions(['resetBuilder', 'hydrateFromNode'])
+                .toMatchValues({ rows: [{ column: 'plan' }], baseQuery: 'SELECT * FROM payments' })
         })
 
         it('a later consistent insight in the same tab still hydrates', async () => {

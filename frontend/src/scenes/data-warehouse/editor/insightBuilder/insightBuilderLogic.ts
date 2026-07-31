@@ -769,8 +769,17 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         // The editor tab now hosts a different object (insight, view, draft, fresh query) —
         // stale wells from the previous one must never leak onto it: applyWells would attach
         // the old builder config and its compiled SQL to the new node.
-        createTab: () => {
+        createTab: ({ insight }) => {
             actions.resetBuilder()
+            // Insight opens deliver their node via setSourceQuery *before* createTab. With the
+            // canvas already mounted (reloading straight into Visualization), the reset above
+            // just cleared that hydration and the node's value won't change again — re-hydrate
+            // from the node the tab now owns, or the canvas sits empty until a tab flip.
+            const node = values.sourceQuery
+            if (insight && node.builder?.enabled && builderConfigMatchesQuery(node)) {
+                actions.hydrateFromNode(node.builder, node.display)
+                actions.loadBaseColumns()
+            }
         },
         resetBuilder: () => {
             actions.loadBaseColumnsSuccess([])
