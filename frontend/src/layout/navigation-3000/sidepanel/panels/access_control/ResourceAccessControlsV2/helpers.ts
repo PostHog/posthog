@@ -1,7 +1,8 @@
 import { toSentenceCase } from 'lib/utils/strings'
 
-import { APIScopeObject, AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry, InheritedAccessLevelReason } from '~/types'
 
+import type { InheritedAccess } from '../accessControlLogic'
 import { AccessControlMemberEntry, AccessControlRoleEntry, AccessControlSettingsEntry, InheritedReason } from './types'
 
 export function describeAccessControlLevel(
@@ -143,4 +144,47 @@ export function getLevelOptionsForResource(
             disabledReason,
         }
     })
+}
+
+function inheritedReason(reason: InheritedAccessLevelReason | null, fallbackTo: string): string {
+    switch (reason) {
+        case 'role_override':
+            return 'Based on role permissions'
+        case 'organization_admin':
+            return 'Organization admins always have full access'
+        default:
+            return `Based on the default for ${fallbackTo}`
+    }
+}
+
+/**
+ * What applies to a resource when the subject has no rule of their own. The entry resolves explicit
+ * defaults and role grants server-side; `builtIn` covers resources with no rule anywhere.
+ */
+export function inheritedFor(
+    res: EffectiveAccessControlEntry | undefined,
+    builtIn: AccessControlLevel | undefined,
+    fallbackTo: string
+): InheritedAccess | null {
+    const level = res?.inherited_access_level ?? builtIn
+    if (!level) {
+        return null
+    }
+    return {
+        label: humanizeAccessControlLevel(level),
+        reason: inheritedReason(
+            res?.inherited_access_level ? (res.inherited_access_level_reason ?? null) : null,
+            fallbackTo
+        ),
+    }
+}
+
+export function subjectDisabledReason(entry: AccessControlSettingsEntry, canEdit: boolean): string | undefined {
+    if (!canEdit) {
+        return 'You cannot edit this'
+    }
+    if (entry.project.inherited_access_level_reason === 'organization_admin') {
+        return 'Organization admins always have full access'
+    }
+    return undefined
 }

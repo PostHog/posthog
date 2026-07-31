@@ -49,6 +49,25 @@ export function AccessLevelSelect(props: AccessLevelSelectProps): JSX.Element {
         }
     })
 
+    // "No override" sits in its own section above the levels: annotated with what applies instead
+    // when we know it (`inherited`), plain when we don't (`allowNoOverride`).
+    let options: LemonSelectOption<AccessControlLevel | null>[] | { options: typeof levelOptions }[] = levelOptions
+    if (inherited) {
+        const noOverrideOption = {
+            value: null,
+            label: 'No override',
+            labelInMenu: (
+                <div className="flex flex-col items-start gap-1 py-1">
+                    {noOverrideLabel}
+                    <span className="text-xs font-normal text-tertiary whitespace-nowrap">{inherited.reason}</span>
+                </div>
+            ),
+        }
+        options = [{ options: [noOverrideOption] }, { options: levelOptions }]
+    } else if (props.allowNoOverride) {
+        options = [{ options: [{ value: null, label: 'No override' }] }, { options: levelOptions }]
+    }
+
     return (
         <LemonSelect<AccessControlLevel | null>
             size={props.size}
@@ -69,31 +88,7 @@ export function AccessLevelSelect(props: AccessLevelSelectProps): JSX.Element {
             renderButtonContent={
                 noOverrideLabel ? (leaf) => (props.level === null ? noOverrideLabel : (leaf?.label ?? '')) : undefined
             }
-            options={
-                inherited
-                    ? [
-                          {
-                              options: [
-                                  {
-                                      value: null,
-                                      label: 'No override',
-                                      labelInMenu: (
-                                          <div className="flex flex-col items-start gap-1 py-1">
-                                              {noOverrideLabel}
-                                              <span className="text-xs font-normal text-tertiary whitespace-nowrap">
-                                                  {inherited.reason}
-                                              </span>
-                                          </div>
-                                      ),
-                                  },
-                              ],
-                          },
-                          { options: levelOptions },
-                      ]
-                    : props.allowNoOverride
-                      ? [{ options: [{ value: null, label: 'No override' }] }, { options: levelOptions }]
-                      : levelOptions
-            }
+            options={options}
         />
     )
 }
