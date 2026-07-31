@@ -32,7 +32,7 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -458,10 +458,6 @@ DEV_LOGIN_KNOWN_EMAIL_LABELS = {
     "test@posthog.com": "Default test user",
 }
 
-# Some dev instances (growth testing especially) accumulate hundreds of accounts, so the panel
-# pages as you scroll rather than shipping the whole table on every login page view.
-DEV_LOGIN_PAGE_SIZE = 50
-
 # Name pools for dev-login fresh account creation, so test accounts are easy to
 # tell apart in the login tools list.
 DEV_ACCOUNT_FIRST_NAMES = [
@@ -584,8 +580,7 @@ class DevLoginUserSerializer(serializers.Serializer):
     email = serializers.EmailField(read_only=True, help_text="Email to log in as.")
     first_name = serializers.CharField(read_only=True, help_text="First name, shown next to the email.")
     is_staff = serializers.BooleanField(read_only=True, help_text="Whether the user is a staff (instance admin) user.")
-    # Shadows Field.label as a class attribute, which mypy flags. The metaclass moves declared
-    # fields into _declared_fields, so the two never collide at runtime.
+    # Shadows Field.label, which the metaclass moves aside into _declared_fields at runtime.
     label = serializers.CharField(  # type: ignore[assignment]
         read_only=True, allow_null=True, help_text="Label for accounts seeded by setup_dev, e.g. the default test user."
     )
@@ -596,10 +591,7 @@ class DevLoginUserSerializer(serializers.Serializer):
 
 class DevLoginUserListSerializer(serializers.Serializer):
     users = DevLoginUserSerializer(
-        many=True, read_only=True, help_text="Matching users, most recently logged in first."
-    )
-    total_count = serializers.IntegerField(
-        read_only=True, help_text="How many users match the search in total, across all pages."
+        many=True, read_only=True, help_text="Every active user, seeded accounts first, then most recently used."
     )
 
 
@@ -614,49 +606,24 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = DevLoginSerializer
     permission_classes = (permissions.AllowAny,)
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                name="search",
-                type=str,
-                description="Case-insensitive filter on email, first name and last name.",
-            ),
-            OpenApiParameter(
-                name="offset",
-                type=int,
-                description=f"How many users to skip. Pages are {DEV_LOGIN_PAGE_SIZE} users long.",
-            ),
-        ],
-        responses={200: DevLoginUserListSerializer},
-    )
+    @extend_schema(responses={200: DevLoginUserListSerializer})
     def list(self, request: Request) -> Response:
         if not is_dev_login_allowed():
             raise Http404()
 
-        queryset = User.objects.filter(is_active=True)
-        search = request.GET.get("search", "").strip()
-        if search:
-            queryset = queryset.filter(
-                Q(email__icontains=search) | Q(first_name__icontains=search) | Q(last_name__icontains=search)
-            )
-
-        try:
-            offset = max(0, int(request.GET.get("offset", 0)))
-        except ValueError:
-            offset = 0
-
-        # Recency beats alphabetical once an instance has more accounts than fit on screen — the
-        # handful you actually switch between float to the top on their own. Email breaks ties so
-        # that paging can't repeat or skip a user.
+        # Seeded accounts first so the default test user stays on top. After that recency beats
+        # alphabetical: on instances with hundreds of test accounts, the handful you actually
+        # switch between float up on their own. Email breaks ties to keep the order stable.
         users = list(
-            queryset.order_by(F("last_login").desc(nulls_last=True), "email").values(
-                "email", "first_name", "is_staff", "last_login"
-            )[offset : offset + DEV_LOGIN_PAGE_SIZE]
+            User.objects.filter(is_active=True)
+            .annotate(is_seeded=Q(email__in=DEV_LOGIN_KNOWN_EMAIL_LABELS))
+            .order_by("-is_seeded", F("last_login").desc(nulls_last=True), "email")
+            .values("email", "first_name", "is_staff", "last_login")
         )
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
 
-        return Response({"users": users, "total_count": queryset.count()})
+        return Response({"users": users})
 
 
 class TwoFactorSerializer(serializers.Serializer):

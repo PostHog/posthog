@@ -11,9 +11,6 @@ type StoryArgs = {
     devUsers: 'none' | 'default' | 'many'
 }
 
-// Matches DEV_LOGIN_PAGE_SIZE on the backend, so scrolling pages in the story like it does locally.
-const MOCK_PAGE_SIZE = 50
-
 const DEV_USERS_MOCKS: Record<StoryArgs['devUsers'], DevUser[]> = {
     none: [],
     default: [
@@ -85,16 +82,7 @@ const Template: StoryFn<StoryArgs> = ({ allowDevLogin, devUsers }) => {
                 is_debug: true,
                 allow_dev_login: allowDevLogin,
             },
-            '/api/login/dev': ({ request }) => {
-                const params = new URL(request.url).searchParams
-                const search = (params.get('search') || '').toLowerCase()
-                const offset = Number(params.get('offset') || 0)
-                const matching = DEV_USERS_MOCKS[devUsers].filter(
-                    (user) =>
-                        user.email.toLowerCase().includes(search) || user.first_name.toLowerCase().includes(search)
-                )
-                return [200, { users: matching.slice(offset, offset + MOCK_PAGE_SIZE), total_count: matching.length }]
-            },
+            '/api/login/dev': { users: DEV_USERS_MOCKS[devUsers] },
         },
     })
 

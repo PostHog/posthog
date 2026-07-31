@@ -441,45 +441,18 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.json(), {"success": True})
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
-    def test_dev_login_list_puts_recently_used_accounts_first(self):
+    def test_dev_login_list_puts_seeded_then_recently_used_accounts_first(self):
         User.objects.create_and_join(self.organization, "aaa-never@posthog.com", None)
         recently_used = User.objects.create_and_join(self.organization, "zzz-recent@posthog.com", None)
         recently_used.last_login = timezone.now()
         recently_used.save()
+        # Seeded by setup_dev, and never logged in as — it still belongs on top.
+        User.objects.create_and_join(self.organization, "test@posthog.com", None)
 
         response = self.client.get("/api/login/dev")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         emails = [user["email"] for user in response.json()["users"]]
-        self.assertEqual(emails[0], "zzz-recent@posthog.com")
-        self.assertEqual(response.json()["total_count"], len(emails))
-
-    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
-    def test_dev_login_list_search_narrows_users(self):
-        User.objects.create_and_join(self.organization, "growth-test-1@posthog.com", None, first_name="Mira")
-        User.objects.create_and_join(self.organization, "growth-test-2@posthog.com", None)
-
-        response = self.client.get("/api/login/dev?search=growth-test")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            {user["email"] for user in response.json()["users"]},
-            {"growth-test-1@posthog.com", "growth-test-2@posthog.com"},
-        )
-        self.assertEqual(response.json()["total_count"], 2)
-
-        response = self.client.get("/api/login/dev?search=mira")
-        self.assertEqual([user["email"] for user in response.json()["users"]], ["growth-test-1@posthog.com"])
-
-    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
-    def test_dev_login_list_offset_pages_without_repeating_users(self):
-        for index in range(3):
-            User.objects.create_and_join(self.organization, f"paged-{index}@posthog.com", None)
-
-        first_page = self.client.get("/api/login/dev").json()
-        second_page = self.client.get("/api/login/dev?offset=2").json()
-
-        self.assertEqual(second_page["total_count"], first_page["total_count"])
-        emails = [user["email"] for user in first_page["users"]]
-        self.assertEqual([user["email"] for user in second_page["users"]], emails[2:])
+        self.assertEqual(emails[:2], ["test@posthog.com", "zzz-recent@posthog.com"])
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
