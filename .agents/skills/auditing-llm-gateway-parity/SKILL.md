@@ -6,14 +6,15 @@ description: >
 
 # Auditing LLM gateway parity
 
-Compare the current PostHog working tree with the Go gateway's current default branch and update [`services/llm-gateway/PARITY.md`](../../../services/llm-gateway/PARITY.md). Keep this audit separate from caller migration.
+Compare the current implementations of both gateways and update [`services/llm-gateway/PARITY.md`](../../../services/llm-gateway/PARITY.md). Keep this audit separate from caller migration.
 
 ## Record source revisions
 
 - Fetch `origin/master` and record its SHA as the PostHog baseline.
 - Audit the current working tree, including committed and uncommitted changes relative to that baseline. Do not ignore an in-flight gateway change because it is not on `master` yet.
-- Read the current `PostHog/ai-gateway` main SHA with `gh api repos/PostHog/ai-gateway/commits/main`.
-- Use an authenticated checkout of `PostHog/ai-gateway` when code inspection is needed.
+- Read the current `PostHog/ai-gateway` main SHA with `gh api repos/PostHog/ai-gateway/commits/main` and record it as the Go baseline.
+- If the audit is for an in-flight Go change, inspect that PR branch or working tree relative to `main`. Treat its contracts as pending until the change merges; do not record them as currently supported.
+- Otherwise, inspect an authenticated checkout of `PostHog/ai-gateway` at `main`.
 
 Audit implementation code. README files and the existing parity table are starting points, not proof.
 
