@@ -77,6 +77,40 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
 - Everything posted to GitHub goes through `_scrub_credentials` AND `_neutralize_active_markdown`
   (GitHub's camo proxy auto-fetches images — a markdown image URL is an exfiltration channel).
 
+## The self-driving inbox carve-out (the one exception to the bot-author refusal)
+
+Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`),
+the engine (`review_pr.py::_refuse_bot_author`, mirrored by `review_local.py`), and the
+Action's job gates — with ONE deliberate exception: a PR **positively linked** to a PostHog
+Code self-driving implementation run (a non-internal, signal-report-carrying TaskRun matched
+through the tasks facade), whose acting reviewer opted in via ReviewHog's per-user
+`stamphog_review_inbox_prs` toggle. Rules that keep the exception narrow:
+
+- Identification is task linkage, never author-login matching. `github.py::is_bot_author`
+  must not be weakened; dependabot/renovate/posthog-bot and non-inbox PostHog Code PRs
+  (wizard/manual tasks) stay refused everywhere.
+- The engine flag (`self_driving_review` in the hosted context JSON →
+  `Pipeline(self_driving=...)`) defaults closed and the Action never sets it, so Action
+  behavior is unchanged by construction. It relaxes exactly two gates — the bot-author
+  refusal and the draft prerequisite (the verdict must exist at Inbox triage time, while the
+  PR is still a draft) — and swaps human-author trust context for a TRUSTED provenance block
+  in the prompt. The hosted server sets the flag exclusively from the run's persisted inbox
+  provenance (`ReviewRun.output["inbox_review"]`), which only the two linkage-verified
+  trigger paths stamp.
+- The initial review is the receiver leg (`process_inbox_pr_review`, entered via the
+  `queue_inbox_pr_review` facade after review_hog checked the toggle); the webhook leg
+  re-reviews only on synchronize / reopen / base retarget, re-checking the toggle through the
+  `facade/inbox_hooks.py` resolver (registered by review_hog at app-ready — a direct import
+  of review_hog would be a dependency cycle). No registered resolver means fail-closed: no
+  re-review.
+- Dismissal is never preference-gated. A toggle switched off mid-PR stops new runs, but the
+  skip paths' head-changing retraction still voids the standing approval (the stale-approval
+  invariant above is untouched), and every carved-out run still enters the workflow through
+  `dismiss_stale_approvals` first.
+- These runs bypass the review-mode and author-write-permission gates: the acting reviewer's
+  toggle is their gate, and the App's machine user is not a collaborator (the permission
+  lookup would always deny). `review_mode` keeps governing human PRs only.
+
 ## Trust boundaries
 
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be

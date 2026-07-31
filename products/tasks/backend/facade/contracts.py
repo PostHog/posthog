@@ -42,6 +42,22 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class SignalImplementationRunDTO:
+    """Identity facts of a signals-origin ("self-driving") implementation run that produced a PR.
+
+    Returned by ``find_signal_implementation_run`` for consumers (stamphog's inbox carve-out)
+    that must positively identify a bot-authored PR as a PostHog Code self-driving
+    implementation and resolve whose review preferences govern it.
+    """
+
+    run_id: UUID
+    task_id: UUID
+    team_id: int
+    signal_report_id: UUID
+    task_created_by_id: int | None = None
+
+
+@dataclass(frozen=True)
 class WizardCloudRunDTO:
     """A team's active onboarding wizard cloud run.
 

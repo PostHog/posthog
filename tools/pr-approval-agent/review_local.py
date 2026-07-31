@@ -313,10 +313,15 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
 
 def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
-    pipeline = Pipeline(0, context.get("repo") or "")
+    # The self-driving carve-out flag rides in on the hosted context JSON, stamped by the server
+    # only for runs positively linked to a PostHog Code signals implementation task (inbox
+    # provenance). Absent — every Action-shaped context — it defaults closed and this entrypoint
+    # refuses bot authors exactly as before; Pipeline applies the same guard to its draft
+    # prerequisite (engine parity: run() here mirrors review_pr.Pipeline.run()).
+    pipeline = Pipeline(0, context.get("repo") or "", self_driving=bool(context.get("self_driving_review")))
     pipeline.pr = _build_pr_data(context)
 
-    if pipeline.pr.author_is_bot:
+    if pipeline.pr.author_is_bot and not pipeline.self_driving:
         pipeline._refuse_bot_author()
         return pipeline.to_dict()
 

@@ -98,6 +98,7 @@ def build_reviewer_invocation(
     repo: str,
     engine_dir: str,
     context_path: str,
+    self_driving_review: bool = False,
 ) -> ReviewerInvocation:
     """Assemble the context payload + command that reviews this PR in the sandbox.
 
@@ -109,6 +110,11 @@ def build_reviewer_invocation(
     ``author_pr_numbers`` are the author's merged-PR numbers the server fetched
     (the engine needs them for the git-blame familiarity signal, which it
     otherwise gets from a `gh` call it can't make in the sandbox).
+    ``self_driving_review`` is the engine's carve-out flag for positively identified
+    self-driving inbox PRs: it defaults closed here AND in the engine, and the Action
+    runtime never sets it — only a run stamped with inbox provenance turns it on, which
+    is what lets the engine review a bot-authored draft without weakening its bot-author
+    refusal for anything else.
     """
     context = {
         "repo": repo,
@@ -122,6 +128,7 @@ def build_reviewer_invocation(
         "check_runs": check_runs,
         "pr_reactions": pr_reactions,
         "author_pr_numbers": list(author_pr_numbers),
+        "self_driving_review": self_driving_review,
     }
     command = ["uv", "run", f"{engine_dir}/review_local.py", "--context", context_path]
     return ReviewerInvocation(
