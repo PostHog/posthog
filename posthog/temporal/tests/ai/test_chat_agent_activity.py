@@ -232,7 +232,9 @@ class TestProcessChatAgentActivity:
     @pytest.mark.asyncio
     async def test_starts_queued_workflow(self, conversation_inputs, mock_redis_stream, mock_assistant):
         queue_store = Mock()
-        queue_store.pop_next_async = AsyncMock(return_value={"id": "queue-1", "content": "Next up"})
+        queue_store.pop_next_async = AsyncMock(
+            return_value={"id": "queue-1", "content": "Next up", "created_at": "2026-07-30T12:00:00+00:00"}
+        )
         queue_store.clear_async = AsyncMock()
         queue_store.requeue_front_async = AsyncMock()
 
@@ -248,6 +250,8 @@ class TestProcessChatAgentActivity:
             await process_chat_agent_activity(conversation_inputs)
 
         mock_client.start_workflow.assert_called_once()
+        queued_inputs = mock_client.start_workflow.call_args.args[1]
+        assert queued_inputs.message["created_at"] == "2026-07-30T12:00:00+00:00"
         assert not mock_redis_stream.mark_complete.called
         queue_store.requeue_front_async.assert_not_called()
 

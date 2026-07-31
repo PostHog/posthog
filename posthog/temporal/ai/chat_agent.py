@@ -231,6 +231,7 @@ async def process_chat_agent_activity(inputs: ChatAgentWorkflowInputs) -> None:
                         "content": content,
                         "ui_context": ui_context,
                         "trace_id": trace_id,
+                        "created_at": queued_message_data.get("created_at"),
                     }
                 )
             except pydantic.ValidationError:
