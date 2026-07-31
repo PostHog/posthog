@@ -4,8 +4,9 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { resourceToApiRoute } from 'lib/utils/accessControlUtils'
 
-import { AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel } from '~/types'
 
 import {
     propertyAccessControlsCreate,
@@ -52,20 +53,17 @@ export function parseAccessDetailOptions(options: string | null): AccessDetailSu
     return { scopeType: scope === 'role' ? 'role' : 'member', subjectId }
 }
 
-// Object resource types whose list `id` maps directly to their `/{route}/{id}/access_controls` endpoint.
-export const OBJECT_RULE_RESOURCES: { value: string; label: string; route: string }[] = [
-    { value: 'dashboard', label: 'Dashboard', route: 'dashboards' },
-    { value: 'insight', label: 'Insight', route: 'insights' },
-    { value: 'feature_flag', label: 'Feature flag', route: 'feature_flags' },
-    { value: 'experiment', label: 'Experiment', route: 'experiments' },
-    { value: 'survey', label: 'Survey', route: 'surveys' },
-    { value: 'warehouse_table', label: 'Warehouse table', route: 'warehouse_tables' },
-    { value: 'warehouse_view', label: 'Warehouse view', route: 'warehouse_saved_queries' },
+// Object resource types offered in the "Add rule" picker — ones whose list `id` maps directly to
+// their `/{route}/{id}/access_controls` endpoint (route via resourceToApiRoute).
+export const OBJECT_RULE_RESOURCES: APIScopeObject[] = [
+    'dashboard',
+    'insight',
+    'feature_flag',
+    'experiment',
+    'survey',
+    'warehouse_table',
+    'warehouse_view',
 ]
-
-export function objectRouteFor(resource: string): string {
-    return OBJECT_RULE_RESOURCES.find((r) => r.value === resource)?.route ?? `${resource}s`
-}
 
 function endpoint(props: AccessDetailLogicProps, kind: 'objects' | 'properties'): string {
     const base = `api/projects/${props.projectId}`
@@ -196,7 +194,7 @@ export const accessDetailLogic = kea<accessDetailLogicType>([
             // A null level clears the subject's rule on the object
             try {
                 await api.put(
-                    `api/projects/${props.projectId}/${objectRouteFor(resource)}/${resourceId}/access_controls`,
+                    `api/projects/${props.projectId}/${resourceToApiRoute(resource as APIScopeObject)}/${resourceId}/access_controls`,
                     {
                         ...subjectBody(props),
                         access_level: level,

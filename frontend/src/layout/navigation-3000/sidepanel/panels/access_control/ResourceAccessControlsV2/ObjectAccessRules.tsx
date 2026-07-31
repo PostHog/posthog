@@ -3,10 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInputSelect, LemonLabel, LemonModal, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 
+import { resourceTypeToString } from 'lib/utils/accessControlUtils'
 import { toSentenceCase } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { APIScopeObject, AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AccessLevelSelect } from '../AccessLevelSelect'
 import { AccessObjectRule, OBJECT_RULE_RESOURCES, accessDetailLogic } from './accessDetailLogic'
@@ -204,7 +205,10 @@ function AddObjectRuleModal({
                     <LemonSelect
                         value={resource}
                         onChange={setResource}
-                        options={OBJECT_RULE_RESOURCES.map((r) => ({ value: r.value, label: r.label }))}
+                        options={OBJECT_RULE_RESOURCES.map((r) => ({
+                            value: r,
+                            label: toSentenceCase(resourceTypeToString(r as AccessControlResourceType)),
+                        }))}
                         fullWidth
                     />
                 </div>

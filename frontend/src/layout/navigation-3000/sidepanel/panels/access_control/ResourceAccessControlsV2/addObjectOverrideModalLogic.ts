@@ -2,10 +2,11 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { resourceToApiRoute } from 'lib/utils/accessControlUtils'
 
-import { AccessControlLevel } from '~/types'
+import { APIScopeObject, AccessControlLevel } from '~/types'
 
-import { accessDetailLogic, objectRouteFor } from './accessDetailLogic'
+import { accessDetailLogic } from './accessDetailLogic'
 import type { ScopeType } from './types'
 
 export interface ObjectOption {
@@ -137,7 +138,7 @@ export const addObjectOverrideModalLogic = kea<addObjectOverrideModalLogicType>(
                 loadObjectOptions: async (_, breakpoint) => {
                     await breakpoint(300)
                     const response = await api.get<{ results: Record<string, any>[] }>(
-                        `api/projects/${props.projectId}/${objectRouteFor(values.resource)}/?limit=20&search=${encodeURIComponent(
+                        `api/projects/${props.projectId}/${resourceToApiRoute(values.resource as APIScopeObject)}/?limit=20&search=${encodeURIComponent(
                             values.search
                         )}`
                     )

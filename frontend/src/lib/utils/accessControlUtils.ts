@@ -49,6 +49,18 @@ export const getMaximumAccessLevel = (resource: APIScopeObject): AccessControlLe
     return null
 }
 
+/** Resources whose REST collection route doesn't match the naive `${resource}s` pluralization. */
+const RESOURCE_API_ROUTES: Partial<Record<APIScopeObject, string>> = {
+    warehouse_view: 'warehouse_saved_queries',
+    early_access_feature: 'early_access_feature',
+    ticket: 'conversations/tickets',
+    heatmap: 'saved',
+    replay_scanner: 'vision/scanners',
+}
+
+/** REST collection route for a resource, for building `.../{route}/{id}/access_controls` urls. */
+export const resourceToApiRoute = (resource: APIScopeObject): string => RESOURCE_API_ROUTES[resource] ?? `${resource}s`
+
 /**
  * Converts a resource name to its plural form for display purposes.
  * Handles special cases for specific resources that have custom plural forms.
