@@ -1024,7 +1024,6 @@ def send_ai_observability_usage_reports(
 
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
-    period_start, period_end = period
 
     if organization_ids:
         logger.info(
@@ -1037,7 +1036,7 @@ def send_ai_observability_usage_reports(
     query_time_start = datetime.now(UTC)
 
     try:
-        org_reports = _get_all_ai_observability_reports(period_start, period_end)
+        org_reports = _get_all_ai_observability_reports(period.start, period.end)
     except Exception as err:
         # The log alert keys on error severity: retryable attempts stay warnings, only the
         # exhausted final attempt may page.
@@ -1045,8 +1044,8 @@ def send_ai_observability_usage_reports(
             logger.error(
                 "[AIO Usage Error] usage report run failed permanently",
                 error=str(err),
-                period_start=period_start.isoformat(),
-                period_end=period_end.isoformat(),
+                period_start=period.start.isoformat(),
+                period_end=period.end.isoformat(),
                 retries=self.request.retries,
                 event_source="ai_observability_usage_report",
                 exc_info=True,
@@ -1081,7 +1080,7 @@ def send_ai_observability_usage_reports(
     # Deterministic nominal stamp (midnight after the covered day): keeps daily bucketing stable
     # in UTC and project timezones, and stops retry stragglers landing on the wrong chart day.
     # Actual arrival time remains queryable via events.created_at.
-    report_timestamp = (period_start + timedelta(days=1)).isoformat()
+    report_timestamp = (period.start + timedelta(days=1)).isoformat()
     triggered_by = "manual" if (at or organization_ids) else "scheduled"
 
     for org_id, report in org_reports.items():

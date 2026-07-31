@@ -615,8 +615,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
             self._create_plugin("Installed and enabled", True)
 
             period = get_previous_day()
-            period_start, period_end = period
-            all_reports = _get_all_org_reports(period_start, period_end)
+            all_reports = _get_all_org_reports(period.start, period.end)
             report = _get_full_org_usage_report_as_dict(
                 _get_full_org_usage_report(
                     all_reports[str(self.organization.id)],
@@ -1137,9 +1136,8 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
         period = get_previous_day()
-        period_start, period_end = period
 
-        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
         assert report.recording_count_in_period == 5
@@ -1147,7 +1145,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.zero_duration_recording_count_in_period == 0
 
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+        _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
@@ -1158,9 +1156,8 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         _setup_replay_data(self.team.pk, include_mobile_replay=False, include_zero_duration=True)
 
         period = get_previous_day()
-        period_start, period_end = period
 
-        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
         assert report.recording_count_in_period == 6
@@ -1168,7 +1165,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.zero_duration_recording_count_in_period == 1
 
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+        _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 6
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
@@ -1180,9 +1177,8 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         _setup_replay_data(self.team.pk, include_mobile_replay=True)
 
         period = get_previous_day()
-        period_start, period_end = period
 
-        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
         # but we do split them out of the daily usage since that field is used
@@ -1190,7 +1186,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.mobile_recording_count_in_period == 1
         assert report.mobile_billable_recording_count_in_period == 0
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+        _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
@@ -1232,9 +1228,8 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         )
 
         period = get_previous_day()
-        period_start, period_end = period
 
-        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
         # Regular mobile recordings (non-billable) + billable ones
@@ -1243,7 +1238,7 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         assert report.mobile_billable_recording_count_in_period == 2  # iOS and Android recordings
 
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+        _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 4
@@ -1311,9 +1306,8 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         )
 
         period = get_previous_day()
-        period_start, period_end = period
 
-        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
         assert report.recording_count_in_period == 2
@@ -1338,26 +1332,26 @@ class TestHeatmapUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroy
         )
 
     def test_heatmap_events_counted_per_team_within_period(self) -> None:
-        period_start, period_end = get_previous_day()
+        period = get_previous_day()
 
         # 3 in-period interactions for our team, 1 the day before (out of period),
         # and 2 for another team — only the 3 in-period ones should be counted for our team.
         self._create_heatmap(
             self.team.pk,
-            period_start + relativedelta(hours=1),
+            period.start + relativedelta(hours=1),
             count=3,
             session_id="shared_session",
         )
-        self._create_heatmap(self.team.pk, period_start - relativedelta(hours=1), count=1)
-        self._create_heatmap(self.team.pk + 1, period_start + relativedelta(hours=1), count=2)
+        self._create_heatmap(self.team.pk, period.start - relativedelta(hours=1), count=1)
+        self._create_heatmap(self.team.pk + 1, period.start + relativedelta(hours=1), count=2)
 
-        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
         assert report.heatmap_events_count_in_period == 3
 
         org_reports: dict[str, OrgReport] = {}
-        _add_team_report_to_org_reports(org_reports, self.team, report, period_start)
+        _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
         assert org_reports[str(self.organization.id)].heatmap_events_count_in_period == 3
 
 
@@ -1386,8 +1380,7 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
         sync_execute("SYSTEM FLUSH LOGS")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
 
         report = _get_team_report(all_reports, self.team)
 
@@ -1429,8 +1422,7 @@ class TestHogQLUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTa
         sync_execute("SYSTEM FLUSH LOGS")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
 
         report = _get_team_report(all_reports, self.team)
 
@@ -1606,8 +1598,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
             period = get_previous_day(at=now() + relativedelta(days=1))
-            period_start, period_end = period
-            all_reports = _get_all_org_reports(period_start, period_end)
+            all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -1686,8 +1677,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
             period = get_previous_day(at=now() + relativedelta(days=1))
-            period_start, period_end = period
-            all_reports = _get_all_org_reports(period_start, period_end)
+            all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -1786,8 +1776,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
@@ -1871,8 +1860,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         flush_persons_and_events()
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -1925,8 +1913,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
             )
         flush_persons_and_events()
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
         report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
@@ -2131,8 +2118,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 )
 
             period = get_previous_day(at=now() + relativedelta(days=1))
-            period_start, period_end = period
-            all_reports = _get_all_org_reports(period_start, period_end)
+            all_reports = _get_all_org_reports(period.start, period.end)
 
             assert len(all_reports) == 3
 
@@ -2203,8 +2189,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 )
 
             period = get_previous_day(at=now() + relativedelta(days=1))
-            period_start, period_end = period
-            all_reports = _get_all_org_reports(period_start, period_end)
+            all_reports = _get_all_org_reports(period.start, period.end)
 
             assert len(all_reports) == 3
 
@@ -2269,8 +2254,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 )
 
             period = get_previous_day(at=now() + relativedelta(days=1))
-            period_start, period_end = period
-            all_reports = _get_all_org_reports(period_start, period_end)
+            all_reports = _get_all_org_reports(period.start, period.end)
 
             assert len(all_reports) == 3
 
@@ -2331,8 +2315,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2401,8 +2384,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2447,8 +2429,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2493,8 +2474,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2563,8 +2543,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2623,8 +2602,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2672,8 +2650,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2731,8 +2708,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2787,8 +2763,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2833,8 +2808,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=None)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2877,8 +2851,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=None)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -2924,8 +2897,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -3005,8 +2977,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3089,8 +3060,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3197,8 +3167,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3267,8 +3236,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         sync_execute(f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{lines}")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3339,8 +3307,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3419,8 +3386,7 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         flush_persons_and_events()
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         assert len(all_reports) == 3
 
@@ -3540,8 +3506,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         flush_persons_and_events()
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3564,14 +3529,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with non-search tools
         _create_event(
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_billable",
                 "$ai_output_state": {
@@ -3593,7 +3557,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_billable",
@@ -3606,7 +3570,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: 1.0 USD * 100 * 1.2 = 120 credits
         self.assertEqual(len(result), 1)
@@ -3626,14 +3590,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with only search tools with kind='docs'
         _create_event(
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_free",
                 "$ai_output_state": {
@@ -3655,7 +3618,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_free",
@@ -3668,7 +3631,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: No charges for search-only traces with kind='docs'
         self.assertEqual(len(result), 0)
@@ -3685,14 +3648,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with only summarize_sessions tools
         _create_event(
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_summarize",
                 "$ai_output_state": {
@@ -3716,7 +3678,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_summarize",
@@ -3729,7 +3691,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: No charges for summarize_sessions-only traces
         self.assertEqual(len(result), 0)
@@ -3746,14 +3708,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with both excluded tools
         _create_event(
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_mixed_excluded",
                 "$ai_output_state": {
@@ -3777,7 +3738,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_mixed_excluded",
@@ -3790,7 +3751,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: No charges when all tools are in the excluded list
         self.assertEqual(len(result), 0)
@@ -3807,14 +3768,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with summarize_sessions + a billable tool
         _create_event(
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_mixed_billable",
                 "$ai_output_state": {
@@ -3841,7 +3801,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_mixed_billable",
@@ -3854,7 +3814,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: 1.0 USD * 100 * 1.2 = 120 credits
         # Trace with any non-excluded tool should be billable
@@ -3875,14 +3835,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with only search tools but kind='web' (not 'docs')
         _create_event(
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_billable_search",
                 "$ai_output_state": {
@@ -3904,7 +3863,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_billable_search",
@@ -3917,7 +3876,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: 0.5 USD * 100 * 1.2 = 60 credits
         # Search with kind='web' should be billable
@@ -3942,7 +3901,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with multiple turns - previous turns have billable tools,
         # but current turn only has docs-search
@@ -3950,7 +3908,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_multi_turn",
                 "$ai_output_state": {
@@ -3985,7 +3943,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_multi_turn",
@@ -3998,7 +3956,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: No charges because current turn only has docs-search
         # Previous turn's billable tools should be ignored
@@ -4017,14 +3975,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with billable tools
         _create_event(
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_billable",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
@@ -4037,7 +3994,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_billable",
@@ -4053,7 +4010,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_2",
-            timestamp=period_start + relativedelta(hours=2),
+            timestamp=period.start + relativedelta(hours=2),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_billable",
@@ -4068,7 +4025,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_3",
-            timestamp=period_start + relativedelta(hours=3),
+            timestamp=period.start + relativedelta(hours=3),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_billable",
@@ -4084,7 +4041,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_4",
-            timestamp=period_start + relativedelta(hours=4),
+            timestamp=period.start + relativedelta(hours=4),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_billable",
@@ -4097,7 +4054,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: Only the first generation: 0.5 USD * 100 * 1.2 = 60 credits
         self.assertEqual(len(result), 1)
@@ -4117,14 +4074,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create a trace with no tool calls (empty messages or no tool_calls field)
         _create_event(
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_no_tools",
                 "$ai_output_state": {
@@ -4143,7 +4099,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_no_tools",
@@ -4156,7 +4112,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: 0.5 USD * 100 * 1.2 = 60 credits
         # Traces with no tool calls should now be billed
@@ -4175,9 +4131,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
     ) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_credits_used_in_period
 
-        period_start, period_end = get_previous_day(at=now() + relativedelta(days=1))
+        period = get_previous_day(at=now() + relativedelta(days=1))
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         self.assertEqual(result, [])
         mock_region.assert_called_once()
@@ -4204,14 +4160,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         analytics_team_us = Team.objects.create(pk=2, organization=analytics_org, name="Analytics US")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create US trace with billable tools (should be counted)
         _create_event(
             event="$ai_trace",
             team=analytics_team_us,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_us",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
@@ -4224,7 +4179,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_trace",
             team=analytics_team_us,
             distinct_id="user_2",
-            timestamp=period_start + relativedelta(hours=2),
+            timestamp=period.start + relativedelta(hours=2),
             properties={
                 "$ai_trace_id": "trace_eu_in_us",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
@@ -4237,7 +4192,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team_us,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_us",
@@ -4253,7 +4208,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team_us,
             distinct_id="user_2",
-            timestamp=period_start + relativedelta(hours=2, minutes=1),
+            timestamp=period.start + relativedelta(hours=2, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_eu_in_us",
@@ -4266,7 +4221,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: Only US trace should count: 1.0 USD * 100 * 1.2 = 120 credits
         # EU trace should be filtered out despite being in team_id=2
@@ -4295,14 +4250,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         analytics_team_eu = Team.objects.create(pk=1, organization=analytics_org, name="Analytics EU")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Create EU trace with billable tools (should be counted)
         _create_event(
             event="$ai_trace",
             team=analytics_team_eu,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_eu",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
@@ -4316,7 +4270,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_trace",
             team=analytics_team_eu,
             distinct_id="user_2",
-            timestamp=period_start + relativedelta(hours=2),
+            timestamp=period.start + relativedelta(hours=2),
             properties={
                 "$ai_trace_id": "trace_us_in_eu",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
@@ -4330,7 +4284,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team_eu,
             distinct_id="user_1",
-            timestamp=period_start + relativedelta(hours=1, minutes=1),
+            timestamp=period.start + relativedelta(hours=1, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_eu",
@@ -4347,7 +4301,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team_eu,
             distinct_id="user_2",
-            timestamp=period_start + relativedelta(hours=2, minutes=1),
+            timestamp=period.start + relativedelta(hours=2, minutes=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_us_in_eu",
@@ -4361,7 +4315,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # Expected: Only EU trace should count: 2.0 USD * 100 * 1.2 = 240 credits
         mock_instance_group_type_index.assert_called_once_with(1)
@@ -4381,14 +4335,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Billable generation tagged as signals — should be excluded
         _create_event(
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_signals",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_signals",
@@ -4401,7 +4354,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         self.assertEqual(result, [])
 
@@ -4417,7 +4370,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Matching billable trace — isolates that exclusion is due to the missing ai_product,
         # not a missing trace.
@@ -4425,7 +4377,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_trace",
             team=analytics_team,
             distinct_id="user_legacy",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "$ai_trace_id": "trace_legacy",
                 "$ai_output_state": {"messages": [{"tool_calls": [{"name": "query_executor"}]}]},
@@ -4438,7 +4390,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_legacy",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_legacy",
@@ -4450,7 +4402,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         self.assertEqual(result, [])
 
@@ -4470,7 +4422,6 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_teams()
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         team = self.org_1_team_1
 
@@ -4486,13 +4437,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             team=team,
             task=task,
             output={"pr_url": "https://github.com/x/y/pull/1"},
-            created_at=period_start + relativedelta(hours=1),
+            created_at=period.start + relativedelta(hours=1),
         )
 
         # A report with no implementation PR contributes nothing.
         SignalReport.objects.create(team=team, status=SignalReport.Status.READY, signal_count=1, total_weight=1.0)
 
-        result = get_teams_with_signals_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_signals_credits_used_in_period(period.start, period.end)
 
         self.assertEqual(result, [(team.id, 1500)])
 
@@ -4512,14 +4463,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Billable posthog_ai generation with NO matching $ai_trace event.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_orphan",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_orphan",
@@ -4532,7 +4482,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # 3.0 USD * 100 * 1.2 = 360
         self.assertEqual(result, [(self.org_1_team_1.id, 360)])
@@ -4558,14 +4508,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # These products emit no $ai_trace — billed via the empty-trace fallback, not a paired trace.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
             distinct_id=f"user_{ai_product}",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": f"trace_{ai_product}",
@@ -4578,7 +4527,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         # 1.0 USD * 100 * 1.2 = 120
         self.assertEqual(result, [(self.org_1_team_1.id, 120)])
@@ -4606,14 +4555,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # Billable generation tagged as posthog_code — should be excluded from PostHog AI credits.
         _create_event(
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_posthog_code",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_posthog_code",
@@ -4626,7 +4574,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_ai_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_ai_credits_used_in_period(period.start, period.end)
 
         self.assertEqual(result, [])
 
@@ -4642,14 +4590,13 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         # PostHog Desktop event — should appear only in posthog_code credits
         _create_event(
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_posthog_code",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_posthog_code",
@@ -4665,7 +4612,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_signals",
-            timestamp=period_start + relativedelta(hours=2),
+            timestamp=period.start + relativedelta(hours=2),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_signals",
@@ -4678,7 +4625,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
+        posthog_code_result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)
 
         # posthog_code bills at cost (no markup): 2.0 USD * 100 * 1.0 = 200 — only the
         # posthog_code event, not the signals one.
@@ -4708,13 +4655,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         self._setup_instance_group_mapping(analytics_team)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        period_start, period_end = period
 
         _create_event(
             event="$ai_generation",
             team=analytics_team,
             distinct_id="user_posthog_code",
-            timestamp=period_start + relativedelta(hours=1),
+            timestamp=period.start + relativedelta(hours=1),
             properties={
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_posthog_code",
@@ -4727,7 +4673,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         flush_persons_and_events()
 
-        result = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
+        result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)
 
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
@@ -4899,8 +4845,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_get_sqs_producer.return_value = mock_producer
 
         period = get_previous_day()
-        period_start, period_end = period
-        all_reports = _get_all_org_reports(period_start, period_end)
+        all_reports = _get_all_org_reports(period.start, period.end)
 
         full_report_as_dict = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
@@ -4950,8 +4895,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             mock_get_sqs_producer.return_value = mock_producer
 
             period = get_previous_day()
-            period_start, period_end = period
-            all_reports = _get_all_org_reports(period_start, period_end)
+            all_reports = _get_all_org_reports(period.start, period.end)
 
             full_report_as_dict = _get_full_org_usage_report_as_dict(
                 _get_full_org_usage_report(
@@ -5936,7 +5880,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
     def test_integration_with_usage_report(self) -> None:
         """Test that the usage report generation still works with the new query splitting."""
-        period_start, period_end = get_previous_day(at=self.end)
+        period = get_previous_day(at=self.end)
 
         # Create some events in the period
         for i in range(5):
@@ -5944,14 +5888,14 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
                 event="$pageview",
                 team=self.team,
                 distinct_id=f"user_{i}",
-                timestamp=period_start + relativedelta(hours=i),
+                timestamp=period.start + relativedelta(hours=i),
                 properties={},
             )
 
         flush_persons_and_events()
 
         # Get the usage data
-        all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+        all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
 
         # Verify the data
         self.assertIn("teams_with_event_count_in_period", all_data)
