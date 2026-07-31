@@ -83,10 +83,7 @@ export interface ToolClusterRow {
  * are dropped rather than rendered label-less: the backend only emits entries for
  * clusters the snapshot carries, so a miss means the two came from different runs.
  */
-export function toolClusterRows(
-    tool: MCPToolPivotApi,
-    clusters: readonly MCPIntentClusterApi[]
-): ToolClusterRow[] {
+export function toolClusterRows(tool: MCPToolPivotApi, clusters: readonly MCPIntentClusterApi[]): ToolClusterRow[] {
     const byId = new Map(clusters.map((cluster) => [cluster.id, cluster]))
     return tool.clusters.flatMap((entry) => {
         const cluster = byId.get(entry.cluster_id)
