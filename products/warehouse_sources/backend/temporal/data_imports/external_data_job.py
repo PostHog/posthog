@@ -867,6 +867,29 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     ),
                 )
 
+            # Release the V3 pipeline lock when the consumer is NOT managing job
+            # status (extraction failed before producing batches, or non-V3).
+            # When consumer_manages_job_status is True, the consumer releases.
+            # Runs before the post-import start so a raise there (cancellation)
+            # can't leave the lock held.
+            if is_v3 and lock_token and not consumer_manages_job_status:
+                try:
+                    await workflow.execute_activity(
+                        release_v3_pipeline_lock_activity,
+                        ReleaseV3LockActivityInputs(
+                            team_id=inputs.team_id,
+                            schema_id=inputs.external_data_schema_id,
+                            token=lock_token,
+                        ),
+                        start_to_close_timeout=dt.timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                except Exception:
+                    workflow.logger.warning(
+                        "Failed to release V3 pipeline lock in workflow finally block",
+                        extra={"schema_id": str(inputs.external_data_schema_id)},
+                    )
+
             # Post-import must start after the COMPLETED write above: its resolve activity
             # skips every step for a non-completed job. Excluded paths keep their pre-fork
             # behavior — externally managed schemas (skip_post_import_activities) and
@@ -895,25 +918,4 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     workflow.logger.info(
                         "Post-import workflow already started for job, skipping",
                         extra={"job_id": update_inputs.job_id},
-                    )
-
-            # Release the V3 pipeline lock when the consumer is NOT managing job
-            # status (extraction failed before producing batches, or non-V3).
-            # When consumer_manages_job_status is True, the consumer releases.
-            if is_v3 and lock_token and not consumer_manages_job_status:
-                try:
-                    await workflow.execute_activity(
-                        release_v3_pipeline_lock_activity,
-                        ReleaseV3LockActivityInputs(
-                            team_id=inputs.team_id,
-                            schema_id=inputs.external_data_schema_id,
-                            token=lock_token,
-                        ),
-                        start_to_close_timeout=dt.timedelta(minutes=1),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
-                except Exception:
-                    workflow.logger.warning(
-                        "Failed to release V3 pipeline lock in workflow finally block",
-                        extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
