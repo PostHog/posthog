@@ -18,9 +18,6 @@ catalogs:
     '@earendil-works/pi-tui':
       specifier: 0.82.1
       version: 0.82.1
-    '@hono/node-server':
-      specifier: ^1.13.7
-      version: 1.19.9
     '@hono/trpc-server':
       specifier: ^0.3.4
       version: 0.3.4
@@ -96,6 +93,10 @@ overrides:
   '@xmldom/xmldom': 0.8.13
   node-forge: 1.4.0
   simple-git: 3.32.3
+  drizzle-orm: 0.45.2
+  fast-uri: 3.1.4
+  '@hono/node-server': 1.19.13
+  lodash: 4.18.0
 
 patchedDependencies:
   node-pty:
@@ -254,7 +255,7 @@ importers:
         specifier: ^17.4.2
         version: 17.4.2
       drizzle-orm:
-        specifier: ^0.45.2
+        specifier: 0.45.2
         version: 0.45.2(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.10.1)(bun-types@1.3.14)
       electron-log:
         specifier: ^5.4.4
@@ -788,8 +789,8 @@ importers:
         specifier: 'catalog:'
         version: 0.82.1(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(ws@8.21.1)(zod@4.4.3)
       '@hono/node-server':
-        specifier: ^1.19.9
-        version: 1.19.9(hono@4.12.28)
+        specifier: 1.19.13
+        version: 1.19.13(hono@4.12.28)
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -1595,8 +1596,8 @@ importers:
         specifier: 0.3.156
         version: 0.3.156(@anthropic-ai/sdk@0.109.0(zod@4.4.3))(@modelcontextprotocol/sdk@1.29.0(zod@4.4.3))(zod@4.4.3)
       '@hono/node-server':
-        specifier: 'catalog:'
-        version: 1.19.9(hono@4.12.28)
+        specifier: 1.19.13
+        version: 1.19.13(hono@4.12.28)
       '@hono/trpc-server':
         specifier: 'catalog:'
         version: 0.3.4(@trpc/server@11.17.0(typescript@5.9.3))(hono@4.12.28)
@@ -1631,8 +1632,8 @@ importers:
         specifier: ^12.8.0
         version: 12.8.0
       drizzle-orm:
-        specifier: ^0.45.1
-        version: 0.45.1(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(bun-types@1.3.14)
+        specifier: 0.45.2
+        version: 0.45.2(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(bun-types@1.3.14)
       fflate:
         specifier: ^0.8.2
         version: 0.8.2
@@ -3653,8 +3654,8 @@ packages:
   '@hapi/topo@5.1.0':
     resolution: {integrity: sha512-foQZKJig7Ob0BMAYBfcJk8d77QtOe7Wo4ox7ff1lQYoNNAb6jwcY1ncdoy2e9wQZzvNy7ODZCYJkK8kzmcAnAg==}
 
-  '@hono/node-server@1.19.9':
-    resolution: {integrity: sha512-vHL6w3ecZsky+8P5MD+eFfaGTyCeOHUIFYMGpQGbrBTSmNNoxv0if69rEZ5giu36weC5saFuznL411gRX7bJDw==}
+  '@hono/node-server@1.19.13':
+    resolution: {integrity: sha512-TsQLe4i2gvoTtrHje625ngThGBySOgSK3Xo2XRYOdqGN1teR8+I7vchQC46uLJi8OF62YTYA3AhSpumtkhsaKQ==}
     engines: {node: '>=18.14.1'}
     peerDependencies:
       hono: 4.12.28
@@ -9660,98 +9661,6 @@ packages:
     resolution: {integrity: sha512-GViD3IgsXn7trFyBUUHyTFBpH/FsHTxYJ66qdbVggxef4UBPHRYxQaRzYLTuekYnk9i5FIEL9pbBIwMqX/Uwrg==}
     hasBin: true
 
-  drizzle-orm@0.45.1:
-    resolution: {integrity: sha512-Te0FOdKIistGNPMq2jscdqngBRfBpC8uMFVwqjf6gtTVJHIQ/dosgV/CLBU2N4ZJBsXL5savCba9b0YJskKdcA==}
-    peerDependencies:
-      '@aws-sdk/client-rds-data': '>=3'
-      '@cloudflare/workers-types': '>=4'
-      '@electric-sql/pglite': '>=0.2.0'
-      '@libsql/client': '>=0.10.0'
-      '@libsql/client-wasm': '>=0.10.0'
-      '@neondatabase/serverless': '>=0.10.0'
-      '@op-engineering/op-sqlite': '>=2'
-      '@opentelemetry/api': ^1.4.1
-      '@planetscale/database': '>=1.13'
-      '@prisma/client': '*'
-      '@tidbcloud/serverless': '*'
-      '@types/better-sqlite3': '*'
-      '@types/pg': '*'
-      '@types/sql.js': '*'
-      '@upstash/redis': '>=1.34.7'
-      '@vercel/postgres': '>=0.8.0'
-      '@xata.io/client': '*'
-      better-sqlite3: '>=7'
-      bun-types: '*'
-      expo-sqlite: '>=14.0.0'
-      gel: '>=2'
-      knex: '*'
-      kysely: '*'
-      mysql2: '>=2'
-      pg: '>=8'
-      postgres: '>=3'
-      prisma: '*'
-      sql.js: '>=1'
-      sqlite3: '>=5'
-    peerDependenciesMeta:
-      '@aws-sdk/client-rds-data':
-        optional: true
-      '@cloudflare/workers-types':
-        optional: true
-      '@electric-sql/pglite':
-        optional: true
-      '@libsql/client':
-        optional: true
-      '@libsql/client-wasm':
-        optional: true
-      '@neondatabase/serverless':
-        optional: true
-      '@op-engineering/op-sqlite':
-        optional: true
-      '@opentelemetry/api':
-        optional: true
-      '@planetscale/database':
-        optional: true
-      '@prisma/client':
-        optional: true
-      '@tidbcloud/serverless':
-        optional: true
-      '@types/better-sqlite3':
-        optional: true
-      '@types/pg':
-        optional: true
-      '@types/sql.js':
-        optional: true
-      '@upstash/redis':
-        optional: true
-      '@vercel/postgres':
-        optional: true
-      '@xata.io/client':
-        optional: true
-      better-sqlite3:
-        optional: true
-      bun-types:
-        optional: true
-      expo-sqlite:
-        optional: true
-      gel:
-        optional: true
-      knex:
-        optional: true
-      kysely:
-        optional: true
-      mysql2:
-        optional: true
-      pg:
-        optional: true
-      postgres:
-        optional: true
-      prisma:
-        optional: true
-      sql.js:
-        optional: true
-      sqlite3:
-        optional: true
-
   drizzle-orm@0.45.2:
     resolution: {integrity: sha512-kY0BSaTNYWnoDMVoyY8uxmyHjpJW1geOmBMdSSicKo9CIIWkSxMIj2rkeSR51b8KAPB7m+qysjuHme5nKP+E5Q==}
     peerDependencies:
@@ -10535,8 +10444,8 @@ packages:
   fast-sha256@1.3.0:
     resolution: {integrity: sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ==}
 
-  fast-uri@3.1.0:
-    resolution: {integrity: sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA==}
+  fast-uri@3.1.4:
+    resolution: {integrity: sha512-8JnbkQ4juDyvYs4mgFGQqg4yCYtFDtUtmp2QIQq11ZZe5CFQ5wcqm1rqDgAh/QdMySuBnPzMUiJUNZG5N/AiQw==}
 
   fastq@1.20.1:
     resolution: {integrity: sha512-GGToxJ/w1x32s/D2EKND7kTil4n8OVk/9mycTc4VDza13lOvpUZTGX3mFSCtV9ksdGBVzvsyAVLM6mHFThxXxw==}
@@ -12025,8 +11934,9 @@ packages:
   lodash.throttle@4.1.1:
     resolution: {integrity: sha512-wIkUCfVKpVsWo3JSZlc+8MB5it+2AN5W8J7YVMST30UrvcQNZ1Okbj+rbVniijTWE6FGYy4XJq/rHkas8qJMLQ==}
 
-  lodash@4.17.23:
-    resolution: {integrity: sha512-LgVTMpQtIopCi79SJeDiP0TfWi5CNEc/L/aRdTh3yIvmZXTnheWpKjSZhnvMl8iXbC1tFg9gdHHDMLoV7CnG+w==}
+  lodash@4.18.0:
+    resolution: {integrity: sha512-l1mfj2atMqndAHI3ls7XqPxEjV2J9ZkcNyHpoZA3r2T1LLwDB69jgkMWh71YKwhBbK0G2f4WSn05ahmQXVxupA==}
+    deprecated: Bad release. Please use lodash@4.17.21 instead.
 
   log-symbols@2.2.0:
     resolution: {integrity: sha512-VeIAFslyIerEJLXHziedo2basKbMKtTw3vfn5IzG0XTjhAVEJyNHnL2p7vc+wBDSdQuUpNw3M2u6xb9QsAY5Eg==}
@@ -17929,7 +17839,7 @@ snapshots:
     dependencies:
       '@hapi/hoek': 9.3.0
 
-  '@hono/node-server@1.19.9(hono@4.12.28)':
+  '@hono/node-server@1.19.13(hono@4.12.28)':
     dependencies:
       hono: 4.12.28
 
@@ -18824,7 +18734,7 @@ snapshots:
     dependencies:
       debug: 4.4.3
       fs-extra: 9.1.0
-      lodash: 4.17.23
+      lodash: 4.18.0
       tmp-promise: 3.0.3
     transitivePeerDependencies:
       - supports-color
@@ -18905,7 +18815,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.9(hono@4.12.28)
+      '@hono/node-server': 1.19.13(hono@4.12.28)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -18927,7 +18837,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@4.4.3)':
     dependencies:
-      '@hono/node-server': 1.19.9(hono@4.12.28)
+      '@hono/node-server': 1.19.13(hono@4.12.28)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -19821,7 +19731,7 @@ snapshots:
   '@posthog/hedgehog-mode@0.0.53(prop-types@15.8.1)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)':
     dependencies:
       gsap: 3.14.2
-      lodash: 4.17.23
+      lodash: 4.18.0
       matter-js: 0.20.0
       pixi.js: 8.16.0
       react: 19.2.6
@@ -20841,9 +20751,7 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 
@@ -22867,7 +22775,7 @@ snapshots:
   ajv@8.20.0:
     dependencies:
       fast-deep-equal: 3.1.3
-      fast-uri: 3.1.0
+      fast-uri: 3.1.4
       json-schema-traverse: 1.0.0
       require-from-string: 2.0.2
 
@@ -24084,18 +23992,18 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  drizzle-orm@0.45.1(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(bun-types@1.3.14):
-    optionalDependencies:
-      '@opentelemetry/api': 1.9.1
-      '@types/better-sqlite3': 7.6.13
-      better-sqlite3: 12.8.0
-      bun-types: 1.3.14
-
   drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.10.1)(bun-types@1.3.14):
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/better-sqlite3': 7.6.13
       better-sqlite3: 12.10.1
+      bun-types: 1.3.14
+
+  drizzle-orm@0.45.2(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.8.0)(bun-types@1.3.14):
+    optionalDependencies:
+      '@opentelemetry/api': 1.9.1
+      '@types/better-sqlite3': 7.6.13
+      better-sqlite3: 12.8.0
       bun-types: 1.3.14
 
   dunder-proto@1.0.1:
@@ -24209,7 +24117,7 @@ snapshots:
       '@electron/asar': 3.4.1
       debug: 4.4.3
       fs-extra: 7.0.1
-      lodash: 4.17.23
+      lodash: 4.18.0
       temp: 0.9.4
     optionalDependencies:
       '@electron/windows-sign': 1.2.2
@@ -25038,7 +24946,7 @@ snapshots:
 
   fast-sha256@1.3.0: {}
 
-  fast-uri@3.1.0: {}
+  fast-uri@3.1.4: {}
 
   fastq@1.20.1:
     dependencies:
@@ -26254,7 +26162,7 @@ snapshots:
       chalk: 4.1.2
       get-stdin: 5.0.1
       glur: 1.1.2
-      lodash: 4.17.23
+      lodash: 4.18.0
       pixelmatch: 5.3.0
       pngjs: 3.4.0
       ssim.js: 3.5.0
@@ -26905,7 +26813,7 @@ snapshots:
 
   lodash.throttle@4.1.1: {}
 
-  lodash@4.17.23: {}
+  lodash@4.18.0: {}
 
   log-symbols@2.2.0:
     dependencies:
@@ -31294,7 +31202,7 @@ snapshots:
     dependencies:
       axios: 1.18.1
       joi: 17.13.4
-      lodash: 4.17.23
+      lodash: 4.18.0
       minimist: 1.2.8
       rxjs: 7.8.2
     transitivePeerDependencies:

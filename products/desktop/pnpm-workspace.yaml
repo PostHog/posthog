@@ -115,6 +115,11 @@ overrides:
   '@xmldom/xmldom': 0.8.13
   node-forge: 1.4.0
   simple-git: 3.32.3
+  # Additional HIGH transitive fixes (low-risk patch/minor bumps within range).
+  drizzle-orm: 0.45.2
+  fast-uri: 3.1.4
+  '@hono/node-server': 1.19.13
+  lodash: 4.18.0
 
 onlyBuiltDependencies:
   - '@parcel/watcher'

@@ -233,7 +233,7 @@ ports from source using these rules.
 - **Dependency CVEs (local patch, reapply on resync until the pin includes the upstream
   fix)**: `pnpm-workspace.yaml` overrides pin advisory-flagged packages to patched,
   age-compliant versions (protobufjs 7.6.5, axios 1.18.1, hono 4.12.28, @xmldom/xmldom
-  0.8.13, node-forge 1.4.0, simple-git 3.32.3), plus direct floors `simple-git ^3.32.3`
+  0.8.13, node-forge 1.4.0, simple-git 3.32.3, drizzle-orm 0.45.2, fast-uri 3.1.4, @hono/node-server 1.19.13, lodash 4.18.0), plus direct floors `simple-git ^3.32.3`
   and `tar ^7.5.19`; the lockfile is regenerated to match. This mirrors PostHog/code
   hardening PR #4030. To regenerate under the 7-day `minimumReleaseAge`, temporarily add
   `@expo-google-fonts/material-symbols` to `minimumReleaseAgeExclude` (an already-committed
