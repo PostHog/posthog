@@ -177,9 +177,8 @@ fn setup_ai_test_router() -> Router {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -1644,9 +1643,8 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -2562,10 +2560,9 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,
         quota_limiter,
         token_dropper,
-        None,  // event_restriction_service
-        false, // metrics
+        None, // event_restriction_service
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,                             // concurrency_limit
         25 * 1024 * 1024,                 // event_size_limit
         false,                            // enable_historical_rerouting
@@ -2777,9 +2774,8 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -2936,9 +2932,8 @@ fn setup_ai_test_router_with_overflow_limiter(
         quota_limiter,
         TokenDropper::default(),
         None, // event_restriction_service
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,
@@ -3079,9 +3074,8 @@ fn ai_router(
         quota_limiter,
         TokenDropper::default(),
         None,
-        false,
+        None, // recorder_handle
         CaptureMode::Events,
-        String::from("capture-ai"),
         None,
         25 * 1024 * 1024,
         false,

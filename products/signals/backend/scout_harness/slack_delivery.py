@@ -6,6 +6,7 @@ from urllib.parse import quote
 
 from django.conf import settings
 
+import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.integration import Integration, SlackIntegration
@@ -18,6 +19,8 @@ from products.signals.backend.slack_formatting import (
     strip_chart_references,
     truncate_slack_section,
 )
+
+logger = structlog.get_logger(__name__)
 
 _PERMANENT_SLACK_ERROR_CODES = frozenset(
     {
@@ -36,6 +39,9 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
 )
 
 ScoutSlackOutputType = Literal["finding", "report"]
+
+# Posted as an in-thread reply under every scout Slack message, inviting @PostHog follow-ups.
+_SCOUT_SLACK_REPLY_TEXT = "💬 If you have questions, reply in this thread and mention *`@PostHog`*!"
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,44 @@ def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestin
 def slack_api_error_code(exc: SlackApiError) -> str | None:
     error_code = exc.response.get("error") if exc.response else None
     return error_code if isinstance(error_code, str) else None
+
+
+def _post_scout_slack_reply(
+    client: object,
+    *,
+    channel_id: str,
+    thread_ts: object,
+    scout_team_id: int,
+    integration_team_id: int,
+) -> None:
+    """Invite @PostHog follow-ups when the Slack connection uses the scout's environment.
+
+    Best-effort and non-blocking: the scout message itself has already been delivered, so a failed
+    or missing follow-up never fails the delivery (and so never re-posts the parent on retry).
+    """
+    if integration_team_id != scout_team_id:
+        logger.info(
+            "scout_slack_followup_reply_skipped_environment_mismatch",
+            scout_team_id=scout_team_id,
+            integration_team_id=integration_team_id,
+            channel=channel_id,
+        )
+        return
+    if not isinstance(thread_ts, str) or not thread_ts:
+        return
+    try:
+        client.chat_postMessage(  # type: ignore[attr-defined]
+            channel=channel_id,
+            thread_ts=thread_ts,
+            blocks=[{"type": "context", "elements": [{"type": "mrkdwn", "text": _SCOUT_SLACK_REPLY_TEXT}]}],
+            text=_SCOUT_SLACK_REPLY_TEXT,
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+    except Exception:
+        # Swallow everything (not just SlackApiError): a transport-level failure here must never
+        # fail the task and retry the already-delivered parent message.
+        logger.warning("scout_slack_followup_reply_failed", channel=channel_id, exc_info=True)
 
 
 def _prettify_scout_name(skill_name: str) -> str:
@@ -159,8 +203,9 @@ def post_scout_emission_to_slack(
     channel_id = _slack_channel_id(channel)
 
     blocks, fallback = build_scout_slack_message(emission)
+    client = SlackIntegration(integration).client
     try:
-        SlackIntegration(integration).client.chat_postMessage(
+        response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
@@ -176,6 +221,14 @@ def post_scout_emission_to_slack(
                 error_code=error_code,
             ) from exc
         raise
+
+    _post_scout_slack_reply(
+        client,
+        channel_id=channel_id,
+        thread_ts=response.get("ts"),
+        scout_team_id=emission.team_id,
+        integration_team_id=integration.team_id,
+    )
 
 
 def build_scout_report_slack_message(report: SignalReport, run: SignalScoutRun) -> tuple[list[dict], str]:
@@ -232,8 +285,9 @@ def post_scout_report_to_slack(
     )
     channel_id = _slack_channel_id(channel)
     blocks, fallback = build_scout_report_slack_message(report, run)
+    client = SlackIntegration(integration).client
     try:
-        SlackIntegration(integration).client.chat_postMessage(
+        response = client.chat_postMessage(
             channel=channel_id,
             blocks=blocks,
             text=fallback,
@@ -249,3 +303,11 @@ def post_scout_report_to_slack(
                 error_code=error_code,
             ) from exc
         raise
+
+    _post_scout_slack_reply(
+        client,
+        channel_id=channel_id,
+        thread_ts=response.get("ts"),
+        scout_team_id=run.team_id,
+        integration_team_id=integration.team_id,
+    )

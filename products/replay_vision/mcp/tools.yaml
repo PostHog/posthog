@@ -113,8 +113,8 @@ tools:
             Set or update the shared thumbs up/down rating on a replay scanner observation: `is_correct` true means the
             scanner got the session right (thumbs up), false means it got it wrong (thumbs down), plus optional written
             `feedback` explaining why (applies to both directions). One shared rating per observation, team-wide, last
-            write wins; re-posting updates it in place. These ratings power the scanner's Quality tab: the
-            quality-over-time chart and the AI prompt recommendations (see
+            write wins; re-posting updates it in place. These ratings power the scanner's calibration tab: the
+            ratings-over-time chart and the AI prompt recommendations (see
             `vision-scanners-prompt-suggestions-generate`). Find observation IDs via `vision-scanners-observations-list`
             (filter `labeled=false` for unrated ones) or `vision-observations-list` for a session.
         feature_flag: replay-vision

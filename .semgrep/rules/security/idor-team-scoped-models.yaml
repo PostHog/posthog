@@ -56,6 +56,7 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipDefinition
                               |Action
@@ -290,6 +291,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -379,6 +381,7 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipDefinition
                         |Action
@@ -607,6 +610,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -900,6 +904,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |TaskPin
                               |UserPushToken
                               |WebauthnCredential
                           )$
@@ -954,6 +959,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |TaskPin
                         |UserPushToken
                         |WebauthnCredential
                     )$

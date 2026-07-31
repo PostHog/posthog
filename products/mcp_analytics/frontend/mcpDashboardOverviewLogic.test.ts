@@ -453,6 +453,22 @@ describe('mcpDashboardOverviewLogic', () => {
             })
         })
 
+        // A bare dateTrunc returns a typed DateTime that the query API stamps with the project's UTC
+        // offset, which the client reads back as an instant and converts, shifting the bucket away
+        // from the wall-clock keys it joins and compares against (an empty activity chart and a
+        // skewed KPI split on any non-UTC project). Pins the toString on all three bucketed queries.
+        it('renders every bucketed query with a stringified dateTrunc', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const bucketed = mockApi.query.mock.calls
+                .map((call) => (call[0] as any).query)
+                .filter((query: string | undefined): query is string => !!query?.includes('dateTrunc('))
+            expect(bucketed).toHaveLength(3)
+            expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
+        })
+
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
             logic.mount()

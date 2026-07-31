@@ -24,6 +24,7 @@ from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.api.embedding_worker import EmbeddingResponse
 
 from products.mcp_analytics.backend import intent_clustering
+from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
     EMBEDDING_MODEL,
@@ -239,6 +240,25 @@ class TestBuildSnapshot:
         records = [IntentRecord(intent_text="a", frequency=1, tool_counts={"tool_a": 1})]
         with pytest.raises(AssertionError):
             build_snapshot(records, np.array([0, 0], dtype=np.int64), np.array([_unit([1.0, 0.0])]))
+
+    def test_caps_stored_clusters_and_keeps_the_full_count_in_meta(self) -> None:
+        # A degenerate run (tight threshold, diverse corpus) can label almost every
+        # intent as its own cluster; without the cap the persisted blob and the
+        # unpaginated API response grow unbounded.
+        n_total = MAX_SNAPSHOT_CLUSTERS + 5
+        records = [
+            IntentRecord(intent_text=f"intent_{i}", frequency=i + 1, tool_counts={"tool_a": i + 1})
+            for i in range(n_total)
+        ]
+        labels = np.arange(n_total, dtype=np.int64)
+        embeddings = np.array([_unit([1.0, float(i + 1)]) for i in range(n_total)], dtype=np.float32)
+
+        snapshot = build_snapshot(records, labels, embeddings)
+
+        assert len(snapshot["clusters"]) == MAX_SNAPSHOT_CLUSTERS
+        assert snapshot["computed_with"]["n_clusters"] == n_total
+        # The highest-volume clusters are the ones kept (call counts 1..n_total; the 5 smallest drop).
+        assert min(cluster["call_count"] for cluster in snapshot["clusters"]) == 6
 
 
 # fetch_intent_corpus -----------------------------------------------------

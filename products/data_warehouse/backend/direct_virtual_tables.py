@@ -227,6 +227,9 @@ def build_direct_table_for_schema(schema: "ExternalDataSchema", source: "Externa
             clickhouse_table_name=table_name,
             external_data_source_id=str(source.id),
             connection_metadata=source.connection_metadata,
+            # No column-picker restriction → these fields are the complete physical schema, so a
+            # `SELECT *` can pass through to the server literally.
+            has_complete_columns=schema.enabled_columns is None,
         )
 
     return None

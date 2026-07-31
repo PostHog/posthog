@@ -7,7 +7,7 @@ outbound call to attach `team_id`, `source_type`, `external_data_schema_id`,
 sample-capture decisions.
 
 Stored in a `contextvars.ContextVar` so it propagates across the source
-generator's thread-pool boundary — see `pipelines/pipeline/pipeline.py`'s
+generator's thread-pool boundary — see `pipelines/core/async_iterate.py`'s
 `copy_context()` snapshot, which already preserves contextvars when calls
 hop into the executor.
 

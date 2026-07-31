@@ -300,6 +300,10 @@ pub fn build_client(config: &Config) -> Result<clickhouse::Client, ClickHouseCli
             "max_bytes_before_external_sort",
             config.seeder_ch_max_bytes_before_external_sort.to_string(),
         )
+        .with_option(
+            "max_bytes_in_set",
+            config.seeder_ch_max_bytes_in_set.to_string(),
+        )
         .with_option("join_algorithm", join_algorithm.as_str()))
 }
 

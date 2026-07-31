@@ -3788,6 +3788,96 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         assert dwh_arms[0].select_from is not None
         self.assertIsNone(dwh_arms[0].select_from.sample)
 
+    @staticmethod
+    def _where_event_name_filters(expr: Optional[ast.Expr]) -> list[list[str]]:
+        """All `event IN (...)` name tuples anywhere under the expression, in traversal order."""
+        if expr is None:
+            return []
+        if (
+            isinstance(expr, ast.CompareOperation)
+            and expr.op == ast.CompareOperationOp.In
+            and isinstance(expr.left, ast.Field)
+            and expr.left.chain == ["event"]
+            and isinstance(expr.right, ast.Tuple)
+        ):
+            return [[e.value for e in expr.right.exprs if isinstance(e, ast.Constant)]]
+        if isinstance(expr, ast.And | ast.Or):
+            return [names for child in expr.exprs for names in TestRetention._where_event_name_filters(child)]
+        return []
+
+    @staticmethod
+    def _has_timestamp_bound(expr: Optional[ast.Expr]) -> bool:
+        if expr is None:
+            return False
+        if isinstance(expr, ast.CompareOperation) and isinstance(expr.left, ast.Field):
+            return expr.left.chain[-1] == "timestamp"
+        if isinstance(expr, ast.And | ast.Or):
+            return any(TestRetention._has_timestamp_bound(child) for child in expr.exprs)
+        return False
+
+    def test_dwh_variant_property_aggregation_arms_scan_only_their_own_entity(self):
+        # Each events arm of the UNION must narrow its WHERE to its own entity. With the combined
+        # filter on both arms, a SUM/AVG retention insight scans the whole filtered event set twice,
+        # which doubles the read bytes and adds enough GROUP BY state to OOM on large teams.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={
+                "totalIntervals": 11,
+                "targetEntity": {"id": "purchase", "type": "events"},
+                "returningEntity": {"id": "$pageview", "type": "events"},
+                "aggregationType": "sum",
+                "aggregationProperty": "amount",
+            },
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        union = base_query.select_from.table
+        assert isinstance(union, ast.SelectSetQuery)
+        arm_name_filters = [
+            self._where_event_name_filters(arm.where)
+            for arm in union.select_queries()
+            if isinstance(arm, ast.SelectQuery)
+        ]
+        self.assertEqual(arm_name_filters, [[["purchase"]], [["$pageview"]]])
+
+    def test_dwh_variant_first_time_breakdown_single_scan_bounds_return_side_to_window(self):
+        # Breakdowns read event properties in the outer query, so they can't ride the tag-arm
+        # two-arm scan and stay on the single scan. Its WHERE must still split per role (start
+        # entity unbounded for the cohorting anchor, return entity bounded to the query window);
+        # a flat unbounded filter reads the return entity's entire history, which hits the
+        # read-bytes cap or an OOM for high-volume return events.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            breakdownFilter={"breakdowns": [{"type": "event", "property": "$browser"}]},
+            retentionFilter={
+                "totalIntervals": 11,
+                "retentionType": "retention_first_time",
+                "targetEntity": {"id": "signed_up", "type": "events"},
+                "returningEntity": {"id": "$pageview", "type": "events"},
+            },
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        assert isinstance(base_query.select_from.table, ast.Field)
+        self.assertEqual(base_query.select_from.table.chain, ["events"])
+
+        where = base_query.where
+        assert isinstance(where, ast.And)
+        role_split = next(expr for expr in where.exprs if isinstance(expr, ast.Or))
+        start_branch, return_branch = role_split.exprs
+        self.assertEqual(self._where_event_name_filters(start_branch), [["signed_up"]])
+        self.assertFalse(self._has_timestamp_bound(start_branch))
+        self.assertEqual(self._where_event_name_filters(return_branch), [["$pageview"]])
+        self.assertTrue(self._has_timestamp_bound(return_branch))
+
     def _create_sampling_parity_fixtures(self):
         for i in range(20):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
@@ -8134,8 +8224,10 @@ class TestClickhouseRetentionGroupAggregation(
     #     self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values)  # Canada should be in "Other"
 
 
-class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
-    def _legacy_base_query(
+class TestRetentionFirstTimeTwoArmScan(APIBaseTest):
+    # The two-arm scan is shared machinery: both the legacy path and the DWH variant must produce
+    # it for the gated first-time shapes, so every structural assertion runs against both paths.
+    def _base_query(
         self,
         retention_type: str,
         target: dict | None = None,
@@ -8143,6 +8235,7 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
         breakdown_filter: dict | None = None,
         aggregation_property: str | None = None,
         aggregation_group_type_index: int | None = None,
+        use_dwh_variant: bool = False,
     ) -> ast.SelectQuery:
         query: dict = {
             "kind": "RetentionQuery",
@@ -8160,7 +8253,7 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
         if aggregation_group_type_index is not None:
             query["aggregation_group_type_index"] = aggregation_group_type_index
         runner = RetentionQueryRunner(team=self.team, query=query)
-        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=False):
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=use_dwh_variant):
             return RetentionFixedIntervalBaseQueryBuilder(runner).build_base_query()
 
     @staticmethod
@@ -8199,9 +8292,16 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
         walk(arm.where)
         return found
 
-    @parameterized.expand(["retention_first_time", "retention_first_ever_occurrence"])
-    def test_first_time_modes_scan_two_arms_with_bounded_return_arm(self, retention_type):
-        base_query = self._legacy_base_query(retention_type)
+    @parameterized.expand(
+        [
+            ("legacy_first_time", "retention_first_time", False),
+            ("legacy_first_ever", "retention_first_ever_occurrence", False),
+            ("variant_first_time", "retention_first_time", True),
+            ("variant_first_ever", "retention_first_ever_occurrence", True),
+        ]
+    )
+    def test_first_time_modes_scan_two_arms_with_bounded_return_arm(self, _name, retention_type, use_dwh_variant):
+        base_query = self._base_query(retention_type, use_dwh_variant=use_dwh_variant)
         assert base_query.select_from is not None
         self.assertEqual(base_query.select_from.alias, "events")
         table = base_query.select_from.table
@@ -8218,9 +8318,28 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
         self.assertFalse(self._where_has_timestamp_bound(start_arm))
         self.assertTrue(self._where_has_timestamp_bound(return_arm))
 
+    @parameterized.expand([("legacy", False), ("variant", True)])
+    def test_first_time_all_events_return_bounds_return_arm_to_window(self, _name, use_dwh_variant):
+        # The gate only needs concrete START event names, so an all-events return entity still
+        # two-arms: its arm has no name filter but must carry the window bound. Without the split
+        # this shape scans the team's entire event history (the biggest first-time over-read).
+        base_query = self._base_query(
+            "retention_first_time", returning={"id": None, "type": "events"}, use_dwh_variant=use_dwh_variant
+        )
+        assert base_query.select_from is not None
+        table = base_query.select_from.table
+        self.assertIsInstance(table, ast.SelectSetQuery)
+        start_arm, return_arm = list(table.select_queries())  # type: ignore[union-attr]
+
+        self.assertIn("signup", self._where_constants(start_arm))
+        self.assertFalse(self._where_has_timestamp_bound(start_arm))
+        self.assertNotIn("signup", self._where_constants(return_arm))
+        self.assertTrue(self._where_has_timestamp_bound(return_arm))
+
     @parameterized.expand(
         [
-            ("recurring", "retention_recurring", None, None, None, None),
+            ("recurring", "retention_recurring", None, None, None, None, False),
+            ("recurring_variant", "retention_recurring", None, None, None, None, True),
             (
                 "same_entity",
                 "retention_first_time",
@@ -8228,8 +8347,27 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
                 {"id": "signup", "type": "events"},
                 None,
                 None,
+                False,
             ),
-            ("all_events_target", "retention_first_time", {"id": None, "type": "events"}, None, None, None),
+            (
+                "same_entity_variant",
+                "retention_first_time",
+                {"id": "signup", "type": "events"},
+                {"id": "signup", "type": "events"},
+                None,
+                None,
+                True,
+            ),
+            ("all_events_target", "retention_first_time", {"id": None, "type": "events"}, None, None, None, False),
+            (
+                "all_events_target_variant",
+                "retention_first_time",
+                {"id": None, "type": "events"},
+                None,
+                None,
+                None,
+                True,
+            ),
             (
                 "breakdown",
                 "retention_first_time",
@@ -8237,25 +8375,41 @@ class TestRetentionLegacyFirstTimeTwoArmScan(APIBaseTest):
                 None,
                 {"breakdowns": [{"type": "event", "property": "plan"}]},
                 None,
+                False,
             ),
-            ("property_aggregation", "retention_first_time", None, None, None, "revenue"),
+            (
+                "breakdown_variant",
+                "retention_first_time",
+                None,
+                None,
+                {"breakdowns": [{"type": "event", "property": "plan"}]},
+                None,
+                True,
+            ),
+            # Variant property aggregation is the per-entity UNION, not a single scan, so it has no
+            # variant row here; its arm scoping is asserted in TestRetention.
+            ("property_aggregation", "retention_first_time", None, None, None, "revenue", False),
         ]
     )
     def test_keeps_single_scan_when_split_cannot_apply(
-        self, _name, retention_type, target, returning, breakdown_filter, aggregation_property
+        self, _name, retention_type, target, returning, breakdown_filter, aggregation_property, use_dwh_variant
     ):
-        base_query = self._legacy_base_query(
+        base_query = self._base_query(
             retention_type,
             target=target,
             returning=returning,
             breakdown_filter=breakdown_filter,
             aggregation_property=aggregation_property,
+            use_dwh_variant=use_dwh_variant,
         )
         assert base_query.select_from is not None
         self.assertIsInstance(base_query.select_from.table, ast.Field)
 
-    def test_first_time_group_aggregation_filters_both_arms(self):
-        base_query = self._legacy_base_query("retention_first_time", aggregation_group_type_index=0)
+    @parameterized.expand([("legacy", False), ("variant", True)])
+    def test_first_time_group_aggregation_filters_both_arms(self, _name, use_dwh_variant):
+        base_query = self._base_query(
+            "retention_first_time", aggregation_group_type_index=0, use_dwh_variant=use_dwh_variant
+        )
         assert base_query.select_from is not None
         table = base_query.select_from.table
         self.assertIsInstance(table, ast.SelectSetQuery)

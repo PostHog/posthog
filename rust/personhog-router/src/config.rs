@@ -197,6 +197,18 @@ pub struct Config {
     #[envconfig(default = "12")]
     pub router_reconcile_failure_budget: u32,
 
+    /// How many consecutive coordination-attempt failures the routing
+    /// table's run supervisor tolerates (rebuilding coordination in
+    /// place while the data plane keeps serving) before giving up and
+    /// letting the process restart. A healthy attempt resets the count.
+    #[envconfig(default = "10")]
+    pub router_run_retry_budget: u32,
+
+    /// Base backoff in milliseconds between coordination attempts;
+    /// doubles per consecutive failure up to a fixed cap.
+    #[envconfig(default = "500")]
+    pub router_run_retry_backoff_ms: u64,
+
     /// How long a handoff may sit in Warming before the coordinator
     /// cancels it by replacement. Warming replays the partition's
     /// changelog, so its budget is far above the general handoff

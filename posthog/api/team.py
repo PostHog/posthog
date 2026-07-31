@@ -19,6 +19,7 @@ from pydantic import (
     RootModel as PydanticRootModel,
     TypeAdapter,
 )
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_core import ValidationError as PydanticValidationError
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -26,10 +27,16 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 from posthog.schema import (
     AttributionMode,
     CampaignFieldPreference,
+    CohortPropertyFilter,
     ConversionGoalFilter1,
     ConversionGoalFilter2,
     ConversionGoalFilter3,
+    DataWarehousePropertyFilter,
+    ElementPropertyFilter,
+    EventPropertyFilter,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
+    PersonPropertyFilter,
     SourceMap,
 )
 
@@ -433,10 +440,67 @@ class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcce
         return internal_value
 
 
-class MarketingAnalyticsConversionGoalList(PydanticRootModel):
-    """List wrapper for OpenAPI schema generation - the field stores an array of conversion goals."""
+# The filters a conversion goal can carry, rather than every filter HogQL knows about. The goal
+# runtime resolves these through `property_to_expr` with an event scope, where `revenue_analytics`
+# and `account_custom_property` raise and `metric_attribute` is unimplemented, and the goal editor
+# only offers these six. Narrowing here follows `WebAnalyticsPropertyFilter`.
+MarketingAnalyticsConversionGoalPropertyFilter = (
+    EventPropertyFilter
+    | PersonPropertyFilter
+    | CohortPropertyFilter
+    | ElementPropertyFilter
+    | HogQLPropertyFilter
+    | DataWarehousePropertyFilter
+)
 
-    root: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
+
+# Subclassing the canonical goal schemas rather than redeclaring their ~25 fields keeps this write
+# surface from drifting when the query schema changes. The cost is that narrowing a field's type in
+# a subclass is not assignment-compatible, hence the ignores below: each one marks a deliberate
+# divergence from the query schema, not an oversight.
+#
+# `fixedProperties` stays accepted but leaves the documented schema: nothing in the marketing
+# analytics runtime reads it, and advertising it costs a third of this field's generated schema.
+class MarketingAnalyticsEventConversionGoal(ConversionGoalFilter1):
+    """A conversion goal counted from events."""
+
+    # `validate_conversion_goals` rejects a goal without a string name or an explicit kind, so the
+    # documented schema has to require both. `conversion_goal_id` is server-assigned on create.
+    kind: Literal["EventsNode"]
+    name: str
+    conversion_goal_id: str | None = None  # type: ignore[assignment]
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsActionConversionGoal(ConversionGoalFilter2):
+    """A conversion goal counted from an action."""
+
+    kind: Literal["ActionsNode"]
+    name: str
+    conversion_goal_id: str | None = None  # type: ignore[assignment]
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsWarehouseConversionGoal(ConversionGoalFilter3):
+    """A conversion goal counted from a data warehouse table."""
+
+    kind: Literal["DataWarehouseNode"]
+    name: str
+    conversion_goal_id: str | None = None  # type: ignore[assignment]
+    properties: list[MarketingAnalyticsConversionGoalPropertyFilter] | None = None  # type: ignore[assignment]
+    fixedProperties: SkipJsonSchema[list[MarketingAnalyticsConversionGoalPropertyFilter] | None] = None  # type: ignore[assignment]
+
+
+class MarketingAnalyticsConversionGoalList(PydanticRootModel):
+    """The conversion goals configured for marketing analytics, in display order."""
+
+    root: list[
+        MarketingAnalyticsEventConversionGoal
+        | MarketingAnalyticsActionConversionGoal
+        | MarketingAnalyticsWarehouseConversionGoal
+    ]
 
 
 class MarketingAnalyticsSourceMapping(PydanticRootModel):
