@@ -196,6 +196,7 @@ impl FencedChangelogProducers {
 
         // Join the open window, or open one. A window mid-commit admits
         // no joiners; wait for it to close and retry.
+        let join_start = Instant::now();
         let opened = loop {
             // Register interest before inspecting the gate: a close that
             // fires between the check and the await must not be lost.
@@ -224,6 +225,12 @@ impl FencedChangelogProducers {
             }
             closed.await;
         };
+        // Near-zero when a window was open or the producer idle; the tail
+        // is time parked behind a draining or committing window — the
+        // queueing term of the fencing tax, and the first thing to grow
+        // if commits slow down.
+        histogram!("personhog_leader_fence_window_wait_ms")
+            .record(join_start.elapsed().as_secs_f64() * 1000.0);
 
         if opened {
             let fence_for_commit = Arc::clone(&fence);
@@ -299,8 +306,14 @@ impl FencedChangelogProducers {
         }
 
         // The record exists but is invisible until the window commits;
-        // the ack must wait for the commit outcome.
-        match rx.await {
+        // the ack must wait for the commit outcome. Together with the
+        // window-wait and send spans this completes the caller-visible
+        // decomposition of a fenced produce.
+        let ack_wait_start = Instant::now();
+        let outcome = rx.await;
+        histogram!("personhog_leader_fence_ack_wait_ms")
+            .record(ack_wait_start.elapsed().as_secs_f64() * 1000.0);
+        match outcome {
             Ok(Ok(())) => {
                 counter!("personhog_leader_kafka_produces_total").increment(1);
                 Ok(offset)
@@ -462,6 +475,24 @@ async fn commit_window_after(
     }
     fence.gate.lock().await.committing = false;
     fence.window_closed.notify_waiters();
+}
+
+/// Materialize every fencing series at startup so deploy-window bursts
+/// land in an already-scraped series instead of being swallowed by
+/// first-increment lazy registration — fence acquisition in particular
+/// fires exactly during deploys. A touched histogram renders with zero
+/// count until its first sample.
+pub fn preregister_fencing_metrics() {
+    for outcome in ["ok", "error"] {
+        counter!("personhog_leader_fence_init_total", "outcome" => outcome).increment(0);
+    }
+    counter!("personhog_leader_fence_aborts_total").increment(0);
+    counter!("personhog_leader_produce_fenced_total").increment(0);
+    histogram!("personhog_leader_fence_init_ms");
+    histogram!("personhog_leader_fence_window_writes");
+    histogram!("personhog_leader_fence_commit_ms");
+    histogram!("personhog_leader_fence_window_wait_ms");
+    histogram!("personhog_leader_fence_ack_wait_ms");
 }
 
 /// `FencedProduceError` holds a String and cannot derive Clone cheaply

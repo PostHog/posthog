@@ -29,7 +29,7 @@ use metrics::{counter, gauge};
 use personhog_leader::cache::{DirtyIndex, PartitionedCache};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
-use personhog_leader::fencing::FencedChangelogProducers;
+use personhog_leader::fencing::{preregister_fencing_metrics, FencedChangelogProducers};
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
@@ -220,6 +220,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             window_ms = config.fencing_window_ms,
             "broker-enforced epoch fencing enabled for the changelog"
         );
+        preregister_fencing_metrics();
         Some(Arc::new(FencedChangelogProducers::new(
             config.kafka.clone(),
             config.kafka_person_state_topic.clone(),
