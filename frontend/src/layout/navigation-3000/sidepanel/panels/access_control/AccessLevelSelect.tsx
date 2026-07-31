@@ -19,6 +19,11 @@ export interface AccessLevelSelectProps {
      * rendered as `No override · <level>` with the reason in the tooltip and menu entry.
      */
     inherited?: InheritedAccess | null
+    /**
+     * Offer a plain "No override" option without annotating what applies instead — for levels
+     * where resolving the fallback isn't reliable yet.
+     */
+    allowNoOverride?: boolean
 }
 
 /** Access level dropdown where "no rule" is a real, selectable state that shows what it falls back to. */
@@ -85,7 +90,9 @@ export function AccessLevelSelect(props: AccessLevelSelectProps): JSX.Element {
                           },
                           { options: levelOptions },
                       ]
-                    : levelOptions
+                    : props.allowNoOverride
+                      ? [{ options: [{ value: null, label: 'No override' }] }, { options: levelOptions }]
+                      : levelOptions
             }
         />
     )
