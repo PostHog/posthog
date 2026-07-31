@@ -943,6 +943,7 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
 
 @extend_schema_view(
     list=extend_schema(
+        extensions={"x-product": "subscriptions"},
         parameters=[
             OpenApiParameter(
                 name="created_by",
@@ -997,6 +998,10 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
             ),
         ],
     ),
+    create=extend_schema(extensions={"x-product": "subscriptions"}),
+    retrieve=extend_schema(extensions={"x-product": "subscriptions"}),
+    partial_update=extend_schema(extensions={"x-product": "subscriptions"}),
+    destroy=extend_schema(extensions={"x-product": "subscriptions"}),
 )
 @extend_schema(tags=["subscriptions"], extensions={"x-product": "subscriptions"})
 class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
@@ -1134,6 +1139,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         return queryset
 
     @extend_schema(
+        extensions={"x-product": "subscriptions"},
         request=None,
         responses={
             200: OpenApiResponse(
@@ -1180,6 +1186,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         return Response(payload)
 
     @extend_schema(
+        extensions={"x-product": "subscriptions"},
         request=None,
         responses={202: OpenApiResponse(description="Test delivery workflow started")},
     )
@@ -1403,6 +1410,7 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
 
 @extend_schema_view(
     list=extend_schema(
+        extensions={"x-product": "subscriptions"},
         summary="List subscription deliveries",
         description="Paginated delivery history for a subscription. Requires premium subscriptions.",
         parameters=[
@@ -1418,12 +1426,13 @@ class SubscriptionDeliveryCursorPagination(CursorPagination):
         responses={200: OpenApiResponse(response=SubscriptionDeliverySerializer(many=True))},
     ),
     retrieve=extend_schema(
+        extensions={"x-product": "subscriptions"},
         summary="Retrieve subscription delivery",
         description="Fetch one delivery row by id.",
         responses={200: SubscriptionDeliverySerializer},
     ),
 )
-@extend_schema(tags=["subscriptions"])
+@extend_schema(tags=["subscriptions"], extensions={"x-product": "subscriptions"})
 class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "subscription"
     queryset = SubscriptionDelivery.objects.all()
