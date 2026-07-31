@@ -526,6 +526,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
         }
+        if (params.auto_pause_exempt !== undefined) {
+            body['auto_pause_exempt'] = params.auto_pause_exempt
+        }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
@@ -612,6 +615,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
+        }
+        if (params.auto_pause_exempt !== undefined) {
+            body['auto_pause_exempt'] = params.auto_pause_exempt
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1161,6 +1167,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
         }
+        if (params.auto_pause_exempt !== undefined) {
+            body['auto_pause_exempt'] = params.auto_pause_exempt
+        }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
@@ -1256,6 +1265,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
+        }
+        if (params.auto_pause_exempt !== undefined) {
+            body['auto_pause_exempt'] = params.auto_pause_exempt
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
