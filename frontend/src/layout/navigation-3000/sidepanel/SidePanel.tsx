@@ -125,14 +125,13 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
 
     const sidePanelOpenAndAvailable = selectedTab && sidePanelOpen && enabledTabs.includes(selectedTab)
 
-    // If the selected tab is no longer available (e.g. navigating away from a scene
-    // with Settings or Info), fall back to Info or Max instead of closing
+    // If the selected tab is no longer available (e.g. the new scene doesn't support it),
+    // close the panel rather than switching to an unrelated tab
     useEffect(() => {
         if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
-            const fallbackTab = enabledTabs.includes(SidePanelTab.Info) ? SidePanelTab.Info : SidePanelTab.Max
-            openSidePanel(fallbackTab)
+            closeSidePanel()
         }
-    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, enabledTabs, openSidePanel])
+    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, closeSidePanel])
 
     const { windowSize } = useWindowSize()
 
