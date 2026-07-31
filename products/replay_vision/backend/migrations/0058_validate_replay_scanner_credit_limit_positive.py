@@ -5,7 +5,7 @@ from posthog.migration_helpers import ValidateConstraint
 
 class Migration(migrations.Migration):
     # VALIDATE runs under SHARE UPDATE EXCLUSIVE (does not block reads or writes). Kept in its
-    # own migration so 0055's NOT VALID add commits and releases its ACCESS EXCLUSIVE lock first,
+    # own migration so 0056's NOT VALID add commits and releases its ACCESS EXCLUSIVE lock first,
     # rather than holding it across the validation scan.
     dependencies = [
         ("replay_vision", "0057_scanner_usage_scanner_id_index"),
