@@ -41,7 +41,9 @@ const DAILY_PARTIAL_TAIL: DailyChartData = {
 
 const meta: Meta = {
     title: 'Scenes-App/MCP Analytics/Tool Quality Charts',
-    parameters: { layout: 'padded' },
+    // The tab lays the three charts side by side from `lg` up, so at the default 1280 snapshot
+    // viewport each one is barely 400px wide and the dashed tail is hard to read. Snapshot wide.
+    parameters: { layout: 'padded', testOptions: { viewport: { width: 1920, height: 720 } } },
 }
 export default meta
 
