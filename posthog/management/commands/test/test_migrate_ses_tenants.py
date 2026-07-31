@@ -7,10 +7,17 @@ from posthog.management.commands.migrate_ses_tenants import migrate_ses_tenants
 from posthog.models.integration import Integration
 
 
+class _FakeClientMeta:
+    def __init__(self, region_name: str):
+        self.region_name = region_name
+
+
 class _FakeSESv2Client:
-    def __init__(self):
+    def __init__(self, region_name: str = "us-east-1"):
         self.created_tenants: list[str] = []
         self.associations: list[tuple[str, str]] = []
+        # Mirrors boto3's client.meta.region_name — the command derives ARN regions from it.
+        self.meta = _FakeClientMeta(region_name)
 
     def get_caller_identity(self):
         return {"Account": "123456789012"}
@@ -103,7 +110,7 @@ class TestMigrateSESTenants(BaseTest):
     @override_settings(SES_ACCESS_KEY_ID="test", SES_SECRET_ACCESS_KEY="test", SES_REGION="eu-west-1", SES_ENDPOINT="")
     @patch("posthog.management.commands.migrate_ses_tenants.boto3.client")
     def test_migrate_for_domain_filter(self, mock_boto_client):
-        sesv2 = _FakeSESv2Client()
+        sesv2 = _FakeSESv2Client(region_name="eu-west-1")
         mock_boto_client.side_effect = lambda service, **kwargs: sesv2
 
         # Use domains filter; should match example.com only
@@ -162,3 +169,16 @@ class TestMigrateSESTenants(BaseTest):
         # The identity succeeded; both config-set associations failed and must be reported so the
         # rollout can't mistake a partial pass for a complete one
         assert counts == {"tenants": 1, "associations_ok": 1, "tenant_failures": 0, "association_failures": 2}
+
+    @override_settings(SES_ACCESS_KEY_ID="test", SES_SECRET_ACCESS_KEY="test", SES_REGION="us-east-1", SES_ENDPOINT="")
+    @patch("posthog.management.commands.migrate_ses_tenants.boto3.client")
+    def test_arn_region_comes_from_the_client_not_settings(self, mock_boto_client):
+        # A pod without SES_REGION set falls back to us-east-1 in settings while the bare boto3
+        # client resolves the pod's real region — ARNs must follow the client or SES rejects the
+        # association with "must be in the same region" (hit on prod-eu).
+        sesv2 = _FakeSESv2Client(region_name="eu-central-1")
+        mock_boto_client.side_effect = lambda service, **kwargs: sesv2
+
+        migrate_ses_tenants(team_ids=[self.team.id], domains=[], dry_run=False)
+
+        assert all(arn.startswith("arn:aws:ses:eu-central-1:") for _, arn in sesv2.associations)

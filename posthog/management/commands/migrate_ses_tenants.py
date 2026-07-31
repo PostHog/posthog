@@ -90,10 +90,18 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
         counts["tenant_failures"] = len(pairs)
         return counts
 
+    # ARN region must match the region the client actually calls, or SES rejects the
+    # association with "must be in the same region". settings.SES_REGION defaults to us-east-1
+    # when the env var is unset (true on some pods), while the bare boto3 client resolves the
+    # pod's real AWS region — so derive from the client, the one that cannot drift.
+    region = tenant_client.meta.region_name
+    if region != settings.SES_REGION:
+        print(f"Note: using client region '{region}' (settings.SES_REGION is '{settings.SES_REGION}')")  # noqa: T201
+
     for batch in _batched(pairs, 50):
         for team_id, domain in batch:
             tenant_name = f"team-{team_id}"
-            identity_arn = f"arn:aws:ses:{settings.SES_REGION}:{aws_account_id}:identity/{domain}"
+            identity_arn = f"arn:aws:ses:{region}:{aws_account_id}:identity/{domain}"
 
             # Create tenant if missing
             try:
@@ -121,7 +129,7 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
             # Associate the identity plus the configuration sets sends reference — an attributed
             # send fails unless EVERY resource it uses is associated with the tenant.
             resource_arns = [identity_arn] + [
-                f"arn:aws:ses:{settings.SES_REGION}:{aws_account_id}:configuration-set/{config_set}"
+                f"arn:aws:ses:{region}:{aws_account_id}:configuration-set/{config_set}"
                 for config_set in settings.SES_TENANT_CONFIGURATION_SETS
             ]
             for resource_arn in resource_arns:
