@@ -71936,6 +71936,11 @@ export namespace Schemas {
       buckets: WorkflowHealthBucket[];
       /** GitHub Actions workflow name. */
       workflow_name: string;
+      /**
+         * Workflow file path, e.g. '.github/workflows/ci.yml'. A GitHub-hosted app workflow (Copilot code review, Dependabot) reports a synthetic 'dynamic/...' path instead. Null when the run's path hasn't landed.
+         * @nullable
+         */
+      workflow_path: string | null;
       /** Total runs started in the window. */
       run_count: number;
       successful_run_count: number;
