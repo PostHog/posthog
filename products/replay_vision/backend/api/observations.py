@@ -905,6 +905,13 @@ class ReplayObservationViewSet(
             locked = ReplayObservation.objects.select_for_update().get(pk=original_pk)
             if locked.status != ObservationStatus.FAILED:
                 raise ValidationError("Only failed observations can be retried.")
+            # Captured before the delete cascades it away: a run that never starts has to put the team's
+            # rating back with the row, not just the row.
+            original_label = ReplayObservationLabel.objects.filter(
+                observation_id=original_pk, team_id=locked.team_id
+            ).first()
+            label_created_at = original_label.created_at if original_label else None
+            label_updated_at = original_label.updated_at if original_label else None
             # Claimed before the delete so a capped retry never touches the row, and so never cascades
             # away the observation's shared label for a request that changes nothing.
             workflow_id, claimed = claim_apply_scanner_slot(scanner, session_id)
@@ -927,8 +934,8 @@ class ReplayObservationViewSet(
             slot_already_claimed=True,
         )
         if outcome is not WorkflowStartOutcome.STARTED:
-            # The replacement run never started, so restore the failed row (its shared label, if any, is lost
-            # to the cascade) instead of leaving the recording looking unscanned.
+            # The replacement run never started, so restore the failed row and its rating instead of leaving
+            # the recording looking unscanned and the team's feedback gone.
             try:
                 with transaction.atomic():
                     observation.pk = original_pk
@@ -936,6 +943,12 @@ class ReplayObservationViewSet(
                     ReplayObservation.objects.filter(pk=original_pk, team_id=observation.team_id).update(
                         created_at=original_created_at
                     )
+                    if original_label is not None:
+                        original_label.save(force_insert=True)
+                        # auto_now_add/auto_now stamp the insert with now; the rating happened earlier.
+                        ReplayObservationLabel.objects.filter(pk=original_label.pk, team_id=observation.team_id).update(
+                            created_at=label_created_at, updated_at=label_updated_at
+                        )
             except IntegrityError:
                 # A run we couldn't start is already persisting its own row for this (scanner, session);
                 # the recording isn't stranded, so report it as still finishing rather than 500ing.

@@ -2092,15 +2092,20 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()
 
-    def test_retry_dispatch_failure_returns_503_with_row_restored(
+    def test_retry_dispatch_failure_returns_503_with_row_and_label_restored(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         # The replacement run never started, so the failed row must come back instead of leaving the
-        # recording looking unscanned while the usage ledger still counts the failed attempt.
+        # recording looking unscanned while the usage ledger still counts the failed attempt. The delete
+        # cascades the shared rating away, so restoring only the row silently loses the team's feedback
+        # while the response claims the observation was kept.
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock(side_effect=RuntimeError("temporal unavailable"))
         observation = self._create_failed("sess-broken")
         original_created_at = observation.created_at
+        label = ReplayObservationLabel.objects.create(
+            observation=observation, team=self.team, is_correct=False, feedback="missed the error banner"
+        )
 
         resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 503)
@@ -2109,6 +2114,11 @@ class TestRetryActions(_VisionAPITestCase):
         restored = ReplayObservation.objects.get(id=observation.id)
         self.assertEqual(restored.status, ObservationStatus.FAILED)
         self.assertEqual(restored.created_at, original_created_at)
+        restored_label = ReplayObservationLabel.objects.get(observation_id=observation.id)
+        self.assertEqual(restored_label.id, label.id)
+        self.assertFalse(restored_label.is_correct)
+        self.assertEqual(restored_label.feedback, "missed the error banner")
+        self.assertEqual(restored_label.created_at, label.created_at)
 
     def test_retry_returns_429_and_keeps_row_and_label_when_the_atomic_claim_is_refused(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
