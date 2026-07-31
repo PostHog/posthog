@@ -123,7 +123,7 @@
 
 ### [❌ dismissed] should_fix · security — products/stamphog/backend/tasks/tasks.py:113-121
 
-**\_parse_pr_url matches 'github.com/…/pull/N' as an unanchored substring anywhere in the string, not a validated GitHub PR URL**  
+**`_parse_pr_url` matches 'github.com/…/pull/N' as an unanchored substring anywhere in the string, not a validated GitHub PR URL**  
 _perspective: review-hog-perspective-contracts-security · directly-related: True_
 
 - **Problem:** `_PR_URL_RE = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)")` is used with `.search()`, which matches the pattern anywhere in the string rather than validating the URL's scheme and host. Because there's no anchor, a string like `"https://notgithub.com/owner/repo/pull/1"` or `"https://evil.example/redirect?to=github.com/owner/repo/pull/1"` parses successfully to `("owner/repo", 1)` even though the host isn't actually `github.com`. `_parse_pr_url` is the entry point for `process_inbox_pr_review`, which gates the self-driving inbox carve-out (bypasses bot-author refusal and the draft prerequisite downstream) — the same function class the PR's own security model treats as sensitive. The blast radius is currently limited because the resolved GitHub API call uses `repo_config.repository` from a team-scoped DB lookup rather than the regex-captured `owner/repo`, but the parsed `pr_number` from an unanchored match is trusted as-is, and this is the only validation standing between whatever string flows in as `pr_url` and 'fetch and self-driving-review PR #N in this team's configured repo'.

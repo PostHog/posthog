@@ -1,6 +1,150 @@
 # Experiment: GLM 5.2 vs Sonnet 5 as the perspective-review model
 
-> **ROUND 3 (planned 2026-07-24, not started — Alex present for these).** Two follow-up arms, prompted
+> **ROUND 6 — EXECUTED 2026-07-31, verdict: PASS — injected memory makes Sol turns additive.**
+> J2 (turn 2, native `<already_covered_findings_for_chunk>` injection verified in all 9 unit
+> prompts): 3/4 verified real (75%), 2 must_fix, ZERO re-reports of J1 — incl. **E1, a brand-new
+> must_fix cluster (any-GitHub-bot author floor) no prior set across 7 models found**, and E2
+> re-catching the migration blocker J1's blind pass missed (no anchoring). Pair: 6 distinct real
+> clusters / 3 must_fix at $15.66 true (~48m); marginal turn = $6.10 → 3 reals, best
+> reals-per-dollar of the experiment. The round-5 "5.6 reach limit" was per-RUN, not per-model.
+> Caveats: J1 = weakest blind Sol single (3/10); pair recall 6 < one Sonnet run's 7. Empty commit
+> `a7fb363` (signed — unsigned commit-tree pushes bounce off the repo ruleset) moved the head;
+> clusters 74 → 76; data in FINAL_REPORT § Round 6 + judge-round6.json. Original spec below.
+>
+> **ROUND 6 spec (2026-07-31): sequential Sol with prior-findings injection.**
+> Question: round 5 showed a blind second Sol run wastes budget re-finding run 1's issues (S2→W4
+> dup, ~3 new distinct reals). Does a second Sol run that KNOWS run 1's findings push into new
+> territory instead — and does 2×Sol-with-memory then rival one Sonnet run (7 reals, ~$40) at ~$25?
+>
+> **Arm J** = `CODEX`/`gpt-5.6-sol`/`XHIGH`/`"full-access"`, same frozen PR #75215 @ `1341596e`,
+> same chunk pin + Opus validator. Labels `J-gpt56sol-seq-{1,2}`, blind sets Z (J1) and E (J2).
+> Protocol: wipe → J1 (blind, identical to round-5 arm I) → dump → **NO wipe** → push an **empty
+> commit** to the frozen branch (new head SHA, diff byte-identical — the production "new commits →
+> new turn" trigger shape, with zero review-content change) → J2 (sees J1's findings) → dump →
+> revert + wipe.
+>
+> **Context injection is NATIVE — no harness changes beyond round 5's.** The pipeline already
+> injects prior turns' findings from the ReviewHog DB into every review unit's prompt as
+> `<already_covered_findings_for_chunk>` (`load_prior_findings_with_verdicts` keyed by
+> `before_run_index`, publication-independent — "some … were never posted as inline comments"),
+> and the same set joins the dedup gate as an enforcement backstop. The round-3
+> `fetch_pr_comments` clean-room mock (`return []`) stays exactly as-is: it only suppresses the
+> real GitHub comments (the frozen PR carries other bots' noise), which is still wanted.
+>
+> **Mechanics (verified against the code 2026-07-31):**
+>
+> - The empty-commit head bump makes the whole turn-2 path production-shaped: `run_index =
+report.run_count + 1` (run_count bumped at J1's finalize) gives turn 2 naturally, and unit
+>   resume is head_sha-scoped (`load_perspective_results` keys `(report, head_sha) → (pass,
+chunk)`), so the new head misses turn-1 artefacts organically — no scrubbing, no same-SHA
+>   special-casing. An earlier draft of this spec scrubbed working-state artefacts to force a
+>   same-SHA re-review; dropped as unrealistic — prod re-reviews only ever happen on a moved head.
+> - The chunk pin and the verification worktree stay valid because the empty commit leaves the
+>   diff byte-identical; dumps will just record the new head_sha.
+> - The pushed empty commit needs Alex's go (or Alex pushes it) — experiment sessions never push.
+> - Verify J2's kickoff prompt actually contains the injected findings (spot-check one unit's
+>   rendered context) before letting the wave spend money.
+>
+> **Measurement:** adversarially verify J1 and J2 (same refutation-first protocol, worktree @
+> `1341596e`); extend clusters. Read out: (1) duplicate rate J2-vs-J1 — injection efficacy,
+> expect ≈0 vs the blind pair's re-finds; (2) NEW distinct verified reals J2 adds beyond J1;
+> (3) union(J1, J2) vs one Sonnet run (7 reals) and vs the blind Sol pair (8 reals / 7 distinct);
+> (4) anchoring check — does J2 merely extend/validate run-1 areas. Verdict rule: J2 adds ≥3 new
+> distinct verified reals with ≈0 dups → sequential-Sol-with-memory is a real config, promote the
+> DB-backed injection idea; J2 rehashes despite injection → the 5.6 reach limit is confirmed and
+> the Sonnet-wave + single-Sol-lens combo stands as the endgame.
+>
+> **ROUND 5 — EXECUTED overnight 2026-07-30 → 31, all 4 runs + judging completed.** Two arms:
+> Sonnet stability (A3/A4, sets N/O — verified + clustered, excluded from the panel) and
+> **GPT 5.6 Sol** (arm I = `CODEX`/`gpt-5.6-sol`/`XHIGH`/`"full-access"`, sets S/W, full protocol,
+> panel re-ranked with Sol as M7). Verdict: **Sonnet's numbers were not luck** — four runs across
+> two rounds each produced exactly 7 verified reals (7/20, 7/24, 7/23, 7/26); default unchanged.
+> **Sol displaces Terra as the Codex champion**: 8/24 real (33.3%), 3 must_fix, 16 clusters,
+> panel #1 on impact (only model touching all three heavy clusters), #2 on recall AND precision,
+> ~$11 true and ~8m clean review in both runs. Round-4 correction: the migration-0019 CI blocker
+> was target drift, not a Sonnet blind spot — both stability runs catch it as must_fix on the
+> frozen PR. Full data: FINAL_REPORT § Round 5 + judge-round5.json (clusters 62 → 74).
+> Ops: A3 survived a ~6.5h host sleep mid-run (Temporal recovered on wake; timings excluded,
+> findings/cost valid). Preflight lesson applied: product-path probe for `gpt-5.6-sol` 200'd
+> before launch (allowlist extended in gateway config.py — kept, like the round-4 additions).
+> Sol's fake-refusal boot storms (17 and 16 first-attempt failures) fully absorbed by the
+> fail-fast retries; zero stragglers, zero rescue. Harness reverted to the master baseline
+> (byte-identical via merge-base checkout) and staged the same night.
+>
+> **ROUND 4 — EXECUTED 2026-07-30, all 4 runs completed same day.** Verdict: **Terra** wins
+> precision (6/16 real) and impact (4 must_fix, densest ever) at ~$10/run with an 8-minute clean
+> review; **Luna** not competitive (4/28 real); **Sonnet keeps the default** on recall. Full data:
+> FINAL_REPORT § Round 4 + judge-round4.json. Harness reverted to baseline the same day.
+>
+> **ROUND 4 (2026-07-30) — GPT 5.6 (Luna, Terra), supersedes round 3.** Round 3's arms are dropped:
+> arm E (gpt-5.5 retest) is superseded by the 5.6 family (faster, and Luna far cheaper); arm F
+> (GLM via Modal) is shelved — the Modal deployment 503'd under the 9-session fan-out on 2026-07-24,
+> and GLM is slow regardless. Of the arm-E prerequisites, #2 landed this round as a real product fix:
+> `_check_logs`/`poll_for_turn` now treat `stopReason:"refusal"` as terminal (fail fast → in-session
+> nudge retry → activity retry), so a refusal costs seconds, not 30 minutes.
+>
+> **Target: PR #75215** — a frozen copy of #72680 at `1341596e` (same branch content, opened as its
+> own draft PR because #72680's head moved on to the fixes). Diff content is byte-identical to what
+> rounds 1–3 reviewed, so the pinned chunks and zero-comment mock carry over unchanged; run dumps
+> carry the new PR number.
+>
+> | Arm | Adapter | REVIEW_MODEL    | Effort  | Permission mode | Runs | Labels                     |
+> | --- | ------- | --------------- | ------- | --------------- | ---- | -------------------------- |
+> | G   | `CODEX` | `gpt-5.6-luna`  | `XHIGH` | `"full-access"` | ≤2   | `G-gpt56luna-xhigh-{1,2}`  |
+> | H   | `CODEX` | `gpt-5.6-terra` | `XHIGH` | `"full-access"` | ≤2   | `H-gpt56terra-xhigh-{1,2}` |
+>
+> Effort: `xhigh`, matching Sonnet/Opus/gpt-5.5 (GLM-at-MAX stays the outlier); 5.6 also supports a
+> new `max` tier — a later curiosity repeat, not part of this round. Order interleaved
+> G1 → H1 → G2 → H2, wipe DB + verify PR head before each run. Repeat gate per arm: a run that
+> DNFs after the retry ladder or needs heavy operational rescue = technical shitshow → skip the
+> repeat, record "no verdict — infra" (not a model judgment); completes with 0 validated findings =
+> model shitshow → skip the repeat, it IS the data point; weak-but-complete → repeat happens.
+> Judging: incremental, same machinery as the 4-way — blind the new sets, one adversarial verifier
+> per finding against the worktree @ `1341596e`, extend the existing cluster set, fresh 3-lens
+> panel over all six anonymized models reusing the old sets' verdicts.
+> Preflight 2026-07-30: gateway probes `gpt-5.6-luna` + `gpt-5.6-terra` → 200/completed; django
+> tunnel probed from Modal's network → 200; fresh local DB (user 1 / team 1 / GitHub integration
+> installed). End state unchanged: revert mock + pin + constants to the Sonnet baseline.
+>
+> **G1 attempt 1 (2026-07-30 ~12:00) failed on a gateway allowlist gap, not the model.** All 8
+> units died in ~30 min with `stopReason:"refusal"` at 0 tokens. ngrok's request inspector showed
+> every sandbox call as `POST /review_hog/v1/responses → 403`: the gateway's `review_hog` product
+> allowlist lacked the 5.6 family (only glm-5.2 / sonnet-5 / opus-4-8 / gpt-5.5). Fixed by adding
+> `gpt-5.6-luna` + `gpt-5.6-terra` to `services/llm-gateway/.../products/config.py`; uvicorn
+> `--reload` picked it up; product-path probes then 200'd. Two durable lessons: (1) preflight must
+> probe the **product-scoped** path (`/review_hog/v1/responses`), not the generic `/v1/responses` —
+> the generic path runs under the allow-everything `llm_gateway` product; (2) codex-app-server maps
+> codex `TurnStatus:"failed"` → ACP `"refusal"` (`mapTurnStopReason`), so "refusal" in our logs
+> means "turn failed", not necessarily a safety refusal — which casts doubt on whether round-3's
+> gpt-5.5 "refusal storm" was ever a content refusal (its refusals arrived ~90s in with the model
+> allowlisted, so that one did reach the API; mechanism still unconfirmed).
+>
+> **CONFIRMED during G1/H1 (2026-07-30): Codex first attempts fail systematically, and it is not
+> the model.** In both G1 (Luna) and H1 (Terra), **all 9 first-attempt review units failed within
+> seconds of each other**, ~90s after session start, labeled `stopReason:"refusal"`, with **zero
+> tokens billed** — the requests never reached OpenAI, so this is not a content/safety refusal and
+> not chunk-specific. Staggered retries then succeed (G1: 24 failed attempts hidden inside a
+> "clean" run; H1: 8/9 attempt-2s recovered immediately). Blind-spot and validation stages (4
+> concurrent, later boot) never hit it. Working theory: the codex-app-server MCP-connect race at
+> sandbox boot, amplified by 9 simultaneous first-boots — the same mechanism as round 3's C1
+> "17/17 refusal storm", now effectively proven. The refusal pre-fix is what makes this survivable:
+> each failed attempt costs ~90s instead of a 30-min poll timeout. Residual cost: units whose retry
+> goes gen-silent still ride the 30-min poll budget (G1's p2-c1, H1's p3-c1) — that is the real
+> wall-clock tax on Codex arms. Adapter-level fix (await MCP ready before the first prompt, or
+> fail-fast + instant retry) belongs in posthog/code, not this experiment.
+>
+> **G1 attempt 2 (healthy, ~40 min in) was terminated by Alex's call: it ran with zero cost/token
+> telemetry**, and cost/token is a hard requirement. The fresh stack loses every local
+> `$ai_generation` in two stacked ways: the gateway process never received the
+> `LLM_GATEWAY_POSTHOG_*` env from `bin/mprocs.yaml` (capture disabled entirely — fixed via repo
+> `.env` + gateway restart), and once enabled, the SDK's AI lane (`/i/v0/ai/batch/`) 200-ACKs
+> events that `ingestion-ai` then drops (its forwarder 401s on `localhost:8010/batch/` and shuts
+> down). Local bypass in the gateway callback: `_use_ai_lane=False` **and**
+> `_enable_multimodal_capture=False` (multimodal implies the lane) — marked EXPERIMENT, revert
+> both. E2E verified: gateway probe → luna gen with cost in local ClickHouse. Cleanup: 15 orphan
+> Modal sandboxes terminated, DB wiped. G1 attempt 3 is the first run with full telemetry.
+
+> **ROUND 3 (planned 2026-07-24, not started — Alex present for these; SUPERSEDED by round 4).** Two follow-up arms, prompted
 > by the round-2 findings and Alessandro's Slack comment that GLM was supposed to run on **Modal
 > inference** (which supports caching and reportedly runs faster than Opus), not Cloudflare:
 >

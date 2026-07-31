@@ -221,3 +221,232 @@ Revisit GLM 5.2 if any of these change:
    means the union catches more; cost of one extra unit per chunk is the trade.
 3. **Validator calibration improves** — GLM's noise (80%) currently survives dedup and burns validator
    time; a cheaper pre-validator triage would change its economics.
+
+## Round 4 (2026-07-30): GPT 5.6 Luna and Terra
+
+Same frozen diff, new target: **PR #75215**, a draft copy of #72680 frozen at `1341596e` (the
+original PR moved on to fixes). Same pinned chunks, same zero-comment mock, same Opus validator.
+Arm G = `CODEX`/`gpt-5.6-luna`/`XHIGH`/`"full-access"`, arm H = `CODEX`/`gpt-5.6-terra` (same
+config). Blind sets M (G1), K (G2), J (H1), L (H2); one adversarial refutation-first verifier per
+finding against the worktree (verdicts in [judge-round4.json](./judge-round4.json)); clusters
+extended incrementally over all 12 sets (56 → 62); 3-lens blind panel over six anonymous models.
+This round ran with working local `$ai_generation` telemetry (see ops notes), so Codex costs are
+cache-aware for the first time — `true $` below prices OpenAI cache reads properly.
+
+### Runs G/H
+
+|                                 | G1 (Luna)     | G2 (Luna)     | H1 (Terra)   | H2 (Terra)    |
+| ------------------------------- | ------------- | ------------- | ------------ | ------------- |
+| Status                          | valid¹        | valid         | valid²       | valid         |
+| Raw → dedup → pipeline-valid    | 16→14→3       | 16→14→2       | 8→6→3        | 11→10→3       |
+| **Independently verified real** | **3/14**      | **1/14**      | **2/6**      | **4/10**      |
+| …of which must_fix              | 0             | 1             | 1            | 3             |
+| Review stage                    | 41m39s¹       | 19m49s        | 33m19s²      | **8m04s**     |
+| Total run cost (true / gw)      | $11.82/$16.20 | $13.84/$17.67 | $8.88/$14.34 | $12.47/$18.17 |
+| Unit retries (fake refusals)    | 24            | ~9            | 9            | ~0            |
+
+¹ ² Wall-clock inflated by one gen-silent retry riding the 30-min poll budget (G1 `p2-c1`, H1
+`p3-c1`; H1's unit was lost, 8/9 — under the fan-out floor). Clean-path Terra (H2) reviewed the
+whole PR in **8 minutes**.
+
+### Six-model blind scoreboard (verified findings, both runs pooled)
+
+| Model        | Real/Total | Precision | must_fix | Clusters (of 62) | ~Review time | ~Cost/run |
+| ------------ | ---------- | --------- | -------- | ---------------- | ------------ | --------- |
+| M1 Sonnet 5  | 14/44      | 31.8%     | 1        | **36**           | ~35m         | ~$50      |
+| M2 GLM 5.2   | 7/36       | 19.4%     | 3        | 31               | ~55m         | ~$60      |
+| M3 gpt-5.5   | 3/17       | 17.6%     | 2        | 13               | ~30m         | ~$25      |
+| M4 Opus 4.8  | 4/30       | 13.3%     | 0        | 17               | ~25m         | ~$55      |
+| M5 **Luna**  | 4/28       | 14.3%     | 1        | 17               | ~25m         | **~$13**  |
+| M6 **Terra** | 6/16       | **37.5%** | **4**    | 11               | **~15m**     | **~$11**  |
+
+Time and cost are close-enough normalized estimates, not exact: representative clean-path review
+time (gpt-5.5's excludes the since-fixed refusal-hang tax; the 5.6 arms' one-straggler runs ran
+longer) and roughly de-distorted per-run cost (rounds 1–3 were gateway/list-priced with known
+skews; Luna/Terra are cache-aware `true $`). Exact per-run figures live in each round's run table.
+
+Judge rankings (blind, one lens each):
+
+- **Recall:** M1 > M2 > M6 > M5 ≈ M4 > M3 — Sonnet still dominates coverage (14 reals over 14
+  distinct clusters, 5 of them solo catches).
+- **Precision:** **M6 > M1** > M2 > M3 > M5 > M4 — Terra is the panel's best signal-to-noise:
+  16 findings emitted, 6 real.
+- **Impact:** **M6 > M2** > M1 > M3 > M5 > M4 — Terra's 4 verified must_fix from 16 findings is
+  the densest heavy-catch rate ever recorded in this experiment, including the receiver-leg
+  approval-redirect hole from both sides (L4 dispatch + L6 worker) and a migration-leaf CI blocker
+  (J5 + L3, shared only with Luna's K6) that all four earlier models missed.
+
+### What round 4 changes
+
+- **Terra is the new runner-up and the efficiency frontier.** Best precision, best impact, ~$10/run
+  (3–5× cheaper than the Claude arms), and the fastest clean review ever (8m04s). Its weakness is
+  recall (11 clusters) — it finds little, but what it finds is disproportionately real and heavy.
+- **Luna is not competitive despite the price.** Its Sonnet-like volume (16 raw/run) collapsed
+  under adversarial verification (4/28 real, second-worst precision). The pipeline validator's
+  "valid" counts (3/2) flattered it; the deeper verifier pass did not.
+- **Sonnet 5 @ xhigh stays the default reviewer.** Recall is the pipeline's primary job and Sonnet's
+  36-cluster coverage is untouched; it is also second on precision.
+- **The "gpt-5.5 refusal storm" was never a safety refusal.** Round 4 proved the mechanism: the
+  codex-app-server maps `TurnStatus:"failed"` → ACP `"refusal"`, and BOTH 5.6 arms had ~100% of
+  first attempts "refuse" simultaneously ~90s in with **zero tokens billed** — a client-side
+  failure (likely the MCP-connect race at boot, amplified by 9 concurrent sandboxes), which
+  staggered retries then clear. The round-3 C-arm narrative should be read accordingly. The
+  refusal fail-fast fix (landed this round in products/tasks, with regression tests) is what makes
+  Codex arms viable at all: each fake refusal now costs ~90s instead of a 30-minute poll timeout.
+- **Config worth exploring next:** Terra as a cheap high-signal second-opinion unit (or blind-spot
+  lens) alongside Sonnet's wave — the union would have caught every verified must_fix this round
+  at a fraction of a second Sonnet pass.
+
+## Round 5 (2026-07-31): Sonnet 5 stability check + GPT 5.6 Sol
+
+Same frozen target (**PR #75215** @ `1341596e`), same pinned chunks, zero-comment mock, and Opus
+validator. Two questions: **(1)** were Sonnet's round-1 numbers two lucky rolls? — answered with two
+fresh Sonnet runs (A3/A4, blind sets N/O) verified and clustered but **excluded from the panel** so
+every ranked model keeps a uniform 2-run basis; **(2)** does GPT 5.6 Sol justify its price at xhigh?
+— arm I = `CODEX`/`gpt-5.6-sol`/`XHIGH`/`"full-access"` (sets S/W), full protocol, panel re-ranked
+with Sol as the seventh model. One refutation-first verifier per finding against the frozen worktree
+(73 verifiers, 0 errors); clusters extended 62 → 74; verdicts in
+[judge-round5.json](./judge-round5.json).
+
+### Runs A3/A4 (Sonnet stability) and I1/I2 (Sol)
+
+|                                 | A3 (Sonnet) | A4 (Sonnet) | I1 (Sol)     | I2 (Sol)      |
+| ------------------------------- | ----------- | ----------- | ------------ | ------------- |
+| Status                          | valid¹      | valid       | valid        | valid         |
+| Raw → dedup → pipeline-valid    | 28→23→2     | 30→26→4     | 14→11→2      | 14→13→4       |
+| **Independently verified real** | **7/23**    | **7/26**    | **4/11**     | **4/13**      |
+| …of which must_fix              | 2           | 1           | 1            | 2             |
+| Review stage                    | n/a¹        | 31m58s      | **7m02s**    | 8m58s         |
+| Total run cost (true / gw)      | $38.62      | $38.68      | $9.40/$17.31 | $12.91/$19.71 |
+| Unit retries (fake refusals)    | —           | —           | 17           | 16            |
+
+¹ The host machine slept ~6.5h mid-run; Temporal recovered the interrupted unit on wake and the run
+completed cleanly. Findings and cost are valid; wall-clock is meaningless and excluded. A4 ran on a
+healthy stack and carries the representative Sonnet timings.
+
+### Sonnet stability annex: the round-1 numbers were not luck
+
+Four Sonnet runs now exist across two rounds, and the verified-real count is **exactly 7 in every
+one of them**: X 7/20, P 7/24, N 7/23, O 7/26 — pooled 28/93 (30.1%), with the original pair at
+31.8% and the stability pair at 28.6%. Volume (20–26 findings post-dedup), precision class, and
+cluster coverage (36 for X+P vs 33 for N+O, 18 shared) all reproduce. The half-shared cluster
+overlap is partly run-to-run variance in _which_ issues Sonnet surfaces and partly **target drift**:
+rounds 1–3 reviewed live #72680 before the freeze, where some of today's issues did not exist.
+
+The drift matters for one round-4 claim: the migration-0019 leaf conflict (CI blocker) that round 4
+called a Terra/Luna exclusive was caught by **both** Sonnet stability runs as must_fix (N9, O7) —
+rounds 1–3 models never saw it because it post-dates their review target. On the frozen PR, Sonnet
+catches it. A3 also caught the receiver-leg linkage hole as must_fix (N10); A4's touch on that
+cluster did not survive verification.
+
+### Seven-model blind scoreboard (verified findings, both runs pooled)
+
+| Model       | Real/Total | Precision | must_fix | Clusters (of 74) | ~Review time | ~Cost/run |
+| ----------- | ---------- | --------- | -------- | ---------------- | ------------ | --------- |
+| M1 Sonnet 5 | 14/44      | 31.8%     | 1        | **36**           | ~35m         | ~$40      |
+| M2 GLM 5.2  | 7/36       | 19.4%     | 3        | 31               | ~55m         | ~$60      |
+| M3 gpt-5.5  | 3/17       | 17.6%     | 2        | 13               | ~30m         | ~$25      |
+| M4 Opus 4.8 | 4/30       | 13.3%     | 0        | 17               | ~25m         | ~$55      |
+| M5 Luna     | 4/28       | 14.3%     | 1        | 17               | ~25m         | ~$13      |
+| M6 Terra    | 6/16       | **37.5%** | **4**    | 11               | ~15m         | ~$11      |
+| M7 **Sol**  | 8/24       | 33.3%     | 3        | 16               | **~8m**      | **~$11**  |
+
+Same normalization caveats as round 4. Sonnet's ~cost drops from ~$50 to ~$40: the two cache-aware
+stability runs both priced at $38.6 true, showing the round-1 estimate carried list-price skew.
+Sol's ~8m is honest — both runs were straggler-free (7m02s / 8m58s review stage).
+
+Judge rankings (blind, one lens each; M1..M6 verified data unchanged from round 4):
+
+- **Recall:** M1 > **M7** > M2 > M6 > M4 > M5 > M3 — Sonnet remains the runaway winner (14 reals
+  over 14 distinct real clusters, 5 solo); Sol takes second with 8 reals over 7 real clusters,
+  beating GLM.
+- **Precision:** M6 > **M7** > M1 > M2 > M3 > M5 > M4 — Terra keeps the crown (37.5%), Sol close
+  behind (33.3%), Sonnet third; the judge singled out the bottom four for fabricated findings,
+  which Sol avoided entirely.
+- **Impact:** **M7 > M6** > M2 > M1 > M3 > M5 > M4 — no model owns an exclusive must_fix; every
+  must_fix maps to three heavy clusters (A: dead carve-out `internal=True` leg; B: receiver-leg
+  provenance/no-PR-linkage; C: migration-0019 conflict). **Sol is the only model with verified
+  findings on all three** (S2+W4 must_fix on C in both runs, W6 must_fix on B, W11 should_fix on
+  A) plus the unique security-adjacent S10 (branch fallback binding an unrelated run as
+  self-driving).
+
+### What round 5 changes
+
+- **Sonnet 5 @ xhigh is confirmed, not lucky.** Four runs, four times exactly 7 verified reals,
+  stable volume, stable precision class, untouched recall crown. It stays the default reviewer.
+- **Sol displaces Terra as the Codex champion and the efficiency frontier.** Same ~$11 true cost
+  class, faster still (~8m clean in both runs), better recall than Terra (16 vs 11 clusters),
+  near-Terra precision, and the panel's #1 impact — the only model to touch all three heavy
+  clusters with verified findings. Terra's remaining edge is pure precision density (4 must_fix in
+  16 emissions).
+- **Round-4 correction:** the migration-0019 CI blocker was never a 5.6-family exclusive — Sonnet
+  catches it on the frozen target (both stability runs, must_fix). The claim was an artifact of
+  rounds 1–3 reviewing the pre-freeze PR.
+- **The second-opinion slot now belongs to Sol.** The round-4 idea (Terra as a cheap high-signal
+  lens beside Sonnet's wave) upgrades: Sonnet + Sol union covers every verified must_fix cluster
+  this round at ~$11 over Sonnet's ~$40, with Sol also contributing the unique S10 catch.
+- **Codex boot-storm tax persists but is survivable:** 17 and 16 fake-refusal first attempts per
+  Sol run, all cleared by the fail-fast retries with zero straggler runs — the fix landed in
+  round 4 is doing its job.
+
+## Round 6 (2026-07-31): sequential Sol — does injected memory make a second run additive?
+
+Round 5 showed a blind second Sol run mostly re-treads the first (S2→W4 dup, ~3 new reals). Round 6
+tests the production shape instead: **arm J** ran Sol twice on the same report with **no DB wipe**,
+separated by an empty commit (`a7fb363`, identical tree — the real "new commits → new turn"
+trigger), so turn 2 ran as `run_index=2` with the pipeline's **native prior-findings injection**
+(`<already_covered_findings_for_chunk>`, DB-sourced, publication-independent — verified present in
+all 9 of J2's unit prompts before the wave spent money). Blind sets Z (J1) and E (J2, own-turn
+findings only; the dump funnel is cumulative across turns). Verdicts in
+[judge-round6.json](./judge-round6.json); clusters 74 → 76.
+
+### Runs J1/J2
+
+|                                 | J1 (Sol, blind) | J2 (Sol + injected memory) |
+| ------------------------------- | --------------- | -------------------------- |
+| Own-turn raw → dedup → valid    | 11→10→3         | 4→4→3¹                     |
+| **Independently verified real** | 3/10            | **3/4 (75%)**              |
+| …of which must_fix              | 1               | **2**                      |
+| Re-reports of turn 1            | —               | **0**                      |
+| Review stage                    | 6m59s           | 8m23s                      |
+| True cost                       | $9.56           | **$6.10**                  |
+
+¹ The J2 dump's funnel line reads cumulatively across turns (15→14→6); turn-2's own emissions were
+4 raw, all surviving dedup, 3 passing the pipeline validator.
+
+### What the sequential pair found
+
+J2's three verified reals all land in clusters J1 never touched — zero overlap, zero anchoring:
+
+- **E1 (must_fix, brand-new cluster):** the webhook carve-out accepts **any** GitHub bot as the
+  self-driving author (`_is_bot_authored` any-Bot floor) — no prior run-set across all seven
+  models had surfaced it (cluster #75 of 76).
+- **E2 (must_fix):** the migration-0019 CI conflict — which J1's blind pass had _missed_ this
+  time; the injection filled J1's gap rather than confining J2 to J1's map.
+- **E4 (should_fix):** receiver-leg dedupe excludes FAILED runs → persistent retry loop —
+  previously caught only by Sonnet.
+
+J1's own reals: Z8 (must_fix, receiver-leg linkage hole), Z3 (should_fix, the single-acting-
+reviewer gate contradicting the PR's thrice-stated any-opted-in spec), Z6 (consider, stale draft
+sentence). Pair union: **6 distinct real clusters, 3 must_fix, $15.66 true, ~48 min wall.**
+
+### What round 6 changes
+
+- **The injection works exactly as intended.** Blind repeat runs duplicate (round 5); with memory,
+  emission-level duplication was zero and the second turn went where the first hadn't. The
+  "5.6 reach limit" hypothesis from round 5 is dead — the reach limit was per-run, not per-model.
+- **Marginal Sol turns are absurdly cheap signal:** turn 2 cost $6.10 and returned 3 verified
+  reals including 2 must_fix — the best verified-real-per-dollar of the whole experiment
+  (0.49 reals/$; one Sonnet run is ~0.18).
+- **"Run Sol until dry" becomes a plausible deep-review mode**, and the production re-review path
+  already does this for free on every new push — each re-review turn should be expected to add,
+  not repeat.
+- Caveats: J1 was the weakest blind Sol single yet (3/10 vs 4/11 and 4/13) — single PR, single
+  pair, so the per-run variance is real; and the pair's union recall (6 clusters) still sits
+  below a single Sonnet run's 7 reals — Sonnet's breadth remains unmatched per-run.
+
+### Updated recommendation
+
+Unchanged core: **Sonnet 5 @ xhigh keeps the wave.** The second-opinion slot stays **Sol**, now
+with evidence that its turns compound under the pipeline's native memory: Sonnet wave + Sol lens
+on the first review, and Sol's re-review turns keep paying for themselves on every subsequent push.
