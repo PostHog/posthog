@@ -75,8 +75,6 @@ export function PersonPushNotificationsTab({ teamId, personId }: PersonPushNotif
                     },
                 ]}
             />
-            {/* The captured preview is stored as HTML in the same column emails use, so the existing
-                viewer renders a push with no push-specific component. */}
             <EmailViewerModal
                 workflowId={selected?.function_id ?? ''}
                 invocationId={selected?.invocation_id ?? ''}

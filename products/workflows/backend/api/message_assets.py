@@ -166,13 +166,13 @@ class PersonMessageAssetsRequestSerializer(serializers.Serializer):
         default=50,
         max_value=500,
         min_value=1,
-        help_text="Maximum number of messages to return (1-500, default 50).",
+        help_text="Maximum number of emails to return (1-500, default 50).",
     )
     offset = serializers.IntegerField(
         required=False,
         default=0,
         min_value=0,
-        help_text="Number of messages to skip, for pagination.",
+        help_text="Number of emails to skip, for pagination.",
     )
 
 
