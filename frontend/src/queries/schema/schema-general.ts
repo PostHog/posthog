@@ -8236,6 +8236,10 @@ export const externalDataSources = [
     'Clay',
     'TradableBits',
     'Swan',
+    'Hyros',
+    'Odoo',
+    'Airbridge',
+    'Snovio',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
