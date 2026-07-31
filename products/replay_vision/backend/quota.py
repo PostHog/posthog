@@ -13,7 +13,7 @@ from posthog.date_util import start_of_month
 from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
-from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
@@ -24,8 +24,10 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
 logger = structlog.get_logger(__name__)
 
-# Fallback monthly credit cap for orgs billing has never synced (self-hosted, pre-launch beta).
-MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", 15000, type_cast=int)
+# Fallback monthly credit cap for orgs billing has never synced (self-hosted, sync gaps, malformed
+# limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
+# free-tier org; self-hosted deployments raise it via the env var.
+MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", 2500, type_cast=int)
 
 # Billing's usage_key for this product; see ee/billing/quota_limiting.QuotaResource.REPLAY_VISION_CREDITS.
 USAGE_KEY = "replay_vision_credits"
@@ -42,6 +44,8 @@ class QuotaSnapshot:
     period_end: datetime
     # Credit-weighted sum of enabled scanners' persisted estimates across the org; uncomputed estimates count 0.
     projected_monthly_credits: int
+    # Display-only: credits per period that don't bill (already inside `credit_limit`); see FREE_TIER_MONTHLY_CREDITS.
+    free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
 
     @property
     def remaining(self) -> int | None:
