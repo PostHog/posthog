@@ -68,6 +68,7 @@ from products.experiments.backend.presentation.serializers import (
     EndExperimentSerializer,
     ExperimentActivityQuerySerializer,
     ExperimentBasicSerializer,
+    ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
@@ -558,6 +559,7 @@ class EnterpriseExperimentsViewSet(
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
+            repository=request_serializer.validated_data.get("repository"),
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
@@ -605,6 +607,7 @@ class EnterpriseExperimentsViewSet(
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
             open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
+            repository=request_serializer.validated_data.get("repository"),
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
@@ -655,6 +658,27 @@ class EnterpriseExperimentsViewSet(
             }
         )
         return Response(response_serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses=ExperimentFlagCleanupTargetSerializer,
+    )
+    @action(methods=["GET"], detail=True, url_path="flag_cleanup_target", required_scopes=["experiment:read"])
+    def flag_cleanup_target(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Repository a flag-cleanup pull request for this experiment would be opened in.
+
+        Resolution order: the experiment's saved repository, else the team's only connected
+        GitHub repository. When the team has several repositories and none is saved
+        (source=ambiguous), pass one via `repository` on end/ship_variant. Requires access
+        to PostHog Desktop, like open_cleanup_pr (403 otherwise).
+        """
+        experiment: Experiment = self.get_object()
+        # The repository list mirrors what the cleanup checkbox needs, so gate it the same way.
+        self._check_cleanup_pr_access(request)
+        service = ExperimentService(team=self.team, user=request.user)
+        target = service.get_cleanup_repository_target(experiment)
+        return Response(ExperimentFlagCleanupTargetSerializer(target).data)
 
     @validated_request(
         query_serializer=ExperimentActivityQuerySerializer,

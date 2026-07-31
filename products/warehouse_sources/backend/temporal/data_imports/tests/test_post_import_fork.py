@@ -1,9 +1,12 @@
 """The V2/V3 post-import fork in `external-data-job`.
 
-V2 (and zero-batch V3) must keep running the load-dependent post-import steps inline;
-V3 runs with batches must skip them, because the load consumer starts
-`data-import-post-import` after the final batch loads. If the gate is dropped the
-workflow races the consumer's load again; if it over-applies, V2 loses the steps.
+The load-dependent post-import steps run only in `data-import-post-import`: V3 runs
+with batches rely on the load consumer to start it after the final batch loads, while
+V2 (and zero-batch V3) start it from `external-data-job` after the COMPLETED status
+write. If the workflow-side trigger is dropped, V2 syncs silently lose every step; if
+it fires before the status write, the resolve activity skips them all; if it
+over-applies, V3-with-batches double-triggers or externally managed schemas gain a
+fan-out they never had.
 """
 
 import uuid
@@ -52,7 +55,9 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 _JOB_ID = "01960000-0000-0000-0000-000000000000"
 
 
-def _stub_activities(executed: list[str], *, is_v3: bool, consumer_manages_job_status: bool) -> list:
+def _stub_activities(
+    executed: list[str], *, is_v3: bool, consumer_manages_job_status: bool, skip_post_import_activities: bool = False
+) -> list:
     @activity.defn(name="check_pipeline_version_activity")
     async def check_pipeline_version(inputs: CheckPipelineVersionActivityInputs) -> CheckPipelineVersionActivityOutputs:
         executed.append("check_pipeline_version_activity")
@@ -97,6 +102,7 @@ def _stub_activities(executed: list[str], *, is_v3: bool, consumer_manages_job_s
         return PipelineResult(
             should_trigger_cdp_producer=False,
             consumer_manages_job_status=consumer_manages_job_status,
+            skip_post_import_activities=skip_post_import_activities,
         )
 
     @activity.defn(name="create_source_templates")
@@ -125,14 +131,21 @@ def _stub_activities(executed: list[str], *, is_v3: bool, consumer_manages_job_s
     ]
 
 
-async def _run_workflow(*, is_v3: bool, consumer_manages_job_status: bool) -> tuple[list[str], list[str]]:
-    """Run the workflow with stubbed activities; return (executed activities, started child ids)."""
+async def _run_workflow(
+    *, is_v3: bool, consumer_manages_job_status: bool, skip_post_import_activities: bool = False
+) -> tuple[list[str], list[str]]:
+    """Run the workflow with stubbed activities; return (executed activities + child starts in
+    order, started child ids)."""
     executed: list[str] = []
+
+    async def record_child_start(*args, **kwargs) -> None:
+        executed.append(f"child:{kwargs['id']}")
 
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.workflow.start_child_workflow",
             new_callable=mock.AsyncMock,
+            side_effect=record_child_start,
         ) as mock_start_child,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
@@ -144,7 +157,10 @@ async def _run_workflow(*, is_v3: bool, consumer_manages_job_status: bool) -> tu
                 task_queue="test-post-import-fork",
                 workflows=[ExternalDataJobWorkflow],
                 activities=_stub_activities(
-                    executed, is_v3=is_v3, consumer_manages_job_status=consumer_manages_job_status
+                    executed,
+                    is_v3=is_v3,
+                    consumer_manages_job_status=consumer_manages_job_status,
+                    skip_post_import_activities=skip_post_import_activities,
                 ),
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 activity_executor=ThreadPoolExecutor(max_workers=10),
@@ -176,35 +192,65 @@ LOAD_DEPENDENT_CHILD_PREFIXES = (
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "is_v3,consumer_manages_job_status,expect_inline",
+    "is_v3,consumer_manages_job_status,skip_post_import_activities,expect_post_import_child",
     [
-        # V2: everything runs inline, exactly as before the fork.
-        pytest.param(False, False, True, id="v2_runs_steps_inline"),
+        # V2: the workflow starts data-import-post-import after the COMPLETED write.
+        pytest.param(False, False, False, True, id="v2_starts_post_import_workflow"),
         # V3 with zero batches: the consumer never sees a final batch, so the workflow keeps ownership.
-        pytest.param(True, False, True, id="v3_zero_batches_runs_steps_inline"),
-        # V3 with batches: the load consumer starts data-import-post-import instead.
-        pytest.param(True, True, False, id="v3_with_batches_skips_steps"),
+        pytest.param(True, False, False, True, id="v3_zero_batches_starts_post_import_workflow"),
+        # V3 with batches: the load consumer starts data-import-post-import; starting it here
+        # too would race the consumer's load.
+        pytest.param(True, True, False, False, id="v3_with_batches_leaves_trigger_to_consumer"),
+        # Externally managed schemas never ran the post-import steps; the finally-block
+        # trigger must not give them a fan-out.
+        pytest.param(False, False, True, False, id="externally_managed_schema_gets_no_post_import"),
     ],
 )
-async def test_post_import_fork(is_v3: bool, consumer_manages_job_status: bool, expect_inline: bool):
-    executed, child_ids = await _run_workflow(is_v3=is_v3, consumer_manages_job_status=consumer_manages_job_status)
+async def test_post_import_fork(
+    is_v3: bool,
+    consumer_manages_job_status: bool,
+    skip_post_import_activities: bool,
+    expect_post_import_child: bool,
+):
+    executed, child_ids = await _run_workflow(
+        is_v3=is_v3,
+        consumer_manages_job_status=consumer_manages_job_status,
+        skip_post_import_activities=skip_post_import_activities,
+    )
 
+    # The load-dependent steps never run inline in new executions — data-import-post-import
+    # is their only home (the inline path survives solely for pre-patch replay).
     started = {prefix for prefix in LOAD_DEPENDENT_CHILD_PREFIXES if any(c.startswith(prefix) for c in child_ids)}
-    if expect_inline:
-        assert "calculate_table_size_activity" in executed
-        assert started == set(LOAD_DEPENDENT_CHILD_PREFIXES)
-    else:
-        assert "calculate_table_size_activity" not in executed
-        assert started == set()
-        # The person-property sync child reads extraction-staged chunks, not the loaded
-        # table, so it must keep starting from the workflow even on V3.
-        assert any(c.startswith("sync-warehouse-person-properties-") for c in child_ids)
+    assert started == set()
+    assert "calculate_table_size_activity" not in executed
 
-    # Steps that don't read the loaded table stay inline on every path.
-    assert "create_source_templates" in executed
+    post_import_marker = f"child:data-import-post-import-{_JOB_ID}"
+    if expect_post_import_child:
+        # Must start after the COMPLETED write: the resolve activity skips every step
+        # for a non-completed job, so the reverse order silently loses them all.
+        assert executed.index("update_external_data_job_model") < executed.index(post_import_marker)
+    else:
+        assert post_import_marker not in executed
+
+    if not skip_post_import_activities:
+        # The person-property sync child reads extraction-staged chunks, not the loaded
+        # table, so it must keep starting from the workflow on every path.
+        assert any(c.startswith("sync-warehouse-person-properties-") for c in child_ids)
+        # Steps that don't read the loaded table stay inline.
+        assert "create_source_templates" in executed
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "steps_mode",
+    [
+        # New runs dispatch from the step list the resolve activity recorded.
+        pytest.param("activity", id="activity_step_list"),
+        # In-flight pre-deploy runs have a context without `steps`; the legacy fallback
+        # must reproduce the old command sequence or their replay breaks on deploy.
+        pytest.param("legacy", id="legacy_fallback"),
+    ],
+)
 @pytest.mark.parametrize(
     "gates_on",
     [
@@ -212,16 +258,25 @@ async def test_post_import_fork(is_v3: bool, consumer_manages_job_status: bool, 
         pytest.param(False, id="gated_steps_skipped"),
     ],
 )
-async def test_post_import_workflow_runs_moved_steps(gates_on: bool):
-    # If a moved step is dropped from data-import-post-import, V3 syncs silently lose it
-    # (there is no other place it runs); if the gates are ignored, disabled products run.
+async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode: str):
+    # If a step is dropped from the registry, V3 syncs silently lose it (there is no
+    # other place it runs); if the gates are ignored, disabled products run. Both
+    # dispatch paths must issue the same commands for the same gating.
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        DUCKLAKE_COPY_STEP,
+        EMIT_SIGNALS_STEP,
+        SEMANTIC_ENRICHMENT_STEP,
+        TABLE_SIZE_STEP,
+        TABLE_STATISTICS_STEP,
         PostImportContext,
         PostImportWorkflow,
         PostImportWorkflowInputs,
     )
 
     executed: list[str] = []
+
+    gated_steps = [EMIT_SIGNALS_STEP, SEMANTIC_ENRICHMENT_STEP, TABLE_STATISTICS_STEP] if gates_on else []
+    steps = None if steps_mode == "legacy" else [*gated_steps, TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
 
     @activity.defn(name="resolve_post_import_context_activity")
     async def resolve_context(inputs: PostImportWorkflowInputs) -> PostImportContext:
@@ -232,6 +287,7 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool):
             emit_signals_enabled=gates_on,
             enrichment_needed=gates_on,
             statistics_needed=gates_on,
+            steps=steps,
         )
 
     @activity.defn(name="calculate_table_size_activity")
@@ -315,6 +371,8 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
 
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        DUCKLAKE_COPY_STEP,
+        TABLE_SIZE_STEP,
         PostImportWorkflowInputs,
         resolve_post_import_context_activity,
     )
@@ -336,13 +394,18 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
     assert ctx.source_type == "Stripe"
     assert ctx.schema_name == "Customer"
     assert ctx.last_synced_at == pre_sync
+    # The always-on steps must be recorded for a completed job (feature-gated steps are
+    # off in the test environment); a None here would send new runs down the legacy path.
+    assert ctx.steps is not None
+    assert ctx.steps[-2:] == [TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("case", ["job_deleted", "job_not_completed"])
 def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team, case, _no_close_old_connections):
     # A cancelled job (Completed write suppressed after the final batch) or a deleted job
-    # must not fan out signals/enrichment — the resolve activity returns the skip-all context.
+    # must not fan out any step — steps=[] rather than None, or the workflow's legacy
+    # fallback would still run table size and the DuckLake copy for it.
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
         PostImportContext,
@@ -362,4 +425,4 @@ def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team,
         PostImportWorkflowInputs(team_id=team.pk, job_id=job_id, schema_id=str(schema.id), source_id=str(source.id))
     )
 
-    assert ctx == PostImportContext()
+    assert ctx == PostImportContext(steps=[])

@@ -5,6 +5,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { initKeaTests } from '~/test/init'
 
 import { llmSkillLogic } from './llmSkillLogic'
+import type { SkillFileUpload } from './skillFileUpload'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { error: jest.fn(), success: jest.fn(), info: jest.fn() },
@@ -24,48 +25,42 @@ describe('llmSkillLogic file uploads', () => {
         logic?.unmount()
     })
 
-    const upload = async (files: File[]): Promise<void> => {
+    const asUpload = (content: string, path: string): SkillFileUpload => ({
+        path,
+        file: new File([content], path.split('/').pop() ?? path),
+    })
+
+    const upload = async (files: SkillFileUpload[]): Promise<void> => {
         await expectLogic(logic, () => logic.actions.addUploadedFiles(files)).toFinishAllListeners()
     }
 
-    it('adds uploaded files to the form with inferred content types', async () => {
-        await upload([new File(['print("hi")'], 'setup.py'), new File(['# Guide'], 'guide.md')])
+    it('adds uploaded files to the form, preserving folder paths and inferring content types', async () => {
+        await upload([asUpload('print("hi")', 'scripts/setup.py'), asUpload('# Guide', 'references/guide.md')])
 
         expect(logic.values.skillForm.files).toEqual([
-            { path: 'setup.py', content: 'print("hi")', content_type: 'text/x-python' },
-            { path: 'guide.md', content: '# Guide', content_type: 'text/markdown' },
+            { path: 'scripts/setup.py', content: 'print("hi")', content_type: 'text/x-python' },
+            { path: 'references/guide.md', content: '# Guide', content_type: 'text/markdown' },
         ])
     })
 
-    it('re-uploading a path replaces its row, but a replayed File object does not clobber later edits', async () => {
-        const firstUpload = new File(['v1'], 'notes.txt')
-        await upload([firstUpload])
+    it('re-uploading a path replaces its row instead of duplicating it', async () => {
+        await upload([asUpload('v1', 'notes.txt'), asUpload('extra', 'extra.txt')])
+        await upload([asUpload('v2', 'notes.txt')])
 
-        logic.actions.setSkillFormValues({
-            files: [{ path: 'notes.txt', content: 'edited by hand', content_type: 'text/plain' }],
-        })
-
-        // LemonFileInput replays previously selected File objects alongside new ones
-        await upload([firstUpload, new File(['extra'], 'extra.txt')])
-        expect(logic.values.skillForm.files).toEqual([
-            { path: 'notes.txt', content: 'edited by hand', content_type: 'text/plain' },
-            { path: 'extra.txt', content: 'extra', content_type: 'text/plain' },
-        ])
-
-        await upload([new File(['v2'], 'notes.txt')])
         expect(logic.values.skillForm.files).toEqual([
             { path: 'notes.txt', content: 'v2', content_type: 'text/plain' },
             { path: 'extra.txt', content: 'extra', content_type: 'text/plain' },
         ])
     })
 
-    it('rejects oversized and binary files with an error toast but keeps valid ones', async () => {
+    it('rejects oversized, binary, and SKILL.md files with a toast but keeps valid ones', async () => {
         await upload([
-            new File([new ArrayBuffer(1_000_001)], 'big.txt'),
-            new File(['\u0000binary'], 'nul.txt'),
-            new File([new Uint8Array([0xc3, 0x28])], 'invalid-utf8.txt'),
-            new File(['has a \ufffd char'], 'replacement.txt'),
-            new File(['ok'], 'ok.txt'),
+            { path: 'big.txt', file: new File([new ArrayBuffer(1_000_001)], 'big.txt') },
+            asUpload('\u0000binary', 'nul.txt'),
+            { path: 'invalid-utf8.txt', file: new File([new Uint8Array([0xc3, 0x28])], 'invalid-utf8.txt') },
+            asUpload('has a \ufffd char', 'replacement.txt'),
+            asUpload('# My skill', 'Skill.md'),
+            asUpload('ok', 'ok.txt'),
         ])
 
         expect(logic.values.skillForm.files).toEqual([
@@ -77,5 +72,18 @@ describe('llmSkillLogic file uploads', () => {
             "Couldn't add nul.txt: only text files are supported",
             "Couldn't add invalid-utf8.txt: only text files are supported",
         ])
+        expect(jest.mocked(lemonToast.info)).toHaveBeenCalledWith(
+            "SKILL.md wasn't added as a bundled file. Its body belongs in the skill body field."
+        )
+    })
+
+    it('caps a folder drop at 50 files and says so instead of silently failing on publish', async () => {
+        await upload(Array.from({ length: 55 }, (_, i) => asUpload(`content ${i}`, `references/file-${i}.txt`)))
+
+        expect(logic.values.skillForm.files).toHaveLength(50)
+        expect(logic.values.skillForm.files[49].path).toBe('references/file-49.txt')
+        expect(jest.mocked(lemonToast.error)).toHaveBeenCalledWith(
+            "Some files weren't added: a skill can have at most 50 bundled files"
+        )
     })
 })

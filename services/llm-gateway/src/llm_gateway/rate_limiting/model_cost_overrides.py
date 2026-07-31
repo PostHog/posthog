@@ -34,7 +34,6 @@ BASETEN_GLM_COST: Final[ModelCost] = {
 MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
     "openai/zai-org/GLM-5.2": cast("ModelCost", dict(BASETEN_GLM_COST)),
     "moonshotai/kimi-k3": cast("ModelCost", dict(KIMI_K3_COST)),
-    "openai/moonshotai/kimi-k3": cast("ModelCost", dict(KIMI_K3_COST)),
     "claude-fable-5": {
         "litellm_provider": "anthropic",
         "mode": "chat",

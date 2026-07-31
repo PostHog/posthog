@@ -1,4 +1,5 @@
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
 from django.db import transaction
@@ -57,6 +58,8 @@ from products.notifications.backend.facade.api import (
 )
 
 logger = structlog.get_logger(__name__)
+
+_NOTIFICATION_DELIVERY_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="insight-alert-delivery")
 
 
 @temporalio.activity.defn
@@ -372,7 +375,7 @@ def dispatch_alert_firing_realtime_notification(alert: AlertConfiguration, breac
 async def notify_alert(inputs: NotifyAlertActivityInputs) -> None:
     """Send notifications for a previously evaluated alert check (idempotent)."""
 
-    @database_sync_to_async(thread_sensitive=False)
+    @database_sync_to_async(thread_sensitive=False, executor=_NOTIFICATION_DELIVERY_EXECUTOR)
     def _notify() -> None:
         # Mismatched pair surfaces as DoesNotExist instead of notifying the wrong alert.
         alert_check = AlertCheck.objects.select_related("alert_configuration", "alert_configuration__team").get(

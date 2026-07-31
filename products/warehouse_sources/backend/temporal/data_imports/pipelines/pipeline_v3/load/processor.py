@@ -526,11 +526,10 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
 def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
     """Fire-and-forget start of `data-import-post-import` after a V3 final batch lands.
 
-    V2 runs the load-dependent post-import steps (signal emission, semantic enrichment,
-    column statistics, table size, DuckLake copy) inline in `external-data-job`, but on
-    V3 that workflow ends at extraction — the loaded table only exists once this
-    consumer's post-load operations and job completion finish, so the trigger lives
-    here instead. Same tolerance as `_trigger_ducklake_register_data_imports`: the
+    V2 starts the same workflow from `external-data-job` after the COMPLETED status
+    write, but on V3 that workflow ends at extraction — the loaded table only exists
+    once this consumer's post-load operations and job completion finish, so the trigger
+    lives here instead. Same tolerance as `_trigger_ducklake_register_data_imports`: the
     start only happens when this `*_load` deployment has Temporal client env vars
     configured; any failure is logged and captured without failing the load.
     """
