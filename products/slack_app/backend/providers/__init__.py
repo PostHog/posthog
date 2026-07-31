@@ -14,6 +14,7 @@ from products.slack_app.backend.providers.registry import (
 )
 from products.slack_app.backend.providers.slack import SlackChatProvider
 from products.slack_app.backend.providers.telegram import TelegramChatProvider
+from products.slack_app.backend.providers.whatsapp import WhatsAppChatProvider
 
 __all__ = [
     "ChatProvider",
@@ -22,6 +23,7 @@ __all__ = [
     "ConversationRef",
     "SlackChatProvider",
     "TelegramChatProvider",
+    "WhatsAppChatProvider",
     "chat_provider_for_integration",
     "get_chat_provider",
     "thread_handler_from_context",

@@ -257,3 +257,49 @@ class TelegramChatTaskMapping(TeamScopedRootMixin, UUIDModel):
                 name="uniq_telegram_chat_task_mapping",
             )
         ]
+
+
+class WhatsAppChatTaskMapping(TeamScopedRootMixin, UUIDModel):
+    """Maps one WhatsApp message (the DM that started a task) to its task run, so
+    relayed agent output and terminal updates land as replies to that message.
+
+    One row per originating message, like the Telegram mapping. ``wa_id`` is both
+    the chat and the human — the v1 surface is DMs only.
+    """
+
+    # db_constraint=False keeps the migration from taking a lock on the hot
+    # posthog_team table; enforcement is app-level, like every read on this model.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="whatsapp_chat_task_mappings",
+        db_constraint=False,
+    )
+    integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.CASCADE,
+        related_name="whatsapp_chat_task_mappings",
+    )
+    wa_id = models.CharField(max_length=32)
+    # Message ids are opaque ``wamid.…`` strings, notably longer than Telegram's ints.
+    root_message_id = models.CharField(max_length=128)
+    task = models.ForeignKey(
+        "tasks.Task",
+        on_delete=models.CASCADE,
+        related_name="whatsapp_chat_mappings",
+    )
+    task_run = models.ForeignKey(
+        "tasks.TaskRun",
+        on_delete=models.CASCADE,
+        related_name="whatsapp_chat_mappings",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["integration", "wa_id", "root_message_id"],
+                name="uniq_whatsapp_chat_task_mapping",
+            )
+        ]

@@ -11,12 +11,15 @@ from posthog.models.integration import Integration
 from products.slack_app.backend.providers.base import ChatProvider, ChatProviderError, ChatThreadHandler
 from products.slack_app.backend.providers.slack import SlackChatProvider
 from products.slack_app.backend.providers.telegram import TelegramChatProvider
+from products.slack_app.backend.providers.whatsapp import WhatsAppChatProvider
 from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.slack_app.backend.telegram_thread import TelegramThreadContext, TelegramThreadHandler
+from products.slack_app.backend.whatsapp_thread import WhatsAppThreadContext, WhatsAppThreadHandler
 
 _PROVIDERS: dict[str, type[ChatProvider]] = {
     SlackChatProvider.kind: SlackChatProvider,
     TelegramChatProvider.kind: TelegramChatProvider,
+    WhatsAppChatProvider.kind: WhatsAppChatProvider,
 }
 
 
@@ -46,4 +49,6 @@ def thread_handler_from_context(context: dict[str, Any]) -> ChatThreadHandler:
         return SlackThreadHandler(SlackThreadContext.from_dict(context))
     if provider == TelegramChatProvider.kind:
         return TelegramThreadHandler(TelegramThreadContext.from_dict(context))
+    if provider == WhatsAppChatProvider.kind:
+        return WhatsAppThreadHandler(WhatsAppThreadContext.from_dict(context))
     raise ChatProviderError(f"Unknown chat provider in thread context: {provider}")

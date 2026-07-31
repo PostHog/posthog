@@ -8,6 +8,7 @@ from products.slack_app.backend.providers import (
 )
 from products.slack_app.backend.slack_thread import SlackThreadHandler
 from products.slack_app.backend.telegram_thread import TelegramThreadHandler
+from products.slack_app.backend.whatsapp_thread import WhatsAppThreadHandler
 
 
 def test_registry_resolves_slack_provider():
@@ -31,6 +32,13 @@ def test_thread_handler_dispatches_telegram_contexts():
         {"provider": "telegram", "integration_id": 1, "chat_id": "-100555", "root_message_id": "42"}
     )
     assert isinstance(handler, TelegramThreadHandler)
+
+
+def test_thread_handler_dispatches_whatsapp_contexts():
+    handler = thread_handler_from_context(
+        {"provider": "whatsapp", "integration_id": 1, "wa_id": "15550001111", "root_message_id": "wamid.ROOT"}
+    )
+    assert isinstance(handler, WhatsAppThreadHandler)
 
 
 def test_thread_handler_unknown_provider_raises():
