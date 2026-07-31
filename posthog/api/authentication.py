@@ -29,6 +29,7 @@ from django.views.decorators.http import require_http_methods
 import structlog
 from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
+from axes.helpers import get_client_ip_address
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
@@ -109,6 +110,23 @@ def logout(request):
         return redirect_to_login(next_url, login_url=settings.LOGIN_URL)
 
     return redirect(settings.LOGIN_URL)
+
+
+def clear_axes_lockout(request: HttpRequest, user: User) -> None:
+    """Drop the django-axes failure record for a request's client and the given user.
+
+    `is_locked` runs before authentication, so failed attempts made *before* a password reset
+    keep rejecting the new password for the rest of the cooloff window. Possessing the emailed
+    reset token already proves ownership of the account, so the stale counter only ever locks
+    out the legitimate owner.
+    """
+    if not settings.AXES_ENABLED:
+        return
+    try:
+        AxesProxyHandler.reset_attempts(ip_address=get_client_ip_address(request), username=user.email)
+    except Exception as e:
+        # Never let lockout bookkeeping fail the reset itself - the user has a new password either way.
+        capture_exception(Exception(f"Failed to clear axes lockout after password reset: {e}"))
 
 
 def axes_locked_out(*args, **kwargs):
@@ -1129,6 +1147,9 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         # The reset flow doesn't log the user in, and a reset is the canonical compromise-recovery
         # action, so revoke every existing login session for this user.
         revoke_other_sessions(user, keep_session_key=None)
+
+        request = self.context["request"]
+        clear_axes_lockout(getattr(request, "_request", request), user)
 
         report_user_password_reset(user)
         return {"email": user.email}

@@ -1512,6 +1512,32 @@ class TestPasswordResetAPI(APIBaseTest):
         )
         self.assertEqual(mock_capture.call_count, 2)
 
+    def test_completing_a_reset_clears_the_brute_force_lockout(self):
+        self.client.logout()
+
+        with self.settings(AXES_ENABLED=True, AXES_FAILURE_LIMIT=3):
+            for _ in range(3):
+                self.client.post(
+                    "/api/login",
+                    {"email": self.CONFIG_EMAIL, "password": "invalid"},
+                    REMOTE_ADDR="1.1.1.1",
+                )
+
+            token = password_reset_token_generator.make_token(self.user)
+            response = self.client.post(
+                f"/api/reset/{self.user.uuid}/",
+                {"token": token, "password": VALID_TEST_PASSWORD},
+                REMOTE_ADDR="1.1.1.1",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": VALID_TEST_PASSWORD},
+                REMOTE_ADDR="1.1.1.1",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     def test_cant_set_short_password(self):
         token = password_reset_token_generator.make_token(self.user)
         response = self.client.post(f"/api/reset/{self.user.uuid}/", {"token": token, "password": "123"})
