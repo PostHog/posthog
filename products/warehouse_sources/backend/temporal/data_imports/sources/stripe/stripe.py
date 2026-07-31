@@ -16,10 +16,12 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.common.logger import get_logger
 
-from products.warehouse_sources.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.models.external_table_definitions import (
+    external_tables,
+    get_dlt_mapping_for_external_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     WebhookCreationResult,
@@ -28,29 +30,59 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
+    APPLICATION_FEE_RESOURCE_NAME,
     BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME,
+    BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME,
+    BILLING_CREDIT_GRANT_RESOURCE_NAME,
+    BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
+    CHECKOUT_SESSION_RESOURCE_NAME,
     COUPON_RESOURCE_NAME,
     CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     DISPUTE_RESOURCE_NAME,
+    EARLY_FRAUD_WARNING_RESOURCE_NAME,
+    ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME,
+    ENTITLEMENTS_FEATURE_RESOURCE_NAME,
+    EVENT_RESOURCE_NAME,
     INVOICE_ITEM_RESOURCE_NAME,
+    INVOICE_PAYMENT_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
+    PAYMENT_INTENT_RESOURCE_NAME,
+    PAYMENT_LINK_RESOURCE_NAME,
     PAYOUT_RESOURCE_NAME,
+    PLAN_RESOURCE_NAME,
     PRICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    PROMOTION_CODE_RESOURCE_NAME,
+    QUOTE_RESOURCE_NAME,
     REFUND_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
+    REVIEW_RESOURCE_NAME,
+    SETUP_ATTEMPT_RESOURCE_NAME,
+    SETUP_INTENT_RESOURCE_NAME,
+    SHIPPING_RATE_RESOURCE_NAME,
+    SUBSCRIPTION_ITEM_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME,
+    SUBSCRIPTION_SCHEDULE_RESOURCE_NAME,
+    TAX_ID_RESOURCE_NAME,
+    TAX_RATE_RESOURCE_NAME,
+    TOPUP_RESOURCE_NAME,
+    TRANSFER_RESOURCE_NAME,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS,
+    DEFAULT_PRIMARY_KEYS,
+    NON_PARTITIONED_ENDPOINTS,
+    PRIMARY_KEYS,
     WEBHOOK_ONLY_ENDPOINTS,
 )
 
@@ -306,11 +338,55 @@ class StripeNestedResource:
     parent: StripeResource
     parent_name: str = ""
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
+    # Optional builder for request params that depend on fields of the parent object beyond its id
+    # (e.g. the credit balance summary needs the grant's customer as well as the grant id). Merged
+    # over the resource's static params; unset for every resource keyed solely by the parent id.
+    nested_params_from_parent: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None
     # Optional predicate over a parent object. When set and it returns False, we skip the nested
     # API call for that parent entirely. Stripe has no top-level list for these nested resources, so
     # the default behaviour fans out one call per parent — most of which return nothing. A cheap
     # signal already present on the parent object lets us avoid the calls that can't yield data.
     parent_has_nested: Optional[Callable[[dict[str, Any]], bool]] = None
+
+
+class _SingleObjectList:
+    """Presents one retrieved Stripe object through the ``auto_paging_iter`` interface every other
+    resource in ``_build_resources`` exposes, so a retrieve-only endpoint rides the same fan-out
+    path as the list endpoints instead of needing its own branch in ``get_rows``."""
+
+    def __init__(self, obj: Any) -> None:
+        self._obj = obj
+
+    def auto_paging_iter(self):
+        yield self._obj
+
+
+def _credit_balance_summary_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_summary` is a retrieve, not a list: it returns the balance for one
+    customer under a required `filter`. We scope it to a single credit grant so each row is the
+    current balance of a grant we already sync."""
+
+    def _retrieve(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        summary = client.billing.credit_balance_summary.retrieve(
+            params={
+                "customer": params["customer"],
+                "filter": {"type": "credit_grant", "credit_grant": credit_grant},
+            }
+        )
+        return cast(ListObject[Any], _SingleObjectList(summary))
+
+    return _retrieve
+
+
+def _credit_grant_customer_params(credit_grant: dict[str, Any]) -> dict[str, Any]:
+    return {"customer": credit_grant.get("customer")}
+
+
+def _credit_grant_has_customer(credit_grant: dict[str, Any]) -> bool:
+    """Credit grants issued to an Account rather than a Customer carry `customer_account` instead of
+    `customer`. The summary endpoint takes one or the other, and we scope on `customer`, so skip the
+    rest rather than sending a request Stripe would reject."""
+    return bool(credit_grant.get("customer"))
 
 
 def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
@@ -334,6 +410,28 @@ class StripeResumeConfig:
     starting_after: str
 
 
+def _scrub_client_secrets(obj: Any) -> Any:
+    """Recursively strip Stripe ``client_secret`` values before an object is persisted to a warehouse table.
+
+    PaymentIntent, SetupIntent, and embedded/custom Checkout Session objects carry a ``client_secret``
+    that authorizes Stripe's client-side API to retrieve or confirm that specific payment or setup flow.
+    Stripe requires it never be stored, logged, or exposed to anyone but the customer it belongs to, so
+    persisting it into a queryable table would let anyone with warehouse access act on another customer's
+    flow. Event objects embed full copies of these resources under ``data.object`` and
+    ``data.previous_attributes``, so the walk descends into every nested mapping and list rather than only
+    checking the top level.
+
+    Returns scrubbed plain ``dict``/``list`` structures (scalars pass through unchanged). ``StripeObject``
+    is a ``dict`` subclass, so nested SDK objects flatten into plain dicts, which the batcher already
+    serializes the same way it handles the nested-resource dicts.
+    """
+    if isinstance(obj, Mapping):
+        return {key: _scrub_client_secrets(value) for key, value in obj.items() if key != "client_secret"}
+    if isinstance(obj, list):
+        return [_scrub_client_secrets(value) for value in obj]
+    return obj
+
+
 def _batch_and_yield(
     objects: Any,
     batcher: Batcher,
@@ -347,7 +445,7 @@ def _batch_and_yield(
         if stop_at_or_before is not None and incremental_field_name is not None:
             if obj[incremental_field_name] <= stop_at_or_before:
                 break
-        batcher.batch(obj)
+        batcher.batch(_scrub_client_secrets(obj))
         while batcher.should_yield():
             yield batcher.get_table()
 
@@ -416,6 +514,68 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        PAYMENT_INTENT_RESOURCE_NAME: StripeResource(method=client.payment_intents.list),
+        CHECKOUT_SESSION_RESOURCE_NAME: StripeResource(method=client.checkout.sessions.list),
+        SUBSCRIPTION_SCHEDULE_RESOURCE_NAME: StripeResource(method=client.subscription_schedules.list),
+        PROMOTION_CODE_RESOURCE_NAME: StripeResource(method=client.promotion_codes.list),
+        # Tiers are only returned when expanded, same as Price. Key must be "expand[]" for a single
+        # string value (see the Subscription note above for the list-valued form).
+        PLAN_RESOURCE_NAME: StripeResource(method=client.plans.list, params={"expand[]": "data.tiers"}),
+        TAX_RATE_RESOURCE_NAME: StripeResource(method=client.tax_rates.list),
+        # `/v1/tax_ids` without an `owner` filter lists the account's own tax IDs. Customer-owned tax
+        # IDs live under the customer and are not part of this list.
+        TAX_ID_RESOURCE_NAME: StripeResource(method=client.tax_ids.list),
+        QUOTE_RESOURCE_NAME: StripeResource(method=client.quotes.list),
+        EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
+        BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
+        BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
+        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(
+            method=client.billing.credit_balance_transactions.list
+        ),
+        ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.entitlements.features.list),
+        INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.invoice_payments.list),
+        SETUP_INTENT_RESOURCE_NAME: StripeResource(method=client.setup_intents.list),
+        PAYMENT_LINK_RESOURCE_NAME: StripeResource(method=client.payment_links.list),
+        TRANSFER_RESOURCE_NAME: StripeResource(method=client.transfers.list),
+        APPLICATION_FEE_RESOURCE_NAME: StripeResource(method=client.application_fees.list),
+        TOPUP_RESOURCE_NAME: StripeResource(method=client.topups.list),
+        REVIEW_RESOURCE_NAME: StripeResource(method=client.reviews.list),
+        EARLY_FRAUD_WARNING_RESOURCE_NAME: StripeResource(method=client.radar.early_fraud_warnings.list),
+        SHIPPING_RATE_RESOURCE_NAME: StripeResource(method=client.shipping_rates.list),
+        # `/v1/subscription_items` requires a `subscription`, so it fans out over subscriptions. The
+        # parent list skips the discount expansions the Subscription table uses — we only need ids.
+        SUBSCRIPTION_ITEM_RESOURCE_NAME: StripeNestedResource(
+            method=client.subscription_items.list,
+            nested_parent_param="subscription",
+            parent_id="id",
+            parent=StripeResource(method=client.subscriptions.list, params={"status": "all"}),
+            parent_name=SUBSCRIPTION_RESOURCE_NAME,
+        ),
+        # `/v1/entitlements/active_entitlements` requires a `customer`.
+        ENTITLEMENTS_ACTIVE_ENTITLEMENT_RESOURCE_NAME: StripeNestedResource(
+            method=client.entitlements.active_entitlements.list,
+            nested_parent_param="customer",
+            parent_id="id",
+            parent=StripeResource(method=client.customers.list),
+            parent_name=CUSTOMER_RESOURCE_NAME,
+        ),
+        BILLING_CREDIT_BALANCE_SUMMARY_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_summary_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
+        ),
+        # `/v1/setup_attempts` requires a `setup_intent`.
+        SETUP_ATTEMPT_RESOURCE_NAME: StripeNestedResource(
+            method=client.setup_attempts.list,
+            nested_parent_param="setup_intent",
+            parent_id="id",
+            parent=StripeResource(method=client.setup_intents.list),
+            parent_name=SETUP_INTENT_RESOURCE_NAME,
         ),
     }
 
@@ -489,18 +649,21 @@ def get_rows(
                 if resource.parent_has_nested is not None and not resource.parent_has_nested(obj):
                     skipped_parents += 1
                     continue
+                parent_params = resource.nested_params_from_parent(obj) if resource.nested_params_from_parent else {}
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
                         **{resource.nested_parent_param: parent_obj_id},
-                        params={**default_params, **resource.params},
+                        params={**default_params, **resource.params, **parent_params},
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():
                         batcher.batch(
-                            {
-                                **nested_obj,
-                                **{resource.nested_parent_param: parent_obj_id},
-                            }
+                            _scrub_client_secrets(
+                                {
+                                    **nested_obj,
+                                    **{resource.nested_parent_param: parent_obj_id},
+                                }
+                            )
                         )
 
                         # A single batch can split into several ready chunks, so drain them all
@@ -528,7 +691,7 @@ def get_rows(
                 resource.method, params={**default_params, **resource.params, **resume_params}
             )
             for obj in stripe_objects.auto_paging_iter():
-                batcher.batch(obj)
+                batcher.batch(_scrub_client_secrets(obj))
 
                 while batcher.should_yield():
                     py_table = batcher.get_table()
@@ -607,7 +770,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         if existing is None or ts > existing[0]:
             best_by_id[obj_id] = (ts, obj)
 
-    rows = [obj for _, obj in best_by_id.values()]
+    rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
     return table_from_py_list(rows)
 
 
@@ -623,7 +786,10 @@ def stripe_source(
     api_version: str,
     should_use_incremental_field: bool = False,
 ):
-    column_mapping = get_dlt_mapping_for_external_table(f"stripe_{endpoint.lower()}")
+    # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
+    # pipeline infer their columns from the rows Stripe returns.
+    table_name = f"stripe_{endpoint.lower()}"
+    column_mapping = get_dlt_mapping_for_external_table(table_name) if table_name in external_tables else {}
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys
@@ -652,19 +818,23 @@ def stripe_source(
             api_version=api_version,
         )
 
+    # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
+    # datetime partitioner would KeyError looking for the fallback `created` field.
+    partitioned = endpoint not in NON_PARTITIONED_ENDPOINTS
+
     return SourceResponse(
         items=items,
-        primary_keys=["id"],
+        primary_keys=PRIMARY_KEYS.get(endpoint, DEFAULT_PRIMARY_KEYS),
         name=endpoint,
         column_hints=column_hints,
         webhook_only=webhook_only,
         # Stripe data is returned in descending timestamp order
         sort_mode="desc",
-        partition_count=1,  # this enables partitioning
-        partition_size=1,  # this enables partitioning
-        partition_mode="datetime",
-        partition_format="week",
-        partition_keys=[incremental_field_name],
+        partition_count=1 if partitioned else None,  # this enables partitioning
+        partition_size=1 if partitioned else None,  # this enables partitioning
+        partition_mode="datetime" if partitioned else None,
+        partition_format="week" if partitioned else None,
+        partition_keys=[incremental_field_name] if partitioned else None,
     )
 
 

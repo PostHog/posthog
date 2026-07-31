@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.clockify.clockify import (
     ClockifyResumeConfig,
     clockify_source,
@@ -32,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     SourceSchema,
     build_endpoint_schemas,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.clockify import (
     ClockifySourceConfig,
 )
@@ -114,7 +111,10 @@ The key is user-scoped — it can read exactly what your Clockify user can. Use 
         if validate_clockify_credentials(config.api_key):
             return True, None
 
-        return False, "Invalid Clockify API key"
+        return (
+            False,
+            "Your Clockify API key is invalid or has been revoked. Generate a new key in your Clockify profile settings, then reconnect.",
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ClockifyResumeConfig]:
         return ResumableSourceManager[ClockifyResumeConfig](inputs, ClockifyResumeConfig)
