@@ -283,45 +283,34 @@ describe('insightBuilderLogic', () => {
         }).toNotHaveDispatchedActions(['hydrateFromNode'])
     })
 
-    describe('builder/SQL conflicts', () => {
+    describe('externally edited SQL', () => {
         // The SQL no longer matches what the builder config compiles to — e.g. it was edited in
         // the plain SQL editor while the builder feature flag was off, then saved
-        const CONFLICTED_NODE: DataVisualizationNode = {
+        const EDITED_NODE: DataVisualizationNode = {
             ...BUILDER_NODE,
             source: { ...BUILDER_NODE.source, query: 'SELECT edited_elsewhere FROM payments' },
         }
 
-        it('flags the conflict instead of silently hydrating the wells', async () => {
+        it('drops the stale visual setup so the insight behaves like a classic SQL insight', async () => {
             await expectLogic(builderLogic, () => {
-                sqlLogic.actions.setSourceQuery(CONFLICTED_NODE)
+                sqlLogic.actions.setSourceQuery(EDITED_NODE)
             })
                 .toNotHaveDispatchedActions(['hydrateFromNode'])
-                .toMatchValues({ builderConflict: true, rows: [] })
-        })
-
-        it('keeping the SQL strips the builder config and hands the SQL to the editor', async () => {
-            sqlLogic.actions.setSourceQuery(CONFLICTED_NODE)
-
-            await expectLogic(builderLogic, () => {
-                builderLogic.actions.resolveBuilderConflict('sql')
-            }).toMatchValues({ builderConflict: false })
+                .toMatchValues({ rows: [] })
 
             expect(sqlLogic.values.sourceQuery.builder).toBeUndefined()
             expect(sqlLogic.values.queryInput).toEqual('SELECT edited_elsewhere FROM payments')
         })
 
-        it('restoring the visual setup hydrates the wells and regenerates the SQL from them', async () => {
-            sqlLogic.actions.setSourceQuery(CONFLICTED_NODE)
+        it('a later consistent insight in the same tab still hydrates', async () => {
+            // One externally edited insight must not poison the tab for the next one
+            sqlLogic.actions.setSourceQuery(EDITED_NODE)
 
             await expectLogic(builderLogic, () => {
-                builderLogic.actions.resolveBuilderConflict('builder')
+                sqlLogic.actions.setSourceQuery(BUILDER_NODE)
             })
-                .toDispatchActions(['hydrateFromNode', 'applyWells'])
-                .toMatchValues({ builderConflict: false, rows: [{ column: 'plan' }] })
-                .delay(400)
-
-            expect(sqlLogic.values.sourceQuery.source.query).toContain('sum(amount) AS sum_amount')
-            expect(sqlLogic.values.sourceQuery.source.query).not.toContain('edited_elsewhere')
+                .toDispatchActions(['hydrateFromNode'])
+                .toMatchValues({ rows: [{ column: 'plan' }], baseQuery: 'SELECT * FROM payments' })
         })
     })
 })

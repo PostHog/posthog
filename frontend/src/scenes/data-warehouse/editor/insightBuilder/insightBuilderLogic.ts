@@ -85,7 +85,6 @@ export interface insightBuilderLogicValues {
     baseOutOfSync: boolean
     baseQuery: string
     baseViewName: string | null
-    builderConflict: boolean
     builderView: BuilderPreviewView
     buildModeDisabledReason: string | null
     builderConfig: InsightBuilderConfig
@@ -220,12 +219,6 @@ export interface insightBuilderLogicActions {
         baseQuery: string
         baseViewName: string | null
     }
-    setBuilderConflict: (conflict: boolean) => {
-        conflict: boolean
-    }
-    resolveBuilderConflict: (choice: 'sql' | 'builder') => {
-        choice: 'sql' | 'builder'
-    }
     setBuilderView: (view: BuilderPreviewView) => {
         view: BuilderPreviewView
     }
@@ -355,10 +348,6 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
         seedBuilderDisplay: (display: ChartDisplayType) => ({ display }),
         hydrateFromNode: (builder: InsightBuilderConfig, display?: ChartDisplayType) => ({ builder, display }),
         setBaseSnapshot: (baseQuery: string, baseViewName: string | null) => ({ baseQuery, baseViewName }),
-        setBuilderConflict: (conflict: boolean) => ({ conflict }),
-        // 'sql' keeps the (externally edited) SQL and drops the visual setup; 'builder' restores
-        // the visual setup and regenerates the SQL from it
-        resolveBuilderConflict: (choice: 'sql' | 'builder') => ({ choice }),
         setBuilderView: (view: BuilderPreviewView) => ({ view }),
         adoptNodeDisplay: true,
         applyWells: true,
@@ -545,14 +534,6 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 hydrateFromNode: (_, { builder }) => builder.baseView ?? null,
             },
         ],
-        // The node's SQL was edited outside the builder (its builder config no longer compiles to
-        // it) — hydration is held until the user picks a side via resolveBuilderConflict
-        builderConflict: [
-            false,
-            {
-                setBuilderConflict: (_, { conflict }) => conflict,
-            },
-        ],
         builderView: [
             'chart' as BuilderPreviewView,
             {
@@ -729,26 +710,6 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
                 actions.runQuery(compiled.sql, undefined, 'async')
             }
         },
-        resolveBuilderConflict: ({ choice }) => {
-            const node = values.sourceQuery
-            actions.setBuilderConflict(false)
-            if (choice === 'sql') {
-                // The SQL wins: degrade to a plain SQL insight. The buffer holds the stale base
-                // query on builder tabs, so hand it the SQL and jump to the Source tab to show it.
-                actions.setSourceQuery({ ...node, builder: undefined })
-                actions.setQueryInput(node.source.query)
-                actions.setActiveTab(OutputTab.Results)
-                actions.refreshBase()
-                return
-            }
-            if (!node.builder?.enabled) {
-                return
-            }
-            // The visual setup wins: hydrate the wells and regenerate the SQL from them
-            actions.hydrateFromNode(node.builder, node.display)
-            actions.loadBaseColumns()
-            actions.applyWells()
-        },
         // Snapshot the Data tab as the builder's base. When the base is a bare select-all from a
         // catalog object (view click, table click) or an unmodified saved view, compile against the
         // object by name — this drops the preview LIMIT so aggregates cover the full data, and
@@ -792,7 +753,7 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             const node = values.sourceQuery
             if (node.builder?.enabled && !objectsEqual(node.builder, values.builderConfig)) {
                 if (!builderConfigMatchesQuery(node)) {
-                    actions.setBuilderConflict(true)
+                    // The sourceQuery subscription drops the stale visual setup — nothing to hydrate
                     return
                 }
                 actions.hydrateFromNode(node.builder, node.display)
@@ -823,7 +784,11 @@ export const insightBuilderLogic = kea<insightBuilderLogicType>([
             const builder = sourceQuery?.builder
             if (sourceQuery && builder?.enabled && !objectsEqual(builder, values.builderConfig)) {
                 if (!builderConfigMatchesQuery(sourceQuery)) {
-                    actions.setBuilderConflict(true)
+                    // The SQL was edited outside the builder (e.g. in the classic editor with the
+                    // flag off), so the SQL wins: drop the stale visual setup and let the insight
+                    // behave like a classic SQL insight. Persists only when the user saves.
+                    actions.setSourceQuery({ ...sourceQuery, builder: undefined })
+                    actions.setQueryInput(sourceQuery.source.query)
                     return
                 }
                 actions.hydrateFromNode(builder, sourceQuery.display)

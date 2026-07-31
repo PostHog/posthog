@@ -41,7 +41,8 @@ function normalizeSql(sql: string): string {
  * Whether a saved node's builder config still describes its SQL. The builder keeps the two in
  * lockstep, so a mismatch means the SQL was edited outside the builder (e.g. in the plain SQL
  * editor while the builder flag was off) — hydrating the wells then would silently regenerate
- * SQL from a config the query no longer matches. Callers surface an explicit choice instead.
+ * SQL from a config the query no longer matches. Callers drop the stale config instead: the SQL
+ * wins, and the insight behaves like a classic SQL insight until it is rebuilt.
  */
 export function builderConfigMatchesQuery(node: DataVisualizationNode): boolean {
     const builder = node.builder

@@ -139,16 +139,16 @@ test.describe('SQL editor insight builder', () => {
             await expect(page.getByText('Insight updated')).toBeVisible({ timeout: 60000 })
         })
 
-        await test.step('flag back on: reopening surfaces the conflict with an explicit choice', async () => {
+        await test.step('flag back on: the edited insight opens the classic way, SQL first', async () => {
+            // The visual setup no longer matches the edited SQL, so it is dropped and the
+            // insight behaves like a classic SQL insight: no builder scene tabs, edited SQL in
+            // the buffer
             await mockFeatureFlags(page, { [BUILDER_FLAG]: true })
             await goToSqlEditor(page, `/sql?open_insight=${insightShortId}`)
-            await expect(page.getByTestId('sql-builder-conflict')).toBeVisible({ timeout: 60000 })
-        })
-
-        await test.step('restoring the visual setup regenerates the chart', async () => {
-            await page.getByTestId('sql-builder-conflict-restore').click()
-            await expect(page.getByTestId('sql-builder-conflict')).toHaveCount(0)
-            await expect(page.getByTestId('sql-builder-status-bar')).toContainText('1 row', { timeout: 60000 })
+            await expect(page.getByTestId('hogql-query-editor')).toContainText('SELECT 2 AS result', {
+                timeout: 60000,
+            })
+            await expect(page.getByTestId('sql-builder-scene-tabs')).toHaveCount(0)
         })
     })
 })

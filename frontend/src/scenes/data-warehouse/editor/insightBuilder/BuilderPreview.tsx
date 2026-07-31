@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCode, IconGraph } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconTableChart } from 'lib/lemon-ui/icons'
@@ -105,10 +105,8 @@ function BuilderStatusBar({ tabId, chartInSync }: { tabId: string; chartInSync: 
 
 /** The chart itself — the always-visible Visualization column of the builder canvas. */
 export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
-    const { hasAnyField, wellProblems, builderDisplay, builderConflict, builderView } = useValues(
-        insightBuilderLogic({ tabId })
-    )
-    const { resolveBuilderConflict, setBuilderView } = useActions(insightBuilderLogic({ tabId }))
+    const { hasAnyField, wellProblems, builderDisplay, builderView } = useValues(insightBuilderLogic({ tabId }))
+    const { setBuilderView } = useActions(insightBuilderLogic({ tabId }))
     const { sourceQuery, dataLogicKey, insightLoading } = useValues(sqlEditorLogic({ tabId }))
     const { setSourceQuery } = useActions(sqlEditorLogic({ tabId }))
     const { response, responseError, responseLoading, hasMoreData } = useValues(dataNodeLogic)
@@ -132,40 +130,6 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
         content = (
             <div className="flex flex-1 flex-col items-center justify-center">
                 <LoadingBar />
-            </div>
-        )
-    } else if (builderConflict) {
-        // The saved SQL was edited outside the builder (e.g. with the builder flag off), so the
-        // wells no longer describe it. Hydrating silently would regenerate SQL over that edit —
-        // the user picks which side wins instead.
-        content = (
-            <div
-                className="flex flex-1 flex-col items-center justify-center gap-3 p-4 text-center"
-                data-attr="sql-builder-conflict"
-            >
-                <span className="text-base font-semibold">This insight's SQL was edited outside the builder</span>
-                <span className="max-w-160 text-sm text-secondary">
-                    The visual setup no longer matches the SQL. Restore the visual setup to rebuild the SQL from it, or
-                    keep the SQL and continue in the editor without the visual setup.
-                </span>
-                <div className="flex gap-2">
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        onClick={() => resolveBuilderConflict('builder')}
-                        data-attr="sql-builder-conflict-restore"
-                    >
-                        Restore visual setup
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => resolveBuilderConflict('sql')}
-                        data-attr="sql-builder-conflict-keep-sql"
-                    >
-                        Keep the SQL
-                    </LemonButton>
-                </div>
             </div>
         )
     } else if (!hasAnyField) {
@@ -249,7 +213,7 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
         )
     }
 
-    const showViewToggle = hasAnyField && !builderConflict
+    const showViewToggle = hasAnyField
 
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">

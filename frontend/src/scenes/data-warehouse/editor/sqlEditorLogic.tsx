@@ -1730,6 +1730,22 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     ? sanitizeSourceQuery(rawInsightVisualizationQuery)
                     : undefined
 
+                // What the buffer should hold for the object being opened. Mirror of the
+                // open_insight gate: the buffer holds the base SQL only while the builder flag is
+                // on — with it off the compiled SQL is what the user edits.
+                const nextBufferText: string | undefined = query
+                    ? query
+                    : draft
+                      ? draft.query.query
+                      : view
+                        ? (view.query?.query ?? '')
+                        : insightVisualizationQuery
+                          ? values.featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR] &&
+                            insightVisualizationQuery.builder?.enabled
+                              ? insightVisualizationQuery.builder.baseQuery
+                              : insightVisualizationQuery.source.query || ''
+                          : undefined
+
                 // The Monaco model is a pre-creation optimization (the editor also creates it from
                 // its `path` binding on mount), but the tab's identity — insight, view, name — must
                 // never depend on Monaco being mounted, or opening an insight before the editor
@@ -1739,7 +1755,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     uri = props.monaco.Uri.parse(tabModelPath(props.tabId))
                     let model = props.monaco.editor.getModel(uri)
                     if (!model) {
-                        model = props.monaco.editor.createModel(query, 'hogQL', uri)
+                        model = props.monaco.editor.createModel(nextBufferText ?? query, 'hogQL', uri)
                         cache.createdModels = cache.createdModels || []
                         cache.createdModels.push(model)
                         props.editor?.setModel(model)
@@ -1751,6 +1767,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                 language: 'hogQL',
                             })
                         )
+                    } else if (nextBufferText !== undefined && model.getValue() !== nextBufferText) {
+                        // The browser tab reuses one model across opened objects. When the query
+                        // pane is hidden (Visualization tab) the model can't sync from the buffer
+                        // state, so switching insights would otherwise show the previous object's
+                        // SQL on the next Source visit.
+                        model.setValue(nextBufferText)
                     }
                 }
 
@@ -1766,21 +1788,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (insightVisualizationQuery) {
                     actions.setLastRunQuery(insightVisualizationQuery)
                 }
-                if (query) {
-                    actions.setQueryInput(query)
-                } else if (draft) {
-                    actions.setQueryInput(draft.query.query)
-                } else if (view) {
-                    actions.setQueryInput(view.query?.query ?? '')
-                } else if (insightVisualizationQuery) {
-                    // Mirror the open_insight gate: the buffer holds the base SQL only while the
-                    // builder flag is on — with it off the compiled SQL is what the user edits
-                    actions.setQueryInput(
-                        values.featureFlags[FEATURE_FLAGS.BI_SQL_INSIGHT_EDITOR] &&
-                            insightVisualizationQuery.builder?.enabled
-                            ? insightVisualizationQuery.builder.baseQuery
-                            : insightVisualizationQuery.source.query || ''
-                    )
+                if (nextBufferText !== undefined) {
+                    actions.setQueryInput(nextBufferText)
                 }
 
                 // Focus the editor after creating a new tab
