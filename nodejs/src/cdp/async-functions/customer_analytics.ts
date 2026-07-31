@@ -73,8 +73,10 @@ registerAsyncFunction('postHogGetAccount', {
                     usage_dashboard_link: 'https://example.com/dashboard',
                 },
                 relationships: {
-                    CSM: [{ user_id: 1, email: 'csm@example.com' }],
-                    'Account executive': [{ user_id: 2, email: 'ae@example.com' }],
+                    CSM: [{ user_id: 1, email: 'csm@example.com', started_at: '2024-01-15T00:00:00Z' }],
+                    'Account executive': [
+                        { user_id: 2, email: 'ae@example.com', started_at: '2024-03-01T00:00:00Z' },
+                    ],
                 },
                 custom_properties: {
                     Plan: 'enterprise',

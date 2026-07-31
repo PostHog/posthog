@@ -130,13 +130,21 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(data["relationships"], {})
 
     def test_get_account_returns_active_relationships(self):
-        self._assign_csm(self.user)
+        relationship = self._assign_csm(self.user)
 
         response = self._get()
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
             response.json()["relationships"],
-            {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
+            {
+                "CSM": [
+                    {
+                        "user_id": self.user.id,
+                        "email": self.user.email,
+                        "started_at": relationship.started_at.isoformat(),
+                    }
+                ]
+            },
         )
 
     def test_get_account_returns_custom_properties(self):
@@ -192,9 +200,20 @@ class TestExternalAccountAPI(APIBaseTest):
             {"external_id": "acme-1", "relationships": {self.csm_key: {"type": "user", "id": self.user.id}}}
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        relationship = AccountRelationship.objects.for_team(self.team.id).get(
+            account=self.account, definition=self.csm_definition, ended_at__isnull=True
+        )
         self.assertEqual(
             response.json()["relationships"],
-            {"CSM": [{"user_id": self.user.id, "email": self.user.email}]},
+            {
+                "CSM": [
+                    {
+                        "user_id": self.user.id,
+                        "email": self.user.email,
+                        "started_at": relationship.started_at.isoformat(),
+                    }
+                ]
+            },
         )
         self.assertEqual(self._active_csm_user_ids(), [self.user.id])
 

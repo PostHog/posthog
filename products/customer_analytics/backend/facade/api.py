@@ -337,7 +337,11 @@ def _to_external_account(account: Account) -> contracts.ExternalAccount:
     ):
         assert relationship.user is not None
         relationships.setdefault(relationship.definition.name, []).append(
-            {"user_id": relationship.user.id, "email": relationship.user.email}
+            {
+                "user_id": relationship.user.id,
+                "email": relationship.user.email,
+                "started_at": relationship.started_at.isoformat(),
+            }
         )
 
     definitions = list(CustomPropertyDefinition.objects.for_team(account.team_id).values("id", "name"))
