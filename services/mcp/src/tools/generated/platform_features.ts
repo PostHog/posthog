@@ -237,6 +237,7 @@ const changeRequestsApprovePrepare = (): ToolBase<
             messageTemplate:
                 "About to APPROVE change request {id}. If this reaches the required quorum, the underlying change is applied immediately. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -256,6 +257,7 @@ const changeRequestsApproveExecute = (): ToolBase<
             purpose: 'change-requests-approve',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -370,6 +372,7 @@ const changeRequestsRejectPrepare = (): ToolBase<typeof ChangeRequestsRejectSche
             messageTemplate:
                 "About to REJECT change request {id}. This blocks the proposed change and notifies the requester. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -389,6 +392,7 @@ const changeRequestsRejectExecute = (): ToolBase<
             purpose: 'change-requests-reject',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -585,6 +589,7 @@ const organizationEnforce2faPrepare = (): ToolBase<
             messageTemplate:
                 "About to set organization-wide two-factor-authentication enforcement to {enforce_2fa}. This immediately affects every member of the organization — when enabled, all members must set up 2FA before they can continue using PostHog. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
         })
     },
 })
@@ -602,6 +607,7 @@ const organizationEnforce2faExecute = (): ToolBase<
             purpose: 'organization-enforce-2fa',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
         })
         if (!__guard.ok) {
             return __guard.result as never

@@ -604,6 +604,7 @@ const announcementsCreatePrepare = (): ToolBase<typeof AnnouncementsCreateSchema
             messageTemplate:
                 "About to send this announcement as the SupportHog bot — a real, outward-facing Slack message to customers that cannot be recalled once posted. The message body is: {message}. The destination channel list was signed at prepare time and cannot be changed afterwards — review the channels you asked to target before confirming. Reply 'confirm' to send.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -620,6 +621,7 @@ const announcementsCreateExecute = (): ToolBase<typeof AnnouncementsCreateSchema
             purpose: 'announcements-create',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
