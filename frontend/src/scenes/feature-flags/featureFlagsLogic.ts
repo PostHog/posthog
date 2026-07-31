@@ -192,7 +192,6 @@ export interface featureFlagsLogicValues {
     featureFlagsUpdating: Record<number, boolean>
     filters: FeatureFlagsFilters
     filtersChanged: boolean
-    localFlagsCache: FeatureFlagType[]
     pagination: PaginationManual
     paramsFromFilters: {
         active?: string | undefined
@@ -392,13 +391,8 @@ export interface featureFlagsLogicMeta {
             featureFlags: FeatureFlagsResult,
             filters: FeatureFlagsFilters
         ) => boolean
-        pagination: (
-            filters: FeatureFlagsFilters,
-            displayedFlags: FeatureFlagType[],
-            featureFlags: FeatureFlagsResult,
-            filtersChanged: boolean
-        ) => PaginationManual
-        displayedFlags: (localFlagsCache: FeatureFlagType[], featureFlags: FeatureFlagsResult) => FeatureFlagType[]
+        pagination: (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult) => PaginationManual
+        displayedFlags: (featureFlags: FeatureFlagsResult) => FeatureFlagType[]
     }
 }
 
@@ -520,20 +514,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 results: state.results.filter((flag) => flag.id !== id),
             }),
         },
-        localFlagsCache: [
-            [] as FeatureFlagType[],
-            {
-                loadFeatureFlagsSuccess: (_, { featureFlags }) => {
-                    return featureFlags.results
-                },
-                updateFeatureFlagSuccess: (_, { featureFlags }) => featureFlags.results,
-                updateFeatureFlagArchivedSuccess: (_, { featureFlags }) => featureFlags.results,
-                updateFlag: (state, { flag }) => state.map((f) => (f.id === flag.id ? flag : f)),
-                updateFlagFromPartial: (state, { flag }) =>
-                    state.map((f) => (f.id === flag.id ? { ...f, ...flag } : f)),
-                deleteFlag: (state, { id }) => state.filter((f) => f.id !== id),
-            },
-        ],
         activeTab: [
             FeatureFlagsTab.OVERVIEW as FeatureFlagsTab,
             {
@@ -616,18 +596,13 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             },
         ],
         pagination: [
-            (s) => [s.filters, s.displayedFlags, s.featureFlags, s.filtersChanged],
-            (
-                filters: FeatureFlagsFilters,
-                displayedFlags: FeatureFlagType[],
-                featureFlags: FeatureFlagsResult,
-                filtersChanged: boolean
-            ): PaginationManual => {
+            (s) => [s.filters, s.featureFlags],
+            (filters: FeatureFlagsFilters, featureFlags: FeatureFlagsResult): PaginationManual => {
                 return {
                     controlled: true,
                     pageSize: FLAGS_PER_PAGE,
                     currentPage: filters.page || 1,
-                    entryCount: filtersChanged ? displayedFlags.length : featureFlags.count,
+                    entryCount: featureFlags.count,
                 }
             },
         ],
@@ -638,13 +613,14 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }),
         ],
         displayedFlags: [
-            (s) => [s.localFlagsCache, s.featureFlags],
-            (cache: FeatureFlagType[], featureFlags: FeatureFlagsResult): FeatureFlagType[] => {
-                // Filter by the filters the cache was loaded under, not the live filters. Re-filtering the
-                // previous page against just-changed filters (before the refetch lands) can momentarily empty
-                // the list, which makes LemonTable flash skeleton rows over a table that already has data.
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsResult): FeatureFlagType[] => {
+                // Re-applies the page's own server-side filters so optimistic row edits that no longer match
+                // (a flag toggled off under active=true, or archived) drop out without a refetch. Filtering
+                // against the live filters instead would empty the list between a filter change and its
+                // refetch, and LemonTable renders skeleton rows over an empty dataSource.
                 const appliedFilters = featureFlags.filters ?? DEFAULT_FILTERS
-                return cache.filter((flag) => flagMatchesFilters(flag, appliedFilters))
+                return featureFlags.results.filter((flag) => flagMatchesFilters(flag, appliedFilters))
             },
         ],
     }),

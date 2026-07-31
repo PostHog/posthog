@@ -489,20 +489,27 @@ describe('displayedFlags stability while a filter change is loading', () => {
         logic?.unmount()
     })
 
-    // Regression guard: displayedFlags must filter the cache by the filters it was loaded under, not the
-    // just-changed live filters. Filtering the previous page against a new search before the refetch lands
-    // used to empty the list, which flashed LemonTable's skeleton rows over a table that already had data.
+    // Regression guard: displayedFlags must filter the loaded page by the filters it was loaded under, not
+    // the just-changed live filters. Filtering the previous page against a new search before the refetch
+    // lands used to empty the list, which flashed LemonTable's skeleton rows over a table that had data.
     it('keeps the loaded rows until the refetch lands when a non-matching search is typed', async () => {
         logic.actions.loadFeatureFlags()
         await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
         expect(logic.values.displayedFlags.map((f) => f.key)).toEqual(['alpha', 'beta'])
 
-        // setFeatureFlagsFilters debounces the refetch, so this asserts the pre-refetch render.
         await expectLogic(logic, () => {
             logic.actions.setFeatureFlagsFilters({ search: 'no-such-flag' })
-        }).toMatchValues({
-            filters: expect.objectContaining({ search: 'no-such-flag' }),
-            displayedFlags: [expect.objectContaining({ key: 'alpha' }), expect.objectContaining({ key: 'beta' })],
         })
+            // setFeatureFlagsFilters debounces the refetch, so this asserts the pre-refetch render.
+            .toMatchValues({
+                filters: expect.objectContaining({ search: 'no-such-flag' }),
+                displayedFlags: [expect.objectContaining({ key: 'alpha' }), expect.objectContaining({ key: 'beta' })],
+            })
+            .toDispatchActions(['loadFeatureFlagsSuccess'])
+
+        // The mock ignores `search`, so the refetch returns alpha and beta again: only the client-side
+        // filter, now stamped with the new search, can empty the list. Asserted outside the expectLogic
+        // chain because a failing toMatchValues there times the test out instead of reporting a diff.
+        expect(logic.values.displayedFlags).toEqual([])
     })
 })
