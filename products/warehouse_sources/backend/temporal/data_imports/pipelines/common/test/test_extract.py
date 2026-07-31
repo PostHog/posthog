@@ -422,6 +422,32 @@ class TestHandleCorruptedDeltaLog:
         job.refresh_from_db()
         assert job.billable is True
 
+    def test_is_table_corrupted_transient_object_store_error_skips_without_capturing(self, team):
+        # `is_table_corrupted` opens the table via `DeltaTable.is_deltatable`, which can raise the
+        # same IMDS/STS credential-provider blip as any other delta-rs object-store call. That isn't
+        # evidence of corruption — it must be treated like the reset-path blip above (skip, log a
+        # warning, no error-tracking capture) rather than unconditionally reported as a defect.
+        schema, job = self._schema_and_job(team)
+        corrupt_check_error = OSError(
+            "Operation not supported: an error occurred while loading credentials: dispatch failure: "
+            "timeout: client error (Connect): HTTP connect timeout occurred after 3.1s: timed out"
+        )
+        helper = MagicMock(is_table_corrupted=AsyncMock(side_effect=corrupt_check_error), reset_table=AsyncMock())
+        logger = self._logger()
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics"),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, logger)
+
+        assert result is False
+        mock_capture.assert_not_called()
+        helper.reset_table.assert_not_awaited()
+        logger.awarning.assert_awaited()
+        job.refresh_from_db()
+        assert job.billable is True
+
     def test_revive_marker_resets_readable_table(self, team):
         # A hollow table — log opens fine but references data files gone from S3 — is invisible to
         # is_table_corrupted; the repartition scan marks it instead. The marker alone must trigger the
