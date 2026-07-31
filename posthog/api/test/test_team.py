@@ -1695,6 +1695,28 @@ def team_api_test_factory():
             assert settings["widget_public_token"] is None
             assert settings["widget_color"] == "#123456"
 
+        def test_enabling_conversations_provisions_secret_api_token(self):
+            self.team.conversations_enabled = False
+            self.team.secret_api_token = None
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            assert self.team.secret_api_token is not None
+
+        def test_enabling_conversations_preserves_existing_secret_api_token(self):
+            self.team.conversations_enabled = False
+            self.team.secret_api_token = "existing_secret_token"
+            self.team.secret_api_token_backup = None
+            self.team.save()
+
+            response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+            assert response.status_code == status.HTTP_200_OK
+            self.team.refresh_from_db()
+            assert self.team.secret_api_token == "existing_secret_token"
+
         def test_generate_conversations_public_token(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()

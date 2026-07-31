@@ -2,29 +2,9 @@ import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { captureException } from '~/common/utils/posthog'
-import { Team } from '~/types'
 
-import { AsyncFunctionContext, registerAsyncFunction } from '../async-function-registry'
-
-async function getTeamWithSecretToken(context: AsyncFunctionContext, functionName: string): Promise<Team> {
-    const team = await context.teamManager.getTeam(context.invocation.teamId)
-    if (!team) {
-        throw new Error(`Team ${context.invocation.teamId} not found`)
-    }
-    if (!team.secret_api_token) {
-        const error = new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
-        captureException(error, {
-            tags: {
-                team_id: context.invocation.teamId,
-                function: functionName,
-                template_id: context.invocation.hogFunction.template_id ?? null,
-            },
-        })
-        throw error
-    }
-    return team
-}
+import { registerAsyncFunction } from '../async-function-registry'
+import { getTeamWithSecretToken } from './team-secret-token'
 
 registerAsyncFunction('postHogGetAccount', {
     execute: async (args, context, result) => {

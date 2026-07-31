@@ -1578,6 +1578,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             new_settings = validated_data["conversations_settings"]
             validated_data["conversations_settings"] = {**existing_settings, **new_settings}
 
+        is_enabling_conversations = (
+            bool(validated_data.get("conversations_enabled")) and not instance.conversations_enabled
+        )
+
         validated_data = handle_conversations_token_on_update(
             validated_data, instance.conversations_enabled, instance.conversations_settings
         )
@@ -1609,6 +1613,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             instance.refresh_from_db()
             set_team_in_cache(instance.api_token, instance)
         updated_team = instance
+
+        if is_enabling_conversations and not instance.secret_api_token and not instance.secret_api_token_backup:
+            # Ticket and account CDP workflow actions authenticate with this token. Provision it
+            # here so it exists before anyone builds a workflow, instead of leaving it as a manual
+            # step buried in Support settings that only surfaces as a run-time failure.
+            instance.rotate_secret_token_and_save(
+                user=cast(User, self.context["request"].user),
+                is_impersonated_session=is_impersonated(self.context["request"]),
+            )
 
         if "proactive_tasks_enabled" in validated_data:
             # Backward compat for old proactive tasks enabled field, remove after February 2026

@@ -995,6 +995,28 @@ describe('Hog Executor', () => {
             const result = await executor.execute(createTicketInvocation())
             expect(result.error).toContain('Team 1 not found')
         })
+
+        it('postHogGetTicket errors with actionable guidance and captures exception when the team has no secret API token', async () => {
+            jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
+                id: 1,
+                secret_api_token: null,
+            } as any)
+
+            const posthogModule = require('~/common/utils/posthog')
+            const captureExceptionSpy = jest.spyOn(posthogModule, 'captureException')
+
+            mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
+
+            const result = await executor.execute(createTicketInvocation())
+            expect(result.error).toContain('Support settings')
+            expect(result.error).not.toContain('Team 1')
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({
+                    tags: expect.objectContaining({ team_id: 1, function: 'postHogGetTicket' }),
+                })
+            )
+        })
     })
 
     describe('postHogGetAccount', () => {
@@ -1070,7 +1092,7 @@ describe('Hog Executor', () => {
             mockExecHogForAsyncFunction('postHogGetAccount', [{ external_id: 'acme-1' }])
 
             const result = await executor.execute(createAccountInvocation())
-            expect(result.error).toContain('has no secret API token configured')
+            expect(result.error).toContain('Support is not fully set up for this project')
         })
 
         it('captures exception with team_id when secret API token is missing', async () => {
