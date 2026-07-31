@@ -40735,32 +40735,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `user_message` - user_message
-     * * `cancel` - cancel
-     * * `close` - close
-     * * `permission_response` - permission_response
-     * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response
-     * * `pi/rpc` - pi/rpc
-     * * `queue_get` - queue_get
-     * * `queue_clear` - queue_clear
-     */
-    export type MethodEnum = typeof MethodEnum[keyof typeof MethodEnum];
-
-
-    export const MethodEnum = {
-      UserMessage: 'user_message',
-      Cancel: 'cancel',
-      Close: 'close',
-      PermissionResponse: 'permission_response',
-      SetConfigOption: 'set_config_option',
-      McpResponse: 'mcp_response',
-      PiRpc: 'pi/rpc',
-      QueueGet: 'queue_get',
-      QueueClear: 'queue_clear',
-    } as const;
-
-    /**
      * * `up` - up
      * * `down` - down
      * * `flat` - flat
@@ -69915,6 +69889,32 @@ export namespace Schemas {
     export type TaskRunCommandRequestParams = { [key: string]: unknown };
 
     /**
+     * * `user_message` - user_message
+     * * `cancel` - cancel
+     * * `close` - close
+     * * `permission_response` - permission_response
+     * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear
+     */
+    export type TaskRunCommandRequestMethodEnum = typeof TaskRunCommandRequestMethodEnum[keyof typeof TaskRunCommandRequestMethodEnum];
+
+
+    export const TaskRunCommandRequestMethodEnum = {
+      UserMessage: 'user_message',
+      Cancel: 'cancel',
+      Close: 'close',
+      PermissionResponse: 'permission_response',
+      SetConfigOption: 'set_config_option',
+      McpResponse: 'mcp_response',
+      PiRpc: 'pi/rpc',
+      QueueGet: 'queue_get',
+      QueueClear: 'queue_clear',
+    } as const;
+
+    /**
      * JSON-RPC request to send a command to the agent server in the sandbox.
      */
     export interface TaskRunCommandRequest {
@@ -69933,7 +69933,7 @@ export namespace Schemas {
        * * `pi/rpc` - pi/rpc
        * * `queue_get` - queue_get
        * * `queue_clear` - queue_clear */
-      method: MethodEnum;
+      method: TaskRunCommandRequestMethodEnum;
       /** Parameters for the command */
       params?: TaskRunCommandRequestParams;
       /** Optional JSON-RPC request ID (string or number) */
