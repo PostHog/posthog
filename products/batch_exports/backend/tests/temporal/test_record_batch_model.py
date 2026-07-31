@@ -3,6 +3,7 @@ import pytest
 from posthog.hogql.hogql import ast
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
+from posthog.credentials import AWSKeyPair
 from posthog.sync import database_sync_to_async
 
 from products.batch_exports.backend.hogql_source import UnsupportedHogQLQueryError
@@ -103,8 +104,7 @@ class TestSessionsRecordBatchModel:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
-            s3_key="test-key",
-            s3_secret="test-secret",
+            credentials=AWSKeyPair.unsafe_from_strings("test-key", "test-secret"),
             num_partitions=5,
         )
 
@@ -145,8 +145,7 @@ class TestSessionsRecordBatchModel:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
-            s3_key=None,
-            s3_secret=None,
+            credentials=None,
             num_partitions=5,
         )
 
@@ -180,8 +179,7 @@ class TestHogQLQueryRecordBatchModel:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
-            s3_key="test-key",
-            s3_secret="test-secret",
+            credentials=AWSKeyPair.unsafe_from_strings("test-key", "test-secret"),
             num_partitions=5,
         )
 

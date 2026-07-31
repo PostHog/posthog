@@ -163,6 +163,7 @@ def _workflow_run() -> contracts.WorkflowRunDetail:
         duration_seconds=120,
         run_attempt=2,
         pr_number=42,
+        commit_pr_number=None,
     )
 
 

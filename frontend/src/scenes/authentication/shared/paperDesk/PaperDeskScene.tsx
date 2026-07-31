@@ -41,9 +41,7 @@ export function PaperDeskCard({
             ) : (
                 top
             )}
-            <div className="w-full pt-8 px-5 sm:px-9 pb-8 bg-white border border-[#e0e1d9] rounded-lg shadow-[0_20px_44px_-26px_rgb(40_38_30/35%),0_3px_0_#e0e1d9]">
-                {children}
-            </div>
+            <div className="PaperDesk__card w-full pt-8 px-5 sm:px-9 pb-8">{children}</div>
             {footer}
         </>
     )

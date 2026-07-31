@@ -23,7 +23,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
-import { buildBucketKeys, normalizeBucket } from './timeBuckets'
+import { buildBucketKeys, lastBucketIsInProgress, normalizeBucket } from './timeBuckets'
 export interface ToolSummary {
     calls: number
     errors: number
@@ -143,6 +143,7 @@ export interface mcpAnalyticsToolDetailLogicValues {
     failureBucketsLoading: boolean
     failureOccurrences: MCPToolFailureOccurrenceItem[]
     failureOccurrencesLoading: boolean
+    incompleteTail: boolean
     intentCoverage: IntentCoverage | null
     intentCoverageLoading: boolean
     interval: IntervalType
@@ -353,6 +354,7 @@ export interface mcpAnalyticsToolDetailLogicMeta {
             interval: IntervalType,
             timezone: string
         ) => DailyChartData
+        incompleteTail: (dailyChartData: DailyChartData, interval: IntervalType, timezone: string) => boolean
         interval: (dateFilter: DateFilter) => IntervalType
         dateRange: (dateFilter: DateFilter, timezone: string) => DateRange
         dateRangeLabel: (dateFilter: DateFilter) => string
@@ -614,6 +616,14 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                 const bucketKeys = buildBucketKeys(dateFilter.dateFrom, dateFilter.dateTo, timezone, interval)
                 return buildDailyChartData(dailyStats, bucketKeys)
             },
+        ],
+
+        // The trend charts and sparklines dash the final segment when it is the current, still-
+        // collecting interval, so a partial period doesn't read as a fall in calls or a latency win.
+        incompleteTail: [
+            (s) => [s.dailyChartData, s.interval, teamLogic.selectors.timezone],
+            (dailyChartData: DailyChartData, interval: IntervalType, timezone: string): boolean =>
+                lastBucketIsInProgress(dailyChartData.labels, timezone, interval),
         ],
 
         // Grouping interval for the daily series — PostHog's standard auto-choice, matching the query's

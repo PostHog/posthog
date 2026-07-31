@@ -1,5 +1,6 @@
 import os
 import re
+import inspect
 import dataclasses
 from collections.abc import Callable, Mapping
 from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
@@ -382,6 +383,20 @@ def _credit_grant_customer_params(credit_grant: dict[str, Any]) -> dict[str, Any
     return {"customer": credit_grant.get("customer")}
 
 
+def _credit_balance_transaction_lister(client: StripeClient) -> Callable[..., ListObject[Any]]:
+    """`/v1/billing/credit_balance_transactions` requires a `customer` filter — like credit balance
+    summary, it has no unscoped list. Scope it to a single credit grant (also filtering on
+    `credit_grant` so a customer with several grants doesn't return the same transaction once per
+    grant) so each row is a transaction against a grant we already sync."""
+
+    def _list(credit_grant: str, params: dict[str, Any]) -> ListObject[Any]:
+        return client.billing.credit_balance_transactions.list(
+            params=cast(Any, {**params, "credit_grant": credit_grant})
+        )
+
+    return _list
+
+
 def _credit_grant_has_customer(credit_grant: dict[str, Any]) -> bool:
     """Credit grants issued to an Account rather than a Customer carry `customer_account` instead of
     `customer`. The summary endpoint takes one or the other, and we scope on `customer`, so skip the
@@ -530,8 +545,14 @@ def _build_resources(
         EVENT_RESOURCE_NAME: StripeResource(method=client.events.list),
         BILLING_METER_RESOURCE_NAME: StripeResource(method=client.billing.meters.list),
         BILLING_CREDIT_GRANT_RESOURCE_NAME: StripeResource(method=client.billing.credit_grants.list),
-        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeResource(
-            method=client.billing.credit_balance_transactions.list
+        BILLING_CREDIT_BALANCE_TRANSACTION_RESOURCE_NAME: StripeNestedResource(
+            method=_credit_balance_transaction_lister(client),
+            nested_parent_param="credit_grant",
+            parent_id="id",
+            parent=StripeResource(method=client.billing.credit_grants.list),
+            parent_name=BILLING_CREDIT_GRANT_RESOURCE_NAME,
+            parent_has_nested=_credit_grant_has_customer,
+            nested_params_from_parent=_credit_grant_customer_params,
         ),
         ENTITLEMENTS_FEATURE_RESOURCE_NAME: StripeResource(method=client.entitlements.features.list),
         INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=client.invoice_payments.list),
@@ -641,6 +662,11 @@ def get_rows(
                 resource.parent.method,
                 params={**default_params, **resource.parent.params, **resume_params},
             )
+            # Path-scoped services (e.g. customers.payment_methods.list) take the parent id as a
+            # method keyword, while flat services with a required filter (e.g.
+            # entitlements.active_entitlements.list) accept it only inside `params`. Route by the
+            # method's actual signature so both shapes get the parent id where Stripe expects it.
+            parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
             for obj in stripe_parent_objects.auto_paging_iter():
                 parent_obj_id = obj[resource.parent_id]
@@ -650,11 +676,17 @@ def get_rows(
                     skipped_parents += 1
                     continue
                 parent_params = resource.nested_params_from_parent(obj) if resource.nested_params_from_parent else {}
+                nested_params = {**default_params, **resource.params, **parent_params}
+                nested_kwargs: dict[str, Any] = {}
+                if parent_param_is_kwarg:
+                    nested_kwargs[resource.nested_parent_param] = parent_obj_id
+                else:
+                    nested_params[resource.nested_parent_param] = parent_obj_id
                 try:
                     stripe_nested_objects = _call_stripe(
                         resource.method,
-                        **{resource.nested_parent_param: parent_obj_id},
-                        params={**default_params, **resource.params, **parent_params},
+                        params=nested_params,
+                        **nested_kwargs,
                     )
                     for nested_obj in stripe_nested_objects.auto_paging_iter():
                         batcher.batch(

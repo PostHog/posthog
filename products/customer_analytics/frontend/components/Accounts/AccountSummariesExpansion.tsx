@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonDropdown, LemonSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -63,6 +63,43 @@ function periodLabel(summary: AccountChannelSummaryApi): string {
     return summary.cadence === 'daily' ? start : `${start} to ${summary.period_end.slice(0, 10)}`
 }
 
+function MessageCountBadge({ summary }: { summary: AccountChannelSummaryApi }): JSX.Element {
+    const label = `${summary.message_count} message${summary.message_count === 1 ? '' : 's'}`
+    if (!summary.messages?.length) {
+        return <span>{label}</span>
+    }
+    return (
+        // The wrapper span keeps clicks on the badge from toggling the card.
+        <span onClick={(e) => e.stopPropagation()}>
+            <LemonDropdown
+                closeOnClickInside={false}
+                overlay={
+                    <div className="flex flex-col max-h-80 overflow-y-auto py-1">
+                        {summary.messages.map((message, index) => (
+                            <Link
+                                key={index}
+                                to={message.permalink}
+                                target="_blank"
+                                className="px-2 py-1 whitespace-nowrap"
+                            >
+                                {message.author} · <TZLabel time={message.sent_at} />
+                            </Link>
+                        ))}
+                    </div>
+                }
+            >
+                <span
+                    role="button"
+                    className="underline decoration-dotted cursor-pointer"
+                    data-attr="account-summary-message-count"
+                >
+                    {label}
+                </span>
+            </LemonDropdown>
+        </span>
+    )
+}
+
 function SummaryCard({
     summary,
     expanded,
@@ -86,8 +123,7 @@ function SummaryCard({
                 <LemonTag type="default">{summary.cadence}</LemonTag>
                 <span className="font-semibold">{periodLabel(summary)}</span>
                 <span className="text-muted text-xs ml-auto flex items-center gap-1">
-                    {summary.message_count} message{summary.message_count === 1 ? '' : 's'} · generated{' '}
-                    <TZLabel time={summary.generated_at} />
+                    <MessageCountBadge summary={summary} /> · generated <TZLabel time={summary.generated_at} />
                 </span>
             </div>
             {expanded && (
