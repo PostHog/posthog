@@ -856,7 +856,11 @@ class TestProductIntent(BaseTest):
             # so any engagement signal is itself proof of ingestion + activation.
             ("charted", {"metrics_viewer_query_run": 1}, True),
             ("queried in sql", {"metrics_sql_query_run": 2}, True),
-            ("first-ingested recorded then charted", {"metrics_first_ingested": 1, "metrics_viewer_query_run": 1}, True),
+            (
+                "first-ingested recorded then charted",
+                {"metrics_first_ingested": 1, "metrics_viewer_query_run": 1},
+                True,
+            ),
             # Pre-existing-metrics teams never record the transition-only first-ingested
             # context, so engagement alone must still activate them.
             ("charted without first-ingested intent", {"metrics_viewer_query_run": 3}, True),
