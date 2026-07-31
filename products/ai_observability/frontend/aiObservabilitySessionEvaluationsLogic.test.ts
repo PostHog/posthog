@@ -44,6 +44,37 @@ describe('aiObservabilitySessionEvaluationsLogic', () => {
         ])
     })
 
+    // HogQL types $ai_evaluation_result from each team's own property definition: teams that
+    // haven't registered it as Boolean get the JSON bool back as a string, not a JS boolean.
+    // `Boolean('false') === true`, so a naive cast previously rendered a failing session
+    // evaluation as passing.
+    it.each([
+        [true, true],
+        [false, false],
+        ['true', true],
+        ['True', true],
+        ['1', true],
+        ['false', false],
+        ['0', false],
+    ])('maps raw verdict %p to %p', async (rawVerdict, expectedVerdict) => {
+        useMocks({
+            post: {
+                '/api/environments/:team_id/query/:kind': () => [
+                    200,
+                    {
+                        results: [['eval-1', 'Goal reached', rawVerdict, 'reasoning', '2026-07-29T00:00:00Z']],
+                    },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSessionEvaluations()
+        }).toFinishAllListeners()
+
+        expect(logic.values.sessionEvaluations[0].verdict).toBe(expectedVerdict)
+    })
+
     it('treats a null verdict as not-yet-decided rather than a failure', async () => {
         useMocks({
             post: {

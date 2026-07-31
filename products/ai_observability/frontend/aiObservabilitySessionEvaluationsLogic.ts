@@ -4,6 +4,8 @@ import api from 'lib/api'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 
+import { isExplicitEvaluationPass } from './utils'
+
 export interface SessionEvaluation {
     evaluationId: string
     evaluationName: string
@@ -110,7 +112,7 @@ export const aiObservabilitySessionEvaluationsLogic = kea<aiObservabilitySession
                 const evaluations: SessionEvaluation[] = (response.results || []).map((row: any[]) => ({
                     evaluationId: row[0] || '',
                     evaluationName: row[1] || '',
-                    verdict: row[2] === null || row[2] === undefined ? null : Boolean(row[2]),
+                    verdict: row[2] === null || row[2] === undefined ? null : isExplicitEvaluationPass(row[2]),
                     reasoning: row[3] || '',
                     timestamp: row[4] || '',
                 }))
