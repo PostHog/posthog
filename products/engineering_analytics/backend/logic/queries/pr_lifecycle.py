@@ -43,9 +43,8 @@ _RUNS = """
     ORDER BY run_started_at ASC
 """
 
-# Draft/ready transitions for this PR, when the optional issue-events table is synced. pr_number
-# alone is the key: the raw table carries no repo column, and a resolved table set is a single
-# repo's, the same repo the PR header was resolved from.
+# pr_number alone is the key: a resolved table set is a single repo's, the same repo the
+# PR header was resolved from.
 _STATE_EVENTS = """
     SELECT event, created_at, actor_login
     FROM __STATE_EVENTS_SOURCE__ AS se
@@ -53,8 +52,6 @@ _STATE_EVENTS = """
     ORDER BY created_at ASC
 """
 
-# GitHub's issue-event names mapped to the contract's event kinds, defined once beside the query
-# that reads them.
 _STATE_EVENT_KINDS = {
     issue_events.READY_FOR_REVIEW_EVENT: PRLifecycleEventKind.READY_FOR_REVIEW,
     issue_events.CONVERT_TO_DRAFT_EVENT: PRLifecycleEventKind.CONVERTED_TO_DRAFT,

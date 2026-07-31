@@ -50,10 +50,8 @@ WORKFLOW_JOBS_SCHEMA = "workflow_jobs"
 # timing. Optional and off by default at the source (needs the org Members:Read grant), so reads
 # must degrade gracefully (no membership data) exactly like workflow_jobs.
 TEAM_MEMBERS_SCHEMA = "team_members"
-# Immutable issue/PR events; the draft/ready transitions in them are the substrate for
-# ready-to-merge timing. Optional and off by default at the source, and GitHub caps the endpoint's
-# history walk, so rows cover a bounded recent window — reads must degrade gracefully (no
-# transition data) exactly like workflow_jobs.
+# Immutable issue/PR events, the substrate for ready-to-merge timing. Optional at the source,
+# so reads must degrade gracefully (no transition data) exactly like workflow_jobs.
 ISSUE_EVENTS_SCHEMA = "issue_events"
 
 # The curated endpoints we resolve per repo. A source's other synced endpoints (issues, commits,

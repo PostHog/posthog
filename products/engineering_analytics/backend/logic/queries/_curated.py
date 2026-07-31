@@ -118,9 +118,8 @@ class CuratedGitHubSource:
         return f"({issue_events.build_query(self._tables.issue_events)})"
 
     def issue_events_window_scalar(self) -> str | None:
-        """Scalar subquery yielding how far back issue-event observation reaches (the minimum
-        event timestamp over every landed event type), or None when the table isn't synced.
-        NULL over an empty table, so a comparison against it is never-true rather than wrong."""
+        """Scalar subquery: how far back issue-event observation reaches, or None when the table
+        isn't synced. NULL over an empty table, so comparisons against it are never-true."""
         if not self._tables.issue_events:
             return None
         return f"({issue_events.build_window_start_query(self._tables.issue_events)})"
@@ -128,13 +127,10 @@ class CuratedGitHubSource:
     def ready_by_pr_cte(self) -> str | None:
         """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
 
-        ``last_is_ready`` is true when the newest transition is ``ready_for_review``: for a merged
-        PR that is necessarily the ready that preceded the merge (a draft can't merge), and for an
-        open PR it correctly goes false while re-drafted, so only the LAST switch ever counts. The
-        event id breaks same-second ties, because GitHub timestamps are second-coarse and ids are
-        assigned in event order. Keyed on ``pr_number`` alone: the raw table carries no top-level
-        repo column and a resolved table set is a single repo's, which ``resolve_github_tables``
-        guarantees today.
+        Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
+        that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
+        event id breaks same-second ties (GitHub timestamps are second-coarse). Keyed on
+        ``pr_number`` alone because a resolved table set is a single repo's.
         """
         source = self.issue_events_source()
         if source is None:
@@ -250,10 +246,9 @@ class CuratedGitHubSource:
         """
 
     def pr_list_rollup_query(self, select: str) -> str:
-        """``pr_rollup_query`` plus the per-PR runs rollup (pushes / re-run cycles) and, when the
-        issue-events table is synced, the per-PR draft/ready rollup. The caller must reference
-        ``ready_by_pr`` only when ``issue_events_source()`` is non-None, matching the CTE's
-        presence."""
+        """``pr_rollup_query`` plus the per-PR runs rollup and, when the issue-events table is
+        synced, the ``ready_by_pr`` rollup — reference it only when ``issue_events_source()``
+        is non-None."""
         ctes = [self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()]
         ready_cte = self.ready_by_pr_cte()
         if ready_cte is not None:

@@ -113,9 +113,8 @@ class TestPRLifecycleMapping(BaseTest):
 
 
 class TestPRLifecycleTransitionsMapping(BaseTest):
-    """The lifecycle path with the optional issue-events schema linked: the transitions query is
-    issued and its rows interleave into the timeline. Query method mocked; the side_effect order
-    pins the header -> transitions -> runs issuance order."""
+    """The lifecycle path with the issue-events schema linked; the side_effect order pins the
+    header -> transitions -> runs issuance order."""
 
     def setUp(self) -> None:
         super().setUp()
@@ -324,14 +323,9 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
         assert item.billable_minutes is not None and item.billable_minutes > 0
 
     def test_ready_to_merge_semantics(self) -> None:
-        # The full metric contract over real ClickHouse (argMax tie-break, join, window scalar):
-        #   PR 20: draft/ready flips; only the LAST ready counts -> merged_at - last ready = 1 day.
-        #   PR 21: merged, no transitions, created after the observed window start (the labeled
-        #          event at _ago(20)) -> verifiably never drafted, falls back to open-to-merge.
-        #   PR 22: merged, no transitions, created BEFORE the window -> unobservable, NULL.
-        #   PR 23: open and re-drafted (last transition is convert_to_draft) -> NULL.
-        #   PR 24: ready and convert share one second-coarse timestamp; the event id breaks the
-        #          tie, so the higher-id ready wins -> 1 day, not NULL.
+        # PR 20: only the LAST ready counts. PR 21: no transitions, created inside the window ->
+        # open-to-merge fallback. PR 22: created pre-window -> NULL. PR 23: re-drafted -> NULL.
+        # PR 24: same-second flip, the event id breaks the tie -> the higher-id ready wins.
         self._create_table(
             "github_pull_requests",
             PULL_REQUESTS_COLUMNS,
@@ -353,8 +347,7 @@ class TestPullRequestEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             "github_issue_events",
             ISSUE_EVENTS_COLUMNS,
             [
-                # Any non-transition event type marks how far back observation reaches; the window
-                # must come from the WHOLE table, not the filtered transitions view.
+                # The window must come from the WHOLE table, not the filtered transitions view.
                 _issue_event_row(5000, "labeled", 20, _ago(20)),
                 _issue_event_row(5001, "ready_for_review", 20, _ago(9)),
                 _issue_event_row(5002, "convert_to_draft", 20, _ago(8)),

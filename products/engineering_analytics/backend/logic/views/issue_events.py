@@ -1,20 +1,12 @@
 """Curated PR draft/ready transitions query builder.
 
-Maps the raw ``github_issue_events`` warehouse table (immutable GitHub issue events of
-every type, landed verbatim) into the transitions-only rows the ready-to-merge metric
-reads. The transition vocabulary and the "transitions only" domain rule live here once;
-consumers import the event constants rather than restating the raw strings.
-
-GitHub's ``ready_for_review`` / ``convert_to_draft`` timestamps exist ONLY as issue
-events (the PR snapshot carries just a ``draft`` bool that transitions overwrite), and
-GitHub caps the endpoint's history walk, so the table covers a bounded recent window
-that grows forward from the first sync. A PR with no transition rows is therefore
-ambiguous — opened ready, or its flips predate the window — which is why
-``build_window_start_query`` exists: the minimum event timestamp over the WHOLE table
-(every event type, not just transitions) marks how far back observation reaches, because
-the desc walk lands a contiguous newest-to-oldest range. A merged PR with no transitions
-that was created inside that window verifiably never left ready. Same string-timestamp /
-Nullable discipline as the other builders (see ``pull_requests``).
+The transition vocabulary and the "transitions only" rule live here once; consumers
+import the event constants rather than restating the raw strings. GitHub caps the
+issue-events history walk, so the table covers a bounded window growing forward from
+the first sync: a PR with no transition rows is ambiguous (opened ready, or its flips
+predate the window). ``build_window_start_query`` disambiguates: the minimum timestamp
+over ALL landed event types marks how far back observation reaches, because the desc
+walk lands a contiguous range.
 """
 
 # GitHub's issue-event vocabulary for the draft/ready transitions.
@@ -23,8 +15,7 @@ CONVERT_TO_DRAFT_EVENT = "convert_to_draft"
 
 
 def build_query(table_name: str) -> str:
-    # Two layers like ``pull_requests``: the inner SELECT parses/extracts, the outer filters —
-    # a row whose timestamp parses to NULL cannot be ordered and would poison the per-PR argMax.
+    # A row whose timestamp parses to NULL cannot be ordered and would poison the per-PR argMax.
     return f"""
         SELECT id, event, pr_number, actor_login, created_at
         FROM (

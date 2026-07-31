@@ -83,11 +83,9 @@ WORKFLOW_JOBS_COLUMNS: dict[str, dict[str, str]] = {
     "steps": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
 }
 
-# Contract for the ``github_issue_events`` warehouse source: immutable issue/PR state
-# transitions, landed raw with every event type kept (a source-side filter would pin the
-# desc-walk watermark, so the source lands the whole stream and the curated view filters).
-# ``actor`` and ``issue`` are the nested GitHub objects verbatim as JSON; the view extracts
-# ``issue.number`` and ``actor.login`` from them. Same Nullable/string discipline as above.
+# Contract for the ``github_issue_events`` warehouse source: immutable issue/PR events, every
+# type kept (a source-side filter would pin the desc-walk watermark). ``actor`` / ``issue`` are
+# the nested GitHub objects verbatim as JSON. Same Nullable/string discipline as above.
 ISSUE_EVENTS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "event": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},

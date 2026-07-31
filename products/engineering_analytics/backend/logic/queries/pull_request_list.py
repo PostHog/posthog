@@ -57,15 +57,10 @@ _SELECT = f"""
     LIMIT {_LIMIT + 1}
 """
 
-# The ready-to-merge cycle time, resolved per PR when the issue-events table is synced:
-#   1. Last observed transition is a ready_for_review (for a merged PR it always is, since a draft
-#      can't merge) -> merged_at minus that last ready. Only the LAST switch counts, by definition.
-#   2. No transition rows AND the PR was created inside the observed event window -> the PR
-#      verifiably never left ready, so open-to-merge IS ready-to-merge.
-#   3. Otherwise NULL: unmerged, currently re-drafted, or created before the window (opened ready
-#      vs pre-window flips is unobservable) — "not observed", never a wrong number.
-# A missed join leaves the rollup columns NULL or 0 depending on join_use_nulls; the coalesce
-# guards normalize both to the fallback branch.
+# Per merged PR: last transition is a ready -> merged_at minus it; no transition rows and created
+# inside the observed window -> never left ready, so open-to-merge IS ready-to-merge; otherwise
+# NULL (re-drafted, or pre-window and unobservable). The coalesce guards normalize a missed join,
+# which lands NULL or 0 depending on join_use_nulls.
 _READY_TO_MERGE = """
         multiIf(
             pr.merged_at IS NULL, NULL,
@@ -152,7 +147,7 @@ def query_pull_request_list(
     if author:
         author_clause = "AND pr.author_handle = {author}"
         placeholders["author"] = ast.Constant(value=author)
-    # The issue-events table is optional; without it the column degrades to NULL rather than
+    # Without the optional issue-events table the column degrades to NULL rather than
     # referencing the absent ready_by_pr CTE.
     window_scalar = curated.issue_events_window_scalar()
     if window_scalar is not None:
