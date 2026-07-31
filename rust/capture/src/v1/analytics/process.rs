@@ -24,7 +24,7 @@ use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
 use super::context::Context;
-use crate::ingestion_warnings::{emit_rate_limit_warning, v1_request_context};
+use crate::ingestion_warnings::emit_rate_limit_warning;
 use crate::router;
 use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
@@ -348,7 +348,7 @@ fn emit_batch_abort_warning(
     // one occurrence, so never charge a count of zero.
     emit_request_warning(
         state.ingestion_warning_emitter.as_deref(),
-        &v1_request_context(context),
+        &context.warning_context(),
         CAPTURE_V1_ANALYTICS,
         warning,
         serde_json::Map::new(),
@@ -392,7 +392,7 @@ fn emit_validation_drop_warnings(
         }
     }
 
-    let request = v1_request_context(context);
+    let request = context.warning_context();
     for (warning, (count, single_event)) in grouped {
         let mut details = serde_json::Map::new();
         if let Some((distinct_id, uuid)) = single_event {
@@ -920,7 +920,7 @@ async fn apply_token_distinct_id_limits(
 
         emit_rate_limit_warning(
             emitter,
-            &v1_request_context(context),
+            &context.warning_context(),
             CAPTURE_V1_RATE_LIMIT,
             &limited_distinct_ids,
             limited_event_count,
