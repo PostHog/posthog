@@ -30,7 +30,7 @@ Record only the contracts that affect the migration decision:
 
 - user-facing use case and production entry point
 - credential source and trusted authorization policy
-- billing owner, budget enforcement, and billable or unbilled behavior
+- spend owner, budget enforcement, current Python billing behavior, and the team wallet that should own Go spend
 - API shape, model, provider, streaming, tools, and structured output
 - distinct ID, trace, product, team, and custom attribution
 - retry, timeout, fallback, and error behavior
@@ -49,6 +49,8 @@ Match the inventory to the parity record and current Go implementation:
 
 Name the exact evidence for every status. An existing Python helper is migration effort, not a blocker. An `ai_product` property is telemetry, not trusted identity or billing policy.
 
+Python's unbilled flag is not a blocker when an internal workload should debit a PostHog-owned team wallet for spend attribution. Verify that the Go credential resolves to that team. Treat billing as blocked only when migration would charge a customer incorrectly, lose required customer budget policy, or violate a requirement to debit no wallet.
+
 ## Rank the shortlist
 
 Prioritize candidates that:
@@ -57,7 +59,8 @@ Prioritize candidates that:
 2. Use a shared Go-capable builder or a stock SDK with a simple base URL change.
 3. Already use a Go-supported model, provider, and API shape.
 4. Need informational attribution rather than trusted product identity.
-5. Have a narrow deployment boundary, explicit fallback, and cheap verification path.
+5. Can use a customer wallet intentionally or a PostHog-owned wallet for internal spend.
+6. Have a narrow deployment boundary, explicit fallback, and cheap verification path.
 
 Lower the rank for broad shared-process switches, unverified billing changes, cross-repository deployment work, or missing production tests. Do not rank by code size alone.
 

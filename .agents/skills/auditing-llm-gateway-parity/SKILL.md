@@ -46,6 +46,8 @@ Check both request and response behavior. Matching route names do not prove pari
 
 Do not treat caller-supplied telemetry as trusted policy. An `ai_product` event property does not replace product authentication, authorization, or billing.
 
+Do not treat Python's unbilled flag as an automatic blocker. An internal workload can move to Go with a PostHog-owned team credential when debiting that wallet is the intended way to attribute PostHog spend. It is blocked only when it must preserve customer-specific billing policy or must debit no wallet.
+
 For each difference, identify at least one affected use-case class. Remove details that do not change a migration decision.
 
 ## Update the parity record

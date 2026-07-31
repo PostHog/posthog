@@ -24,12 +24,12 @@ When a gap closes, new work uses the Go gateway and affected callers should migr
 
 ### ✅ Use the Go gateway
 
-| Use case                      | Why it fits                                                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Customer LLM traffic          | The caller uses a project secret or OAuth credential, the team wallet should pay, and standard OpenAI or Anthropic APIs are enough.        |
-| Server-to-server PostHog call | A `phs_` credential, team wallet billing, and informational event properties provide enough policy and attribution.                        |
-| Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog. |
-| Gateway-managed routing       | The caller accepts Go host selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or selected Modal models.                            |
+| Use case                      | Why it fits                                                                                                                                                             |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Customer LLM traffic          | The caller uses a project secret or OAuth credential, the team wallet should pay, and standard OpenAI or Anthropic APIs are enough.                                     |
+| Server-to-server PostHog call | A `phs_` credential, team wallet billing, and informational event properties provide enough policy and attribution. Internal spend can use a PostHog-owned team wallet. |
+| Stock SDK proxy               | The caller needs OpenAI Chat Completions or Responses, Anthropic Messages or token counting, streaming, idempotency, or the model catalog.                              |
+| Gateway-managed routing       | The caller accepts Go host selection across OpenAI, Anthropic, Azure OpenAI, Bedrock, or selected Modal models.                                                         |
 
 Existing Django callers should use `build_openai_client`, `build_async_openai_client`, or `build_async_anthropic_client` from [`posthog/llm/gateway_client.py`](../../posthog/llm/gateway_client.py). These builders keep a temporary Python fallback during rollout.
 
@@ -38,7 +38,7 @@ Existing Django callers should use `build_openai_client`, `build_async_openai_cl
 | Use case                                                                                          | Blocking contract                                                                                                                                                                                                                                                                                     |
 | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | PostHog Desktop, PostHog Code, cloud agents, onboarding, Wizard, and similar first-party products | Trusted product identity, OAuth application allowlists, OAuth user attribution, server-minted credential requirements, per-product model policy, and product billing or unbilled policy are not available together in Go. An `ai_product` event property is not an authorization or billing boundary. |
-| Product or user budget enforcement                                                                | Python supports product and user cost limits, plan checks, quota buckets, and unbilled products. Go currently admits against the team wallet and does not branch settlement on credential billing mode.                                                                                               |
+| Product or user budget enforcement                                                                | Python supports product and user cost limits, plan checks, quota buckets, and requests that debit no wallet. Go currently admits against the credential owner's team wallet and does not branch settlement on credential billing mode.                                                                |
 | OpenRouter, Fireworks, Cloudflare Workers AI, or Baseten                                          | These provider paths are not available in Go.                                                                                                                                                                                                                                                         |
 | OpenAI audio transcription                                                                        | Go has no transcription endpoint.                                                                                                                                                                                                                                                                     |
 | OpenAI models through Anthropic Messages                                                          | Go does not provide this reverse translation.                                                                                                                                                                                                                                                         |
@@ -50,7 +50,7 @@ These are compatibility checks, not automatic blockers:
 
 - **Model:** it appears in `GET /v1/models` and supports the requested API shape and capabilities.
 - **Credential:** Go accepts the credential type and projects the correct team, scope, and revocation state.
-- **Billing:** the request should reserve and debit the Go wallet.
+- **Billing:** identify which team owns the Go credential and should pay. Internal workloads can debit a PostHog-owned team wallet so spend stays attributable without charging a customer.
 - **Attribution:** `X-PostHog-Distinct-Id`, `X-PostHog-Trace-Id`, and `X-PostHog-Properties` provide enough event context. Go does not derive the event distinct ID from OpenAI `user`, Anthropic `metadata.user_id`, or the OAuth user. Caller-supplied properties are not trusted policy.
 - **Provider behavior:** health-based routing or strict `X-PostHog-Provider` pinning matches the caller's fallback requirements.
 - **Wire behavior:** request fields, streaming chunks, errors, timeouts, and retries match what the caller handles.

@@ -14,7 +14,7 @@ Find the production call site, client construction, settings, deployment wiring,
 
 - caller and user-facing use case
 - credential source and required authorization policy
-- billing owner, budgets, and whether the call is intentionally unbilled
+- spend owner, budgets, current Python billing behavior, and the team wallet that should own Go spend
 - API shape, model, provider, streaming, and tool or structured-output requirements
 - distinct ID, trace, product, team, feature flag, and custom property attribution
 - timeout, retry, fallback, and error-handling behavior
@@ -31,6 +31,8 @@ Match every required contract to the parity record and current code.
 - If a ⛔ gap applies, stop the migration. Report the exact blocker and keep the Python path.
 
 An existing Python client or product route is not a blocker by itself.
+
+Python's unbilled flag is not a blocker when an internal workload should debit a PostHog-owned team wallet for spend attribution. Confirm that the Go credential resolves to that team. Stop only when migration would charge a customer incorrectly, lose required customer budget policy, or violate a requirement to debit no wallet.
 
 ## Implement the migration
 
