@@ -15,7 +15,6 @@ import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { DashboardMode } from '~/types'
 
 import {
-    BOOLEAN_BREAKDOWN_PROPERTY_KEY,
     BreakdownColorConfig,
     BreakdownValueAndType,
     COHORT_BREAKDOWN_PROPERTY_KEY,
@@ -35,9 +34,6 @@ function BreakdownPropertyGroupTitle({ breakdownProperty }: { breakdownProperty?
     }
     if (breakdownProperty === COHORT_BREAKDOWN_PROPERTY_KEY) {
         return <LemonTag type="muted">Cohorts</LemonTag>
-    }
-    if (breakdownProperty === BOOLEAN_BREAKDOWN_PROPERTY_KEY) {
-        return <LemonTag type="muted">True/false</LemonTag>
     }
     return (
         <div className="flex flex-wrap items-center gap-1">
@@ -175,10 +171,10 @@ export function DashboardInsightColorsModal(): JSX.Element {
 
             <LemonLabel className="mt-4">Breakdown colors</LemonLabel>
             <LemonBanner type="info" className="mt-2 mb-4">
-                Colors are grouped by breakdown property. A value shown on two or more insights gets one color across
-                the dashboard, and each property picks its colors on its own — except true and false, which share one
-                group across properties. Values on a single insight keep their own colors. Pick a color to pin a value
-                to it.
+                Colors are grouped by breakdown property, so each property picks its colors on its own. A value shown on
+                two or more insights gets one color across the dashboard, and keeps that color under every property it
+                shows up under, as far as the palette allows. Values on a single insight keep their own colors. Pick a
+                color to pin a value to it.
             </LemonBanner>
             {breakdownValueGroups.length === 0 ? (
                 <LemonTable columns={columns} dataSource={[]} loading={insightTilesLoading || undefined} />
