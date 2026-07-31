@@ -52,6 +52,14 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             DisallowUnsupportedDataWarehouseSettings(),
         )
 
+    def get_cache_payload(self) -> dict:
+        # Bump when format_results changes shape so old cached responses (e.g. the pre-alignment
+        # positional arrays) are invalidated rather than served stale. Lifecycle-scoped on purpose,
+        # so it doesn't invalidate every other query type's cache.
+        payload = super().get_cache_payload()
+        payload["lifecycle_formatter_version"] = 1
+        return payload
+
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if self.query.samplingFactor == 0:
             counts_with_sampling: ast.Expr = ast.Constant(value=0)

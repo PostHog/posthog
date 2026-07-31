@@ -34,6 +34,7 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import WeekStartDay
@@ -969,6 +970,14 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("2020-01-12", days)  # incomplete current day excluded
         data_lengths = {len(res["data"]) for res in response.results}
         self.assertEqual(data_lengths, {len(days)})
+
+    def test_cache_payload_is_lifecycle_scoped_and_distinct_from_base(self):
+        # The formatter-version bump must live only in the lifecycle payload so a format_results
+        # shape change invalidates lifecycle caches without touching every other query type.
+        runner = self._create_query_runner("2020-01-09", "2020-01-12", IntervalType.DAY)
+        payload = runner.get_cache_payload()
+        self.assertEqual(payload["lifecycle_formatter_version"], 1)
+        self.assertNotIn("lifecycle_formatter_version", AnalyticsQueryRunner.get_cache_payload(runner))
 
     def test_lifecycle_query_whole_range(self):
         self._create_test_events()
