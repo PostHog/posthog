@@ -259,6 +259,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                             x.id !== 'template-native-push' ||
                             !!featureFlags[FEATURE_FLAGS.WORKFLOWS_PUSH_NOTIFICATIONS]
                     )
+                    .filter((x) => x.id !== 'template-openai-ads' || !!featureFlags[FEATURE_FLAGS.CDP_OPENAI_ADS])
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
