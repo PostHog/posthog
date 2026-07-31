@@ -228,6 +228,23 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         contexts = intent.contexts or {}
         return contexts.get("mcp_analytics_viewed", 0) >= 1
 
+    def has_activated_metrics(self) -> bool:
+        # Metrics reached the team and the user has since charted or queried them.
+        # Ingestion on its own is a connected pipeline, not an activated product.
+        intent = ProductIntent.objects.filter(
+            team=self.team,
+            product_type="metrics",
+        ).first()
+
+        if not intent:
+            return False
+
+        contexts = intent.contexts or {}
+        if contexts.get("metrics_first_ingested", 0) < 1:
+            return False
+
+        return contexts.get("metrics_viewer_query_run", 0) >= 1 or contexts.get("metrics_sql_query_run", 0) >= 1
+
     def has_activated_workflows(self) -> bool:
         # At least one workflow needs to be active (not just drafted)
         return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
@@ -340,6 +357,7 @@ ACTIVATION_CHECKS: dict[str, Callable[[ProductIntent], bool]] = {
     "surveys": ProductIntent.has_activated_surveys,
     "llm_analytics": ProductIntent.has_activated_llm_analytics,
     "mcp_analytics": ProductIntent.has_activated_mcp_analytics,
+    "metrics": ProductIntent.has_activated_metrics,
     "workflows": ProductIntent.has_activated_workflows,
 }
 
