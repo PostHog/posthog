@@ -170,4 +170,33 @@ describe('posthog customer analytics account templates', () => {
             expect(body.relationships).toEqual({ [REL_UUID]: { type: 'user', id: 42 } })
         })
     })
+
+    describe('update account property write mode', () => {
+        const tester = new TemplateTester(updateAccountPropertyTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+        })
+
+        it('defaults to always overwriting', async () => {
+            const response = await tester.invoke({
+                external_id: 'acme-1',
+                properties: { '0197f9f0-0000-0000-0000-000000000000': 42 },
+            })
+
+            const body = parseJSON((response.invocation.queueParameters as any).body)
+            expect(body.write_mode).toEqual('always')
+        })
+
+        it('passes through the if_unset write mode', async () => {
+            const response = await tester.invoke({
+                external_id: 'acme-1',
+                properties: { '0197f9f0-0000-0000-0000-000000000000': 42 },
+                write_mode: 'if_unset',
+            })
+
+            const body = parseJSON((response.invocation.queueParameters as any).body)
+            expect(body.write_mode).toEqual('if_unset')
+        })
+    })
 })

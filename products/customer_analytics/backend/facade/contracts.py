@@ -551,7 +551,12 @@ class CreateAccountNotebookInput:
 
 @dataclass(frozen=True)
 class CustomPropertyValue:
-    """An account's value for a custom property."""
+    """An account's value for a custom property.
+
+    ``wrote`` is only meaningful for a batch write in ``set_if_unset`` mode: False means this
+    property already had a value and was left untouched, so ``id``/``created_at``/``created_by_id``
+    describe the pre-existing row rather than a new write. Every other caller leaves it True.
+    """
 
     id: UUID
     account_id: UUID
@@ -559,6 +564,7 @@ class CustomPropertyValue:
     value: float | bool | str | datetime | None
     created_at: datetime
     created_by_id: int | None
+    wrote: bool = True
 
 
 class ExternalAccountCustomPropertiesError(Enum):

@@ -140,6 +140,7 @@ registerAsyncFunction('postHogSetAccountProperties', {
         const [opts] = args as [Record<string, any> | undefined]
         const externalId = opts?.external_id
         const properties = opts?.properties || {}
+        const writeMode = opts?.write_mode
 
         if (!externalId || typeof externalId !== 'string') {
             throw new Error("[HogFunction] - postHogSetAccountProperties call missing 'external_id' property")
@@ -161,7 +162,11 @@ registerAsyncFunction('postHogSetAccountProperties', {
             type: 'fetch',
             url: `${context.siteUrl}/api/customer_analytics/external/account/custom_property_values`,
             method: 'PATCH',
-            body: JSON.stringify({ external_id: externalId, properties }),
+            body: JSON.stringify({
+                external_id: externalId,
+                properties,
+                ...(writeMode ? { write_mode: writeMode } : {}),
+            }),
             headers,
         })
     },

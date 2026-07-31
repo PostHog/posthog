@@ -618,6 +618,7 @@ def set_external_account_custom_properties(
     properties: dict[str, Any],
     created_by_id: int | None = None,
     workflow_id: str | None = None,
+    only_if_unset: bool = False,
 ) -> contracts.ExternalAccountCustomPropertiesResult:
     """Set custom property values on an account by definition id, for the external API.
 
@@ -625,6 +626,11 @@ def set_external_account_custom_properties(
     transactionally — a bad value or unknown definition rolls the whole batch back. Returns a result
     the view maps to the exact HTTP status/body: account not found, unknown definition, invalid
     value, a concurrent-write conflict, a generic write failure, or success carrying the set values.
+
+    ``only_if_unset`` leaves a property with an existing active value untouched instead of
+    superseding it — each returned value's ``wrote`` flag says whether it was actually written.
+    Source-managed properties are rejected the same way regardless of ``only_if_unset``: a
+    conditional write is still a manual write.
     """
     account = _get_external_account_by_external_id(team_id, external_id)
     if account is None:
@@ -647,6 +653,7 @@ def set_external_account_custom_properties(
                 properties=properties,
                 created_by_id=created_by_id,
                 workflow_id=workflow_id,
+                only_if_unset=only_if_unset,
             )
     except _custom_property_values_logic.CustomPropertyDefinitionNotFound as exc:
         return contracts.ExternalAccountCustomPropertiesResult(
@@ -668,7 +675,9 @@ def set_external_account_custom_properties(
             error=contracts.ExternalAccountCustomPropertiesError.UPDATE_FAILED
         )
 
-    return contracts.ExternalAccountCustomPropertiesResult(values=[_to_custom_property_value(row) for row in rows])
+    return contracts.ExternalAccountCustomPropertiesResult(
+        values=[_to_custom_property_value(row, wrote=wrote) for row, wrote in rows]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2701,7 +2710,7 @@ class CustomPropertyValueSourceManaged(Exception):
     fight over the value (→ 400)."""
 
 
-def _to_custom_property_value(row: "CustomPropertyValue") -> contracts.CustomPropertyValue:
+def _to_custom_property_value(row: "CustomPropertyValue", *, wrote: bool = True) -> contracts.CustomPropertyValue:
     return contracts.CustomPropertyValue(
         id=row.id,
         account_id=row.account_id,
@@ -2709,6 +2718,7 @@ def _to_custom_property_value(row: "CustomPropertyValue") -> contracts.CustomPro
         value=_custom_property_values_logic.value_of(row),
         created_at=row.created_at,
         created_by_id=row.created_by_id,
+        wrote=wrote,
     )
 
 

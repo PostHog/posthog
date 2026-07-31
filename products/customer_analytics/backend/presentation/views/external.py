@@ -578,6 +578,10 @@ class _CustomPropertyScalarField(serializers.Field):
         return data
 
 
+CUSTOM_PROPERTY_WRITE_MODE_ALWAYS = "always"
+CUSTOM_PROPERTY_WRITE_MODE_IF_UNSET = "if_unset"
+
+
 class ExternalAccountCustomPropertiesSerializer(serializers.Serializer):
     external_id = serializers.CharField(
         max_length=400,
@@ -586,6 +590,17 @@ class ExternalAccountCustomPropertiesSerializer(serializers.Serializer):
     properties = serializers.DictField(
         child=_CustomPropertyScalarField(),
         help_text="Map of custom property definition UUID to the value to set for this account.",
+    )
+    write_mode = serializers.ChoiceField(
+        choices=[CUSTOM_PROPERTY_WRITE_MODE_ALWAYS, CUSTOM_PROPERTY_WRITE_MODE_IF_UNSET],
+        default=CUSTOM_PROPERTY_WRITE_MODE_ALWAYS,
+        required=False,
+        help_text=(
+            "How to apply every property in this request. 'always' (default) overwrites the "
+            "current value. 'if_unset' only writes a property that has no active value yet, "
+            "leaving an already-set value untouched. Use it to stamp a value once without a "
+            "later write overwriting it."
+        ),
     )
 
 
@@ -652,7 +667,11 @@ class ExternalAccountCustomPropertiesView(APIView):
             return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         result = facade.set_external_account_custom_properties(
-            team.id, external_id, properties=data["properties"], workflow_id=_workflow_id_from_request(request)
+            team.id,
+            external_id,
+            properties=data["properties"],
+            workflow_id=_workflow_id_from_request(request),
+            only_if_unset=data["write_mode"] == CUSTOM_PROPERTY_WRITE_MODE_IF_UNSET,
         )
         if result.values is None:
             return _custom_properties_error_response(result)
@@ -660,6 +679,8 @@ class ExternalAccountCustomPropertiesView(APIView):
         return Response(
             {
                 "external_id": external_id,
-                "values": [{"definition_id": str(v.definition_id), "value": v.value} for v in result.values],
+                "values": [
+                    {"definition_id": str(v.definition_id), "value": v.value, "wrote": v.wrote} for v in result.values
+                ],
             }
         )

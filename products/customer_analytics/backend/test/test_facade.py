@@ -774,12 +774,15 @@ class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
         else:
             mock_app.send_task.assert_not_called()
 
-    def test_external_batch_rejects_source_backed_definition(self):
+    @parameterized.expand([("always", False), ("if_unset", True)])
+    def test_external_batch_rejects_source_backed_definition(self, _name, only_if_unset):
         self._create()
         create_account(team_id=self.team.id, name="Acme", external_id="acme")
 
+        # A conditional write is still a manual write — source-managed properties reject it
+        # the same as an unconditional one.
         result = facade.set_external_account_custom_properties(
-            self.team.id, "acme", properties={str(self.definition.id): 100}
+            self.team.id, "acme", properties={str(self.definition.id): 100}, only_if_unset=only_if_unset
         )
 
         assert result.error == contracts.ExternalAccountCustomPropertiesError.SOURCE_MANAGED

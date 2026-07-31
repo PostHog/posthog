@@ -21,7 +21,8 @@ if (empty(inputs.external_id)) {
 
 let response := postHogSetAccountProperties({
   'external_id': inputs.external_id,
-  'properties': inputs.properties
+  'properties': inputs.properties,
+  'write_mode': inputs.write_mode
 })
 
 if (response.status == 404) {
@@ -52,6 +53,20 @@ return response.body
             secret: false,
             required: true,
             description: 'Custom property values to set on the account.',
+        },
+        {
+            key: 'write_mode',
+            type: 'choice',
+            label: 'Write mode',
+            secret: false,
+            required: false,
+            default: 'always',
+            choices: [
+                { label: 'Always overwrite', value: 'always' },
+                { label: 'Only if unset', value: 'if_unset' },
+            ],
+            description:
+                'Always overwrite (default) replaces the current value every run. Only if unset skips a property that already has a value, so a stamped value stays put through later runs.',
         },
     ],
 }

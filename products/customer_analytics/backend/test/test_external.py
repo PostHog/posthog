@@ -513,6 +513,42 @@ class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
         response = self._patch({"external_id": "acme-1", "properties": {str(uuid4()): "x"}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_default_write_mode_still_overwrites_an_existing_value(self):
+        self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}})
+
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "startup"}})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["values"], [{"definition_id": str(self.plan.id), "value": "startup", "wrote": True}]
+        )
+        active = CustomPropertyValue.objects.for_team(self.team.id).get(account=self.account, is_deleted=False)
+        self.assertEqual(active.value_str, "startup")
+
+    def test_write_mode_if_unset_leaves_an_existing_value_untouched(self):
+        self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}})
+
+        response = self._patch(
+            {"external_id": "acme-1", "properties": {str(self.plan.id): "startup"}, "write_mode": "if_unset"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["values"], [{"definition_id": str(self.plan.id), "value": "enterprise", "wrote": False}]
+        )
+        active = CustomPropertyValue.objects.for_team(self.team.id).get(account=self.account, is_deleted=False)
+        self.assertEqual(active.value_str, "enterprise")
+
+    def test_write_mode_if_unset_writes_when_no_active_value(self):
+        response = self._patch(
+            {"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise"}, "write_mode": "if_unset"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["values"], [{"definition_id": str(self.plan.id), "value": "enterprise", "wrote": True}]
+        )
+
     def test_rejects_non_scalar_value(self):
         response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): {"nested": "object"}}})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

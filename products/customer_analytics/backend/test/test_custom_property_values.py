@@ -253,9 +253,9 @@ class TestSetAccountCustomPropertiesById(BaseTest):
             properties={str(plan.id): "enterprise", str(seats.id): "42"},
         )
 
-        assert {(r.definition_id, r.value_str, r.value_num) for r in rows} == {
-            (plan.id, "enterprise", None),
-            (seats.id, None, 42.0),
+        assert {(r.definition_id, r.value_str, r.value_num, wrote) for r, wrote in rows} == {
+            (plan.id, "enterprise", None, True),
+            (seats.id, None, 42.0, True),
         }
 
     def test_unknown_id_raises_carrying_the_id(self):
@@ -273,6 +273,74 @@ class TestSetAccountCustomPropertiesById(BaseTest):
                 team_id=self.team.id, account_id=self.account.id, properties={str(seats.id): "not a number"}
             )
         assert exc_info.value.field == str(seats.id)
+
+
+class TestSetAccountCustomPropertiesByIdOnlyIfUnset(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+        self.plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+
+    def _active_value(self) -> str | None:
+        return (
+            CustomPropertyValue.objects.for_team(self.team.id)
+            .filter(account_id=self.account.id, definition_id=self.plan.id, is_deleted=False)
+            .values_list("value_str", flat=True)
+            .first()
+        )
+
+    def test_writes_when_no_active_value_exists(self):
+        [(row, wrote)] = set_account_custom_properties_by_id(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            properties={str(self.plan.id): "enterprise"},
+            only_if_unset=True,
+        )
+
+        assert wrote is True
+        assert row.value_str == "enterprise"
+        assert self._active_value() == "enterprise"
+
+    def test_skips_a_property_that_already_has_an_active_value(self):
+        set_account_custom_properties_by_id(
+            team_id=self.team.id, account_id=self.account.id, properties={str(self.plan.id): "enterprise"}
+        )
+
+        [(row, wrote)] = set_account_custom_properties_by_id(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            properties={str(self.plan.id): "startup"},
+            only_if_unset=True,
+        )
+
+        assert wrote is False
+        assert row.value_str == "enterprise"
+        # The stamped value survives — the later write never superseded it.
+        assert self._active_value() == "enterprise"
+
+    @patch(f"{LOGIC_MODULE}._set_value")
+    def test_losing_the_active_row_race_retries_instead_of_double_writing(self, mock_set_value):
+        mock_set_value.side_effect = CustomPropertyValueConflict("rival won the active row")
+
+        def store_rival_value(*_args, **_kwargs):
+            # The retry's re-read must see the rival's row and skip rather than write again.
+            CustomPropertyValue.objects.for_team(self.team.id).create(
+                team_id=self.team.id, account_id=self.account.id, definition_id=self.plan.id, value_str="rival"
+            )
+            raise CustomPropertyValueConflict("rival won the active row")
+
+        mock_set_value.side_effect = store_rival_value
+
+        [(row, wrote)] = set_account_custom_properties_by_id(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            properties={str(self.plan.id): "enterprise"},
+            only_if_unset=True,
+        )
+
+        assert wrote is False
+        assert row.value_str == "rival"
+        assert mock_set_value.call_count == 1
 
 
 class TestListCustomPropertyValueSuggestions(BaseTest):
@@ -609,6 +677,20 @@ class TestSetExternalAccountCustomProperties(BaseTest):
         assert result.values is None
         assert result.error == contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE
         assert result.error_field == str(seats.id)
+
+    def test_only_if_unset_reports_wrote_false_for_an_already_set_property(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        facade.set_external_account_custom_properties(self.team.id, "acme-1", properties={str(plan.id): "enterprise"})
+
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): "startup"}, only_if_unset=True
+        )
+
+        assert result.error is None
+        assert result.values is not None
+        [value] = result.values
+        assert value.wrote is False
+        assert value.value == "enterprise"
 
     def test_batch_is_all_or_nothing(self):
         plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)

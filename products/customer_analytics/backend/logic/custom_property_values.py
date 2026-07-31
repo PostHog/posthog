@@ -107,38 +107,59 @@ def set_account_custom_properties_by_id(
     created_by_id: int | None = None,
     actor: User | None = None,
     workflow_id: str | None = None,
-) -> list[CustomPropertyValue]:
+    only_if_unset: bool = False,
+) -> list[tuple[CustomPropertyValue, bool]]:
     """Set several of an account's custom property values, addressing each by definition id.
 
     Resolves each id to its team-scoped definition, then applies the same coerce + soft-delete +
     insert as `set_custom_property_value`. Caller is responsible for wrapping the batch in a
     transaction when all-or-nothing semantics are required.
 
+    When `only_if_unset` is set, a property that already has an active value is left untouched
+    instead of superseded — meant for stamping a value once (e.g. "when did this first become
+    true") without a later transition overwriting it. Each returned pair's second element is
+    whether that property was actually written; the first is the resulting active row (the
+    untouched existing one when it wasn't).
+
     Raises `CustomPropertyDefinitionNotFound` (unknown id, carrying the id),
     `InvalidCustomPropertyValue` (value doesn't match the data type, carrying the id in `field`),
     `Account.DoesNotExist`, or `CustomPropertyValueConflict`.
     """
     _assert_account_in_team(team_id=team_id, account_id=account_id)
-    rows: list[CustomPropertyValue] = []
+    rows: list[tuple[CustomPropertyValue, bool]] = []
     for definition_id, value in properties.items():
         try:
             definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
         except (CustomPropertyDefinition.DoesNotExist, ValidationError) as exc:
             raise CustomPropertyDefinitionNotFound(definition_id) from exc
         try:
-            row = _set_value(
-                team_id=team_id,
-                account_id=account_id,
-                definition=definition,
-                value=value,
-                created_by_id=created_by_id,
-                actor=actor,
-                workflow_id=workflow_id,
-            )
+            if only_if_unset:
+                result = _set_value_if_unset(
+                    team_id=team_id,
+                    account_id=account_id,
+                    definition=definition,
+                    value=value,
+                    created_by_id=created_by_id,
+                    actor=actor,
+                    workflow_id=workflow_id,
+                )
+            else:
+                result = (
+                    _set_value(
+                        team_id=team_id,
+                        account_id=account_id,
+                        definition=definition,
+                        value=value,
+                        created_by_id=created_by_id,
+                        actor=actor,
+                        workflow_id=workflow_id,
+                    ),
+                    True,
+                )
         except InvalidCustomPropertyValue as exc:
             exc.field = str(definition_id)
             raise
-        rows.append(row)
+        rows.append(result)
     return rows
 
 
@@ -230,6 +251,57 @@ def _set_value(
     # lazy FK load against the fail-closed manager (which would raise outside request scope).
     row.definition = definition
     return row
+
+
+_SET_IF_UNSET_ATTEMPTS = 3
+
+
+def _set_value_if_unset(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition: CustomPropertyDefinition,
+    value: Any,
+    created_by_id: int | None,
+    actor: User | None = None,
+    workflow_id: str | None = None,
+) -> tuple[CustomPropertyValue, bool]:
+    """Set `definition`'s value for the account only if it has no active value yet.
+
+    Reads the active row and only calls `_set_value` when there isn't one, retrying on
+    `CustomPropertyValueConflict` — mirroring `record_last_slack_message_at`'s read-then-write
+    loop. The `unique_active_custom_property_value` partial constraint is what makes this safe
+    under a concurrent writer racing the same (account, definition): a losing race raises the
+    conflict here instead of superseding, and the retry re-reads the winner's row. Returns
+    `(row, wrote)`; `row` is the untouched existing value when `wrote` is False. A value that
+    would fail coercion is never validated when skipped, since it's never written.
+    """
+    for _attempt in range(_SET_IF_UNSET_ATTEMPTS):
+        current = (
+            CustomPropertyValue.objects.for_team(team_id)
+            .filter(account_id=account_id, definition_id=definition.id, is_deleted=False)
+            .first()
+        )
+        if current is not None:
+            current.definition = definition
+            return current, False
+        try:
+            row = _set_value(
+                team_id=team_id,
+                account_id=account_id,
+                definition=definition,
+                value=value,
+                created_by_id=created_by_id,
+                actor=actor,
+                workflow_id=workflow_id,
+            )
+        except CustomPropertyValueConflict:
+            continue
+        return row, True
+    raise CustomPropertyValueConflict(
+        f"Could not determine whether custom property '{definition.name}' was unset after "
+        f"{_SET_IF_UNSET_ATTEMPTS} attempts."
+    )
 
 
 def _schedule_value_changed_event(
