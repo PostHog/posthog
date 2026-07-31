@@ -20,7 +20,7 @@ from typing import TypeVar, cast
 
 from django.db import models
 
-from posthog.models.scoping import get_current_team_id
+from posthog.models.scoping import get_current_exact_team_id, get_current_team_id
 
 T = TypeVar("T", bound=models.Model)
 
@@ -131,7 +131,27 @@ class TeamScopedManager(models.Manager[T]):
         return self._queryset_class(self.model, using=self._db)._apply_team_filter(team_id)
 
 
+class ExactTeamScopedManager(TeamScopedManager[T]):
+    """Fail-closed manager for models owned by one exact team_id."""
+
+    def get_queryset(self) -> TeamScopedQuerySet[T]:
+        queryset: TeamScopedQuerySet[T] = self._queryset_class(self.model, using=self._db)
+        team_id = get_current_exact_team_id()
+        if team_id is not None:
+            return queryset._apply_team_filter(team_id)
+        raise TeamScopeError(
+            f"No exact team context set for {self.model.__name__}. "
+            "Use exact_team_scope() or .for_team() for exact-team access."
+        )
+
+    def for_team(self, team_id: int, *, canonical: bool = False) -> TeamScopedQuerySet[T]:
+        if canonical:
+            raise ValueError("ExactTeamScopedManager does not accept canonical=True")
+        return self._queryset_class(self.model, using=self._db)._apply_team_filter(team_id)
+
+
 __all__ = [
+    "ExactTeamScopedManager",
     "TeamScopeError",
     "TeamScopedQuerySet",
     "TeamScopedManager",

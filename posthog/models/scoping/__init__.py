@@ -1,15 +1,12 @@
 # Team Scoping Context
 #
 # Provides automatic team scoping for Django models using Python's ContextVar.
-# Models using TeamScopedManager / ProductTeamModel will read this context
-# and auto-filter their queries.
+# Scoped model managers read these contexts and automatically filter queries.
 #
-# Contract: the team_id stored in context is the **canonical** team_id where
-# data lives — i.e. the parent team's id when the team is a child environment,
-# or the team's own id when it's a root team. Callers (the DRF mixin, Celery
-# task helpers, manual `team_scope()` callers) are responsible for resolving
-# to the canonical id before setting context. ProductTeamModel.save() also
-# rewrites to the canonical id, so writes and reads stay symmetric.
+# Contract: project-scoped models read a canonical team_id, while exact-team
+# models read the URL team_id before parent-team canonicalization. The DRF
+# mixin sets both contexts. Background callers choose `team_scope()` or
+# `exact_team_scope()` to match the model's ownership contract.
 #
 # Usage:
 #   # In DRF nested views — set automatically by TeamAndOrgViewSetMixin:
@@ -36,6 +33,9 @@ R = TypeVar("R")
 # The current canonical team_id, or None if no scope is set.
 _current_team_id: ContextVar[int | None] = ContextVar("current_team_id", default=None)
 
+# The exact team_id before parent-team canonicalization, or None if no scope is set.
+_current_exact_team_id: ContextVar[int | None] = ContextVar("current_exact_team_id", default=None)
+
 
 def get_current_team_id() -> int | None:
     """Get the current canonical team_id, or None if no scope is set."""
@@ -53,6 +53,21 @@ def set_current_team_id(team_id: int | None) -> Token[int | None]:
 def reset_current_team_id(token: Token[int | None]) -> None:
     """Reset the current team_id to its previous value."""
     _current_team_id.reset(token)
+
+
+def get_current_exact_team_id() -> int | None:
+    """Get the exact team_id, or None if no exact-team scope is set."""
+    return _current_exact_team_id.get()
+
+
+def set_current_exact_team_id(team_id: int | None) -> Token[int | None]:
+    """Set the exact team_id and return a token that restores the previous value."""
+    return _current_exact_team_id.set(team_id)
+
+
+def reset_current_exact_team_id(token: Token[int | None]) -> None:
+    """Reset the exact team_id to its previous value."""
+    _current_exact_team_id.reset(token)
 
 
 @contextmanager
@@ -92,6 +107,16 @@ def team_scope(team_id: int, *, canonical: bool = False) -> Generator[None]:
 
 
 @contextmanager
+def exact_team_scope(team_id: int) -> Generator[None]:
+    """Set exact-team scope without resolving child teams to their parent."""
+    token = set_current_exact_team_id(team_id)
+    try:
+        yield
+    finally:
+        reset_current_exact_team_id(token)
+
+
+@contextmanager
 def unscoped() -> Generator[None]:
     """
     Context manager to temporarily disable automatic team scoping.
@@ -102,11 +127,13 @@ def unscoped() -> Generator[None]:
         with unscoped():
             all_flags = FeatureFlag.objects.all()  # All teams
     """
-    token = set_current_team_id(None)
+    canonical_token = set_current_team_id(None)
+    exact_token = set_current_exact_team_id(None)
     try:
         yield
     finally:
-        reset_current_team_id(token)
+        reset_current_exact_team_id(exact_token)
+        reset_current_team_id(canonical_token)
 
 
 def with_team_scope(
@@ -180,9 +207,13 @@ def with_team_scope(
 
 
 __all__ = [
+    "exact_team_scope",
+    "get_current_exact_team_id",
     "get_current_team_id",
-    "set_current_team_id",
+    "reset_current_exact_team_id",
     "reset_current_team_id",
+    "set_current_exact_team_id",
+    "set_current_team_id",
     "team_scope",
     "unscoped",
     "with_team_scope",

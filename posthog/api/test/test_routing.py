@@ -24,7 +24,7 @@ from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.project import Project
-from posthog.models.scoping import get_current_team_id
+from posthog.models.scoping import get_current_exact_team_id, get_current_team_id
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 
@@ -39,7 +39,12 @@ class FooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"])
     def current_scope(self, request, **kwargs):
-        return Response({"team_id": get_current_team_id()})
+        return Response(
+            {
+                "team_id": get_current_team_id(),
+                "exact_team_id": get_current_exact_team_id(),
+            }
+        )
 
 
 class ScopedFooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -147,12 +152,15 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         self.assertEqual(response.json()["count"], 3)  # All except other_org_annotation
 
     def test_team_scope_context_set_from_url_team_not_user_current_team(self):
-        # User's "current" team is set to self.team, but the URL targets another
-        # team in the same org. The team scope context inside the view must reflect
-        # the URL's team, not user.current_team_id (otherwise queries would silently
-        # mismatch — same class of bug as #50899).
-        other_team = Team.objects.create(organization=self.organization, project=self.project)
-        self.user.current_team = self.team
+        # Both contexts must derive from the URL team, not the user's current-team preference.
+        # Project-scoped models use the child's parent while exact-team models use the child itself.
+        current_team = Team.objects.create(organization=self.organization, project=self.project)
+        child_team = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            parent_team=self.team,
+        )
+        self.user.current_team = current_team
         self.user.save()
 
         # Capture the scope before the request — `dispatch()` resets via
@@ -161,18 +169,22 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         # earlier tests on the same thread; we just assert the wrapper
         # restored the pre-request value, not unconditionally None.
         pre_request_scope = get_current_team_id()
+        pre_request_exact_scope = get_current_exact_team_id()
 
-        response = self.client.get(f"/api/team_nested/{other_team.id}/foos/current_scope/")
+        response = self.client.get(f"/api/team_nested/{child_team.id}/foos/current_scope/")
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["team_id"], other_team.id)
+        self.assertEqual(response.json()["team_id"], self.team.id)
+        self.assertEqual(response.json()["exact_team_id"], child_team.id)
         self.assertEqual(get_current_team_id(), pre_request_scope)
+        self.assertEqual(get_current_exact_team_id(), pre_request_exact_scope)
 
     def test_team_scope_context_set_from_url_for_project_view(self):
         response = self.client.get(f"/api/projects/{self.team.id}/foos/current_scope/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["team_id"], self.team.id)
+        self.assertEqual(response.json()["exact_team_id"], self.team.id)
 
     def test_cannot_override_special_methods(self):
         with pytest.raises(Exception) as e:

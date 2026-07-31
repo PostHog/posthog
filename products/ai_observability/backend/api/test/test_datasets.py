@@ -6,6 +6,10 @@ from django.db import IntegrityError, transaction
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.ai_observability.backend.dataset_service import create_dataset
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 
@@ -447,6 +451,99 @@ class TestDatasetsApi(APIBaseTest):
 
         self.assertEqual(dataset_response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(item_list_response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_datasets_are_isolated_to_the_exact_environment_team_id(self) -> None:
+        child_team = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            name="Child environment",
+        )
+        sibling_team = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            name="Sibling environment",
+        )
+        parent_dataset = self._create_dataset("Per-environment dataset")
+
+        child_response = self.client.post(
+            f"/api/environments/{child_team.id}/datasets/",
+            {"name": "Per-environment dataset"},
+            format="json",
+        )
+        sibling_response = self.client.post(
+            f"/api/environments/{sibling_team.id}/datasets/",
+            {"name": "Per-environment dataset"},
+            format="json",
+        )
+
+        self.assertEqual(child_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(sibling_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            Dataset.objects.unscoped().get(id=child_response.data["id"]).team_id,
+            child_team.id,
+        )
+        self.assertEqual(
+            Dataset.objects.unscoped().get(id=sibling_response.data["id"]).team_id,
+            sibling_team.id,
+        )
+        child_item_response = self.client.post(
+            f"/api/environments/{child_team.id}/dataset_items/",
+            {"dataset": child_response.data["id"], "input": "child input"},
+            format="json",
+        )
+        self.assertEqual(child_item_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            [
+                DatasetItem.objects.unscoped().get(id=child_item_response.data["id"]).team_id,
+                DatasetItemVersion.objects.unscoped().get(id=child_item_response.data["version_id"]).team_id,
+                DatasetRevision.objects.unscoped().get(id=child_item_response.data["dataset_revision_id"]).team_id,
+            ],
+            [child_team.id] * 3,
+        )
+
+        parent_list = self.client.get(self.datasets_url)
+        child_list = self.client.get(f"/api/environments/{child_team.id}/datasets/")
+        sibling_list = self.client.get(f"/api/environments/{sibling_team.id}/datasets/")
+
+        self.assertEqual([dataset["id"] for dataset in parent_list.data["results"]], [parent_dataset["id"]])
+        self.assertEqual([dataset["id"] for dataset in child_list.data["results"]], [child_response.data["id"]])
+        self.assertEqual(
+            [dataset["id"] for dataset in sibling_list.data["results"]],
+            [sibling_response.data["id"]],
+        )
+
+    def test_child_scoped_api_key_cannot_access_parent_datasets_through_child_route(self) -> None:
+        child_team = Team.objects.create(
+            organization=self.organization,
+            parent_team=self.team,
+            name="Child environment",
+        )
+        parent_dataset = self._create_dataset("Parent dataset")
+        child_response = self.client.post(
+            f"/api/environments/{child_team.id}/datasets/",
+            {"name": "Child dataset"},
+            format="json",
+        )
+        self.assertEqual(child_response.status_code, status.HTTP_201_CREATED)
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["dataset:read"],
+            scoped_teams=[child_team.id],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        child_dataset_response = self.client.get(
+            f"/api/environments/{child_team.id}/datasets/{child_response.data['id']}/"
+        )
+        parent_dataset_response = self.client.get(f"/api/environments/{child_team.id}/datasets/{parent_dataset['id']}/")
+
+        self.assertEqual(child_dataset_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(parent_dataset_response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_put_and_delete_are_not_available(self) -> None:
         dataset = self._create_dataset()

@@ -521,12 +521,8 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     def _should_skip_parents_filter(self) -> bool:
         return True
 
-    @property
-    def canonical_team_id(self) -> int:
-        return self.team.parent_team_id or self.team.id
-
     def safely_get_queryset(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
-        return queryset.filter(team_id=self.canonical_team_id)
+        return queryset.filter(team_id=self.team.id)
 
     def _filter_queryset_by_access_level(self, queryset: QuerySet[Dataset, Dataset]) -> QuerySet[Dataset, Dataset]:
         if self.action != "list":
@@ -638,7 +634,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
         data = serializer.validated_data
         try:
             dataset = update_dataset(
-                team_id=self.canonical_team_id,
+                team_id=self.team.id,
                 dataset_id=current.id,
                 name=data.get("name", UNSET),
                 description=data.get("description", UNSET),
@@ -661,7 +657,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     @action(detail=True, methods=["post"])
     def archive(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
-        dataset = archive_dataset(team_id=self.canonical_team_id, dataset_id=current.id)
+        dataset = archive_dataset(team_id=self.team.id, dataset_id=current.id)
         return Response(DatasetReadSerializer(dataset).data)
 
     @extend_schema(
@@ -674,7 +670,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     @action(detail=True, methods=["post"])
     def restore(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
-        dataset = restore_dataset(team_id=self.canonical_team_id, dataset_id=current.id)
+        dataset = restore_dataset(team_id=self.team.id, dataset_id=current.id)
         return Response(DatasetReadSerializer(dataset).data)
 
     @extend_schema(
@@ -687,7 +683,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     def revisions(self, request: Request, *args: object, **kwargs: object) -> Response:
         dataset = self.get_object()
         queryset = (
-            DatasetRevision.objects.for_team(self.canonical_team_id, canonical=True)
+            DatasetRevision.objects.for_team(self.team.id)
             .filter(dataset_id=dataset.id)
             .select_related("created_by")
             .order_by("-revision")
@@ -724,23 +720,17 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             PostHogFeatureFlagPermission(),
         ]
 
-    @property
-    def canonical_team_id(self) -> int:
-        return self.team.parent_team_id or self.team.id
-
     def safely_get_queryset(
         self,
         queryset: QuerySet[DatasetItemVersion, DatasetItemVersion],
     ) -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
-        accessible_datasets: QuerySet[Dataset, Dataset] = Dataset.objects.unscoped().filter(
-            team_id=self.canonical_team_id
-        )
+        accessible_datasets: QuerySet[Dataset, Dataset] = Dataset.objects.unscoped().filter(team_id=self.team.id)
         accessible_datasets = self.user_access_control.filter_queryset_by_access_level(
             accessible_datasets,
             include_all_if_admin=True,
         )
         return queryset.filter(
-            team_id=self.canonical_team_id,
+            team_id=self.team.id,
             dataset_item__dataset_id__in=Subquery(accessible_datasets.values("id")),
         )
 
@@ -760,7 +750,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             dataset = (
                 Dataset.objects.unscoped()
                 .select_related("created_by", "current_revision")
-                .get(id=dataset_id, team_id=self.canonical_team_id)
+                .get(id=dataset_id, team_id=self.team.id)
             )
         except Dataset.DoesNotExist as error:
             raise Http404 from error
@@ -794,7 +784,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 raise Http404("Dataset revision not found.")
 
             version_ids = dataset_item_versions_at_revision(
-                team_id=self.canonical_team_id,
+                team_id=self.team.id,
                 dataset_id=dataset.id,
                 revision=revision,
                 archived=archived,
@@ -841,7 +831,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         dataset = self._get_dataset(data["dataset"])
         try:
             result = create_dataset_item(
-                team_id=self.canonical_team_id,
+                team_id=self.team.id,
                 dataset_id=dataset.id,
                 created_by=cast(User, request.user),
                 input=data["input"],
@@ -893,7 +883,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         data = serializer.validated_data
         try:
             result = update_dataset_item(
-                team_id=self.canonical_team_id,
+                team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
                 created_by=cast(User, request.user),
@@ -925,7 +915,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         serializer.is_valid(raise_exception=True)
         try:
             result = archive_dataset_item(
-                team_id=self.canonical_team_id,
+                team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
                 created_by=cast(User, request.user),
@@ -952,7 +942,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         serializer.is_valid(raise_exception=True)
         try:
             result = restore_dataset_item(
-                team_id=self.canonical_team_id,
+                team_id=self.team.id,
                 dataset_id=current.dataset_item.dataset_id,
                 item_id=current.dataset_item_id,
                 created_by=cast(User, request.user),
@@ -975,7 +965,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def versions(self, request: Request, *args: object, **kwargs: object) -> Response:
         current = self.get_object()
         queryset = _item_version_queryset().filter(
-            team_id=self.canonical_team_id,
+            team_id=self.team.id,
             dataset_item_id=current.dataset_item_id,
         )
         page = self.paginate_queryset(queryset)

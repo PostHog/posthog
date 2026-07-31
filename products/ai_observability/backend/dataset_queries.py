@@ -13,7 +13,7 @@ def dataset_item_versions_at_revision(
     archived: bool,
 ) -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
     latest_version_id = (
-        DatasetItemVersion.objects.for_team(team_id, canonical=True)
+        DatasetItemVersion.objects.for_team(team_id)
         .filter(
             dataset_item_id=OuterRef("dataset_item_id"),
             dataset_revision__dataset_id=dataset_id,
@@ -22,7 +22,7 @@ def dataset_item_versions_at_revision(
         .order_by("-dataset_revision__revision")
         .values("id")[:1]
     )
-    return DatasetItemVersion.objects.for_team(team_id, canonical=True).filter(
+    return DatasetItemVersion.objects.for_team(team_id).filter(
         dataset_item__dataset_id=dataset_id,
         dataset_revision__revision__lte=revision,
         id=Subquery(latest_version_id),

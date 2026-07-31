@@ -266,7 +266,7 @@ def _check_base_version(*, current_version: DatasetItemVersion, base_version: in
 
 def _create_revision(*, dataset: Dataset, created_by: User | None) -> DatasetRevision:
     revision_number = dataset.current_revision.revision + 1 if dataset.current_revision is not None else 1
-    return DatasetRevision.objects.for_team(dataset.team_id, canonical=True).create(
+    return DatasetRevision.objects.for_team(dataset.team_id).create(
         team_id=dataset.team_id,
         dataset=dataset,
         revision=revision_number,
@@ -284,7 +284,7 @@ def _create_item_version(
     content: _DatasetItemContent,
 ) -> DatasetItemVersion:
     revision = _create_revision(dataset=dataset, created_by=created_by)
-    version = DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True).create(
+    version = DatasetItemVersion.objects.for_team(dataset.team_id).create(
         team_id=dataset.team_id,
         dataset_item=item,
         dataset_revision=revision,
@@ -469,7 +469,7 @@ def create_dataset_item(
                 current_item_id=existing_item.id,
             )
 
-    item = DatasetItem.objects.for_team(dataset.team_id, canonical=True).create(
+    item = DatasetItem.objects.for_team(dataset.team_id).create(
         team_id=dataset.team_id,
         dataset=dataset,
         external_id=external_id,
