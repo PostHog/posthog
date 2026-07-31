@@ -14,6 +14,7 @@ into these fragments.
 """
 
 import math
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -38,6 +39,14 @@ from products.engineering_analytics.backend.logic.views import (
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
+
+
+@dataclass(frozen=True, kw_only=True)
+class IssueEventsWindow:
+    """The observed issue-event range's edges as scalar subquery strings."""
+
+    start: str
+    end: str
 
 
 class CuratedGitHubSource:
@@ -117,12 +126,17 @@ class CuratedGitHubSource:
             return None
         return f"({issue_events.build_query(self._tables.issue_events)})"
 
-    def issue_events_window_scalar(self) -> str | None:
-        """Scalar subquery: how far back issue-event observation reaches, or None when the table
-        isn't synced. NULL over an empty table, so comparisons against it are never-true."""
+    def issue_events_window(self) -> "IssueEventsWindow | None":
+        """Scalar subqueries bounding the observed issue-event range, or None when the table
+        isn't synced. The desc walk lands a contiguous range, so the min and max landed
+        timestamps are its edges; both are NULL over an empty table, so comparisons against
+        them are never-true."""
         if not self._tables.issue_events:
             return None
-        return f"({issue_events.build_window_start_query(self._tables.issue_events)})"
+        return IssueEventsWindow(
+            start=f"({issue_events.build_window_start_query(self._tables.issue_events)})",
+            end=f"({issue_events.build_window_end_query(self._tables.issue_events)})",
+        )
 
     def ready_by_pr_cte(self) -> str | None:
         """CTE: each PR's last observed draft-state transition, or None when the table isn't synced.
@@ -130,7 +144,9 @@ class CuratedGitHubSource:
         Only the LAST switch counts: for a merged PR the newest transition is necessarily the ready
         that preceded the merge (a draft can't merge); an open PR goes false while re-drafted. The
         event id breaks same-second ties (GitHub timestamps are second-coarse). Keyed on
-        ``pr_number`` alone because a resolved table set is a single repo's.
+        ``pr_number`` alone, unlike ``runs_by_pr``: a run's association can list the fork network's
+        PRs (which is why that rollup needs the repo qualifier), whereas every row of a resolved
+        issue-events table belongs to that one repo by table construction.
         """
         source = self.issue_events_source()
         if source is None:
@@ -247,7 +263,7 @@ class CuratedGitHubSource:
 
     def pr_list_rollup_query(self, select: str) -> str:
         """``pr_rollup_query`` plus the per-PR runs rollup and, when the issue-events table is
-        synced, the ``ready_by_pr`` rollup — reference it only when ``issue_events_source()``
+        synced, the ``ready_by_pr`` rollup; reference it only when ``issue_events_source()``
         is non-None."""
         ctes = [self.runs_cte(), self.ci_rollup_cte(), self.runs_by_pr_cte()]
         ready_cte = self.ready_by_pr_cte()

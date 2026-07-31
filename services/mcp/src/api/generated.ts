@@ -58059,7 +58059,7 @@ export namespace Schemas {
          */
       open_to_merge_seconds: number | null;
       /**
-         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (transitions predate the synced issue-event window) - null never means zero.
+         * True ready-to-merge cycle time in seconds: merged_at minus the last observed ready_for_review transition (only the last draft/ready switch counts), or minus created_at for a merged PR verifiably never drafted. Null when unmerged or not observed (the PR's life isn't fully inside the synced issue-event window) - null never means zero.
          * @nullable
          */
       ready_to_merge_seconds: number | null;

@@ -49,7 +49,7 @@ _STATE_EVENTS = """
     SELECT event, created_at, actor_login
     FROM __STATE_EVENTS_SOURCE__ AS se
     WHERE pr_number = {pr_number}
-    ORDER BY created_at ASC
+    ORDER BY created_at ASC, id ASC
 """
 
 _STATE_EVENT_KINDS = {

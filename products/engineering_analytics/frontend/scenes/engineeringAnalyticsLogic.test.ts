@@ -168,6 +168,7 @@ function apiPr(overrides: Partial<PullRequestListItemApi> = {}): PullRequestList
         created_at: '2026-05-01T00:00:00Z',
         merged_at: null,
         open_to_merge_seconds: null,
+        ready_to_merge_seconds: null,
         labels: [],
         pushes: 0,
         push_history: [],

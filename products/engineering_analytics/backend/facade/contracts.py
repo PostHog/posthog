@@ -766,7 +766,7 @@ class PullRequestListItem:
     open_to_merge_seconds: int | None
     # merged_at minus the LAST observed ready_for_review transition, falling back to created_at
     # for a merged PR verifiably never drafted. None when unmerged, re-drafted, or not observed
-    # (transitions predate the synced issue-event window) — never "never drafted".
+    # (the PR's life isn't fully inside the synced issue-event window); never "never drafted".
     ready_to_merge_seconds: int | None
     labels: list[str]
     ci: CIStatusRollup

@@ -57,15 +57,20 @@ _SELECT = f"""
     LIMIT {_LIMIT + 1}
 """
 
-# Per merged PR: last transition is a ready -> merged_at minus it; no transition rows and created
-# inside the observed window -> never left ready, so open-to-merge IS ready-to-merge; otherwise
-# NULL (re-drafted, or pre-window and unobservable). The coalesce guards normalize a missed join,
-# which lands NULL or 0 depending on join_use_nulls.
+# Per merged PR: last transition is a ready -> merged_at minus it; no transition rows and the
+# PR's whole open-to-merge life inside the observed window -> never left ready, so open-to-merge
+# IS ready-to-merge; otherwise NULL (re-drafted, or unobservable). Both window bounds are load-
+# bearing: created_at before the window means pre-window flips are possible, and merged_at past
+# the window means the transitions may simply not have synced yet (every merge lands a `merged`
+# issue event, so an in-range merge with no transition rows is proof of never drafting). The
+# coalesce guards normalize a missed join, which lands NULL or 0 depending on join_use_nulls.
 _READY_TO_MERGE = """
         multiIf(
             pr.merged_at IS NULL, NULL,
             coalesce(re.last_is_ready, 0) = 1, dateDiff('second', re.last_transition_at, pr.merged_at),
-            coalesce(re.pr_number, 0) = 0 AND pr.created_at >= __READY_WINDOW__, pr.open_to_merge_seconds,
+            coalesce(re.pr_number, 0) = 0
+                AND pr.created_at >= __READY_WINDOW_START__
+                AND pr.merged_at <= __READY_WINDOW_END__, pr.open_to_merge_seconds,
             NULL
         ) AS ready_to_merge_seconds
 """
@@ -149,9 +154,11 @@ def query_pull_request_list(
         placeholders["author"] = ast.Constant(value=author)
     # Without the optional issue-events table the column degrades to NULL rather than
     # referencing the absent ready_by_pr CTE.
-    window_scalar = curated.issue_events_window_scalar()
-    if window_scalar is not None:
-        ready_column = _READY_TO_MERGE.replace("__READY_WINDOW__", window_scalar)
+    window = curated.issue_events_window()
+    if window is not None:
+        ready_column = _READY_TO_MERGE.replace("__READY_WINDOW_START__", window.start).replace(
+            "__READY_WINDOW_END__", window.end
+        )
         ready_join = _READY_JOIN
     else:
         ready_column = "NULL AS ready_to_merge_seconds"
