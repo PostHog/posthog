@@ -12,19 +12,22 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SupportForm } from './SupportForm'
 import { supportLogic } from './supportLogic'
 
-function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Element | null {
+export function SupportModal({ onAfterClose }: { onAfterClose: () => void }): JSX.Element | null {
     const { sendSupportRequest, isSupportFormOpen, title, isSendSupportRequestSubmitting } = useValues(supportLogic)
     const { closeSupportForm, resetSendSupportRequest } = useActions(supportLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
+    const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { sidePanelAvailable } = useValues(sidePanelStateLogic)
 
     useEffect(() => {
-        if (!isCloudOrDev) {
+        // `preflight` is null until it's loaded, and `isCloudOrDev` is derived from it - so
+        // "self-hosted" and "preflight hasn't loaded yet" are otherwise indistinguishable. Wait
+        // for preflight to resolve before deciding whether to tear the modal down.
+        if (preflight && !isCloudOrDev) {
             onAfterClose()
         }
-    }, [isCloudOrDev]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [preflight, isCloudOrDev]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    if (!isCloudOrDev || sidePanelAvailable) {
+    if (!preflight || !isCloudOrDev || sidePanelAvailable) {
         return null
     }
 

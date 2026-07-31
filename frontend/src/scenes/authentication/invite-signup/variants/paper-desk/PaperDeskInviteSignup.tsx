@@ -471,6 +471,15 @@ function InviteInvalid(): JSX.Element {
                         >
                             Contact support
                         </LemonButton>
+                        {/* A real href fallback: the support form can silently fail to open before
+                        preflight has loaded, and this is the only support affordance on this screen. */}
+                        <Link
+                            to="https://posthog.com/support"
+                            target="_blank"
+                            className="text-center text-sm font-semibold no-underline hover:underline hover:underline-offset-2"
+                        >
+                            Or reach us at posthog.com/support ↗
+                        </Link>
                     </div>
                 </div>
             </PaperDeskCard>

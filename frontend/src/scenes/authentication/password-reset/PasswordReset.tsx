@@ -3,7 +3,6 @@ Scene to request a password reset email.
 */
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconCheckCircle } from '@posthog/icons'
@@ -17,6 +16,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { passwordResetLogic } from './passwordResetLogic'
 
@@ -136,7 +136,6 @@ function ResetForm(): JSX.Element {
 
 function ResetSuccess(): JSX.Element {
     const { requestPasswordReset } = useValues(passwordResetLogic)
-    const { push } = useActions(router)
 
     return (
         <div className="text-center">
@@ -149,7 +148,7 @@ function ResetSuccess(): JSX.Element {
                     data-attr="back-to-login"
                     center
                     fullWidth
-                    onClick={() => push('/login')}
+                    to={urls.login()}
                     size="large"
                 >
                     Back to login
@@ -161,7 +160,6 @@ function ResetSuccess(): JSX.Element {
 
 function ResetThrottled(): JSX.Element {
     const { requestPasswordReset } = useValues(passwordResetLogic)
-    const { push } = useActions(router)
 
     return (
         <div className="text-center">
@@ -174,7 +172,7 @@ function ResetThrottled(): JSX.Element {
                     data-attr="back-to-login"
                     center
                     fullWidth
-                    onClick={() => push('/login')}
+                    to={urls.login()}
                     size="large"
                 >
                     Back to login
