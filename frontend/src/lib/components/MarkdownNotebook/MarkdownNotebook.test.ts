@@ -8959,8 +8959,9 @@ After component`,
         expect(modeButtons[1].getAttribute('aria-label')).toEqual('Hide results')
         expect(toolbarLeftChildren[0].classList.contains('MarkdownNotebook__component-title')).toBe(true)
         expect(toolbarLeftChildren[1].classList.contains('MarkdownNotebook__component-mode-actions')).toBe(true)
-        // Collapse and delete sit at the right end of the toolbar
-        expect(actionsContainer.contains(container.querySelector('button[aria-label="Collapse"]'))).toBe(true)
+        // Edit mode folds via the eye/title; the collapse button is canvas-only
+        expect(container.querySelector('button[aria-label="Collapse"]')).toBeNull()
+        expect(actionsContainer.contains(deleteButton)).toBe(true)
         expect(deleteButton).toBeInstanceOf(HTMLButtonElement)
         const stackedPanels = Array.from(shell?.querySelectorAll('.MarkdownNotebook__component-panel') ?? [])
         expect(stackedPanels).toHaveLength(2)

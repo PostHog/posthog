@@ -113,7 +113,9 @@ export function NotebookComponentShell({
         ((mode === 'view' && !isViewModeCanvas) || componentPanels.results) &&
         !(showEditPanel && definition?.exclusiveEditPanel)
     const showModeActions = mode === 'edit' && !!definition && !definition.hideModeActions
-    const showCollapseToggle = (mode === 'edit' || isViewModeCanvas) && !!definition && !definition.hideModeActions
+    // Edit mode already covers folding via the eye/title, so collapse only shows where those
+    // controls don't render: read-only canvases.
+    const showCollapseToggle = isViewModeCanvas && !!definition && !definition.hideModeActions
     const canToggleComponentPanels = mode === 'edit'
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
     const titleDisplay = getComponentTitleDisplay(node, definition)
