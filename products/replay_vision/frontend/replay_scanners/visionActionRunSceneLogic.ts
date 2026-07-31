@@ -23,18 +23,21 @@ export function resolveObservationCitations(markdown: string, observations: read
         const cited: { n: string; url: string }[] = []
         for (const [, n] of group.matchAll(/\[obs (\d+)\]/g)) {
             const obs = byIndex.get(Number(n))
-            if (obs) {
+            // Synthesizers often repeat a citation; a group citing the same observation twice would
+            // read as two distinct pieces of evidence.
+            if (obs && !cited.some((c) => c.n === n)) {
                 cited.push({ n, url: urls.replayVisionObservation(obs.id) })
             }
         }
         // Brackets and commas sit inside the link texts (escaped) so the whole group inherits the
         // superscript citation styling, which only targets the <a> elements (ScannerSummary.scss).
+        // Joined with no-break spaces so a group can't wrap mid-bracket (orphaning e.g. `[2,` at a line end).
         return cited
             .map(({ n, url }, i) => {
                 const text = `${i === 0 ? '\\[' : ''}${n}${i === cited.length - 1 ? '\\]' : ','}`
                 return `[${text}](${url})`
             })
-            .join(' ')
+            .join('\u00a0')
     })
 }
 

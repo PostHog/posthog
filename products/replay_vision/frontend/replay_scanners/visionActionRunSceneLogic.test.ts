@@ -14,6 +14,9 @@ const obs = (index: number, id: string): RunObservationApi => ({
 
 const link = (id: string): string => urls.replayVisionObservation(id)
 
+// Group members join on a no-break space so a `[2, 5, 33]` group can't wrap mid-bracket.
+const NBSP = '\u00a0'
+
 describe('resolveObservationCitations', () => {
     it('links a lone [obs N] marker as an [N] link and drops the ones that no longer resolve', () => {
         // obs 3 has no matching observation (deleted, or the model invented it) — it must be dropped, not
@@ -30,12 +33,19 @@ describe('resolveObservationCitations', () => {
         ])
         // Renders as `[2, 5, 33]`: brackets and commas live inside the link texts so the whole group
         // gets the superscript citation styling.
-        expect(out).toBe(`Direct to the button [\\[2,](${link('aaa')}) [5,](${link('bbb')}) [33\\]](${link('ccc')}).`)
+        expect(out).toBe(
+            `Direct to the button [\\[2,](${link('aaa')})${NBSP}[5,](${link('bbb')})${NBSP}[33\\]](${link('ccc')}).`
+        )
     })
 
     it('drops unresolvable markers from a group and keeps the brackets balanced', () => {
         const out = resolveObservationCitations('Here [obs 1] [obs 3] [obs 2].', [obs(1, 'aaa'), obs(2, 'bbb')])
-        expect(out).toBe(`Here [\\[1,](${link('aaa')}) [2\\]](${link('bbb')}).`)
+        expect(out).toBe(`Here [\\[1,](${link('aaa')})${NBSP}[2\\]](${link('bbb')}).`)
+    })
+
+    it('cites a duplicated marker once so it does not read as extra evidence', () => {
+        const out = resolveObservationCitations('Twice [obs 1] [obs 1] [obs 2].', [obs(1, 'aaa'), obs(2, 'bbb')])
+        expect(out).toBe(`Twice [\\[1,](${link('aaa')})${NBSP}[2\\]](${link('bbb')}).`)
     })
 
     it('drops a group entirely when none of its markers resolve', () => {
