@@ -16,6 +16,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { appendExceptionToMessage, supportLogic, warnIfMessageTooLong } from 'lib/components/Support/supportLogic'
+import { getSupportResponseTime } from 'lib/components/Support/supportResponseTime'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EMAIL_SUPPORT_BUTTON, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,7 +24,7 @@ import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import type { BillingType } from '~/types'
+import type { BillingPlan, BillingPlanType, BillingType, OrganizationType } from '~/types'
 
 import type {
     SupportFormFields,
@@ -61,7 +62,10 @@ function messageToRichContent(message: string): JSONContent {
 export interface sidepanelTicketsLogicValues {
     billing: BillingType | null // billingLogic
     billingLoading: boolean // billingLogic
+    billingPlan: BillingPlan | null // billingLogic
+    supportPlans: BillingPlanType[] // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
+    currentOrganization: OrganizationType | null // organizationLogic
     isCurrentOrganizationNew: boolean // organizationLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     isEmailFormOpen: boolean // supportLogic
@@ -71,7 +75,6 @@ export interface sidepanelTicketsLogicValues {
         status: string
     } | null // supportLogic
     sendSupportRequest: SupportFormFields // supportLogic
-    supportResponseTime: string | null // supportLogic
     targetArea: SupportTicketTargetArea | null // supportLogic
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
@@ -86,6 +89,7 @@ export interface sidepanelTicketsLogicValues {
     newTicketDraftRevision: number
     restoreError: string | null
     restoreState: RestoreFlowState
+    supportResponseTime: string | null
     tickets: ConversationTicket[]
     ticketsLoading: boolean
     totalUnreadCount: number
@@ -195,6 +199,12 @@ export interface sidepanelTicketsLogicMeta {
             hasBillingExemption: boolean
         ) => boolean
         isBillingResolved: (billing: BillingType | null, billingLoading: boolean) => boolean
+        supportResponseTime: (
+            billing: BillingType | null,
+            supportPlans: BillingPlanType[],
+            billingPlan: BillingPlan | null,
+            currentOrganization: OrganizationType | null
+        ) => string | null
     }
 }
 
@@ -214,11 +224,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             supportLogic,
-            ['isEmailFormOpen', 'sendSupportRequest', 'pendingViewTicket', 'targetArea', 'supportResponseTime'],
+            ['isEmailFormOpen', 'sendSupportRequest', 'pendingViewTicket', 'targetArea'],
             billingLogic,
-            ['billing', 'billingLoading'],
+            ['billing', 'billingLoading', 'billingPlan', 'supportPlans'],
             organizationLogic,
-            ['isCurrentOrganizationNew'],
+            ['currentOrganization', 'isCurrentOrganizationNew'],
         ],
         actions: [
             supportLogic,
@@ -375,6 +385,21 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         isBillingResolved: [
             (s) => [s.billing, s.billingLoading],
             (billing: BillingType | null, billingLoading: boolean): boolean => !billingLoading && billing !== null,
+        ],
+        supportResponseTime: [
+            (s) => [s.billing, s.supportPlans, s.billingPlan, s.currentOrganization],
+            (
+                billing: BillingType | null,
+                supportPlans: BillingPlanType[],
+                billingPlan: BillingPlan | null,
+                currentOrganization: OrganizationType | null
+            ): string | null =>
+                getSupportResponseTime({
+                    billing,
+                    billingPlan,
+                    supportPlans,
+                    organizationId: currentOrganization?.id,
+                }),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
