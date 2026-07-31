@@ -1,4 +1,5 @@
 import uuid
+import smtplib
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
@@ -121,6 +122,47 @@ async def test_email_delivery_error_is_non_retryable(team, user) -> None:
 
     assert error.value.non_retryable is True
     assert error.value.details[0]["recipient_results"][0]["status"] == "failed"
+
+
+async def test_mixed_permanent_and_transient_failures_are_retryable(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(team=team, target_value="a@posthog.com,b@posthog.com")
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def mixed_send(email: str) -> None:
+        if email == "a@posthog.com":
+            raise EmailDeliveryError("permanent rejection")
+        raise smtplib.SMTPException("transient relay timeout")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(smtplib.SMTPException):
+            await deliver_email(subscription, inputs, [], mixed_send)
+
+
+async def test_non_retryable_error_details_are_bounded(team, user) -> None:
+    subscription = await sync_to_async(create_subscription)(
+        team=team, target_value=",".join(f"user{i}@posthog.com" for i in range(120))
+    )
+    inputs = DeliverSubscriptionInputs(
+        subscription_id=subscription.id,
+        exported_asset_ids=[],
+        total_insight_count=0,
+    )
+
+    async def fail_send(_email: str) -> None:
+        raise EmailDeliveryError("permanent rejection")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"):
+        with pytest.raises(ApplicationError) as error:
+            await deliver_email(subscription, inputs, [], fail_send)
+
+    details = error.value.details[0]["recipient_results"]
+    assert error.value.non_retryable is True
+    assert len(details) == 51  # 50 capped results + truncation sentinel
+    assert details[-1]["truncated_count"] == 70
 
 
 SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(

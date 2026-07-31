@@ -3,7 +3,7 @@ from typing import Optional
 
 import structlog
 
-from posthog.email import EmailDeliveryError, EmailMessage, was_email_delivered
+from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -115,5 +115,5 @@ def send_email_subscription_report(
     message.add_recipient(email=email)
     message.send(send_async=send_async)
 
-    if not send_async and not was_email_delivered(campaign_key, email):
-        raise EmailDeliveryError("subscription report send recorded no delivery")
+    if not send_async:
+        raise_if_delivery_rejected(campaign_key, email)

@@ -7,7 +7,7 @@ import structlog
 from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
-from posthog.email import EmailMessage
+from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.helpers.slack_subscription_explore import build_explore_hint
@@ -253,6 +253,8 @@ def send_email_ai_subscription_report(
     )
     message.add_recipient(email=email)
     message.send(send_async=False)
+
+    raise_if_delivery_rejected(campaign_key, email)
 
 
 def send_email_ai_subscription_credit_limited(
