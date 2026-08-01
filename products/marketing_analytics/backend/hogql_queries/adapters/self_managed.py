@@ -18,6 +18,24 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
     and configure field mappings for marketing analytics.
     """
 
+    # source_map fields this adapter actually reads (ad_group/ad fields are mapped on
+    # SourceMap but only consumed by hierarchical adapters, so they're excluded here).
+    # Fields resolved via `_resolve_field_or_constant()` may hold a constant instead of
+    # a column reference, so those are checked for the constant forms first.
+    _MAPPED_COLUMN_FIELDS = (
+        "campaign",
+        "id",
+        "source",
+        "cost",
+        "currency",
+        "date",
+        "impressions",
+        "clicks",
+        "reported_conversion",
+        "reported_conversion_value",
+    )
+    _CONSTANT_ELIGIBLE_FIELDS = frozenset({"source", "currency"})
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
         """
@@ -48,6 +66,8 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
             if missing_required_fields:
                 errors.extend([f"Missing required field: {field}" for field in missing_required_fields])
 
+            errors.extend(self._validate_mapped_columns_exist())
+
             is_valid = len(errors) == 0
             self._log_validation_errors(errors)
 
@@ -57,6 +77,33 @@ class SelfManagedAdapter(MarketingSourceAdapter[ExternalConfig]):
             error_msg = f"Validation error: {str(e)}"
             self.logger.exception("Self-managed table validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
+
+    def _validate_mapped_columns_exist(self) -> list[str]:
+        """Check that every mapped column actually exists on the warehouse table.
+
+        The source map is user-configured and can drift from the underlying table's
+        schema (columns renamed/dropped), which otherwise reaches ClickHouse as an
+        unresolved identifier on the table function at query time instead of a
+        validation error. Fields resolved as parsed expressions (not bare column
+        names) aren't checked here since there's no single column name to look up.
+        """
+        errors: list[str] = []
+        for field_name in self._MAPPED_COLUMN_FIELDS:
+            field_value = getattr(self.config.source_map, field_name, None)
+            if not field_value:
+                continue
+            if field_name in self._CONSTANT_ELIGIBLE_FIELDS and (
+                field_value.startswith(self.CONSTANT_VALUE_PREFIX) or self._ISO_CURRENCY_RE.match(field_value)
+            ):
+                continue
+            if not self._is_simple_column_name(field_value):
+                continue
+            column_name = field_value.split(".")[0]
+            if not self._table_has_column(self.config.table, column_name):
+                errors.append(
+                    f"Column '{column_name}' (mapped to '{field_name}') not found on table '{self.config.table.name}'"
+                )
+        return errors
 
     def _get_campaign_name_field(self) -> ast.Expr:
         if self.config.source_map.campaign:

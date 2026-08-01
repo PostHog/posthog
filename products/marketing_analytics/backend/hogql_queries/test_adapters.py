@@ -73,6 +73,12 @@ EXPECTED_COLUMN_ALIASES = [
     "reported_conversion",
     "reported_conversion_value",
 ]
+# Matches the field values `_create_source_map()` defaults to — used as the mock
+# table's `columns` so self-managed adapters' column-existence validation passes.
+DEFAULT_SOURCE_MAP_COLUMNS = {
+    col: {"clickhouse": "Nullable(String)"}
+    for col in ("campaign_name", "source_name", "spend", "date", "impressions", "clicks", "currency", "conversions")
+}
 
 
 logger = structlog.get_logger(__name__)
@@ -898,9 +904,10 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         logger.info("created_table", table_name=config.table_name, row_count=row_count)
         return table_info
 
-    def _create_mock_table(self, name: str, source_type: str) -> Mock:
+    def _create_mock_table(self, name: str, source_type: str, columns: dict | None = None) -> Mock:
         table = Mock(spec=DataWarehouseTable)
         table.name = name
+        table.columns = columns if columns is not None else {}
         table.external_data_source = Mock(spec=ExternalDataSource)
         table.external_data_source.source_type = source_type
 
@@ -952,7 +959,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     # ================================================================
 
     def test_adapter_validation_missing_required_fields(self):
-        table = self._create_mock_table("test_table", "BigQuery")
+        table = self._create_mock_table("test_table", "BigQuery", columns=DEFAULT_SOURCE_MAP_COLUMNS)
         source_map = self._create_source_map(
             campaign="",
             source="",
@@ -977,7 +984,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         )
 
     def test_adapter_validation_success(self):
-        table = self._create_mock_table("test_table", "BigQuery")
+        table = self._create_mock_table("test_table", "BigQuery", columns=DEFAULT_SOURCE_MAP_COLUMNS)
         source_map = self._create_source_map()
 
         config = ExternalConfig(
@@ -995,7 +1002,14 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert len(result.errors) == 0, "Should have no validation errors"
 
     def test_adapter_validation_with_optional_fields(self):
-        table = self._create_mock_table("test_table", "BigQuery")
+        table = self._create_mock_table(
+            "test_table",
+            "BigQuery",
+            columns={
+                col: {"clickhouse": "Nullable(String)"}
+                for col in ("campaign_id", "source_name", "spend", "report_date", "conversions")
+            },
+        )
         source_map = self._create_source_map(
             campaign="campaign_id",
             source="source_name",
@@ -1019,7 +1033,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "Validation should succeed with optional fields missing"
 
     def test_bigquery_adapter_validation_consistency(self):
-        table = self._create_mock_table("test_table", "BigQuery")
+        table = self._create_mock_table("test_table", "BigQuery", columns=DEFAULT_SOURCE_MAP_COLUMNS)
         source_map = self._create_source_map()
 
         config = ExternalConfig(
@@ -1037,7 +1051,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert isinstance(result.errors, list), "BigQueryAdapter should return list of errors"
 
     def test_aws_adapter_validation_consistency(self):
-        table = self._create_mock_table("test_table", "aws")
+        table = self._create_mock_table("test_table", "aws", columns=DEFAULT_SOURCE_MAP_COLUMNS)
         source_map = self._create_source_map()
 
         config = ExternalConfig(
@@ -1055,7 +1069,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert isinstance(result.errors, list), "AWSAdapter should return list of errors"
 
     def test_google_cloud_adapter_validation_consistency(self):
-        table = self._create_mock_table("test_table", "google_cloud")
+        table = self._create_mock_table("test_table", "google_cloud", columns=DEFAULT_SOURCE_MAP_COLUMNS)
         source_map = self._create_source_map()
 
         config = ExternalConfig(
@@ -1071,6 +1085,41 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert result.is_valid, "GoogleCloudAdapter validation should succeed"
         assert isinstance(result.errors, list), "GoogleCloudAdapter should return list of errors"
+
+    @parameterized.expand(
+        [
+            ("cost_column_missing", ["campaign_name", "source_name", "date"], "cost", False),
+            ("campaign_column_missing", ["source_name", "spend", "date"], "campaign", False),
+            ("all_mapped_columns_present", ["campaign_name", "source_name", "spend", "date"], None, True),
+        ]
+    )
+    def test_self_managed_validation_catches_stale_column_mapping(
+        self, _name, present_columns, missing_field, expected_valid
+    ):
+        # Regression test: a self-managed source map that references a column no longer
+        # present on the underlying warehouse table used to pass validate() and only fail
+        # once the generated HogQL reached ClickHouse as an unresolved identifier.
+        table = self._create_mock_table(
+            "x_ads_cost",
+            "aws",
+            columns={col: {"clickhouse": "Nullable(String)"} for col in present_columns},
+        )
+        source_map = self._create_source_map(impressions=None, clicks=None, currency=None, reported_conversion=None)
+
+        config = ExternalConfig(
+            table=table,
+            source_map=source_map,
+            source_type="aws",
+            source_id="test_stale_mapping",
+            schema_name="marketing_schema",
+        )
+
+        adapter = AWSAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid is expected_valid, result.errors
+        if missing_field:
+            assert any(f"mapped to '{missing_field}'" in error for error in result.errors)
 
     def test_linkedin_ads_adapter_validation_consistency(self):
         campaign_table = self._create_mock_table("linkedin_campaign_groups_table", "linkedin_ads")
