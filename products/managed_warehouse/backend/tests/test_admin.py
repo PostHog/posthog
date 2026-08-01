@@ -11,12 +11,12 @@ from django.urls import reverse
 
 from rest_framework.response import Response
 
-from posthog.admin.admins.duckgres_server_admin import DuckgresServerAdmin
 from posthog.models import Organization, Team
 
-from products.managed_warehouse.backend.facade.models import DuckgresServer
+from products.managed_warehouse.backend.admin.duckgres_server_admin import DuckgresServerAdmin
+from products.managed_warehouse.backend.models import DuckgresServer
 
-MW = "products.data_warehouse.backend.presentation.views.managed_warehouse"
+MW = "products.managed_warehouse.backend.presentation.views"
 
 
 def _attach_messages(request) -> None:
@@ -62,7 +62,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
     def _grant_admin_permissions(self) -> None:
         permissions = Permission.objects.filter(
-            content_type__app_label="posthog",
+            content_type__app_label="managed_warehouse",
             codename__in=[
                 "add_duckgresserver",
                 "change_duckgresserver",
@@ -207,7 +207,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
         with (
             patch(f"{MW}.deprovision", return_value=Response({"error": "still running"}, status=409)),
-            patch("posthog.admin.admins.duckgres_server_admin.logger.warning") as mock_warning,
+            patch("products.managed_warehouse.backend.admin.duckgres_server_admin.logger.warning") as mock_warning,
         ):
             response = self.admin.deprovision_view(request, str(server.pk))
 

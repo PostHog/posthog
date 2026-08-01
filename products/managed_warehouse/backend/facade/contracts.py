@@ -20,14 +20,19 @@ from uuid import UUID
 
 __all__ = [
     "CPUnavailableError",
+    "DuckgresQueryServerConfig",
     "DuckgresSinkBackfillPlanInput",
     "DuckgresSinkState",
     "DuckgresSinkStateCreateInput",
     "DuckgresSinkStateGaugeStats",
     "DuckgresSinkStateRecord",
+    "DuckgresStoredBucketConfig",
+    "DuckgresStoredServerConfig",
+    "DuckLakeCatalogConnectionConfig",
     "DuckLakeQueryResult",
     "DuckLakeTableResult",
     "ManagedWarehouseBackfillState",
+    "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseTableNames",
     "ManagedWarehouseTeamMembership",
 ]
@@ -35,6 +40,55 @@ __all__ = [
 
 class CPUnavailableError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True, kw_only=True)
+class ManagedWarehouseProvisionStatus:
+    """Whether an organization has a stored managed-warehouse connection."""
+
+    provisioned: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckgresQueryServerConfig:
+    """Stored Postgres-wire connection details for an organization's Duckgres server."""
+
+    host: str
+    port: int
+    flight_port: int
+    database: str
+    username: str
+    password: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckLakeCatalogConnectionConfig:
+    """Stored DuckLake metadata-store connection details for a managed warehouse."""
+
+    host: str
+    port: int
+    database: str
+    username: str | None
+    password: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckgresStoredBucketConfig:
+    """Control-plane-owned object-storage location persisted for a managed warehouse."""
+
+    bucket: str
+    region: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckgresStoredServerConfig:
+    """The persisted managed-warehouse configuration available outside the product."""
+
+    organization_id: UUID
+    query_server: DuckgresQueryServerConfig
+    catalog: DuckLakeCatalogConnectionConfig | None
+    bucket: DuckgresStoredBucketConfig | None
+    sink_max_concurrency: int
 
 
 @dataclass(frozen=True, kw_only=True)

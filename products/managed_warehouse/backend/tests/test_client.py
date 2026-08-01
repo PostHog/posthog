@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from django.apps import apps
+
 from psycopg import sql as psql
 
 from posthog.schema import HogQLQuery, HogQLVariable
@@ -30,11 +32,11 @@ class TestCompileHogQLToDuckLakeSQL:
     def test_substitutes_variable_placeholders(self):
         from posthog.models import Organization, Team
 
-        from products.product_analytics.backend.models.insight_variable import InsightVariable
+        variable_model = apps.get_model("product_analytics", "InsightVariable")
 
         org = Organization.objects.create(name="ducklake-vars")
         team = Team.objects.create(organization=org)
-        variable = InsightVariable.objects.create(
+        variable = variable_model.objects.create(
             team=team, name="Event name", code_name="event_name", type="String", default_value="$pageview"
         )
 

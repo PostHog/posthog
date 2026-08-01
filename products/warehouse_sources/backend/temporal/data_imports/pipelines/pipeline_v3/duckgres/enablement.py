@@ -21,7 +21,11 @@ import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
 
-from products.managed_warehouse.backend.facade.api import get_org_id_for_team, is_dev_mode
+from products.managed_warehouse.backend.facade.api import (
+    get_org_id_for_team,
+    is_dev_mode,
+    sink_concurrency_by_trusted_organization_ids,
+)
 from products.managed_warehouse.backend.facade.contracts import CPUnavailableError
 from products.managed_warehouse.backend.facade.cp_teams import list_org_team_memberships, list_team_memberships
 
@@ -77,8 +81,6 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
 
     from posthog.models.team.team import Team
 
-    from products.managed_warehouse.backend.facade.models import DuckgresServer
-
     rows = list_team_memberships(use_cache=False)
     if rows is None:
         raise CPUnavailableError("duckgres control plane unreachable; keeping the previous sink enablement")
@@ -93,12 +95,7 @@ def duckgres_sink_enablement() -> SinkEnablement | None:
     # that value is an external, unvalidated string (the CP has test/dev rows keyed by
     # human-readable slugs, not UUIDs), and passing it straight into a UUID FK lookup
     # raises ValidationError before the org_id match-up below ever runs.
-    budgets = {
-        str(org_id): sink_max_concurrency
-        for org_id, sink_max_concurrency in DuckgresServer.objects.filter(
-            organization_id__in={org_id for _, org_id in team_info.values()}
-        ).values_list("organization_id", "sink_max_concurrency")
-    }
+    budgets = sink_concurrency_by_trusted_organization_ids({org_id for _, org_id in team_info.values()})
 
     enabled: list[int] = []
     team_org_budgets: list[tuple[int, str, int]] = []

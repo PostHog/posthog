@@ -1502,12 +1502,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         # Environments already removed before a block are re-pushed lazily on the next
         # warehouse status read, so a partial pass self-heals.
         # Keep the product API off the core import path.
-        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-            block_team_deletion,
-        )
+        from products.managed_warehouse.backend.facade.api import get_team_deletion_block_reason  # noqa: PLC0415
 
         for team_id in team_ids:
-            warehouse_block_reason = block_team_deletion(team_id, organization_id)
+            warehouse_block_reason = get_team_deletion_block_reason(team_id, organization_id)
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 

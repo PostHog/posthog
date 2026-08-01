@@ -87,8 +87,9 @@ from products.data_warehouse.backend.facade.models import ManagedWarehouseBackfi
 from products.managed_warehouse.backend.facade.api import (
     DUCKGRES_BUCKET_REGION,
     NO_HISTORY_SENTINEL,
-    get_duckgres_server_for_organization,
+    get_catalog_connection_config,
     get_org_id_for_team,
+    get_stored_bucket_config,
     resolve_team_earliest_event_date,
 )
 from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
@@ -250,13 +251,13 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     Crossplane composition and produced buckets that don't exist. Fail loudly if nothing
     can name it rather than export to a guessed bucket.
     """
-    from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import get_control_plane_bucket  # noqa: PLC0415
 
     org_id = get_org_id_for_team(team_id)
     events_table, persons_table = _resolve_table_names(team_id)
 
     # Control plane first — authoritative, and rejects an org_id-mismatched status body.
-    cp_bucket = managed_warehouse.cp_bucket_for(org_id)
+    cp_bucket = get_control_plane_bucket(org_id)
     if cp_bucket:
         logger.info(
             "duckling_bucket_resolved_from_control_plane",
@@ -274,9 +275,9 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         )
 
     # CP couldn't answer — fall back to the stored row if it knows a bucket.
-    server = get_duckgres_server_for_organization(org_id)
-    if server is not None and server.bucket:
-        bucket, bucket_region = server.bucket, server.bucket_region or DUCKGRES_BUCKET_REGION
+    stored_bucket = get_stored_bucket_config(org_id)
+    if stored_bucket is not None:
+        bucket, bucket_region = stored_bucket.bucket, stored_bucket.region or DUCKGRES_BUCKET_REGION
         logger.warning(
             "duckling_bucket_from_stored_server_control_plane_unavailable",
             team_id=team_id,
@@ -1683,19 +1684,19 @@ def _ducklake_file_partition_value_fixup_enabled() -> bool:
 
 
 def _open_catalog_conn(target: DucklingTarget) -> psycopg.Connection[Any]:
-    server = get_duckgres_server_for_organization(target.organization_id)
-    if server is None or not server.catalog_host:
+    catalog = get_catalog_connection_config(target.organization_id)
+    if catalog is None:
         raise RuntimeError(
             f"DuckgresServer with catalog_* fields not found for organization_id={target.organization_id}; "
             f"set {_DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR}=false to skip the "
             f"ducklake_file_partition_value fix-up (loses bug coverage)."
         )
     return psycopg.connect(
-        host=server.catalog_host,
-        port=server.catalog_port,
-        dbname=server.catalog_database,
-        user=server.catalog_username,
-        password=server.catalog_password,
+        host=catalog.host,
+        port=catalog.port,
+        dbname=catalog.database,
+        user=catalog.username,
+        password=catalog.password,
         autocommit=False,
         connect_timeout=_DUCKLAKE_FILE_PARTITION_VALUE_CATALOG_CONNECT_TIMEOUT,
     )
@@ -3024,13 +3025,9 @@ def _push_earliest_event_date_to_cp(bf: ManagedWarehouseTeamMembership) -> bool:
     failed write (the row stays unresolved and is retried on a later tick).
     """
     try:
-        # Deferred like the other control-plane touchpoints: keeps the DRF-importing
-        # adapter off this module's import path.
-        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+        from products.managed_warehouse.backend.facade.api import update_team_earliest_event_date  # noqa: PLC0415
 
-        return managed_warehouse.push_team_earliest_event_date(
-            bf.organization_id, bf.team_id, bf.earliest_event_date
-        )
+        return update_team_earliest_event_date(bf.organization_id, bf.team_id, bf.earliest_event_date)
     except Exception:
         logger.exception("duckling_earliest_event_date_cp_push_failed", team_id=bf.team_id)
         return False

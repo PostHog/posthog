@@ -22,7 +22,6 @@ per-team removal becomes a product flow).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from django.db import transaction
@@ -33,18 +32,16 @@ import structlog
 
 from posthog.models.team.team import Team
 
-from products.data_warehouse.backend.postgres_helpers import reconcile_postgres_schemas
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import (
+from products.data_warehouse.backend.facade.api import reconcile_postgres_schemas
+from products.managed_warehouse.backend.models import DuckgresServer
+from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
+    DataWarehouseTable,
+    ExternalDataSchema,
     ExternalDataSource,
 )
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-
-if TYPE_CHECKING:
-    from products.managed_warehouse.backend.facade.models import DuckgresServer
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -155,8 +152,6 @@ def _ensure_managed_source_locked(*, team_id: int, server: DuckgresServer) -> Ex
 
 def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str | UUID) -> ExternalDataSource:
     """Create or refresh the team's managed-warehouse query source on the org root credential."""
-    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
-
     with transaction.atomic():
         server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         Team.objects.select_for_update().only("id").get(id=team_id, organization_id=organization_id)
@@ -165,8 +160,6 @@ def ensure_managed_warehouse_direct_source(*, team_id: int, organization_id: str
 
 def reconcile_managed_warehouse_tables(*, team_id: int, organization_id: str | UUID) -> None:
     """Discover and register the org-wide managed-warehouse catalog for this team's source."""
-    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
-
     with transaction.atomic():
         # Check before ensure: a tombstoned source means the warehouse was deprovisioned
         # (its DuckgresServer row is deleted synchronously), and nothing may revive it —
@@ -261,8 +254,6 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
     fan out to all of them in the same transaction — otherwise every source holds a stale
     password and fails silently.
     """
-    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
-
     with transaction.atomic():
         server = DuckgresServer.objects.select_for_update().get(organization_id=organization_id)
         server.password = password
@@ -281,8 +272,6 @@ def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID) -> Non
     Per-team state needs no disabling here: deprovisioning removes the org's team rows
     from the duckgres control plane, which is the read source for membership.
     """
-    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
-
     now = timezone.now()
     with transaction.atomic():
         DuckgresServer.objects.select_for_update().filter(organization_id=organization_id).first()

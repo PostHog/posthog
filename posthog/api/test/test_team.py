@@ -448,7 +448,7 @@ def team_api_test_factory():
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch(
-            "products.data_warehouse.backend.presentation.views.managed_warehouse.block_team_deletion",
+            "products.managed_warehouse.backend.facade.api.get_team_deletion_block_reason",
             return_value="Deprovision the managed warehouse first.",
         )
         def test_delete_team_blocked_by_managed_warehouse(

@@ -23,7 +23,7 @@ from products.data_modeling.backend.facade.models import (
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.managed_warehouse.backend.facade.api import (
     duckgres_data_modeling_schema,
-    get_duckgres_server_for_organization,
+    has_provisioned_warehouse,
     is_dev_mode,
 )
 
@@ -70,7 +70,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
 
         return os.environ.get("DUCKGRES_SHADOW_ENABLED", "").lower() in ("1", "true")
 
-    if get_duckgres_server_for_organization(str(team.organization_id)) is None:
+    if not has_provisioned_warehouse(str(team.organization_id)):
         return False
 
     try:

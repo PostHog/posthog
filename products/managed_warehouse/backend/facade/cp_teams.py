@@ -28,6 +28,7 @@ class _ControlPlaneTeam(Protocol):
     @property
     def resolved_data_imports_schema(self) -> str: ...
 
+
 __all__ = [
     "clear_team_membership_cache",
     "get_org_team_membership",

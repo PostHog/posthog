@@ -223,10 +223,9 @@ def _block_if_pending_deletion(organization_id: UUID | str) -> Response | None:
     entrypoint that can create duckgres state calls this first; read-only endpoints stay
     accessible.
     """
-    # Keep posthog.models off this adapter's import path.
-    from posthog.models.organization import Organization  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import organization_is_pending_deletion  # noqa: PLC0415
 
-    if Organization.objects.filter(id=organization_id, is_pending_deletion=True).exists():
+    if organization_is_pending_deletion(organization_id):
         return Response(
             {"error": "This organization is pending deletion; its managed warehouse can no longer be modified."},
             status=status.HTTP_409_CONFLICT,
@@ -362,8 +361,9 @@ def _ensure_direct_source(team_id: int, organization_id: UUID | str) -> None:
     credential. A failure here must never block onboarding.
     """
     try:
-        # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
-        from products.data_warehouse.backend.facade.api import ensure_managed_warehouse_direct_source  # noqa: PLC0415
+        from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+            ensure_managed_warehouse_direct_source,
+        )
 
         ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
     except Exception:
@@ -384,7 +384,7 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
     # Keep ducklake.common (and its duckdb dependency) off the API import path.
     from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
         default_bucket_region,
-        upsert_duckgres_server_for_org,
+        persist_duckgres_server_for_org,
     )
 
     # The control plane is the single owner of the bucket name — it provisions
@@ -402,7 +402,7 @@ def _persist_duckgres_server(organization_id: UUID | str, database_name: str | N
 
     try:
         connection = _present_connection({"database": database_name, "username": body.get("username", "root")})
-        upsert_duckgres_server_for_org(
+        persist_duckgres_server_for_org(
             organization_id,
             host=connection["host"],
             port=connection["port"],
@@ -631,10 +631,9 @@ def onboard_team(
 
 def _org_has_warehouse(organization_id: UUID | str) -> bool:
     """Whether the org has a provisioned managed warehouse (its connection row exists)."""
-    # Keep ducklake.models off the core API import path.
-    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import has_provisioned_warehouse  # noqa: PLC0415
 
-    return DuckgresServer.objects.filter(organization_id=organization_id).exists()
+    return has_provisioned_warehouse(organization_id)
 
 
 def _legacy_table_fields(schema_name: str) -> dict:
@@ -713,13 +712,10 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
     When the control plane can't confirm the deletion for a team that is warehouse-onboarded,
     the deletion is blocked with a retry error rather than silently orphaning the duckgres row.
     """
-    # Keep ducklake.models off the core API import path.
-    # Keep ducklake.team_state (and via it ducklake.common's duckdb dependency) off the
-    # API import path.
-    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import has_provisioned_warehouse  # noqa: PLC0415
     from products.managed_warehouse.backend.facade.team_state import backfill_row_exists  # noqa: PLC0415
 
-    if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
+    if not has_provisioned_warehouse(organization_id):
         return None
 
     resp = delete_team(organization_id, team_id, require_enabled=False)
@@ -790,11 +786,10 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
     resumable once the control plane is reachable — instead of orphaning a live warehouse
     with no pointer left for any later cleanup.
     """
-    # Keep ducklake.models off the core import path.
-    from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import has_provisioned_warehouse  # noqa: PLC0415
 
     org_id = str(organization_id)
-    if not DuckgresServer.objects.filter(organization_id=organization_id).exists():
+    if not has_provisioned_warehouse(organization_id):
         return
 
     # Backend caller: bypass the user-facing feature flag so the deletion never depends on
@@ -829,8 +824,9 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
 
 def _remove_direct_connection_sources(organization_id: UUID | str) -> None:
     """Soft-delete the org's auto-created Postgres query connections after deprovisioning."""
-    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
-    from products.data_warehouse.backend.facade.api import soft_delete_managed_warehouse_sources  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.connection import (
+        soft_delete_managed_warehouse_sources,  # noqa: PLC0415
+    )
 
     soft_delete_managed_warehouse_sources(organization_id=organization_id)
 
@@ -950,19 +946,17 @@ def _reconcile_bucket_from_status(organization_id: UUID | str, body: dict) -> No
         # External data stores / not-yet-backfilled ducklings report no bucket —
         # nothing authoritative to copy.
         return
-    # Keep ducklake.common (and its duckdb dependency) off the API import path.
-    from products.managed_warehouse.backend.facade.api import default_bucket_region  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
+        default_bucket_region,
+        reconcile_stored_bucket_config,
+    )
 
     bucket_region = body.get("bucket_region") or default_bucket_region()
     try:
-        from products.managed_warehouse.backend.facade.models import DuckgresServer  # noqa: PLC0415
-
-        # exclude rows where BOTH already match, so a correct bucket with a stale
-        # region (or vice versa) is still repaired.
-        updated = (
-            DuckgresServer.objects.filter(organization_id=organization_id)
-            .exclude(bucket=bucket, bucket_region=bucket_region)
-            .update(bucket=bucket, bucket_region=bucket_region)
+        updated = reconcile_stored_bucket_config(
+            organization_id,
+            bucket=bucket,
+            bucket_region=bucket_region,
         )
         if updated:
             logger.info(
@@ -993,8 +987,9 @@ def reset_password(organization_id: UUID | str) -> Response:
 
 def _update_direct_connection_password(organization_id: UUID | str, password: str) -> None:
     """Sync the rotated root password into the server row and query connections."""
-    # Keep the data_warehouse/warehouse_sources stack off this adapter's import path.
-    from products.data_warehouse.backend.facade.api import update_managed_warehouse_root_password  # noqa: PLC0415
+    from products.managed_warehouse.backend.facade.connection import (
+        update_managed_warehouse_root_password,  # noqa: PLC0415
+    )
 
     update_managed_warehouse_root_password(organization_id=organization_id, password=password)
 

@@ -39,7 +39,7 @@ from products.data_warehouse.backend.presentation.managed_warehouse_data_status 
     ManagedWarehouseSourceSchemasQuerySerializer,
     ManagedWarehouseSourceSchemasResponseSerializer,
 )
-from products.data_warehouse.backend.presentation.views import managed_warehouse
+from products.managed_warehouse.backend.presentation import views as managed_warehouse
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 

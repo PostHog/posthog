@@ -8,8 +8,13 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.models import Organization, Team
 
-from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.managed_warehouse_connection import (
+from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.facade.tasks import reconcile_all_managed_warehouse_tables_task
+from products.managed_warehouse.backend.facade.contracts import (
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
+)
+from products.managed_warehouse.backend.logic.connection import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     ensure_managed_warehouse_direct_source,
     internal_schemas,
@@ -17,17 +22,10 @@ from products.data_warehouse.backend.managed_warehouse_connection import (
     soft_delete_managed_warehouse_sources,
     update_managed_warehouse_root_password,
 )
-from products.data_warehouse.backend.presentation.views import managed_warehouse
-from products.data_warehouse.backend.tasks import reconcile_all_managed_warehouse_tables_task
-from products.managed_warehouse.backend.facade.contracts import (
-    ManagedWarehouseTableNames,
-    ManagedWarehouseTeamMembership,
-)
-from products.managed_warehouse.backend.facade.models import DuckgresServer
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.managed_warehouse.backend.models import DuckgresServer
+from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import SourceSchema
 
 
 class _Connection(TypedDict):

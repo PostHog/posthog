@@ -11,7 +11,7 @@ from products.data_warehouse.backend.logic.external_data_source.notifications im
     get_team_ids_with_recent_sync_failures,
     notify_external_data_sync_failures,
 )
-from products.data_warehouse.backend.managed_warehouse_connection import reconcile_managed_warehouse_tables
+from products.managed_warehouse.backend.facade.connection import reconcile_managed_warehouse_tables
 from products.managed_warehouse.backend.facade.cp_teams import (
     get_org_team_membership,
     list_enabled_backfill_team_memberships,
@@ -90,8 +90,8 @@ def schedule_managed_warehouse_tables_reconcile(*, team_id: int, organization_id
 )
 @skip_team_scope_audit
 def soft_delete_managed_warehouse_sources_task(organization_id: str) -> None:
-    from products.data_warehouse.backend.managed_warehouse_connection import (  # noqa: PLC0415
-        soft_delete_managed_warehouse_sources,
+    from products.managed_warehouse.backend.facade.connection import (
+        soft_delete_managed_warehouse_sources,  # noqa: PLC0415
     )
 
     soft_delete_managed_warehouse_sources(organization_id=organization_id)
@@ -166,13 +166,11 @@ def sync_team_earliest_event_date(team_id: int) -> None:
     """
     # Deferred: ducklake pulls duckdb in via common, and posthog.models must not load
     # while Celery imports task modules — keep both off this module's import path.
-    from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-        push_team_earliest_event_date,
-    )
     from products.managed_warehouse.backend.facade.api import (  # noqa: PLC0415
         NO_HISTORY_SENTINEL,
         get_org_id_for_team,
         resolve_team_earliest_event_date,
+        update_team_earliest_event_date,
     )
 
     organization_id = get_org_id_for_team(team_id)
@@ -186,7 +184,7 @@ def sync_team_earliest_event_date(team_id: int) -> None:
     if resolved == NO_HISTORY_SENTINEL:
         logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
         return
-    push_team_earliest_event_date(organization_id, team_id, resolved)
+    update_team_earliest_event_date(organization_id, team_id, resolved)
 
 
 @shared_task(ignore_result=True, name="products.data_warehouse.backend.tasks.send_external_data_failure_digest_catchup")

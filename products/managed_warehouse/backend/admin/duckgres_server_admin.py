@@ -10,7 +10,7 @@ import structlog
 
 from posthog.models import Organization, Team, User
 
-from products.managed_warehouse.backend.facade.models import DuckgresServer
+from products.managed_warehouse.backend.models import DuckgresServer
 
 logger = structlog.get_logger(__name__)
 
@@ -36,8 +36,8 @@ class DuckgresServerAdmin(admin.ModelAdmin):
     raw_id_fields = ("organization",)
 
     # Custom templates add the provision / enable-backfill / deprovision buttons.
-    change_list_template = "admin/posthog/duckgres_server/change_list.html"
-    change_form_template = "admin/posthog/duckgres_server/change_form.html"
+    change_list_template = "admin/managed_warehouse/duckgres_server/change_list.html"
+    change_form_template = "admin/managed_warehouse/duckgres_server/change_form.html"
 
     change_fieldsets = (
         (
@@ -143,7 +143,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if request.method == "GET":
             return render(
                 request,
-                "admin/posthog/duckgres_server/provision_form.html",
+                "admin/managed_warehouse/duckgres_server/provision_form.html",
                 {**self.admin_site.each_context(request), "title": "Provision managed warehouse"},
             )
 
@@ -156,7 +156,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:managed_warehouse_duckgresserver_provision"))
 
-        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+        from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.provision(
             team.organization_id, database_name, team.id, schema_name, require_enabled=False
@@ -176,7 +176,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
             body = resp.data if isinstance(resp.data, dict) else {}
             return render(
                 request,
-                "admin/posthog/duckgres_server/provision_result.html",
+                "admin/managed_warehouse/duckgres_server/provision_result.html",
                 {
                     **self.admin_site.each_context(request),
                     "title": "Managed warehouse provisioned",
@@ -203,7 +203,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if request.method == "GET":
             return render(
                 request,
-                "admin/posthog/duckgres_server/enable_backfill_form.html",
+                "admin/managed_warehouse/duckgres_server/enable_backfill_form.html",
                 {
                     **self.admin_site.each_context(request),
                     "title": "Enable warehouse backfill for a team",
@@ -218,7 +218,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if team is None:
             return redirect(reverse("admin:managed_warehouse_duckgresserver_enable_backfill", args=[object_id]))
 
-        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+        from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.onboard_team(server.organization_id, team.id, schema_name, require_enabled=False)
         self._report(request, resp, f"Onboarded team {team.id} onto the managed warehouse")
@@ -238,7 +238,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
         if request.method == "GET":
             return render(
                 request,
-                "admin/posthog/duckgres_server/deprovision_confirm.html",
+                "admin/managed_warehouse/duckgres_server/deprovision_confirm.html",
                 {
                     **self.admin_site.each_context(request),
                     "title": "Deprovision managed warehouse",
@@ -246,7 +246,7 @@ class DuckgresServerAdmin(admin.ModelAdmin):
                 },
             )
 
-        from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
+        from products.managed_warehouse.backend.presentation import views as managed_warehouse  # noqa: PLC0415
 
         resp = managed_warehouse.deprovision(server.organization_id, require_enabled=False)
         self._report(request, resp, f"Deprovisioned managed warehouse for org {server.organization_id}")

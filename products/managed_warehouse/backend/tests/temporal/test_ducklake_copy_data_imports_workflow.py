@@ -149,10 +149,10 @@ async def test_prepare_excludes_only_v3_sink_owned_schemas(ateam, monkeypatch):
         "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
         lambda *args, **kwargs: True,  # duckgres-batch-sink on
     )
-    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import create_job_model
+    from products.warehouse_sources.backend.facade import pipelines as warehouse_source_pipelines
 
     monkeypatch.setattr(
-        create_job_model, "is_pipeline_v3_enabled", lambda team_id, source_type: source_type == "Postgres"
+        warehouse_source_pipelines, "is_pipeline_v3_enabled", lambda team_id, source_type: source_type == "Postgres"
     )
 
     await database_sync_to_async(DuckgresServer.objects.create)(

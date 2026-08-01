@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 
     from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseBackfillState
     from products.managed_warehouse.backend.models import DuckgresServer
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 
 DUCKLAKE_CATALOG_RESET_ENV_VAR = "POSTHOG_ALLOW_DUCKLAKE_CATALOG_RESET"
