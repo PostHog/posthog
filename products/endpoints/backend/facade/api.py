@@ -118,7 +118,9 @@ def get_endpoint(team_id: int, name: str) -> contracts.EndpointSummary | None:
     return _to_endpoint_info(endpoint) if endpoint is not None else None
 
 
-def get_endpoint_version(team_id: int, name: str, version: int | None = None) -> contracts.EndpointVersionSnapshot | None:
+def get_endpoint_version(
+    team_id: int, name: str, version: int | None = None
+) -> contracts.EndpointVersionSnapshot | None:
     """Get a specific version's snapshot, or the current version when ``version`` is None."""
     endpoint = Endpoint.objects.filter(team_id=team_id, name=name, deleted=False).first()
     if endpoint is None:
