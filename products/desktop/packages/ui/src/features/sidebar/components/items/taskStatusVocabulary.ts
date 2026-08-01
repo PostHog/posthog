@@ -119,7 +119,9 @@ export interface TaskDot {
  * after opening the PR, and under a merge queue that wait ends only when someone
  * enqueues the merge — so the run can claim to be working for hours after the
  * agent stopped. The PR is the deliverable; once it exists the badge carries the
- * story and the dot goes quiet.
+ * story and the dot goes quiet. This beats a status that merely claims work, not
+ * one that is visibly starting: a re-queued cloud run keeps its spinner even
+ * with last run's PR still on the task.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
   if (props.needsPermission) {
