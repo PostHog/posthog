@@ -107,10 +107,11 @@ export interface TaskDot {
  * the reader actually gets is output they haven't seen, which is `isUnread`, and
  * the run's real story lives in the task detail where there's room to tell it.
  *
- * Queued is folded into working for the same reason. "Waiting on a sandbox" and
- * "a sandbox is writing code" are one fact to the reader — it's under way — so
- * they share the spinner. What doesn't share it is a run sitting at
- * `in_progress` with nothing streaming: that claim outlives the work, and a
+ * A cloud run's queued is folded into working for the same reason. "Waiting on a
+ * sandbox" and "a sandbox is writing code" are one fact to the reader, that it's
+ * under way, so they share the spinner. Two states don't share it: a local run
+ * at `queued`, whose persisted status nothing ever advances, and a run at
+ * `in_progress` with nothing streaming. Both claims outlive the work, and a
  * spinner that never stops is a lie about the machine.
  *
  * And a run that has already opened a PR is not working, whatever its status
@@ -130,10 +131,10 @@ export function taskDot(props: TaskStatusInput): TaskDot {
     };
   }
   // Spinning means something is moving on its own: a prompt in flight, or a
-  // cloud run still coming up. Cloud `queued` is a sandbox being claimed — the
-  // backend leaves that state by itself, so the motion is bounded. A LOCAL run
-  // queued is not a launch: nothing advances a local run's persisted status, so
-  // it can sit there for hours after the agent is done with it.
+  // cloud run still coming up. Cloud `queued` is a sandbox being claimed, and
+  // the backend leaves that state by itself, so the motion is bounded. A local
+  // run at `queued` is not a launch: nothing advances a local run's persisted
+  // status, so it can sit there for hours after the agent is done with it.
   const isStartingCloudRun =
     props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
   if (props.isGenerating || isStartingCloudRun) {
@@ -147,7 +148,7 @@ export function taskDot(props: TaskStatusInput): TaskDot {
   }
   // The statuses that lie. Nothing writes a terminal status when a local agent
   // goes idle, and the cloud workflow holds in_progress while it babysits CI, so
-  // the claim outlives the work — sometimes for the row's whole life. Live, but
+  // the claim outlives the work, sometimes for the row's whole life. Live, but
   // nothing moving: the still dot.
   const runClaimsWork =
     props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued";
