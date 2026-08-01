@@ -273,7 +273,7 @@ MAX_VALUE_DISPLAY_LENGTH = 200
 
 
 @dataclass
-class RedisKeyInfo:
+class RedisKeySnapshot:
     key: str
     type: str
     ttl: timedelta | int
@@ -302,7 +302,7 @@ def truncate_value(value, max_length: int = MAX_VALUE_DISPLAY_LENGTH) -> str:
     return str_value[:max_length] + "..."
 
 
-def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
+def get_redis_key_info(key: bytes, redis_client) -> RedisKeySnapshot:
     redis_key = key.decode("utf-8")
     redis_type = redis_client.type(redis_key).decode("utf8")
     redis_ttl = redis_client.ttl(redis_key)
@@ -327,7 +327,7 @@ def get_redis_key_info(key: bytes, redis_client) -> RedisKeyInfo:
     full_value = str(value)
     is_truncated = len(full_value) > MAX_VALUE_DISPLAY_LENGTH
 
-    return RedisKeyInfo(
+    return RedisKeySnapshot(
         key=redis_key,
         type=redis_type,
         ttl=redis_ttl,
