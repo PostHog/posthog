@@ -828,13 +828,6 @@ export interface sqlEditorLogicActions {
     openMaterializationModal: (view?: DataWarehouseSavedQuery) => {
         view: DataWarehouseSavedQuery | undefined
     }
-    reviewViewUpdate: (
-        view: UpdateViewPayload,
-        draftId?: string
-    ) => {
-        draftId: string | undefined
-        view: UpdateViewPayload
-    }
     reportAIQueryAccepted: () => {
         value: true
     }
@@ -846,6 +839,13 @@ export interface sqlEditorLogicActions {
     }
     reportAIQueryRejected: () => {
         value: true
+    }
+    reviewViewUpdate: (
+        view: UpdateViewPayload,
+        draftId?: string
+    ) => {
+        draftId: string | undefined
+        view: UpdateViewPayload
     }
     runQuery: (
         queryOverride?: string,
