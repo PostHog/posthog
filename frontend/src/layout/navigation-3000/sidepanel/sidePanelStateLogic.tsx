@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
@@ -132,22 +132,24 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => {
-        const updateUrl = (): any => {
+    listeners(({ values }) => {
+        // Some browsers can refuse a history write outright (e.g. Firefox's
+        // "SecurityError: The operation is insecure."). The URL is just a best-effort mirror of
+        // the panel state, so a throw here must not stop the panel from opening/closing.
+        const replaceUrl = (hashParams: Record<string, any>): void => {
+            try {
+                router.actions.replace(router.values.location.pathname, router.values.searchParams, hashParams)
+            } catch {
+                // URL sync failed, panel state itself is unaffected.
+            }
+        }
+        const updateUrl = (): void => {
             let panelHash: string = values.selectedTab ?? ''
 
             if (values.selectedTabOptions) {
                 panelHash += `:${values.selectedTabOptions}`
             }
-            return [
-                router.values.location.pathname,
-                router.values.searchParams,
-                {
-                    ...router.values.hashParams,
-                    panel: panelHash,
-                },
-                { replace: true },
-            ]
+            replaceUrl({ ...router.values.hashParams, panel: panelHash })
         }
         return {
             openSidePanel: () => updateUrl(),
@@ -155,7 +157,7 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             closeSidePanel: () => {
                 const hashParams = { ...router.values.hashParams }
                 delete hashParams['panel']
-                return [router.values.location.pathname, router.values.searchParams, hashParams, { replace: true }]
+                replaceUrl(hashParams)
             },
         }
     }),
