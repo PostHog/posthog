@@ -17,7 +17,7 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPServerInstallation,
     MCPServerInstallationTool,
@@ -123,13 +123,13 @@ def _to_info(
     team_id: int,
     *,
     agent_proxy_token: str | None = None,
-) -> ActiveInstallationInfo:
+) -> ActiveInstallation:
     if agent_proxy_token is not None and installation.gateway_server_id is not None:
         proxy_path = f"/api/mcp_store/gateway/servers/{installation.gateway_server_id}/proxy/"
     else:
         proxy_path = f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/"
 
-    return ActiveInstallationInfo(
+    return ActiveInstallation(
         id=str(installation.id),
         name=_resolve_name(installation),
         proxy_path=proxy_path,
@@ -138,7 +138,7 @@ def _to_info(
     )
 
 
-def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallationInfo]:
+def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallation]:
     """Return active, ready-to-use personal MCP installations for a user.
 
     Filters out disabled installations and OAuth installations that
@@ -156,7 +156,7 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
         return []
 
-    results: list[ActiveInstallationInfo] = []
+    results: list[ActiveInstallation] = []
     for installation in installations:
         if not _is_oauth_ready(installation):
             logger.debug(
@@ -177,7 +177,7 @@ def get_installations_for_sandbox(
     include_personal: bool = False,
     task_origin: str | None = None,
     task_agent_key: str | None = None,
-) -> list[ActiveInstallationInfo]:
+) -> list[ActiveInstallation]:
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A

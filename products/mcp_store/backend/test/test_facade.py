@@ -7,7 +7,7 @@ from posthog.models import User
 
 from products.mcp_store.backend.agents import get_built_in_agent
 from products.mcp_store.backend.facade.api import get_active_installations, get_installations_for_sandbox
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPServerInstallation,
@@ -36,7 +36,7 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert results == [
-            ActiveInstallationInfo(
+            ActiveInstallation(
                 id=str(installation.id),
                 name="Linear",
                 proxy_path=f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
