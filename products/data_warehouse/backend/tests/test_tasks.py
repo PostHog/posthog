@@ -66,9 +66,7 @@ def test_sync_task_resolves_and_pushes_to_control_plane(
     with _patch_membership(_membership(org, team)):
         sync_team_earliest_event_date(team.id)
 
-    mock_update.assert_called_once_with(
-        str(org.id), team.id, require_enabled=False, earliest_event_date=expected.isoformat()
-    )
+    mock_update.assert_called_once_with(str(org.id), team.id, expected)
 
 
 @pytest.mark.django_db
