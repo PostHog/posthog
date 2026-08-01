@@ -40218,6 +40218,22 @@ export namespace Schemas {
       Oauth: 'oauth',
     } as const;
 
+    export interface MCPClusterSelfRetry {
+      /** Tool the agent retried immediately after its own error. */
+      readonly tool: string;
+      /** Number of immediate same-tool retries after an error. */
+      readonly count: number;
+    }
+
+    export interface MCPClusterSwitch {
+      /** Tool whose errored call the agent abandoned. */
+      readonly from_tool: string;
+      /** Different tool the agent tried immediately after. */
+      readonly to_tool: string;
+      /** How many times this exact error-then-switch happened within the cluster. */
+      readonly count: number;
+    }
+
     /**
      * * `results` - Results
      * * `usability` - Usability
@@ -40446,6 +40462,10 @@ export namespace Schemas {
       readonly sample_intents: readonly string[];
       /** Top Sankey-shaped paths the agents took within this cluster. Each path is up to four ordered tool calls plus a completed/error outcome. Null when journey data is unavailable. */
       readonly journey: MCPIntentClusterJourney | null;
+      /** Errored call immediately followed by a different tool for the same intent: the strongest evidence agents mix the tools up. Top 10 by count. */
+      readonly switches: readonly MCPClusterSwitch[];
+      /** Errored call immediately retried with the same tool. Top 5 by count. */
+      readonly self_retries: readonly MCPClusterSelfRetry[];
     }
 
     /**
@@ -40462,6 +40482,80 @@ export namespace Schemas {
       Error: 'error',
     } as const;
 
+    export interface MCPToolPivotCompetitor {
+      /** The other tool with the largest share of this cluster's calls. */
+      readonly tool: string;
+      /** That competitor's share of the cluster's calls, 0-100. */
+      readonly pct: number;
+    }
+
+    export interface MCPToolPivotClusterEntry {
+      /** Cluster this entry refers to, within the snapshot. The cluster's own label, totals, and entropy live on that cluster — join on this id rather than expecting them here. */
+      readonly cluster_id: number;
+      /** Calls routed to this tool for this intent cluster. */
+      readonly calls: number;
+      /** Share of the cluster's calls this tool captured, 0-100. Low capture on a well-fitting description suggests agents are not finding the tool for this intent. */
+      readonly capture_pct: number;
+      /** This tool's position in the cluster's tool distribution; 1 is the cluster's top tool. */
+      readonly rank: number;
+      /**
+         * Cosine similarity between the tool's description embedding and the cluster centroid, -1 to 1. Null when no description has been captured for the tool.
+         * @nullable
+         */
+      readonly description_fit: number | null;
+      /** The strongest other tool in this cluster. Null when this tool is the only one. */
+      readonly top_competitor: MCPToolPivotCompetitor | null;
+    }
+
+    export interface MCPToolPivot {
+      /** Effective MCP tool name. */
+      readonly tool: string;
+      /** Intent-attributed calls to this tool across the sampled corpus, counting every cluster the run produced — including clusters the snapshot's cluster cap left out. */
+      readonly call_count: number;
+      /** Errored attributed calls across the corpus. */
+      readonly error_count: number;
+      /** Sampled sessions with at least one intent-attributed call to this tool. Same population as call_count. */
+      readonly session_count: number;
+      /**
+         * Call-weighted mean routing entropy of the clusters this tool serves, 0-1. High means the tool's intents are regularly split with other tools. Null when the tool has no attributed calls.
+         * @nullable
+         */
+      readonly contested_score: number | null;
+      /** Sampled sessions whose tools-list catalog included this tool. Only sessions with an observed $mcp_tools_list event count. */
+      readonly advertised_sessions: number;
+      /** Of the advertised sessions, how many actually called the tool. */
+      readonly called_when_advertised: number;
+      /**
+         * called_when_advertised / advertised_sessions as a percentage. Null when the tool was advertised in fewer than 5 sampled sessions, which is not enough signal to compute a rate.
+         * @nullable
+         */
+      readonly discovery_rate_pct: number | null;
+      /**
+         * Latest description observed for the tool (clipped to 512 characters). Null when calls never carried one.
+         * @nullable
+         */
+      readonly description: string | null;
+      /** How many intent clusters this tool serves in total, before the per-tool entry cap. Compare against len(clusters) to tell whether the entry list below is complete. */
+      readonly n_clusters_served: number;
+      /** Intent clusters this tool serves, by call volume desc, capped at 20 and limited to clusters the snapshot carries. Use n_clusters_served for the true count. */
+      readonly clusters: readonly MCPToolPivotClusterEntry[];
+    }
+
+    export interface MCPToolOverlap {
+      /** First tool of the pair (lexicographic order). */
+      readonly tool_a: string;
+      /** Second tool of the pair. */
+      readonly tool_b: string;
+      /** Sum over shared clusters of the smaller tool's calls: the volume both tools plausibly compete for. */
+      readonly contested_calls: number;
+      /** Sampled sessions that called both tools. High relative to sessions_with_either suggests the pair is a workflow, not confusion. */
+      readonly sessions_with_both: number;
+      /** Sampled sessions that called at least one of the pair. */
+      readonly sessions_with_either: number;
+      /** The cluster contributing the most contested calls for this pair. */
+      readonly top_cluster_id: number;
+    }
+
     export interface MCPIntentClusterSnapshotMeta {
       /** Cosine distance threshold used by the clustering algorithm. */
       readonly distance_threshold: number;
@@ -40471,6 +40565,71 @@ export namespace Schemas {
       readonly n_intents: number;
       /** Number of clusters produced by the run. */
       readonly n_clusters: number;
+      /**
+         * Corpus granularity. 'per_call' when each call was attributed to its own intent; null on snapshots computed before the per-call pipeline.
+         * @nullable
+         */
+      readonly corpus: string | null;
+      /**
+         * Sessions sampled into the corpus. Null on pre-v2 snapshots.
+         * @nullable
+         */
+      readonly sampled_sessions: number | null;
+      /**
+         * Total sessions with tool calls in the lookback window (unsampled).
+         * @nullable
+         */
+      readonly window_sessions: number | null;
+      /**
+         * sampled_sessions / window_sessions as a percentage: how much of the window the corpus represents.
+         * @nullable
+         */
+      readonly session_coverage_pct: number | null;
+      /**
+         * Share of the window's calls that carried an $mcp_intent. Low coverage makes capture rates less reliable.
+         * @nullable
+         */
+      readonly intent_coverage_pct: number | null;
+      /**
+         * Share of attributed calls whose intent was carried forward from an earlier call in the session rather than stated on the call itself.
+         * @nullable
+         */
+      readonly imputed_call_pct: number | null;
+      /**
+         * Share of sampled calls with no attributable intent (before the session's first stated intent). These calls are excluded from clusters.
+         * @nullable
+         */
+      readonly unattributed_call_pct: number | null;
+      /**
+         * Share of attributed calls whose intent made the top-N cut that feeds clustering.
+         * @nullable
+         */
+      readonly corpus_call_coverage_pct: number | null;
+      /**
+         * Share of sampled sessions with an observed $mcp_tools_list catalog. Discovery rates only draw on those sessions.
+         * @nullable
+         */
+      readonly advertisement_coverage_pct: number | null;
+      /**
+         * Tools included in the tool pivot.
+         * @nullable
+         */
+      readonly n_tools: number | null;
+      /**
+         * Tools dropped from the pivot by the volume cap. Zero means the pivot is complete.
+         * @nullable
+         */
+      readonly dropped_tools: number | null;
+      /**
+         * Overlap pairs dropped by the pair cap.
+         * @nullable
+         */
+      readonly dropped_overlap_pairs: number | null;
+      /**
+         * Share of pivot tools with a captured description. Description fit is only available for those.
+         * @nullable
+         */
+      readonly description_coverage_pct: number | null;
     }
 
     export interface MCPIntentClusterSnapshot {
@@ -40491,7 +40650,11 @@ export namespace Schemas {
       readonly last_computed_by_email: string;
       /** All clusters in the snapshot. */
       readonly clusters: readonly MCPIntentCluster[];
-      /** Settings used to produce the snapshot. Null when no snapshot has been computed yet. */
+      /** Tool-centric pivot of the clusters: per tool, the intents it serves, capture per cluster, contested score, discovery rate, and description fit. Empty on snapshots computed before the per-call pipeline; recompute to populate. */
+      readonly tools: readonly MCPToolPivot[];
+      /** Tool pairs competing for the same intent clusters, by contested call volume desc, capped at 50. */
+      readonly tool_overlaps: readonly MCPToolOverlap[];
+      /** Settings and coverage of the snapshot's corpus. Null when no snapshot has been computed yet. */
       readonly computed_with: MCPIntentClusterSnapshotMeta | null;
     }
 
@@ -44872,7 +45035,7 @@ export namespace Schemas {
        * * `failed` - Failed
        * * `ineligible` - Ineligible */
       readonly status: ObservationStatusEnum;
-      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / internal_error / orphaned. */
+      /** Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned. */
       readonly error_reason: string;
       /** Temporal workflow id for progress queries and debugging. Empty until the workflow starts. */
       readonly workflow_id: string;
@@ -44880,7 +45043,7 @@ export namespace Schemas {
       readonly scanner_snapshot: ScannerSnapshot | null;
       /** Result data persisted on success; null until the observation succeeds. */
       readonly scanner_result: ScannerResult | null;
-      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed observation.
+      /** Whether this observation came from the schedule, an on-demand request, or a retry of a failed or ineligible observation.
        *
        * * `schedule` - Schedule
        * * `on_demand` - On demand
@@ -48244,20 +48407,39 @@ export namespace Schemas {
 
     export interface ViewLink {
       readonly id: string;
-      /** @nullable */
+      /**
+         * Whether this join has been soft-deleted.
+         * @nullable
+         */
       deleted?: boolean | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
-      /** @maxLength 400 */
+      /**
+         * Name of the table the join starts from, for example events.
+         * @maxLength 400
+         */
       source_table_name: string;
-      /** @maxLength 400 */
+      /**
+         * Column or HogQL expression on the source table used as the join key.
+         * @maxLength 400
+         */
       source_table_key: string;
-      /** @maxLength 400 */
+      /**
+         * Name of the table or view being joined onto the source table.
+         * @maxLength 400
+         */
       joining_table_name: string;
-      /** @maxLength 400 */
+      /**
+         * Column or HogQL expression on the joining table used as the join key.
+         * @maxLength 400
+         */
       joining_table_key: string;
-      /** @maxLength 400 */
+      /**
+         * Accessor added to the source table to reach the joined rows, for example person in events.person.
+         * @maxLength 400
+         */
       field_name: string;
+      /** Optional join configuration, for example experiments optimization flags. */
       configuration?: unknown;
     }
 
@@ -48711,6 +48893,11 @@ export namespace Schemas {
       event_plan: WizardSessionDTOEventPlan;
       /** @nullable */
       error: WizardSessionDTOError;
+      /**
+         * Markdown handoff doc the wizard produced for this run (its setup report), or null while the run hasn't written one. Sticky once set.
+         * @nullable
+         */
+      handoff_text: string | null;
       /** The user who initiated this wizard run (null for runs created before attribution existed). Lets the UI name whose run it is. */
       created_by: WizardSessionUserDTO | null;
       created_at: string;
@@ -54381,7 +54568,7 @@ export namespace Schemas {
       run_cron_schedule?: string | null;
       /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
       output_destinations?: SignalScoutOutputDestinations;
-      /** Exempt this scout from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste. */
+      /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
       auto_pause_exempt?: boolean;
     }
 
@@ -56168,20 +56355,39 @@ export namespace Schemas {
 
     export interface PatchedViewLink {
       readonly id?: string;
-      /** @nullable */
+      /**
+         * Whether this join has been soft-deleted.
+         * @nullable
+         */
       deleted?: boolean | null;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
-      /** @maxLength 400 */
+      /**
+         * Name of the table the join starts from, for example events.
+         * @maxLength 400
+         */
       source_table_name?: string;
-      /** @maxLength 400 */
+      /**
+         * Column or HogQL expression on the source table used as the join key.
+         * @maxLength 400
+         */
       source_table_key?: string;
-      /** @maxLength 400 */
+      /**
+         * Name of the table or view being joined onto the source table.
+         * @maxLength 400
+         */
       joining_table_name?: string;
-      /** @maxLength 400 */
+      /**
+         * Column or HogQL expression on the joining table used as the join key.
+         * @maxLength 400
+         */
       joining_table_key?: string;
-      /** @maxLength 400 */
+      /**
+         * Accessor added to the source table to reach the joined rows, for example person in events.person.
+         * @maxLength 400
+         */
       field_name?: string;
+      /** Optional join configuration, for example experiments optimization flags. */
       configuration?: unknown;
     }
 
@@ -61716,6 +61922,14 @@ export namespace Schemas {
       layout?: LayoutEnum;
     }
 
+    /**
+     * The shape every Replay Vision error response uses, so generated clients read one key.
+     */
+    export interface ReplayVisionError {
+      /** Human-readable explanation of why the request was refused. */
+      detail: string;
+    }
+
     export interface ReplayVisionScannerFindingSignalExtra {
       scanner_id: string;
       scanner_name: string;
@@ -64173,11 +64387,11 @@ export namespace Schemas {
       /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
       readonly consecutive_failure_count: number;
       /**
-         * When `status` last changed. For `pending_pause` this is when the warning was issued (the pause lands about a week later unless the scout surfaces something); for the paused statuses it is when the scout was paused. Null if the status never changed.
+         * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone acts on the scout's reports; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
          * @nullable
          */
       readonly status_changed_at: string | null;
-      /** Whether this scout is exempt from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+      /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
       readonly auto_pause_exempt: boolean;
       readonly created_at: string;
     }
@@ -72051,6 +72265,12 @@ export namespace Schemas {
       /** Populated while the wizard is blocked on a question in the terminal. Null/absent means no input is pending; a push without it clears the previous prompt. */
       pending_input?: PendingInput | null;
       /**
+         * Markdown handoff doc for the run (the wizard's setup report). Send it once the run has produced one; omitting it on later pushes keeps the stored value.
+         * @maxLength 65536
+         * @nullable
+         */
+      handoff_text?: string | null;
+      /**
          * Stable identifier the wizard mints for this run (format: '{workflow_id}-{skill_id}-{started_at_iso}'). Reposting with the same session_id upserts the existing row.
          * @maxLength 255
          */
@@ -72365,14 +72585,79 @@ export namespace Schemas {
     }
 
     export interface ViewLinkValidation {
-      /** @maxLength 255 */
+      /**
+         * Name of the table or view being joined onto the source table.
+         * @maxLength 255
+         */
       joining_table_name: string;
-      /** @maxLength 255 */
+      /**
+         * Column or HogQL expression on the joining table used as the join key.
+         * @maxLength 255
+         */
       joining_table_key: string;
-      /** @maxLength 255 */
+      /**
+         * Name of the table the join starts from, for example events.
+         * @maxLength 255
+         */
       source_table_name: string;
-      /** @maxLength 255 */
+      /**
+         * Column or HogQL expression on the source table used as the join key.
+         * @maxLength 255
+         */
       source_table_key: string;
+    }
+
+    export interface ViewLinkValidationError {
+      /**
+         * Request field the error relates to, if any.
+         * @nullable
+         */
+      attr: string | null;
+      /** Machine-readable error code, for example QueryError. */
+      code: string;
+      /** Why the join failed to validate. */
+      detail: string;
+      /** Error category; always query_error for validation failures. */
+      type: string;
+      /**
+         * The HogQL statement that failed to validate.
+         * @nullable
+         */
+      hogql: string | null;
+    }
+
+    export interface ViewLinkValidationResponse {
+      /** Whether the join compiled and returned rows when executed against a sample of the source table. */
+      is_valid: boolean;
+      /**
+         * Warning about the validation result, for example when the sampled join returned no rows.
+         * @nullable
+         */
+      msg: string | null;
+      /**
+         * The HogQL statement used to validate the join.
+         * @nullable
+         */
+      hogql: string | null;
+      /** Column names for each row in results. */
+      columns: string[];
+      /** Distinct source and joining key pairs from the joined result, at most 5. */
+      results: unknown[][];
+      /**
+         * Number of sampled source rows checked for a join match, at most 10000. Null when the match-rate query failed.
+         * @nullable
+         */
+      total_rows: number | null;
+      /**
+         * Number of sampled source rows with at least one match in the joining table. Null when the match-rate query failed.
+         * @nullable
+         */
+      matched_rows: number | null;
+      /**
+         * matched_rows divided by total_rows, between 0 and 1. Null when the match-rate query failed or no rows were sampled.
+         * @nullable
+         */
+      match_rate: number | null;
     }
 
     /**
@@ -81177,6 +81462,13 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type McpAnalyticsIntentClustersRetrieveParams = {
+    /**
+     * Narrow the response to one tool: its pivot entry, the clusters it serves or switches with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use this for single-tool views so they don't download every cluster and pivot to render one row. An unknown tool returns empty sections, not a 404.
+     */
+    tool?: string;
+    };
+
     export type McpAnalyticsMissingCapabilitiesListParams = {
     /**
      * Number of results to return per page.
@@ -83489,11 +83781,11 @@ export namespace Schemas {
 
     export type VisionObservationsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string;
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string;
     /**
@@ -83592,11 +83884,11 @@ export namespace Schemas {
 
     export type VisionScannersObservationsListParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string;
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string;
     /**
@@ -83643,11 +83935,11 @@ export namespace Schemas {
 
     export type VisionScannersObservationsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string;
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string;
     /**
@@ -83686,11 +83978,11 @@ export namespace Schemas {
 
     export type VisionScannersObservationsStatsRetrieveParams = {
     /**
-     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`.
+     * Only observations created at or after this time. Accepts ISO 8601 or a relative date like `-7d`; values without an explicit offset are interpreted in the project's timezone.
      */
     date_from?: string;
     /**
-     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day.
+     * Only observations created at or before this time. Accepts ISO 8601 or a relative date like `-1d`; date-only values include the whole day, interpreted in the project's timezone.
      */
     date_to?: string;
     /**

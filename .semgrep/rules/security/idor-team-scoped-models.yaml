@@ -310,6 +310,7 @@ rules:
                               |Threshold
                               |ToleratedHash
                               |TeamConversationsTeamsConfig
+                              |SigningSecret
                               |Ticket
                               |TicketView
                               |TicketViewFavorite
@@ -637,6 +638,7 @@ rules:
                         |Threshold
                         |ToleratedHash
                         |TeamConversationsTeamsConfig
+                        |SigningSecret
                         |Ticket
                         |TicketView
                         |TicketViewFavorite

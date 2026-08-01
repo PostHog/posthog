@@ -293,7 +293,6 @@ export const FEATURE_FLAGS = {
     DATA_WAREHOUSE_SEMANTIC_ENRICHMENT: 'data-warehouse-semantic-enrichment', // owner: #team-warehouse-sources
     DEFAULT_EVALUATION_ENVIRONMENTS: 'default-evaluation-environments', // owner: @dmarticus #team-feature-flags
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
-    DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools

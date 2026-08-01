@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     McpAnalyticsFeedbackCreateBody,
+    McpAnalyticsIntentClustersRetrieveQueryParams,
     McpAnalyticsMissingCapabilitiesCreateBody,
     McpAnalyticsSessionsGenerateIntentParams,
     McpAnalyticsSessionsGenerateIntentQueryParams,
@@ -34,7 +35,7 @@ const mcpAnalyticsIntentClustersRecompute = (): ToolBase<
     },
 })
 
-const McpAnalyticsIntentClustersRetrieveSchema = z.object({})
+const McpAnalyticsIntentClustersRetrieveSchema = McpAnalyticsIntentClustersRetrieveQueryParams
 
 const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
     typeof McpAnalyticsIntentClustersRetrieveSchema,
@@ -42,12 +43,14 @@ const mcpAnalyticsIntentClustersRetrieve = (): ToolBase<
 > => ({
     name: 'mcp-analytics-intent-clusters-retrieve',
     schema: McpAnalyticsIntentClustersRetrieveSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof McpAnalyticsIntentClustersRetrieveSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.MCPIntentClusterSnapshot[]>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/mcp_analytics/intent_clusters/`,
+            query: {
+                tool: params.tool,
+            },
         })
         return result
     },
