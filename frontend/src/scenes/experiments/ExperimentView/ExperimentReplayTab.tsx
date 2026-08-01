@@ -37,7 +37,7 @@ import { VariantTag } from './VariantTag'
 const ALL_VARIANTS = '$all'
 
 const NOT_A_FUNNEL_REASON =
-    'Drop-off compares a funnel’s first and last step, so it needs a funnel metric with at least two steps that can be matched to recordings.'
+    'This filter compares a funnel’s first and last step, so it needs a funnel metric with at least two steps that can be matched to recordings.'
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
@@ -45,7 +45,7 @@ const MODE_SUMMARIES: Record<ExperimentReplayMetricFilterMode, string> = {
     fired_all: 'fired events from every selected metric',
     fired_any: 'fired events from at least one selected metric',
     no_metric_activity: 'fired no events from the selected metrics',
-    funnel_dropoff: 'entered the funnel but never completed it',
+    funnel_dropoff: "started the funnel but didn't finish it",
 }
 
 /**
@@ -63,7 +63,7 @@ function metricFilterTriggerLabel(
 ): string {
     if (mode === 'funnel_dropoff') {
         const selected = options.find((option) => option.uuid === selectedUuids[0])
-        return selected ? `Dropped off: ${selected.name}` : 'Dropped off'
+        return selected ? `Didn't finish funnel: ${selected.name}` : "Didn't finish funnel"
     }
     if (selectedUuids.length === 0) {
         // Never fall back to the neutral label for a non-default mode: the mode is on, and the
@@ -154,8 +154,9 @@ const METRIC_FILTER_MODE_OPTIONS: { value: ExperimentReplayMetricFilterMode; lab
     },
     {
         value: 'funnel_dropoff',
-        label: 'Dropped off',
-        tooltip: "Sessions that reached a funnel metric's first step but never its last one, in this session.",
+        label: "Didn't finish funnel",
+        tooltip:
+            "Sessions that reached a funnel metric's first step but not its last one during the recording. The same person may have finished it in a later session.",
     },
 ]
 
@@ -277,7 +278,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                                     <DropdownMenuGroup>
                                         <DropdownMenuLabel inset className="flex items-center gap-1">
                                             {reason === NOT_A_FUNNEL_REASON
-                                                ? "Can't drop off"
+                                                ? 'Needs two funnel steps'
                                                 : "Can't match to recordings"}
                                             <Tooltip title={reason}>
                                                 <IconInfo className="size-3 shrink-0" />

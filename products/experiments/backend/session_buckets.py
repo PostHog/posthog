@@ -447,6 +447,7 @@ def _query_bucket_sessions(
         )
     else:
         entry, completion, completion_occurrences = _funnel_step_conditions(considered[0], team)
+        # Count-based on purpose: the filter promises "fired the last step's event", not funnel ordering.
         bucket_predicate = ast.And(
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=count_if(entry), right=ast.Constant(value=0)),
