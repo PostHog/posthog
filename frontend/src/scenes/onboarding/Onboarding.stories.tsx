@@ -193,18 +193,16 @@ export const SessionReplayConfiguration: Story = {
     },
 }
 
+// teamLogic seeds `session_recording_opt_in` from `getAppContext().current_team` (not an API
+// call), so an MSW override of the team endpoint arrives too late — the step is already gated
+// off by the time it lands. Set it in the app context directly instead; `beforeEach` runs
+// before Kea mounts teamLogic, and the cleanup restores it for other stories.
+const teamNotOptedIntoReplay = { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: false }
+
 export const SessionReplayOptIn: Story = {
     render: () => {
         useMountedLogic(onboardingLogic)
         const { setProduct, setSecondaryProductKeys } = useActions(onboardingLogic)
-
-        // The step only renders for a team that hasn't already opted in — the default
-        // mocked team has it enabled, which would otherwise hide this step.
-        useStorybookMocks({
-            get: {
-                '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: false },
-            },
-        })
 
         useDelayedOnMountEffect(() => {
             setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
@@ -216,6 +214,18 @@ export const SessionReplayOptIn: Story = {
         })
 
         return <App />
+    },
+    beforeEach: () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        const originalTeam = appContext?.current_team
+        if (appContext) {
+            appContext.current_team = teamNotOptedIntoReplay
+        }
+        return () => {
+            if (appContext) {
+                appContext.current_team = originalTeam ?? null
+            }
+        }
     },
 }
 
