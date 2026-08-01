@@ -212,18 +212,17 @@ ports from source using these rules.
     the allowlist guards pass. `desktop-pr-build-installer.yml`'s `comment` job posts a PR
     comment rather than gating, so it carries a `# hogli-lint: not-a-required-gate` opt-out
     above the job key.
-15. **Desktop-scoped secret names**: the source repo owns its whole secret namespace, so it
-    uses bare names that mean something different (or nothing) in the monorepo. Five are
-    renamed with a `DESKTOP_` prefix on the `secrets.` lookup only; the env var handed to
-    the build keeps its original name, because the app reads it:
+15. **Desktop-scoped secret names**: the source repo owns its whole secret namespace, so
+    some of its bare names mean something different (or nothing) in the monorepo. The three
+    sourcemap-upload secrets are renamed with a `DESKTOP_` prefix on the `secrets.` lookup
+    only; the env var handed to the build keeps its original name, because the app reads it:
     `POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}`. Applies to
-    `VITE_POSTHOG_API_KEY`, `VITE_POSTHOG_API_HOST`, `POSTHOG_SOURCEMAP_API_KEY`,
-    `POSTHOG_ENV_ID` and `POSTHOG_HOST` across desktop-release, desktop-build-test,
-    desktop-pr-build-installer and desktop-update-e2e. Names that already carry a desktop,
-    twig or code qualifier are left alone (`AWS_DESKTOP_*`, `AWS_TWIG_*`,
-    `POSTHOG_CODE_E2E_*`), as are genuinely repo-wide ones (`TRUNK_API_TOKEN`,
-    `VR_API_TOKEN`, `GH_APP_POSTHOG_PATHS_FILTER_*`). Reapply on resync: the source uses the
-    bare names.
+    `POSTHOG_SOURCEMAP_API_KEY`, `POSTHOG_ENV_ID` and `POSTHOG_HOST` across desktop-release,
+    desktop-build-test, desktop-pr-build-installer and desktop-update-e2e. Left bare:
+    `VITE_POSTHOG_API_KEY` and `VITE_POSTHOG_API_HOST` (already org-wide and shared), names
+    that already carry a desktop, twig or code qualifier (`AWS_DESKTOP_*`, `AWS_TWIG_*`,
+    `POSTHOG_CODE_E2E_*`) and genuinely repo-wide ones (`TRUNK_API_TOKEN`, `VR_API_TOKEN`,
+    `GH_APP_POSTHOG_PATHS_FILTER_*`). Reapply on resync: the source uses the bare names.
 
 ## Intentional references still pointing at PostHog/code
 
@@ -244,8 +243,8 @@ Everything that has to happen once this merges is sequenced in
 the PR's side; that file is the one to follow on merge day.
 
 - **Secrets/vars**: the ported workflows expect these to exist in PostHog/posthog (repo or
-  org scope): Apple signing (`APPLE_*`, `CSC_*`), `DESKTOP_VITE_POSTHOG_API_KEY`,
-  `DESKTOP_VITE_POSTHOG_API_HOST`, `DESKTOP_POSTHOG_SOURCEMAP_API_KEY`,
+  org scope): Apple signing (`APPLE_*`, `CSC_*`), `VITE_POSTHOG_API_KEY`,
+  `VITE_POSTHOG_API_HOST`, `DESKTOP_POSTHOG_SOURCEMAP_API_KEY`,
   `DESKTOP_POSTHOG_ENV_ID`, `DESKTOP_POSTHOG_HOST` (see transform rule 15),
   `GH_APP_ARRAY_RELEASER_*`, `AWS_TWIG_APP_ASSETS_*`, `AWS_DESKTOP_APP_RELEASES_ROLE_ARN`,
   `POSTHOG_CODE_E2E_*` (secret + vars), `TRUNK_API_TOKEN`, Discord webhook, App Store

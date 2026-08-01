@@ -37,8 +37,8 @@ jobs:
             NODE_ENV: production
             npm_config_arch: ${{ matrix.arch }}
             npm_config_platform: darwin
-            VITE_POSTHOG_API_KEY: ${{ secrets.DESKTOP_VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.DESKTOP_VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
             POSTHOG_SOURCEMAP_API_KEY: ${{ secrets.DESKTOP_POSTHOG_SOURCEMAP_API_KEY }}
             POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
             POSTHOG_HOST: ${{ secrets.DESKTOP_POSTHOG_HOST }}
@@ -183,8 +183,8 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ secrets.DESKTOP_VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.DESKTOP_VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -253,8 +253,8 @@ jobs:
         env:
             NODE_OPTIONS: '--max-old-space-size=8192'
             NODE_ENV: production
-            VITE_POSTHOG_API_KEY: ${{ secrets.DESKTOP_VITE_POSTHOG_API_KEY }}
-            VITE_POSTHOG_API_HOST: ${{ secrets.DESKTOP_VITE_POSTHOG_API_HOST }}
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
         steps:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
