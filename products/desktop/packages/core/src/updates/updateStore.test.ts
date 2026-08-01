@@ -29,6 +29,7 @@ describe("deriveUpdateUiStatus", () => {
       deriveUpdateUiStatus({ checking: true, downloading: true }, "idle"),
     ).toEqual({
       status: "downloading",
+      version: null,
       availableVersion: null,
       releaseNotes: null,
       releaseDate: null,
@@ -53,6 +54,7 @@ describe("deriveUpdateUiStatus", () => {
       ),
     ).toEqual({
       status: "available",
+      version: null,
       availableVersion: "v2",
       releaseNotes: "notes",
       releaseDate: "2026-01-01",
@@ -60,11 +62,21 @@ describe("deriveUpdateUiStatus", () => {
     });
   });
 
+  it("clears the staged version when a newer update becomes available", () => {
+    expect(
+      deriveUpdateUiStatus(
+        { checking: false, available: true, availableVersion: "v3" },
+        "ready",
+      ),
+    ).toMatchObject({ status: "available", version: null });
+  });
+
   it("defaults available fields to null when absent", () => {
     expect(
       deriveUpdateUiStatus({ checking: false, available: true }, "idle"),
     ).toEqual({
       status: "available",
+      version: null,
       availableVersion: null,
       releaseNotes: null,
       releaseDate: null,

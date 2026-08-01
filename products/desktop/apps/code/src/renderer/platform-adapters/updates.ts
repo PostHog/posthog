@@ -6,6 +6,7 @@ import {
   updateStore,
 } from "@posthog/core/updates/updateStore";
 import { resolveService } from "@posthog/di/container";
+import { STAGED_UPDATES_FLAG } from "@posthog/shared";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import {
   UPDATES_CLIENT,
@@ -14,6 +15,7 @@ import {
 import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
+import { posthogFeatureFlags } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { hostTrpcClient } from "@renderer/trpc/client";
 
 const log = logger.scope("updates-host");
@@ -128,6 +130,21 @@ function syncAutoDownload(enabled: boolean): void {
       log.error("Failed to sync auto-download preference", { error }),
     );
 }
+
+// Bridge the staged-updates rollout flag to the core updater; the service
+// defaults to off until posthog flags load and this sync lands.
+let lastSyncedStagedUpdates: boolean | null = null;
+function syncStagedUpdates(): void {
+  const enabled = posthogFeatureFlags.isEnabled(STAGED_UPDATES_FLAG);
+  if (enabled === lastSyncedStagedUpdates) return;
+  lastSyncedStagedUpdates = enabled;
+  void hostTrpcClient.updates.setStagedUpdates
+    .mutate({ enabled })
+    .catch((error: unknown) =>
+      log.error("Failed to sync staged-updates flag", { error }),
+    );
+}
+posthogFeatureFlags.onFlagsLoaded(syncStagedUpdates);
 
 // Auto-show "What's New" once on the first launch after the version changes.
 function maybeShowWhatsNew(): void {
