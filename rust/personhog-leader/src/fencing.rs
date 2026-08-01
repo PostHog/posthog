@@ -193,6 +193,50 @@ impl Drop for WindowSlot {
     }
 }
 
+/// Holds a freshly acquired fence until the work that justified taking
+/// it succeeds, and gives it back otherwise.
+///
+/// A warm can end without returning — its future is dropped when the
+/// pod's coordination attempt is torn down, which is exactly what a lost
+/// lease does. The pod records a partition as held only once the warm
+/// returns, so a fence taken by a warm that never finishes belongs to no
+/// partition the local self-fence knows to release: the process would
+/// keep the partition's broker epoch while owning nothing, and the real
+/// owner's writes would fail as fenced until it re-acquired.
+pub struct FenceGuard {
+    fenced: Arc<FencedChangelogProducers>,
+    partition: u32,
+    armed: bool,
+}
+
+impl FenceGuard {
+    pub fn new(fenced: Arc<FencedChangelogProducers>, partition: u32) -> Self {
+        Self {
+            fenced,
+            partition,
+            armed: true,
+        }
+    }
+
+    /// The work succeeded; the fence is now the caller's to hold.
+    pub fn keep(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for FenceGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            counter!("personhog_leader_fence_abandoned_total").increment(1);
+            warn!(
+                partition = self.partition,
+                "releasing a fence taken for a warm that did not finish"
+            );
+            self.fenced.release(self.partition);
+        }
+    }
+}
+
 /// Per-partition fenced producers for the changelog. Constructed once
 /// and shared; partitions are acquired at warm completion and released
 /// with ownership.
@@ -641,6 +685,7 @@ pub fn preregister_fencing_metrics(partitions: u32) {
         counter!("personhog_leader_fence_init_total", "outcome" => outcome).increment(0);
     }
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
+    counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_exhausted_total").increment(0);
     counter!("personhog_leader_fence_quiesce_timeouts_total").increment(0);
     counter!("personhog_leader_fenced_partition_drops_total").increment(0);

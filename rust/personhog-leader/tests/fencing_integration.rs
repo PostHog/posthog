@@ -9,7 +9,7 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
-use personhog_leader::fencing::{FencedChangelogProducers, FencedProduceError};
+use personhog_leader::fencing::{FenceGuard, FencedChangelogProducers, FencedProduceError};
 use personhog_proto::personhog::types::v1::Person;
 use tokio::time::sleep;
 
@@ -240,4 +240,45 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
         "an abandoned record must not become readable after the successor's init — \
          if this fails, the drain must wait for open windows before acking"
     );
+}
+
+/// A warm that never finishes must not leave this process holding the
+/// partition's broker epoch.
+///
+/// The pod records a partition as held only once the warm returns, so a
+/// fence taken by a warm whose future is dropped — what a lost lease
+/// does to an in-flight attempt — belongs to no partition the local
+/// self-fence knows to release. The process would keep the epoch while
+/// owning nothing, and the real owner's writes would fail as fenced.
+#[tokio::test]
+async fn a_fence_taken_for_an_unfinished_warm_is_given_back() {
+    let topic = format!("fence_guard_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+
+    {
+        producers.acquire(0).await.expect("acquire");
+        let _guard = FenceGuard::new(Arc::clone(&producers), 0);
+        // The warm ends here without returning, as a torn-down attempt
+        // does.
+    }
+
+    match producers.produce(0, &test_person(1)).await {
+        Err(FencedProduceError::NotAcquired) => {}
+        other => panic!("the fence should have been given back, got {other:?}"),
+    }
+}
+
+/// A warm that finishes keeps what it took.
+#[tokio::test]
+async fn a_completed_warm_keeps_its_fence() {
+    let topic = format!("fence_guard_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+
+    producers.acquire(0).await.expect("acquire");
+    FenceGuard::new(Arc::clone(&producers), 0).keep();
+
+    producers
+        .produce(0, &test_person(1))
+        .await
+        .expect("a completed warm keeps a usable fence");
 }

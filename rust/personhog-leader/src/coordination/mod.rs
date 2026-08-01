@@ -7,7 +7,7 @@ use personhog_coordination::pod::HandoffHandler;
 use tracing::info;
 
 use crate::cache::{DirtyIndex, PartitionedCache};
-use crate::fencing::FencedChangelogProducers;
+use crate::fencing::{FenceGuard, FencedChangelogProducers};
 use crate::inflight::InflightTracker;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
 
@@ -111,13 +111,21 @@ impl HandoffHandler for LeaderHandoffHandler {
         // ever committed sits below the watermark the warm is about to
         // read. Fencing after the read would leave a gap where a zombie
         // commits an acked write the warm never sees.
-        if let Some(fenced) = &self.fenced {
+        let fence_guard = if let Some(fenced) = &self.fenced {
             fenced
                 .acquire(partition)
                 .await
                 .map_err(Error::invalid_state)?;
             info!(partition, "changelog fence acquired");
-        }
+            // From here the fence is held for a warm that has not
+            // happened yet. If the warm fails — or never returns,
+            // because the attempt was torn down by a lost lease — the
+            // guard gives the epoch back rather than leaving this
+            // process holding a partition it does not own.
+            Some(FenceGuard::new(Arc::clone(fenced), partition))
+        } else {
+            None
+        };
         warm_from_kafka(
             &self.warming,
             &self.pools,
@@ -130,6 +138,9 @@ impl HandoffHandler for LeaderHandoffHandler {
         // the partition (a drain whose handoff never completed); taking
         // ownership through a fresh warm re-admits writes.
         self.inflight.unfence(partition);
+        if let Some(guard) = fence_guard {
+            guard.keep();
+        }
         info!(partition, "partition warmed");
         Ok(())
     }
