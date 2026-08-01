@@ -85,9 +85,11 @@ class EtsyClient:
         )
 
     def _mint_token(self) -> str:
+        # Etsy's token endpoint requires application/x-www-form-urlencoded;
+        # posting JSON is rejected, so use `data=` rather than `json=`.
         response = self._session.post(
             ETSY_TOKEN_URL,
-            json={
+            data={
                 "grant_type": "refresh_token",
                 "client_id": self._api_key,
                 "refresh_token": self._refresh_token,
