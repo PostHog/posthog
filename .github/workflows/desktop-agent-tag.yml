@@ -8,6 +8,7 @@ on:
             - 'products/desktop/packages/agent/**'
             - '.github/workflows/desktop-agent-tag.yml'
             - '.github/workflows/desktop-agent-release.yml'
+    workflow_dispatch:
 
 concurrency:
     group: desktop-agent-tag
