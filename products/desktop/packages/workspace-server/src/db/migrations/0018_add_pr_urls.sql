@@ -1,0 +1,1 @@
+ALTER TABLE `workspaces` ADD `pr_urls` text DEFAULT '[]' NOT NULL;
