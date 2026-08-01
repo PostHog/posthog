@@ -35,7 +35,7 @@ from products.experiments.stats.frequentist.method import (
     FrequentistMethod,
     TestType,
 )
-from products.experiments.stats.shared.cuped import CupedData, cuped_adjust
+from products.experiments.stats.shared.cuped import CupedCovariate, cuped_adjust
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
@@ -370,8 +370,8 @@ def metric_variant_to_statistic(
         )
 
 
-def metric_variant_to_cuped_data(variant: ExperimentStatsBaseValidated) -> CupedData:
-    return CupedData(
+def metric_variant_to_cuped_data(variant: ExperimentStatsBaseValidated) -> CupedCovariate:
+    return CupedCovariate(
         pre_statistic=SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.covariate_sum or 0.0,
