@@ -1461,7 +1461,7 @@ class TeamSignalGroupingWorkflow:
                 self._cached_type_examples = type_examples
                 self._type_examples_fetched_at = self._type_examples_fetched_at if cached is not None else now
                 self._signals_dropped_counter.add(dropped)
-            except Exception:
+            except Exception as e:
                 # Parallel phase failed — all signals in batch dropped
                 self._signals_dropped_counter.add(len(batch))
                 logger.exception(
@@ -1469,6 +1469,7 @@ class TeamSignalGroupingWorkflow:
                     team_id=input.team_id,
                     batch_size=len(batch),
                 )
+                await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_batch") for signal in batch))
 
             self._signals_processed += len(batch)
 

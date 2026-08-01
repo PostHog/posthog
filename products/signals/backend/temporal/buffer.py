@@ -22,6 +22,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.temporal import metrics
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
@@ -37,6 +38,10 @@ BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 _PATCH_QUOTA_INGESTION_GATE = "signals-quota-ingestion-gate-v1"
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
+
+
+class SignalsQuotaExceeded(Exception):
+    """Synthetic error passed to capture_signal_dropped for the over-quota batch drop, which has no real exception."""
 
 
 @dataclass
@@ -218,7 +223,10 @@ class BufferSignalsWorkflow:
                         team_id=input.team_id,
                         signal_count=len(batch),
                     )
-                    metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=len(batch))
+                    quota_error = SignalsQuotaExceeded(f"team {input.team_id} over signals credits quota")
+                    await asyncio.gather(
+                        *(capture_signal_dropped(signal, quota_error, stage="ingestion") for signal in batch)
+                    )
                     # Compact history like the empty-batch path so a sustained over-quota stream
                     # doesn't grow Temporal history unboundedly.
                     if len(self._signal_buffer) < BUFFER_MAX_SIZE:

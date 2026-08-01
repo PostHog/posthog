@@ -14,6 +14,7 @@ from products.signals.backend.temporal.buffer import (
     FlushBufferOutput,
     SignalWithStartGroupingV2Input,
 )
+from products.signals.backend.temporal.drop_telemetry import CaptureSignalDroppedInput
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, SafetyFilterOutput
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
 
@@ -37,17 +38,17 @@ class _Recorder:
         self.safety_checks = 0
         self.flushes = 0
         self.grouping_starts = 0
-        # The drop path ends at the quota check; the pass-through path ends at grouping. Each path's
-        # terminal activity sets its event so the test knows the batch finished processing.
-        self.gate_reached = asyncio.Event()
+        self.dropped_stages: list[str] = []
+        # The drop path ends at the dropped-signal capture; the pass-through path ends at grouping.
+        # Each path's terminal activity sets its event so the test knows the batch finished processing.
         self.flow_done = asyncio.Event()
+        self.drop_captured = asyncio.Event()
 
 
 async def _drive(recorder: _Recorder) -> None:
     @activity.defn(name="check_signals_quota_limited_activity")
     async def fake_quota(_input: CheckSignalsQuotaInput) -> bool:
         recorder.quota_checks += 1
-        recorder.gate_reached.set()
         return recorder.over_quota
 
     @activity.defn(name="safety_filter_activity")
@@ -65,12 +66,17 @@ async def _drive(recorder: _Recorder) -> None:
         recorder.grouping_starts += 1
         recorder.flow_done.set()
 
+    @activity.defn(name="capture_signal_dropped_activity")
+    async def fake_capture_dropped(input: CaptureSignalDroppedInput) -> None:
+        recorder.dropped_stages.append(input.stage)
+        recorder.drop_captured.set()
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=TASK_QUEUE,
             workflows=[BufferSignalsWorkflow],
-            activities=[fake_quota, fake_safety, fake_flush, fake_grouping],
+            activities=[fake_quota, fake_safety, fake_flush, fake_grouping, fake_capture_dropped],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -80,7 +86,7 @@ async def _drive(recorder: _Recorder) -> None:
                 task_queue=TASK_QUEUE,
             )
             await handle.signal(BufferSignalsWorkflow.submit_signal, _signal(1))
-            terminal = recorder.gate_reached if recorder.over_quota else recorder.flow_done
+            terminal = recorder.drop_captured if recorder.over_quota else recorder.flow_done
             await asyncio.wait_for(terminal.wait(), timeout=30)
             await handle.terminate()
 
@@ -94,6 +100,9 @@ async def test_over_quota_batch_is_dropped():
     assert recorder.safety_checks == 0
     assert recorder.flushes == 0
     assert recorder.grouping_starts == 0
+    # Every over-quota drop must still close the emit->assign funnel via a terminal event,
+    # otherwise it's invisible to the emitted-vs-assigned monitoring built on that funnel.
+    assert recorder.dropped_stages == ["ingestion"]
 
 
 @pytest.mark.asyncio
@@ -104,3 +113,4 @@ async def test_under_quota_batch_flows_through():
     assert recorder.safety_checks == 1
     assert recorder.flushes == 1
     assert recorder.grouping_starts == 1
+    assert recorder.dropped_stages == []
