@@ -92,6 +92,22 @@ SERVER_SIDE_METRIC = {
     "name": "Server charges",
     "source": {"kind": "EventsNode", "event": "server charge"},
 }
+DATA_WAREHOUSE_STEP = {
+    "kind": "ExperimentDataWarehouseNode",
+    "table_name": "stripe_charges",
+    "timestamp_field": "created_at",
+    "data_warehouse_join_key": "customer_id",
+    "events_join_key": "distinct_id",
+}
+
+
+def _funnel(uuid: str, name: str, series: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"kind": "ExperimentMetric", "metric_type": "funnel", "uuid": uuid, "name": name, "series": series}
+
+
+CART = {"kind": "EventsNode", "event": "cart viewed"}
+PURCHASE = {"kind": "EventsNode", "event": "purchase"}
+SERVER_CHARGE = {"kind": "EventsNode", "event": "server charge"}
 
 
 @freeze_time(NOW)
@@ -280,6 +296,75 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert session_ids == [dropped_off]
         assert completed not in session_ids
         assert never_entered not in session_ids
+
+    @parameterized.expand(
+        [
+            # The completion side: without the check every session that entered comes back as
+            # "didn't finish", including the ones whose purchase really did happen.
+            (
+                "server_side_completion",
+                _funnel("a1111111-1111-1111-1111-111111111111", "Checkout", [CART, SERVER_CHARGE]),
+                "captured server-side",
+            ),
+            # The entry side fails the other way, to a silently empty bucket.
+            (
+                "server_side_entry",
+                _funnel("a2222222-2222-2222-2222-222222222222", "Charge then buy", [SERVER_CHARGE, PURCHASE]),
+                "captured server-side",
+            ),
+            # A data-warehouse step is dropped from the metric's sources, so the positional read
+            # would silently promote an inner step to the funnel's boundary.
+            (
+                "data_warehouse_entry",
+                _funnel("a3333333-3333-3333-3333-333333333333", "Charge first", [DATA_WAREHOUSE_STEP, CART, PURCHASE]),
+                "data warehouse",
+            ),
+            (
+                "data_warehouse_completion",
+                _funnel("a4444444-4444-4444-4444-444444444444", "Charge last", [CART, PURCHASE, DATA_WAREHOUSE_STEP]),
+                "data warehouse",
+            ),
+        ]
+    )
+    def test_funnel_dropoff_refuses_when_a_boundary_step_cannot_be_matched(
+        self, _name: str, metric: dict[str, Any], expected_reason: str
+    ) -> None:
+        experiment = self._create_experiment(metrics=[metric])
+        self._session(
+            events=[
+                ("cart viewed", datetime(2026, 1, 9, 10, 5, tzinfo=UTC)),
+                ("purchase", datetime(2026, 1, 9, 10, 7, tzinfo=UTC)),
+            ]
+        )
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="funnel_dropoff", metric_uuids=[metric["uuid"]])
+
+        # Drop-off is the count of the funnel's first step against its last one. When either can't
+        # appear in a recording the predicate answers a question nobody asked, and every exposed
+        # session lands in (or out of) the bucket with nothing on screen saying why.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_reason in response.json()["detail"]
+
+    def test_funnel_dropoff_allows_an_unmatchable_step_between_the_boundaries(self) -> None:
+        metric = _funnel("a5555555-5555-5555-5555-555555555555", "Checkout", [CART, SERVER_CHARGE, PURCHASE])
+        experiment = self._create_experiment(metrics=[metric])
+        dropped_off = self._session(events=[("cart viewed", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
+        completed = self._session(
+            events=[
+                ("cart viewed", datetime(2026, 1, 9, 10, 5, tzinfo=UTC)),
+                ("purchase", datetime(2026, 1, 9, 10, 7, tzinfo=UTC)),
+            ]
+        )
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="funnel_dropoff", metric_uuids=[metric["uuid"]])
+
+        # Only the two boundary steps are read, so a server-side step between them costs nothing.
+        # Refusing here would take drop-off away from funnels it answers correctly.
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["session_ids"] == [dropped_off]
+        assert completed not in response.json()["session_ids"]
 
     @parameterized.expand(
         [

@@ -26,7 +26,6 @@ import {
     NodeKind,
     ProductIntentContext,
     ProductKey,
-    isExperimentFunnelMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import {
@@ -53,6 +52,7 @@ import {
     applySessionLinkability,
     getExperimentVariants,
     getExposureFallbackFilter,
+    getFunnelDropoffReason,
     getMetricSessionFilters,
     getViewRecordingFiltersForVariant,
     isUnlinkableEventFilter,
@@ -76,8 +76,8 @@ export interface ExperimentReplayMetricOption {
     unlinkable: boolean
     /** Why the metric can't narrow the playlist, shown alongside it. Null when it can. */
     unlinkableReason: string | null
-    /** Session-matchable steps, for funnel metrics only — drop-off needs at least two. */
-    funnelStepCount: number
+    /** Why drop-off can't be asked of this metric, shown alongside it. Null when it can. */
+    dropoffReason: string | null
     /** The events the metric counts, deduped — a metric's name rarely says which they are. */
     eventNames: string[]
 }
@@ -444,9 +444,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                                       uuid: metric.uuid,
                                       name: metric.name || getDefaultMetricTitle(metric),
                                       filters: getMetricSessionFilters(metric),
-                                      funnelStepCount: isExperimentFunnelMetric(metric)
-                                          ? getMetricSessionFilters(metric).length
-                                          : 0,
+                                      dropoffReason: getFunnelDropoffReason(
+                                          metric,
+                                          linkabilityLoaded ? unlinkableEventNames : new Set<string>()
+                                      ),
                                       eventNames: metricSourceEventNames(metric),
                                       noFilterReason: isExperimentRetentionMetric(metric)
                                           ? RETENTION_UNLINKABLE_REASON
@@ -489,9 +490,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                     if (!option || option.unlinkable) {
                         return false
                     }
-                    // Drop-off reads a funnel's first and last step, so it can only be asked of a
-                    // funnel with at least two matchable steps.
-                    return metricFilterMode !== 'funnel_dropoff' || option.funnelStepCount >= 2
+                    return metricFilterMode !== 'funnel_dropoff' || option.dropoffReason === null
                 })
                 // Selections persist across mode switches, so a mode that takes exactly one metric
                 // keeps the most recently picked rather than rejecting the whole selection.

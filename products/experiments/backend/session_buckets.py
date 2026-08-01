@@ -26,7 +26,9 @@ For the default exposure event the population falls back to the stamped `$featur
 property — the same fallback the tab's list uses — flagged in the response as
 `used_exposure_fallback`. Metrics whose every source is such an event are excluded with a
 reason instead of silently matching nothing, which for `no_metric_activity` would otherwise
-inflate the bucket to the whole exposed population.
+inflate the bucket to the whole exposed population. Drop-off narrows that rule to the two steps
+it reads: a funnel stays matchable overall while its first or last step can't be seen in a
+recording, and counting an unobservable completion as zero would return everyone who entered.
 """
 
 import json
@@ -66,6 +68,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 )
 from products.experiments.backend.metric_events import (
     MetricEventSource,
+    MetricSource,
     MetricSourceRole,
     SharedHogQLDatabase,
     build_source_condition,
@@ -103,6 +106,16 @@ DATA_WAREHOUSE_EXCLUSION_REASON = (
 SERVER_SIDE_EXCLUSION_REASON = (
     "This metric's events have only ever been captured server-side, where there is no session to record, "
     "so they can never be matched to a recording."
+)
+# Drop-off reads two of a funnel's steps, so its own boundary check is narrower than the
+# whole-metric one above: a funnel stays matchable on the steps between them.
+FUNNEL_SERVER_SIDE_BOUNDARY_REASON = (
+    "Drop-off reads this funnel's first and last step. One of them has only ever been captured server-side, "
+    "where there is no session to record, so it can never be matched to a recording."
+)
+FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON = (
+    "Drop-off reads this funnel's first and last step. One of them is measured in the data warehouse, "
+    "which has no session events to match recordings on."
 )
 
 
@@ -304,8 +317,14 @@ def _partition_metrics(
         raise SessionBucketUnavailable(
             "None of these metrics can be matched to recordings, so no session set would be meaningful."
         )
-    if bucket == SessionBucket.FUNNEL_DROPOFF and len(considered) != 1:
-        raise SessionBucketUnavailable("The drop-off bucket takes exactly one funnel metric.")
+    if bucket == SessionBucket.FUNNEL_DROPOFF:
+        if len(considered) != 1:
+            raise SessionBucketUnavailable("The drop-off bucket takes exactly one funnel metric.")
+        boundary_reason = _funnel_boundary_reason(considered[0], never_linked)
+        if boundary_reason is not None:
+            # Raised rather than excluded: drop-off takes one metric, so excluding it would leave
+            # the generic "none of these can be matched" message and lose the reason.
+            raise SessionBucketUnavailable(boundary_reason)
     return considered, excluded
 
 
@@ -363,6 +382,37 @@ def _metric_condition(metric: MetricEventSource, team: Team) -> ast.Expr:
     return ast.Or(exprs=conditions) if len(conditions) > 1 else conditions[0]
 
 
+def _funnel_boundary_steps(metric: MetricEventSource) -> tuple[MetricSource, MetricSource]:
+    """The two steps drop-off is computed from: the funnel's entry and its completion."""
+    steps = [source for source in metric.sources if source.role == MetricSourceRole.STEP]
+    if len(steps) < 2:
+        raise SessionBucketUnavailable(
+            "Drop-off needs a funnel with at least two steps that can be matched to recordings."
+        )
+    return steps[0], steps[-1]
+
+
+def _funnel_boundary_reason(metric: MetricEventSource, never_linked: set[str]) -> Optional[str]:
+    """Why drop-off can't be asked of this funnel, or None when it can.
+
+    The whole-metric check in `_exclusion_reason` is too coarse here. It clears a funnel as long
+    as one of its steps can be matched, while drop-off rests on two specific ones — so a funnel
+    whose completion is a server-side charge passes there and then counts that completion as
+    zero in every session, returning everyone who entered as not having finished.
+    """
+    entry, completion = _funnel_boundary_steps(metric)
+    # Data-warehouse steps are dropped from `sources` while the survivors keep their real
+    # position, so a gap at either end means the boundary read landed on an inner step.
+    if entry.index != 0 or completion.index != completion.total - 1:
+        return FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON
+    boundary_events = {
+        step.node.event for step in (entry, completion) if isinstance(step.node, EventsNode) and step.node.event
+    }
+    if boundary_events & never_linked:
+        return FUNNEL_SERVER_SIDE_BOUNDARY_REASON
+    return None
+
+
 def _funnel_step_conditions(metric: MetricEventSource, team: Team) -> tuple[ast.Expr, ast.Expr, int]:
     """The funnel's entry condition, its completion condition, and how many times the completion
     event must fire to count as completed.
@@ -372,15 +422,12 @@ def _funnel_step_conditions(metric: MetricEventSource, team: Team) -> tuple[ast.
     positional reading the per-source hits use.
     """
     steps = [source for source in metric.sources if source.role == MetricSourceRole.STEP]
-    if len(steps) < 2:
-        raise SessionBucketUnavailable(
-            "Drop-off needs a funnel with at least two steps that can be matched to recordings."
-        )
-    completion_signature = node_signature(steps[-1].node)
+    entry_step, completion_step = _funnel_boundary_steps(metric)
+    completion_signature = node_signature(completion_step.node)
     completion_occurrences = sum(1 for step in steps if node_signature(step.node) == completion_signature)
     return (
-        build_source_condition(steps[0].node, team),
-        build_source_condition(steps[-1].node, team),
+        build_source_condition(entry_step.node, team),
+        build_source_condition(completion_step.node, team),
         completion_occurrences,
     )
 

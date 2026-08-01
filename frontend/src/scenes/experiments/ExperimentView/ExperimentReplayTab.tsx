@@ -22,6 +22,7 @@ import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/Se
 import { Experiment } from '~/types'
 
 import { isLaunched } from '../experimentStatus'
+import { NOT_A_FUNNEL_REASON } from '../utils'
 import { EXPOSURE_FALLBACK_NOTICE, EXPOSURE_UNLINKABLE_REASON } from '../viewRecordingsLinkabilityLogic'
 import {
     ExperimentReplayMetricFilterMode,
@@ -35,9 +36,6 @@ import { VariantTag } from './VariantTag'
 // allowed character in variant keys, so the '$' prefix guarantees no collision with a real
 // variant — a variant literally named "all" just renders as its own option after the built-in "All".
 const ALL_VARIANTS = '$all'
-
-const NOT_A_FUNNEL_REASON =
-    'This filter compares a funnel’s first and last step, so it needs a funnel metric with at least two steps that can be matched to recordings.'
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
@@ -200,14 +198,14 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
     // different reasons (server-side events, a retention window, data-warehouse-only sources, or
     // simply not being a funnel while the drop-off mode is on).
     const linkableMetricOptions = metricOptions.filter(
-        (option) => !option.unlinkable && (metricFilterMode !== 'funnel_dropoff' || option.funnelStepCount >= 2)
+        (option) => !option.unlinkable && (metricFilterMode !== 'funnel_dropoff' || option.dropoffReason === null)
     )
     const unselectableOptionsByReason = new Map<string, ExperimentReplayMetricOption[]>()
     for (const option of metricOptions) {
         const reason = option.unlinkable
             ? option.unlinkableReason
-            : metricFilterMode === 'funnel_dropoff' && option.funnelStepCount < 2
-              ? NOT_A_FUNNEL_REASON
+            : metricFilterMode === 'funnel_dropoff'
+              ? option.dropoffReason
               : null
         if (reason) {
             unselectableOptionsByReason.set(reason, [...(unselectableOptionsByReason.get(reason) ?? []), option])
