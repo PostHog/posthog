@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import psycopg
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from posthog.ducklake.common import (
     _get_org_id_for_team,
@@ -699,8 +700,28 @@ def create_staging_read_secret(conn: psycopg.Connection, catalog_bucket: str) ->
     )
 
 
+# Substring of the FATAL psycopg raises when an org's Duckgres worker pool is momentarily
+# saturated — a transient capacity condition, not a real connectivity failure.
+_WORKER_POOL_EXHAUSTED_MARKER = "maximum number of concurrent duckgres workers"
+
+
+def _is_worker_pool_exhausted(exc: BaseException) -> bool:
+    return isinstance(exc, psycopg.OperationalError) and _WORKER_POOL_EXHAUSTED_MARKER in str(exc).lower()
+
+
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=2, max=30),
+    retry=retry_if_exception(_is_worker_pool_exhausted),
+    reraise=True,
+)
 def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
-    """Open a psycopg connection to a duckgres server."""
+    """Open a psycopg connection to a duckgres server.
+
+    Retries with backoff on worker-pool exhaustion — the server's FATAL for that
+    condition is otherwise indistinguishable from a real connection failure, and the
+    calling activity's own retry policy fires far too soon for a worker slot to free up.
+    """
     return psycopg.connect(
         host=server.host,
         port=server.port,
@@ -708,6 +729,13 @@ def connect_to_duckgres(server: DuckgresServer) -> psycopg.Connection:
         user=server.username,
         password=server.password,
         autocommit=True,
+        # A half-open connection to a dead worker would otherwise block on the OS TCP
+        # timeout (hours); keepalives bound it to ~2 minutes.
+        connect_timeout=30,
+        keepalives=1,
+        keepalives_idle=60,
+        keepalives_interval=15,
+        keepalives_count=4,
     )
 
 

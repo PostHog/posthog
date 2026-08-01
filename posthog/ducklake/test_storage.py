@@ -1,13 +1,16 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import psycopg
 from parameterized import parameterized
 
 from posthog.ducklake.storage import (
     _DELTA_LOG_VERSION_RE,
     DuckLakeStorageConfig,
     _collect_delta_log_keys,
+    connect_to_duckgres,
     normalize_endpoint,
 )
 
@@ -543,3 +546,53 @@ class TestStageDeltaTable:
         # version 3 log entry must NOT have been copied
         all_copied = [call.kwargs["Key"] for call in mock_s3.copy_object.call_args_list]
         assert "__posthog_staging/data/table/_delta_log/00000000000000000003.json" not in all_copied
+
+
+class TestConnectToDuckgres:
+    def _server(self):
+        server = MagicMock()
+        server.host = "duckgres.internal"
+        server.port = 5432
+        server.database = "ducklake"
+        server.username = "posthog"
+        server.password = "hunter2"
+        return server
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("psycopg.connect")
+    def test_retries_and_succeeds_after_worker_pool_exhaustion(self, mock_connect, mock_sleep):
+        exhausted = psycopg.OperationalError(
+            "FATAL: your organization has reached its maximum number of concurrent Duckgres workers"
+        )
+        mock_conn = MagicMock()
+        mock_connect.side_effect = [exhausted, exhausted, mock_conn]
+
+        result = connect_to_duckgres(self._server())
+
+        assert result is mock_conn
+        assert mock_connect.call_count == 3
+        assert mock_sleep.call_count == 2
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("psycopg.connect")
+    def test_does_not_retry_other_operational_errors(self, mock_connect, mock_sleep):
+        mock_connect.side_effect = psycopg.OperationalError("connection refused")
+
+        with pytest.raises(psycopg.OperationalError, match="connection refused"):
+            connect_to_duckgres(self._server())
+
+        assert mock_connect.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("psycopg.connect")
+    def test_raises_after_exhausting_retries_on_sustained_worker_pool_exhaustion(self, mock_connect, mock_sleep):
+        exhausted = psycopg.OperationalError(
+            "FATAL: your organization has reached its maximum number of concurrent Duckgres workers"
+        )
+        mock_connect.side_effect = exhausted
+
+        with pytest.raises(psycopg.OperationalError, match="maximum number of concurrent"):
+            connect_to_duckgres(self._server())
+
+        assert mock_connect.call_count == 5
