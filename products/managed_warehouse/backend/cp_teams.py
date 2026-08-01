@@ -154,14 +154,14 @@ def _cached_rows(
     return rows
 
 
-def _rows_from_response(response: object) -> list[dict] | None:
+def _rows_from_response(response: http_requests.Response) -> list[dict] | None:
     """Extract the control-plane team payload without importing DRF presentation code."""
-    status_code = getattr(response, "status_code", None)
-    if not isinstance(status_code, int) or not 200 <= status_code < 300:
+    status_code = response.status_code
+    if not 200 <= status_code < 300:
         return None
     try:
-        data = response.json()  # type: ignore[union-attr]
-    except (AttributeError, ValueError):
+        data = response.json()
+    except ValueError:
         return None
     if isinstance(data, dict):
         data = data.get("teams")
