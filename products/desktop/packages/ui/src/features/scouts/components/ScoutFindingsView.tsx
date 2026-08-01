@@ -65,9 +65,9 @@ export function ScoutFindingsView() {
         <SparkleIcon size={12} className="shrink-0 text-gray-10" />
         <Text
           className="truncate whitespace-nowrap font-medium text-[13px]"
-          title="Scout findings"
+          title="Scout signals"
         >
-          Scout findings
+          Scout signals
         </Text>
       </Flex>
     ),
@@ -115,7 +115,7 @@ export function ScoutFindingsView() {
         <Flex align="center" gap="2">
           <SparkleIcon size={20} className="shrink-0 text-(--iris-9)" />
           <Text className="font-bold text-[22px] text-gray-12 leading-tight tracking-tight">
-            Scout findings
+            Scout signals
           </Text>
         </Flex>
         <Text className="max-w-2xl text-pretty text-[12.5px] text-gray-11 leading-relaxed">
@@ -132,7 +132,7 @@ export function ScoutFindingsView() {
           {summary.totalCount > 0 ? (
             <>
               <Text className="text-[12px] text-gray-10">
-                {summary.totalCount} finding
+                {summary.totalCount} signal
                 {summary.totalCount === 1 ? "" : "s"} · {summary.scoutCount}{" "}
                 scout{summary.scoutCount === 1 ? "" : "s"}
               </Text>
@@ -149,8 +149,8 @@ export function ScoutFindingsView() {
           ) : null}
         </Flex>
         <Text className="text-[12px] text-gray-9">
-          Covers findings from the most recent {SCOUT_RUNS_WINDOW_SPAN} of troop
-          runs. Older findings live on in the inbox reports they produced.
+          Covers signals from the most recent {SCOUT_RUNS_WINDOW_SPAN} of troop
+          runs. Older signals live on in the inbox reports they produced.
         </Text>
       </Flex>
 
@@ -160,7 +160,7 @@ export function ScoutFindingsView() {
             <Flex align="center" gap="2" wrap="wrap">
               <TextField.Root
                 type="search"
-                placeholder="Search findings…"
+                placeholder="Search signals…"
                 value={searchText}
                 onChange={(event) => setSearchText(event.target.value)}
                 size="2"
@@ -237,7 +237,7 @@ export function ScoutFindingsView() {
                   });
                 }}
               >
-                <Select.Trigger aria-label="Sort findings" />
+                <Select.Trigger aria-label="Sort signals" />
                 <Select.Content>
                   {SORT_OPTIONS.map((option) => (
                     <Select.Item key={option.value} value={option.value}>
@@ -260,7 +260,7 @@ export function ScoutFindingsView() {
                 className="rounded-(--radius-2) border border-(--amber-6) bg-(--amber-2) px-4 py-3 text-[12.5px]"
               >
                 <Text className="flex-1 text-(--amber-11)">
-                  Some findings couldn&apos;t be loaded, so this list may be
+                  Some signals couldn&apos;t be loaded, so this list may be
                   incomplete.
                 </Text>
                 <button
@@ -325,7 +325,7 @@ function FindingsBody({
         className="rounded-(--radius-2) border border-(--gray-6) border-dashed bg-gray-1 px-4 py-8 text-center text-[12.5px] text-gray-11"
       >
         <Text className="text-[12.5px] text-gray-11">
-          Couldn&apos;t load findings. The scout API may be unavailable or this
+          Couldn&apos;t load signals. The scout API may be unavailable or this
           project may not be enrolled yet.
         </Text>
         <button
@@ -343,8 +343,8 @@ function FindingsBody({
     return (
       <Box className="rounded-(--radius-2) border border-(--gray-6) border-dashed bg-gray-1 px-4 py-8 text-center text-[12.5px] text-gray-11">
         {isFiltering
-          ? "No findings match your search and filters."
-          : "Your scouts haven't emitted any findings yet. As they scan your project, what they surface shows up here."}
+          ? "No signals match your search and filters."
+          : "Your scouts haven't emitted any signals yet. As they scan your project, what they surface shows up here."}
       </Box>
     );
   }

@@ -181,7 +181,7 @@ export function ActivityRow({
           )}
           {item.isUnread && (
             <span
-              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full bg-(--red-9)"
+              className="-top-0.5 -right-0.5 absolute h-2 w-2 rounded-full bg-primary"
               title="New activity"
             />
           )}

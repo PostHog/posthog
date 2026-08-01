@@ -128,4 +128,37 @@ describe("ActivityTimeline", () => {
     expect(screen.getByText("Saved workspace context")).toBeVisible();
     expect(useThreadNavigationStore.getState().scrollRequests).toEqual({});
   });
+
+  it("hides injected custom instructions from conversation previews", () => {
+    renderTimeline(true, [
+      {
+        type: "user_message",
+        id: "custom-instructions-message",
+        content:
+          "Review this PR\n\n<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nNever update an existing PR description.\n</user_custom_instructions>",
+        timestamp: Date.parse("2026-07-17T09:05:00Z"),
+      },
+    ]);
+
+    expect(screen.getByText("Review this PR")).toBeInTheDocument();
+    expect(screen.queryByText(/user_custom_instructions/)).toBeNull();
+    expect(
+      screen.queryByText("Never update an existing PR description."),
+    ).toBeNull();
+  });
+
+  it("shows user-authored custom-instruction tag examples", () => {
+    renderTimeline(true, [
+      {
+        type: "user_message",
+        id: "literal-custom-instructions-message",
+        content:
+          "Render this example: <user_custom_instructions>be terse</user_custom_instructions>",
+        timestamp: Date.parse("2026-07-17T09:05:00Z"),
+      },
+    ]);
+
+    expect(screen.getByText(/user_custom_instructions/)).toBeInTheDocument();
+    expect(screen.getByText(/be terse/)).toBeInTheDocument();
+  });
 });

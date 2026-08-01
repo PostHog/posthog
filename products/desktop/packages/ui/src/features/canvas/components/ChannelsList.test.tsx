@@ -52,6 +52,7 @@ import {
   showChannelList,
   showChannelPane,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { ChannelsList } from "./ChannelsList";
 
@@ -79,6 +80,16 @@ describe("ChannelsList", () => {
     // Same for the collapse state — a test that folds a group away would
     // otherwise hide its rows from every test that runs after it.
     useSidebarStore.setState({ collapsedSections: new Set() });
+  });
+
+  it("opens a space in the sidebar without navigating the main window", async () => {
+    const user = userEvent.setup();
+    renderList();
+
+    await user.click(screen.getByText("engineering"));
+
+    expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+    expect(mocks.navigate).not.toHaveBeenCalled();
   });
 
   it("pins #me above the channels, with its ⌘1 shortcut", () => {
@@ -182,10 +193,8 @@ describe("ChannelsList", () => {
       await user.type(screen.getByLabelText("Search spaces"), "eng");
       await user.keyboard("{Enter}");
 
-      expect(mocks.navigate).toHaveBeenCalledWith({
-        to: "/website/$channelId",
-        params: { channelId: ENG.id },
-      });
+      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+      expect(mocks.navigate).not.toHaveBeenCalled();
     });
 
     it("moves the highlight with the arrow keys", async () => {
@@ -197,10 +206,8 @@ describe("ChannelsList", () => {
       await user.type(screen.getByLabelText("Search spaces"), "e");
       await user.keyboard("{ArrowDown}{Enter}");
 
-      expect(mocks.navigate).toHaveBeenCalledWith({
-        to: "/website/$channelId",
-        params: { channelId: ENG.id },
-      });
+      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+      expect(mocks.navigate).not.toHaveBeenCalled();
     });
 
     // Base UI's clear button is a tabIndex=-1 decoration by default, which left
@@ -247,10 +254,8 @@ describe("ChannelsList", () => {
       await user.click(screen.getByLabelText("Search spaces"));
       await user.keyboard("{ArrowDown}{Enter}");
 
-      expect(mocks.navigate).toHaveBeenCalledWith({
-        to: "/website/$channelId",
-        params: { channelId: ENG.id },
-      });
+      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+      expect(mocks.navigate).not.toHaveBeenCalled();
     });
 
     // Base UI resets the highlight when the pointer leaves a row, and
@@ -266,10 +271,8 @@ describe("ChannelsList", () => {
       await user.unhover(row);
       await user.keyboard("{Enter}");
 
-      expect(mocks.navigate).toHaveBeenCalledWith({
-        to: "/website/$channelId",
-        params: { channelId: ENG.id },
-      });
+      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+      expect(mocks.navigate).not.toHaveBeenCalled();
     });
 
     // A kept-mounted collapsed row would still be an option, so ↓ would walk
@@ -323,10 +326,8 @@ describe("ChannelsList", () => {
       // it would have been the row after it.
       await user.keyboard("{ArrowDown}{Enter}");
 
-      expect(mocks.navigate).toHaveBeenCalledWith({
-        to: "/website/$channelId",
-        params: { channelId: ENG.id },
-      });
+      expect(useCurrentChannelStore.getState().currentChannelId).toBe(ENG.id);
+      expect(mocks.navigate).not.toHaveBeenCalled();
     });
 
     it("selects a stale query so the next keystroke replaces it", async () => {

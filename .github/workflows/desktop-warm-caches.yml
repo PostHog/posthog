@@ -61,14 +61,6 @@ jobs:
                   path: products/desktop/.turbo/cache
                   key: desktop-turbo-${{ github.sha }}
 
-            # Same key as desktop-storybook.yml's visual-regression job.
-            - name: Cache Playwright browsers
-              id: playwright-cache
-              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-              with:
-                  path: ~/.cache/ms-playwright
-                  key: playwright-chromium-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
-
             - name: Install dependencies
               run: pnpm install --frozen-lockfile
               env:
@@ -78,11 +70,6 @@ jobs:
               run: |
                   pnpm run build:deps
                   pnpm run typecheck
-
-            - name: Install Playwright Chromium
-              if: steps.playwright-cache.outputs.cache-hit != 'true'
-              working-directory: products/desktop/apps/code
-              run: pnpm exec playwright install chromium
 
     macos:
         runs-on: macos-latest

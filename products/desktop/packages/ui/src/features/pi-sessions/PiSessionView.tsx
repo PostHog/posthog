@@ -5,10 +5,8 @@ import {
 } from "@posthog/core/message-editor/content";
 import { PI_SESSION_CONTROLLER } from "@posthog/core/pi-runtime/identifiers";
 import {
-  type PiModelSelection,
   PiOperationError,
   type PiSessionController,
-  type PiThinkingLevel,
 } from "@posthog/core/pi-runtime/piSessionController";
 import { toPiContextUsage } from "@posthog/core/pi-runtime/piSessionUsage";
 import { useService } from "@posthog/di/react";
@@ -22,17 +20,17 @@ import {
   Skeleton,
 } from "@posthog/quill";
 import type { AgentConversationEvent } from "@posthog/shared";
-import { isTerminalStatus } from "@posthog/shared/domain-types";
 import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { PromptInput } from "@posthog/ui/features/message-editor/components/PromptInput";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
-import { CloudInitializingView } from "@posthog/ui/features/sessions/components/CloudInitializingView";
 import {
   CloudConnectionBanner,
   CloudStreamDisconnectedBanner,
 } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
 import { ChatThread } from "@posthog/ui/features/sessions/components/chat-thread/ChatThread";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
+import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
+import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useMessagingModeStore } from "@posthog/ui/features/sessions/messagingModeStore";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
@@ -44,20 +42,26 @@ import { Box, Flex } from "@radix-ui/themes";
 import { type ReactElement, useCallback, useEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
+import { PiMessagingModeSelector } from "./PiSessionControls";
+import { PiSessionModelControls } from "./PiSessionModelControls";
 import {
-  PiMessagingModeSelector,
-  PiModelSelector,
-  PiThinkingLevelSelector,
-} from "./PiSessionControls";
+  getPiPendingConfig,
+  usePiPendingConfigStore,
+} from "./piPendingConfigStore";
 
 const log = logger.scope("pi-session-view");
 
 interface PiSessionViewProps {
   taskId: string;
   taskRunId?: string;
+  isCloud: boolean;
 }
 
-export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
+export function PiSessionView({
+  taskId,
+  taskRunId,
+  isCloud,
+}: PiSessionViewProps) {
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
@@ -66,6 +70,12 @@ export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
     (state) => state.sessions[taskId],
   );
   const draftActions = useDraftStore((state) => state.actions);
+  const pendingConfig = usePiPendingConfigStore((state) =>
+    getPiPendingConfig(state, taskId, taskRunId),
+  );
+  const clearPendingConfig = usePiPendingConfigStore(
+    (state) => state.clearConfig,
+  );
   const workspace = useWorkspace(taskId);
   const repoPath = workspace?.worktreePath ?? workspace?.folderPath;
   const messagingMode = useMessagingModeStore(
@@ -152,8 +162,11 @@ export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
         messagingMode,
       );
       void piSessionController
-        .submit(taskId, message, isStreaming, messagingMode)
+        .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
         .then(() => {
+          if (action === "prompt" && pendingConfig && taskRunId) {
+            clearPendingConfig(taskId, taskRunId);
+          }
           if (action === "compact") {
             toast.success("Pi context compacted");
           }
@@ -168,33 +181,14 @@ export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
     },
     [
       handleControllerError,
+      clearPendingConfig,
       isStreaming,
       messagingMode,
+      pendingConfig,
       piSessionController,
       taskId,
+      taskRunId,
     ],
-  );
-
-  const setModel = useCallback(
-    (model: PiModelSelection) => {
-      void piSessionController
-        .setModel(taskId, model)
-        .catch((error) =>
-          handleControllerError(error, "Failed to change Pi model"),
-        );
-    },
-    [handleControllerError, piSessionController, taskId],
-  );
-
-  const setThinkingLevel = useCallback(
-    (level: PiThinkingLevel) => {
-      void piSessionController
-        .setThinkingLevel(taskId, level)
-        .catch((error) =>
-          handleControllerError(error, "Failed to change Pi thinking level"),
-        );
-    },
-    [handleControllerError, piSessionController, taskId],
   );
 
   const toggleMessagingMode = useCallback(() => {
@@ -230,6 +224,13 @@ export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
         handleControllerError(error, "Failed to reconnect to Pi"),
       );
   }, [handleControllerError, piSessionController, taskId]);
+
+  const handleThreadClick = useCallback(
+    (event: React.MouseEvent) => {
+      focusComposerOnPaneClick(event, () => draftActions.requestFocus(taskId));
+    },
+    [draftActions, taskId],
+  );
 
   const restart = useCallback(() => {
     void piSessionController
@@ -316,11 +317,13 @@ export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
   );
   const sessionAvailable =
     session.connectionState === "connected" || hasTranscript;
+  const executionTarget = isCloud ? "cloud" : "local";
   if (isConnecting && !hasTranscript) {
     return (
       <Box className="relative h-full">
-        <CloudInitializingView
-          cloudStatus={session.cloudStatus ?? null}
+        <SessionInitializingView
+          executionTarget={executionTarget}
+          cloudStatus={session.cloudStatus}
           heading={latestProgress?.label}
           subtitle={latestProgress?.detail}
         />
@@ -354,48 +357,11 @@ export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
   }
 
   const controlsPending = status ? isStreaming || isBashRunning : false;
-  const controlsDisabled =
-    controlsPending ||
-    isCompacting ||
-    session.connectionState !== "connected" ||
-    (session.cloudStatus !== undefined &&
-      isTerminalStatus(session.cloudStatus));
   const hasQueuedMessage =
     session.queue.steering.length + session.queue.followUp.length > 0;
-  let modelSelector: ReactElement = (
-    <Skeleton className="h-7 w-32 bg-foreground/15" />
-  );
-  let reasoningSelector: ReactElement | null = (
-    <Skeleton className="h-7 w-20 bg-foreground/15" />
-  );
   let messagingModeToggle: ReactElement = (
     <Skeleton className="h-7 w-24 bg-foreground/15" />
   );
-
-  if (status && session.modelsLoaded) {
-    modelSelector = (
-      <PiModelSelector
-        models={session.models}
-        currentModel={status.model}
-        disabled={controlsDisabled}
-        onChange={setModel}
-      />
-    );
-  }
-
-  if (status && session.thinkingLevelsLoaded) {
-    const supportsThinking = session.thinkingLevels.some(
-      (level) => level !== "off",
-    );
-    reasoningSelector = supportsThinking ? (
-      <PiThinkingLevelSelector
-        level={status.thinkingLevel}
-        levels={session.thinkingLevels}
-        disabled={controlsDisabled}
-        onChange={setThinkingLevel}
-      />
-    ) : null;
-  }
 
   if (status) {
     messagingModeToggle = (
@@ -421,7 +387,7 @@ export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
           onRestart={restart}
         />
       )}
-      <Box className="min-h-0 flex-1">
+      <Box className="min-h-0 flex-1" onClick={handleThreadClick}>
         <ChatThread
           events={session.events}
           isPromptPending={isStreaming}
@@ -465,8 +431,17 @@ export function PiSessionView({ taskId, taskRunId }: PiSessionViewProps) {
           }
           enableBashMode
           enableCommands
-          modelSelector={modelSelector}
-          reasoningSelector={reasoningSelector}
+          modelSelector={
+            <PiSessionModelControls
+              taskId={taskId}
+              taskRunId={taskRunId}
+              session={session}
+              controller={piSessionController}
+              isOnline={isOnline}
+              onError={handleControllerError}
+            />
+          }
+          reasoningSelector={null}
           messagingModeToggle={messagingModeToggle}
           onToggleMessagingMode={toggleMessagingMode}
           onPromptRecall={handlePromptRecall}

@@ -73,6 +73,31 @@ interface SessionState {
   pendingRawInputSnapshots: Map<string, StoredNotification>;
 }
 
+function redactAuthorizationHeaders(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(redactAuthorizationHeaders);
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+
+  const record = value as Record<string, unknown>;
+  if (
+    typeof record.name === "string" &&
+    record.name.toLowerCase() === "authorization" &&
+    "value" in record
+  ) {
+    return { ...record, value: "[REDACTED]" };
+  }
+
+  return Object.fromEntries(
+    Object.entries(record).map(([key, nestedValue]) => [
+      key,
+      redactAuthorizationHeaders(nestedValue),
+    ]),
+  );
+}
+
 export class SessionLogWriter {
   /**
    * When consecutive in-progress tool updates for one call span more than this
@@ -212,7 +237,9 @@ export class SessionLogWriter {
       const entry: StoredNotification = {
         type: "notification",
         timestamp,
-        notification: message,
+        notification: redactAuthorizationHeaders(
+          message,
+        ) as StoredNotification["notification"],
       };
 
       this.emitToSinks(sessionId, entry);

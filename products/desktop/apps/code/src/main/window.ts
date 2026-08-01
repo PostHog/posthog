@@ -208,11 +208,14 @@ export function createWindow(): void {
   const platformWindowConfig =
     process.platform === "darwin"
       ? {
-          titleBarStyle: "hiddenInset" as const,
+          // "hidden", not "hiddenInset": hiddenInset keeps macOS's own inset and
+          // ignores trafficLightPosition's y, which parked the dots near the
+          // bottom of the bar. "hidden" honours the position we ask for.
+          titleBarStyle: "hidden" as const,
           // Centre the traffic lights vertically with the title bar's back/forward
           // buttons (40px bar, 24px buttons → centre at y=20; 12px dots → top at 14).
           // x mirrors y so the inset from the top and the left match.
-          trafficLightPosition: { x: 14, y: 14 },
+          trafficLightPosition: { x: 14, y: 12 },
           // Exposes the titlebar-area-* CSS env vars so the renderer can
           // clear the traffic lights exactly; their size varies by macOS
           // version (bigger on Tahoe), so it must not hardcode a width.

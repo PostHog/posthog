@@ -14,6 +14,7 @@ import {
 import { PostHogAPIClient, type TaskRunUpdate } from "./posthog-api";
 import { SessionLogWriter } from "./session-log-writer";
 import type { AgentConfig, TaskExecutionOptions } from "./types";
+import { buildGatewayPropertyHeaderRecord } from "./utils/gateway";
 import { Logger } from "./utils/logger";
 
 export class Agent {
@@ -148,6 +149,9 @@ export class Agent {
               model: sanitizedModel,
               reasoningEffort: options.reasoningEffort,
               developerInstructions: options.developerInstructions,
+              httpHeaders: taskId
+                ? buildGatewayPropertyHeaderRecord({ $ai_session_id: taskId })
+                : undefined,
               additionalDirectories: options.additionalDirectories,
             }
           : undefined,

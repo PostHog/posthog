@@ -1,6 +1,10 @@
 import { cn } from "@posthog/quill";
 
-/** Unread counts read red; ambient "how much is parked here" counts stay grey. */
+/**
+ * Unread counts read in the brand's primary — yellow in dark, orange in light —
+ * so a badge is the app's own colour rather than a warning. Red is reserved for
+ * failure. Ambient "how much is parked here" counts stay grey.
+ */
 export type CountBadgeTone = "notification" | "neutral";
 
 interface CountBadgeProps {
@@ -22,7 +26,7 @@ function countBadgeSizeClass(label: string): string {
 }
 
 const TONE_CLASS: Record<CountBadgeTone, string> = {
-  notification: "bg-(--red-9) text-(--gray-contrast)",
+  notification: "bg-primary text-primary-foreground",
   // Theme tokens, not the absolute gray scale: these sit on chrome whose
   // lightness relationship to gray-N inverts between light and dark.
   neutral: "bg-muted text-muted-foreground",
