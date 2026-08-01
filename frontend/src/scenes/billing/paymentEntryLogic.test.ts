@@ -103,6 +103,68 @@ describe('paymentEntryLogic', () => {
         })
     })
 
+    describe('pollAuthorizationStatus', () => {
+        beforeEach(async () => {
+            await seedBilling({ customer_id: 'cus_test', subscription_level: 'free' })
+            logic = paymentEntryLogic()
+            logic.mount()
+        })
+
+        it('coerces a DRF error envelope object to its detail string', async () => {
+            useMocks({
+                post: {
+                    '/api/billing/activate/authorize/status': () => [
+                        200,
+                        {
+                            status: 'failed',
+                            error: { type: 'validation_error', code: 'invalid', detail: 'Card declined', attr: null },
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_test')).toDispatchActions([
+                'setApiError',
+            ])
+
+            expect(logic.values.apiError).toBe('Card declined')
+        })
+
+        it('falls back to a generic message when the error envelope has no string detail', async () => {
+            useMocks({
+                post: {
+                    '/api/billing/activate/authorize/status': () => [
+                        200,
+                        {
+                            status: 'failed',
+                            error: { type: 'validation_error', code: 'invalid', detail: null, attr: null },
+                        },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_test')).toDispatchActions([
+                'setApiError',
+            ])
+
+            expect(logic.values.apiError).toBe('Payment failed. Please try again.')
+        })
+
+        it('keeps a plain string error as-is', async () => {
+            useMocks({
+                post: {
+                    '/api/billing/activate/authorize/status': () => [200, { status: 'failed', error: 'Card declined' }],
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.pollAuthorizationStatus('pi_test')).toDispatchActions([
+                'setApiError',
+            ])
+
+            expect(logic.values.apiError).toBe('Card declined')
+        })
+    })
+
     describe('startPaymentEntryFlow — new customer (no customer_id)', () => {
         it('opens the payment entry modal without calling activate', async () => {
             await seedBilling({ subscription_level: 'free' })

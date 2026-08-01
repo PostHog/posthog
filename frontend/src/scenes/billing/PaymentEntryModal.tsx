@@ -129,7 +129,9 @@ export const PaymentEntryModal = (): JSX.Element => {
                             We could not complete your upgrade at this time. Please review the error below and contact
                             support if you need help.
                         </p>
-                        <LemonBanner type="error">{apiError}</LemonBanner>
+                        <LemonBanner type="error">
+                            {typeof apiError === 'string' ? apiError : 'An unexpected error occurred.'}
+                        </LemonBanner>
                     </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">
