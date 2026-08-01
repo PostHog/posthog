@@ -39,7 +39,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use tokio::sync::{oneshot, Notify};
 use tokio::task::spawn_blocking;
 use tokio::time::sleep;
-use tracing::{error, warn};
+use tracing::{debug, error, warn};
 
 use personhog_proto::personhog::types::v1::Person;
 
@@ -541,17 +541,22 @@ impl FencedChangelogProducers {
                         .record(produce_start.elapsed().as_secs_f64() * 1000.0);
                     Ok(offset)
                 }
+                // These fire per write, and a broker outage fails every
+                // write, so the aggregate is the useful signal and the
+                // per-request detail belongs at debug. The caller logs
+                // the classified outcome, and the counters below carry
+                // the rate.
                 Ok(Err((e, _))) => {
-                    error!(partition, error = %e, "fenced send delivery failed");
+                    debug!(partition, error = %e, "fenced send delivery failed");
                     Err(Some(e))
                 }
                 Err(_cancelled) => {
-                    error!(partition, "fenced send cancelled");
+                    debug!(partition, "fenced send cancelled");
                     Err(None)
                 }
             },
             Err((e, _)) => {
-                error!(partition, error = %e, "fenced send enqueue failed");
+                debug!(partition, error = %e, "fenced send enqueue failed");
                 Err(Some(e))
             }
         };

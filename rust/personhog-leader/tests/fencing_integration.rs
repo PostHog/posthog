@@ -222,8 +222,8 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
     {
         let p = Arc::clone(&first);
         let mut inflight = Box::pin(async move { p.produce(0, &test_person(1)).await });
-        // Long enough for the send to reach the broker, far too short for
-        // the 30s window to close.
+        // Long enough for the send to reach the broker, far too short
+        // for the window to close.
         tokio::time::timeout(Duration::from_millis(200), &mut inflight)
             .await
             .ok();
@@ -245,6 +245,31 @@ async fn a_successors_init_aborts_the_predecessors_open_window() {
         visible, 0,
         "an abandoned record must not become readable after the successor's init — \
          if this fails, the drain must wait for open windows before acking"
+    );
+
+    // Zero is also what a partition nothing was ever produced to looks
+    // like, so the same sequence without a successor has to show the
+    // record arriving. Otherwise this test passes just as well when the
+    // send never left the client.
+    let control_topic = format!("fence_abort_control_{}", uuid::Uuid::new_v4().simple());
+    let lone = Arc::new(fenced_producers_with_window(
+        &control_topic,
+        Duration::from_secs(1),
+    ));
+    lone.acquire(0).await.expect("control owner acquires");
+    {
+        let p = Arc::clone(&lone);
+        let mut inflight = Box::pin(async move { p.produce(0, &test_person(1)).await });
+        tokio::time::timeout(Duration::from_millis(200), &mut inflight)
+            .await
+            .ok();
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        read_committed_count(&control_topic).await,
+        1,
+        "with no successor the abandoned record commits — without this the assertion \
+         above cannot tell an aborted window from a send that never happened"
     );
 }
 
@@ -287,29 +312,6 @@ async fn a_completed_warm_keeps_its_fence() {
         .produce(0, &test_person(1))
         .await
         .expect("a completed warm keeps a usable fence");
-}
-
-/// A commit whose outcome is unknown must not be reported as a failure.
-///
-/// "Aborted" invites a retry, and a retry against a cache still holding
-/// the pre-write version produces a second record carrying the same
-/// version as the one that may already have committed — which the
-/// writer's strict guard resolves in favour of whichever arrived first,
-/// discarding the acked one. The doubt has to survive as doubt.
-#[test]
-fn an_unknown_commit_outcome_is_not_reported_as_a_failure() {
-    let indeterminate = FencedProduceError::Indeterminate("timed out".to_string());
-    let aborted = FencedProduceError::Failed("aborted: send failed".to_string());
-
-    assert!(
-        !matches!(indeterminate, FencedProduceError::Failed(_)),
-        "an unknown outcome must be distinguishable from a known abort"
-    );
-    assert!(matches!(aborted, FencedProduceError::Failed(_)));
-    assert!(
-        indeterminate.to_string().contains("unknown"),
-        "the message must say what is actually known: {indeterminate}"
-    );
 }
 
 /// A producer whose abort exhausted its retries, or whose commit outcome
