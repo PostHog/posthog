@@ -372,6 +372,34 @@ impl Config {
         (self.fencing_budget() * FENCING_TXN_SHARE / FENCING_SHARE_BASE).max(MIN_TXN_TIMEOUT)
     }
 
+    /// The producer queue each fenced producer gets, in MiB.
+    ///
+    /// The shared producer's queue is sized for one client; the fenced
+    /// path creates one producer *per owned partition*, so inheriting
+    /// that figure multiplies it by the partition count. A lone survivor
+    /// owning every partition would be entitled to the whole product,
+    /// which for the deployed shape is several gigabytes against a pod
+    /// sized for one — a client spreading large property updates across
+    /// partitions while Kafka is slow could fill the independent queues
+    /// and exhaust the leader.
+    ///
+    /// So the budget is the aggregate, divided. The floor keeps a
+    /// high-partition-count deployment from starving any single producer
+    /// below a workable depth; it trades the guarantee for a bound that
+    /// is still far under the un-divided figure.
+    pub fn fencing_queue_mib(&self, partitions: u32) -> u32 {
+        const MIN_FENCED_QUEUE_MIB: u32 = 8;
+        (self.kafka.kafka_producer_queue_mib / partitions.max(1)).max(MIN_FENCED_QUEUE_MIB)
+    }
+
+    /// The same division for the message-count limit, which bounds the
+    /// queue independently of record size.
+    pub fn fencing_queue_messages(&self, partitions: u32) -> u32 {
+        const MIN_FENCED_QUEUE_MESSAGES: u32 = 10_000;
+        (self.kafka.kafka_producer_queue_messages / partitions.max(1))
+            .max(MIN_FENCED_QUEUE_MESSAGES)
+    }
+
     /// How long the broker may hold one of this pod's transactions open
     /// before abandoning it.
     ///
@@ -639,6 +667,54 @@ mod fencing_timescale_tests {
                 config.fencing_broker_txn_timeout(),
             );
         }
+    }
+
+    /// The fenced path creates one producer per owned partition, so the
+    /// shared producer's queue limits are an aggregate to divide rather
+    /// than a per-producer figure to copy. Inheriting them let a lone
+    /// survivor owning every partition claim the whole product — several
+    /// gigabytes on a pod sized for one — which a client can reach by
+    /// spreading large property updates across partitions while Kafka is
+    /// slow.
+    #[test]
+    fn fenced_producer_queues_do_not_scale_with_partition_count() {
+        let config = fenced(30);
+        let shared_mib = config.kafka.kafka_producer_queue_mib;
+        let shared_messages = config.kafka.kafka_producer_queue_messages;
+
+        for partitions in [1, 8, 16, 64, 256] {
+            let per_partition_mib = config.fencing_queue_mib(partitions);
+            let per_partition_messages = config.fencing_queue_messages(partitions);
+            assert!(
+                per_partition_mib <= shared_mib,
+                "partitions={partitions}: a single fenced producer must never be entitled \
+                 to more than the shared producer's whole queue"
+            );
+            // The floor means the aggregate is not exactly the shared
+            // budget at high partition counts, but it must stay within a
+            // small multiple of it rather than growing without bound.
+            let aggregate_mib = per_partition_mib * partitions;
+            assert!(
+                aggregate_mib <= shared_mib * 8,
+                "partitions={partitions}: fenced producers together claim {aggregate_mib} MiB \
+                 against a shared budget of {shared_mib} MiB"
+            );
+            let aggregate_messages = per_partition_messages as u64 * partitions as u64;
+            assert!(
+                aggregate_messages <= shared_messages as u64 * 8,
+                "partitions={partitions}: fenced producers together claim \
+                 {aggregate_messages} queued messages against {shared_messages}"
+            );
+        }
+    }
+
+    /// Dividing must not round a producer down to a depth that cannot
+    /// hold a window's worth of writes.
+    #[test]
+    fn a_high_partition_count_still_leaves_a_workable_queue() {
+        let config = fenced(30);
+        assert!(config.fencing_queue_mib(1024) >= 8);
+        assert!(config.fencing_queue_messages(1024) >= 10_000);
     }
 
     /// The production lease TTL must actually be usable with fencing on,

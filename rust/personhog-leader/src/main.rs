@@ -241,6 +241,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {
             kafka_message_timeout_ms: config.fencing_message_timeout().as_millis() as u32,
+            // One producer per owned partition, so the shared producer's
+            // queue limits are an aggregate to divide rather than a
+            // per-producer figure to copy.
+            kafka_producer_queue_mib: config.fencing_queue_mib(num_partitions),
+            kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
             ..config.kafka.clone()
         };
         Some(Arc::new(FencedChangelogProducers::new(
