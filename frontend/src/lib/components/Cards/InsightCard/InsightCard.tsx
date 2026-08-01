@@ -375,6 +375,7 @@ function InsightCardInternal(
                     <InsightErrorState
                         title={apiError.detail}
                         queryId={apiError.data?.queryId}
+                        errorCode={apiError.code}
                         supportOnly={isDashboardTileError}
                     />
                 )

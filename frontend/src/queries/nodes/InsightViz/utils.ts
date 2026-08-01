@@ -209,10 +209,16 @@ export const extractValidationError = (error: Error | Record<string, any> | null
     return null
 }
 
+// Unlike extractValidationErrorCode, not gated on VALIDATION_ERROR_STATUSES: telemetry also wants
+// a classifier for the generic 500 bucket, which is where most funnel query crashes land today.
+export const extractErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
+    const anyError = error as Record<string, any> | null | undefined
+    return anyError?.code ?? anyError?.data?.code ?? null
+}
+
 export const extractValidationErrorCode = (error: Error | Record<string, any> | null | undefined): string | null => {
     if (hasValidationErrorStatus(error)) {
-        const anyError = error as Record<string, any>
-        return anyError.code ?? anyError.data?.code ?? null
+        return extractErrorCode(error)
     }
 
     return null

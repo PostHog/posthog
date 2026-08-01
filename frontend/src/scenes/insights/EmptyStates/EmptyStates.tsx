@@ -670,6 +670,7 @@ export interface InsightErrorStateProps {
     title?: string | JSX.Element | null
     query?: Record<string, any> | Node | null
     queryId?: string | null
+    errorCode?: string | null
     excludeDetail?: boolean
     excludeActions?: boolean
     supportOnly?: boolean
@@ -681,6 +682,7 @@ export function InsightErrorState({
     title,
     query,
     queryId,
+    errorCode,
     excludeDetail = false,
     excludeActions = false,
     supportOnly = false,
@@ -691,10 +693,12 @@ export function InsightErrorState({
     const { openSupportForm } = useActions(supportLogic)
 
     // Raw error detail can echo query fragments, so telemetry only gets coarse metadata;
-    // query_id lets staff look the actual error up server-side
+    // query_id lets staff look the actual error up server-side, and code classifies the
+    // failure (e.g. a ClickHouse error name) without leaking any query content
     useOnMountEffect(() => {
         posthog.capture('insight error message shown', {
             error_type: 'server',
+            code: errorCode ?? null,
             query_kind: queryKindForReporting(query),
             query_id: queryId ?? null,
         })

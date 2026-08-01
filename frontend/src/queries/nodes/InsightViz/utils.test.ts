@@ -1,6 +1,6 @@
 import { InsightModel } from '~/types'
 
-import { extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
+import { extractErrorCode, extractValidationErrorCode, getQueryBasedInsightModel } from './utils'
 
 describe('extractValidationErrorCode', () => {
     test.each([
@@ -15,6 +15,22 @@ describe('extractValidationErrorCode', () => {
         ['no error', null, null],
     ])('%s', (_name, error, expected) => {
         expect(extractValidationErrorCode(error)).toBe(expected)
+    })
+})
+
+describe('extractErrorCode', () => {
+    // Unlike extractValidationErrorCode, this must not gate on status: the generic 500 "server"
+    // error bucket is exactly where a classifier was previously missing from telemetry.
+    test.each([
+        ['code on a generic 500 error', { status: 500, code: 'no_common_type' }, 'no_common_type'],
+        [
+            'code in the response body on a 500 error',
+            { status: 500, data: { code: 'no_common_type' } },
+            'no_common_type',
+        ],
+        ['no error', null, null],
+    ])('%s', (_name, error, expected) => {
+        expect(extractErrorCode(error)).toBe(expected)
     })
 })
 

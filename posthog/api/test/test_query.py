@@ -455,6 +455,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        response = response_post.json()
+        # The message itself is swallowed, but the code classifier must still get through so
+        # frontend telemetry can distinguish failure causes instead of bucketing them all as "error".
+        self.assertEqual(response["code"], "syntax_error")
+        self.assertEqual(response["detail"], "ClickHouse error while executing query.")
+
     @also_test_with_materialized_columns(event_properties=["key", "path"])
     @snapshot_clickhouse_queries
     def test_property_filter_aggregations(self):

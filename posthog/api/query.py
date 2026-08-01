@@ -334,7 +334,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         except InternalCHQueryError as e:
             self.handle_column_ch_error(e)
             capture_exception(e)
-            raise APIException("ClickHouse error while executing query.")
+            # code_name (e.g. "no_common_type") is safe to expose: it's a fixed classifier name,
+            # never the raw ClickHouse message, which stays server-side via capture_exception above.
+            raise APIException("ClickHouse error while executing query.", code=e.code_name)
         except UserAccessControlError as e:
             raise ValidationError(str(e))
         except ResolutionError as e:

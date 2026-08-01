@@ -26,6 +26,7 @@ import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
 import {
+    extractErrorCode,
     extractValidationError,
     extractValidationErrorCode,
     getAllEventNames,
@@ -185,6 +186,7 @@ export interface insightVizDataLogicValues {
     display: ChartDisplayType | null | undefined
     enabledIntervals: Intervals
     erroredQueryId: any
+    erroredQueryErrorCode: string | null
     formula: string | null | undefined
     formulaNodes: TrendsFormulaNode[]
     formulas: string[] | null | undefined
@@ -1106,6 +1108,7 @@ export interface insightVizDataLogicMeta {
             featureFlags: FeatureFlagsSet
         ) => Intervals
         erroredQueryId: (insightDataError: Record<string, any> | null) => any
+        erroredQueryErrorCode: (insightDataError: Record<string, any> | null) => string | null
         validationError: (insightDataError: Record<string, any> | null) => string | null
         validationErrorCode: (insightDataError: Record<string, any> | null) => string | null
         timezone: (insightData: Record<string, any>) => any
@@ -2322,6 +2325,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (insightDataError: Record<string, any> | null) => {
                 return insightDataError?.queryId || null
             },
+        ],
+        erroredQueryErrorCode: [
+            (s) => [s.insightDataError],
+            (insightDataError: Record<string, any> | null): string | null => extractErrorCode(insightDataError),
         ],
         validationError: [
             (s) => [s.insightDataError],

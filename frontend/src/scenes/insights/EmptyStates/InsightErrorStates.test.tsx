@@ -48,9 +48,21 @@ describe('insight error states', () => {
         expect(shownCalls).toHaveLength(1)
         expect(shownCalls[0][1]).toEqual({
             error_type: 'server',
+            code: null,
             query_kind: null,
             query_id: 'test-query-id',
         })
+    })
+
+    // This bucket used to always report code: null, making it impossible to tell failure causes apart
+    it('includes the error code when a server error carries one', () => {
+        render(
+            <InsightErrorState title="A server error occurred." queryId="test-query-id" errorCode="no_common_type" />
+        )
+
+        const shownCalls = captureSpy.mock.calls.filter((call) => call[0] === 'insight error message shown')
+        expect(shownCalls).toHaveLength(1)
+        expect(shownCalls[0][1]).toMatchObject({ code: 'no_common_type' })
     })
 
     // The retry button only offers a side action (query debugger link) when it has a query. Without

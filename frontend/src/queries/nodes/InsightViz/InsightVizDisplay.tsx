@@ -157,6 +157,7 @@ export function InsightVizDisplay({
         samplingFactor,
         insightDataLoading,
         erroredQueryId,
+        erroredQueryErrorCode,
         timedOutQueryId,
         vizSpecificOptions,
         query,
@@ -269,6 +270,7 @@ export function InsightVizDisplay({
                 <InsightErrorState
                     query={query}
                     queryId={erroredQueryId}
+                    errorCode={erroredQueryErrorCode}
                     onRetry={() => {
                         loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                     }}
