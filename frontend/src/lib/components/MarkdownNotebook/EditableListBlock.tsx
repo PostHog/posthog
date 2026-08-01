@@ -9,6 +9,8 @@ import {
     useRef,
 } from 'react'
 
+import DOMPurify from 'dompurify'
+
 import { getTaskItemShortcut, shouldUseMarkdownPaste } from './documentModel'
 import { getInlineLinkPasteResult, getSelectionRange } from './domSelection'
 import { RestoreSelectionRequest, TextSelectionPointerStartEvent } from './editorTypes'
@@ -227,7 +229,7 @@ export function EditableListBlock({
 
         event.preventDefault()
         const container = document.createElement('div')
-        container.innerHTML = html
+        container.innerHTML = DOMPurify.sanitize(html)
         document.execCommand('insertHTML', false, inlineNodesToHtml(htmlElementToInlineNodes(container)))
         updateListItemChildrenFromElement(element)
     }
