@@ -19,7 +19,14 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import ActorsQuery, EventsNode, ExperimentActorsQuery, ExperimentFunnelMetric, ExperimentQuery
+from posthog.schema import (
+    ActorsQuery,
+    EventsNode,
+    ExperimentActorsQuery,
+    ExperimentDataWarehouseNode,
+    ExperimentFunnelMetric,
+    ExperimentQuery,
+)
 
 from posthog.hogql.context import HogQLContext
 
@@ -263,6 +270,54 @@ class TestExperimentActorsQuery(ExperimentQueryRunnerBaseTest, ClickhouseTestMix
         assert len(response.results[0]) == 3
         # matched_recordings should be a list (may be empty if no actual recordings exist)
         assert isinstance(response.results[0][2], list)
+
+    def test_experiment_funnel_actors_rejects_data_warehouse_step(self):
+        """
+        Viewing individual users/recordings for a funnel step isn't implemented for
+        DW-backed funnel steps (unlike the aggregate results query, which supports a
+        UNION ALL pattern). Without this guard, the request falls through to an
+        internal NotImplementedError deep in query construction instead of a clear
+        validation error.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        metric = ExperimentFunnelMetric(
+            series=[
+                EventsNode(event="signup"),
+                ExperimentDataWarehouseNode(
+                    table_name="usage",
+                    events_join_key="properties.$user_id",
+                    data_warehouse_join_key="userid",
+                    timestamp_field="ds",
+                ),
+            ],
+        )
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        experiment_actors_query = ExperimentActorsQuery(
+            kind="ExperimentActorsQuery",
+            source=experiment_query,
+            funnelStep=1,
+            funnelStepBreakdown="control",
+            includeRecordings=False,
+        )
+        actors_query = ActorsQuery(
+            source=experiment_actors_query,
+            select=["id", "person"],
+        )
+
+        with self.assertRaises(Exception) as context:
+            ActorsQueryRunner(query=actors_query, team=self.team).calculate()
+
+        self.assertIn("not yet supported", str(context.exception))
+        self.assertIn("data warehouse", str(context.exception))
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_experiment_funnel_actors_invalid_steps(self):

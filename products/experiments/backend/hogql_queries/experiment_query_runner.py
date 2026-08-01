@@ -785,6 +785,14 @@ class ExperimentQueryRunner(QueryRunner):
         if not isinstance(self.metric, ExperimentFunnelMetric):
             raise ValidationError("Actors query only supported for funnel experiment metrics")
 
+        # Viewing individual users/recordings for a step isn't implemented yet for
+        # funnels with a data warehouse step (only the aggregate results query
+        # supports the mixed-source UNION ALL pattern for those).
+        if any(isinstance(step, ExperimentDataWarehouseNode) for step in self.metric.series):
+            raise ValidationError(
+                "Viewing individual users is not yet supported for funnel metrics with a data warehouse step."
+            )
+
         # Validate funnelStep
         funnel_step = self.actors_query.funnelStep
         if funnel_step is None:

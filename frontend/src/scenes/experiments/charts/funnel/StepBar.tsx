@@ -134,8 +134,15 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
     // variants, the bars fall back to the muted color.
     const seriesColor = variantKey ? getVariantColor(variantKey, getExperimentVariants(experiment)) : 'var(--muted)'
 
+    // Viewing individual users isn't supported yet for funnels with a data warehouse
+    // step - the backend actors query only supports the events-only path.
+    const hasDataWarehouseStep =
+        !!experimentQuery &&
+        isExperimentFunnelMetric(experimentQuery.metric) &&
+        experimentQuery.metric.series.some((s) => s.kind === NodeKind.ExperimentDataWarehouseNode)
+
     const handleDropoffClick = (): void => {
-        if (experimentQuery) {
+        if (experimentQuery && !hasDataWarehouseStep) {
             openExperimentPersonsModalForSeries({
                 step: step,
                 stepIndex: stepIndex,
@@ -147,7 +154,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
     }
 
     const handleConversionClick = (): void => {
-        if (experimentQuery) {
+        if (experimentQuery && !hasDataWarehouseStep) {
             openExperimentPersonsModalForSeries({
                 step: step,
                 stepIndex: stepIndex,
@@ -177,7 +184,8 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                         // - Step 0 (exposure): can't use actors query (returns early), so don't show hint
                         // - Step 1 (first metric) drop-offs: can't query (no exposure in backend funnel), conversions work
                         // - Step 2+: both conversions and drop-offs work
-                        const hasClickableData = stepIndex > 0
+                        // - Any data warehouse step: actors query isn't supported at all
+                        const hasClickableData = stepIndex > 0 && !hasDataWarehouseStep
                         showTooltip([rect.x, rect.y, rect.width], stepIndex, step, hasClickableData)
                     }
                 }}
@@ -187,14 +195,14 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element | null {
                     className="StepBar__backdrop"
                     onClick={handleDropoffClick}
                     style={{
-                        cursor: stepIndex > 1 ? 'pointer' : 'default',
+                        cursor: stepIndex > 1 && !hasDataWarehouseStep ? 'pointer' : 'default',
                     }}
                 />
                 <div
                     className="StepBar__fill"
                     onClick={handleConversionClick}
                     style={{
-                        cursor: stepIndex > 0 ? 'pointer' : 'default',
+                        cursor: stepIndex > 0 && !hasDataWarehouseStep ? 'pointer' : 'default',
                     }}
                 />
             </div>
