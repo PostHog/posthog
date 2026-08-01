@@ -217,11 +217,10 @@ class TestStatisticalDetectors:
         self, _name: str, detector_cls: Any, data: Any, spike_index: int
     ) -> None:
         # detect_batch trims preprocess()'s synthetic leading point internally, so the
-        # first scorable position shifts one later than window alone (window + diffs_n
-        # leading Nones, not just window) — asserting that count fails against the old
-        # un-shifted indexing. triggered_indices/all_scores must be shifted back so
-        # callers (which map indices to dates on the original series) don't get an
-        # off-by-one against every date after the first.
+        # first scorable position is window + diffs_n + offset - 1, not window alone.
+        # triggered_indices/all_scores must be shifted back so callers (which map
+        # indices to dates on the original series) don't get an off-by-one against
+        # every date after the first.
         detector = detector_cls({"threshold": 0.9, "window": 5, "preprocessing": {"diffs_n": 1}})
         result = detector.detect_batch(data)
         assert len(result.all_scores) == len(data)
