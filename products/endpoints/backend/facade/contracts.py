@@ -16,8 +16,8 @@ from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)
-class EndpointInfo:
-    """An endpoint (team-scoped, name-addressed). Version-specific data lives on EndpointVersionInfo."""
+class EndpointSummary:
+    """An endpoint (team-scoped, name-addressed). Version-specific data lives on EndpointVersionSnapshot."""
 
     id: UUID
     team_id: int
@@ -31,7 +31,7 @@ class EndpointInfo:
 
 
 @dataclass(frozen=True)
-class EndpointVersionInfo:
+class EndpointVersionSnapshot:
     """An immutable query snapshot for one endpoint version."""
 
     id: UUID

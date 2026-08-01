@@ -79,8 +79,8 @@ def __getattr__(name: str):
     return getattr(module, name)
 
 
-def _to_endpoint_info(endpoint: Endpoint) -> contracts.EndpointInfo:
-    return contracts.EndpointInfo(
+def _to_endpoint_info(endpoint: Endpoint) -> contracts.EndpointSummary:
+    return contracts.EndpointSummary(
         id=endpoint.id,
         team_id=endpoint.team_id,
         name=endpoint.name,
@@ -93,8 +93,8 @@ def _to_endpoint_info(endpoint: Endpoint) -> contracts.EndpointInfo:
     )
 
 
-def _to_version_info(version: EndpointVersion) -> contracts.EndpointVersionInfo:
-    return contracts.EndpointVersionInfo(
+def _to_version_info(version: EndpointVersion) -> contracts.EndpointVersionSnapshot:
+    return contracts.EndpointVersionSnapshot(
         id=version.id,
         endpoint_id=version.endpoint_id,
         version=version.version,
@@ -108,17 +108,17 @@ def _to_version_info(version: EndpointVersion) -> contracts.EndpointVersionInfo:
     )
 
 
-def list_endpoints(team_id: int) -> list[contracts.EndpointInfo]:
+def list_endpoints(team_id: int) -> list[contracts.EndpointSummary]:
     endpoints = Endpoint.objects.filter(team_id=team_id, deleted=False).order_by("name")
     return [_to_endpoint_info(e) for e in endpoints]
 
 
-def get_endpoint(team_id: int, name: str) -> contracts.EndpointInfo | None:
+def get_endpoint(team_id: int, name: str) -> contracts.EndpointSummary | None:
     endpoint = Endpoint.objects.filter(team_id=team_id, name=name, deleted=False).first()
     return _to_endpoint_info(endpoint) if endpoint is not None else None
 
 
-def get_endpoint_version(team_id: int, name: str, version: int | None = None) -> contracts.EndpointVersionInfo | None:
+def get_endpoint_version(team_id: int, name: str, version: int | None = None) -> contracts.EndpointVersionSnapshot | None:
     """Get a specific version's snapshot, or the current version when ``version`` is None."""
     endpoint = Endpoint.objects.filter(team_id=team_id, name=name, deleted=False).first()
     if endpoint is None:
