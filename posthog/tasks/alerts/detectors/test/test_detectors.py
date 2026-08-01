@@ -264,6 +264,31 @@ class TestStatisticalDetectors:
         detector.detect(data)
         detector.detect_batch(data)
 
+    @parameterized.expand(
+        [
+            (f"{name}_diffs_{diffs_n}", detector_type, detector_cls, diffs_n)
+            for name, detector_type, detector_cls in (
+                ("zscore", "zscore", ZScoreDetector),
+                ("iqr", "iqr", IQRDetector),
+                ("mad", "mad", MADDetector),
+            )
+            for diffs_n in (0, 1, 2)
+        ]
+    )
+    def test_detect_scores_the_sample_count_the_check_fetches(
+        self, _name: str, detector_type: str, detector_cls: Any, diffs_n: int
+    ) -> None:
+        # A check only fetches _compute_min_samples_for_detector() points, so any detector
+        # demanding more silently returns the _validate_data rejection (score None) forever
+        # instead of firing. preprocess_data treats diffs_n as a boolean toggle, so a
+        # detector counting it as a pass count over-reserves once diffs_n > 1 and drifts
+        # out of agreement with the fetch.
+        window = 30
+        config = {"type": detector_type, "window": window, "preprocessing": {"diffs_n": diffs_n}}
+        data = np.array([10.0] * (_compute_min_samples_for_detector(config) - 1) + [500.0])
+        result = detector_cls({"threshold": 0.9, "window": window, "preprocessing": {"diffs_n": diffs_n}}).detect(data)
+        assert result.score is not None
+
 
 class TestPyODDetectors:
     @parameterized.expand(PYOD_DETECTORS_FOR_ANOMALY_TEST)
