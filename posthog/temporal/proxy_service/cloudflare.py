@@ -66,7 +66,7 @@ class CustomHostnameSSL:
 
 
 @dataclass
-class CustomHostnameInfo:
+class CustomHostname:
     """Information about a Custom Hostname."""
 
     id: str
@@ -85,10 +85,10 @@ def _get_headers() -> dict[str, str]:
     }
 
 
-def _parse_hostname(result: dict) -> "CustomHostnameInfo":
-    """Build a CustomHostnameInfo from a Cloudflare API custom_hostname result object."""
+def _parse_hostname(result: dict) -> "CustomHostname":
+    """Build a CustomHostname from a Cloudflare API custom_hostname result object."""
     ssl_payload = result.get("ssl", {})
-    return CustomHostnameInfo(
+    return CustomHostname(
         id=result["id"],
         hostname=result["hostname"],
         status=CustomHostnameStatus(result["status"]),
@@ -121,7 +121,7 @@ def _handle_response(response: requests.Response) -> dict:
     return data
 
 
-def create_custom_hostname(domain: str) -> CustomHostnameInfo:
+def create_custom_hostname(domain: str) -> CustomHostname:
     """
     Create a Custom Hostname in Cloudflare for SaaS.
 
@@ -134,7 +134,7 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
         domain: The customer's domain (e.g., "analytics.customer.com")
 
     Returns:
-        CustomHostnameInfo with the created hostname details
+        CustomHostname with the created hostname details
 
     Raises:
         CloudflareAPIError: If the API request fails
@@ -154,7 +154,7 @@ def create_custom_hostname(domain: str) -> CustomHostnameInfo:
     return _parse_hostname(data["result"])
 
 
-def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
+def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostname]:
     """
     Get details of a Custom Hostname by ID.
 
@@ -162,7 +162,7 @@ def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
         hostname_id: The Cloudflare Custom Hostname ID
 
     Returns:
-        CustomHostnameInfo or None if not found
+        CustomHostname or None if not found
 
     Raises:
         CloudflareAPIError: If the API request fails (except for 404)
@@ -178,7 +178,7 @@ def get_custom_hostname(hostname_id: str) -> t.Optional[CustomHostnameInfo]:
     return _parse_hostname(data["result"])
 
 
-def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]:
+def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostname]:
     """
     Find a Custom Hostname by domain name.
 
@@ -186,7 +186,7 @@ def get_custom_hostname_by_domain(domain: str) -> t.Optional[CustomHostnameInfo]
         domain: The customer's domain (e.g., "analytics.customer.com")
 
     Returns:
-        CustomHostnameInfo or None if not found
+        CustomHostname or None if not found
 
     Raises:
         CloudflareAPIError: If the API request fails
