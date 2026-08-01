@@ -2,7 +2,7 @@ from typing import ClassVar, cast, get_args
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
-from posthog.hogql.errors import ImpossibleASTError, QueryError
+from posthog.hogql.errors import QueryError
 from posthog.hogql.printer.base import BasePrinter
 
 
@@ -29,7 +29,7 @@ class HogQLPrinter(BasePrinter):
         if set_operator not in get_args(ast.SetOperator):
             raise QueryError(f"Invalid set operator: {set_operator!r}")
         if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
-            raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
 
     def visit_cte(self, node: ast.CTE) -> str:
         materialization_hint = (

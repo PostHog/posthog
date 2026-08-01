@@ -405,7 +405,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_intersect_all_raises_in_clickhouse(self):
-        with self.assertRaises(ImpossibleASTError) as context:
+        with self.assertRaises(QueryError) as context:
             self._select("select 1 as id intersect all select 2 as id")
         self.assertIn("INTERSECT ALL is not supported", str(context.exception))
 
@@ -426,7 +426,7 @@ class TestPrinter(BaseTest):
         )
 
     def test_except_all_raises_in_clickhouse(self):
-        with self.assertRaises(ImpossibleASTError) as context:
+        with self.assertRaises(QueryError) as context:
             self._select("select 1 as id except all select 2 as id")
         self.assertIn("EXCEPT ALL is not supported", str(context.exception))
 

@@ -106,7 +106,7 @@ class BasePrinter(Visitor[str]):
         if set_operator not in get_args(ast.SetOperator):
             raise QueryError(f"Invalid set operator: {set_operator!r}")
         if set_operator in ("INTERSECT ALL", "EXCEPT ALL"):
-            raise ImpossibleASTError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
+            raise QueryError(f"{set_operator} is not supported in the '{self.DIALECT_NAME}' dialect")
         if set_operator.endswith(" BY NAME"):
             # The resolver lowers BY NAME for ClickHouse; reaching the printer means this dialect has
             # neither native support nor a lowering, so refuse rather than emit SQL the engine rejects.
