@@ -1,0 +1,280 @@
+name: Desktop Update E2E (macOS)
+
+# Real macOS auto-update end to end: build a signed old (1.0.0) app and a signed
+# new (2.0.0) feed, serve the feed on localhost, then drive a packaged build
+# through download -> install -> Squirrel.Mac swap -> relaunch and assert the
+# installed app became 2.0.0. Nightly and on demand only, never on PRs: it builds
+# twice and exercises a real install, so it is too slow and too flaky for the gate.
+#
+# Two legs run against the same new (2.0.0) feed:
+#   1. electron-builder -> electron-builder: the forward-compatibility baseline.
+#   2. Forge -> electron-builder: a real Electron Forge build (v0.55.132, the last
+#      Forge release, what users run today) updating via the genuine built-in
+#      Squirrel.Mac client to the electron-builder build we ship now.
+
+on:
+    schedule:
+        - cron: '0 7 * * *'
+    workflow_dispatch:
+
+concurrency:
+    group: desktop-update-e2e-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    update-e2e-macos:
+        runs-on: macos-15
+        timeout-minutes: 90
+        defaults:
+            run:
+                working-directory: products/desktop
+        permissions:
+            id-token: write
+            contents: read
+        env:
+            NODE_OPTIONS: '--max-old-space-size=8192'
+            NODE_ENV: production
+            npm_config_arch: arm64
+            npm_config_platform: darwin
+            VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
+            VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
+            # Sign both builds with the same identity so Squirrel.Mac accepts the swap.
+            # Notarization is skipped: it is a Gatekeeper concern, not what the in-place
+            # update verifies, and locally built bundles carry no quarantine attribute.
+            CSC_LINK: ${{ secrets.APPLE_CODESIGN_CERT_BASE64 }}
+            CSC_KEY_PASSWORD: ${{ secrets.APPLE_CODESIGN_CERT_PASSWORD }}
+            APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+            SKIP_NOTARIZE: '1'
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  persist-credentials: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/desktop/package.json
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+                  cache-dependency-path: products/desktop/pnpm-lock.yaml
+
+            - name: Cache Electron binary
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ~/Library/Caches/electron
+                  key: electron-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      electron-${{ runner.os }}-
+
+            - name: Cache Playwright browsers
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: ~/Library/Caches/ms-playwright
+                  key: playwright-${{ runner.os }}-${{ hashFiles('products/desktop/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      playwright-${{ runner.os }}-
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Configure AWS credentials
+              uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
+              with:
+                  role-to-assume: ${{ secrets.AWS_TWIG_APP_ASSETS_ROLE_ARN }}
+                  aws-region: ${{ secrets.AWS_TWIG_APP_ASSETS_REGION }}
+                  mask-aws-account-id: true
+                  unset-current-credentials: true
+
+            - name: Download BerkeleyMono fonts from S3
+              run: aws s3 cp s3://${{ secrets.AWS_TWIG_APP_ASSETS_BUCKET }}/fonts/BerkeleyMono/ apps/code/assets/fonts/BerkeleyMono/ --recursive
+
+            - name: Build workspace packages
+              run: |
+                  pnpm --filter @posthog/electron-trpc run build
+                  pnpm --filter @posthog/platform run build
+                  pnpm --filter @posthog/shared run build
+                  pnpm --filter @posthog/git run build
+                  pnpm --filter @posthog/enricher run build
+                  pnpm --filter @posthog/harness run build
+                  pnpm --filter @posthog/agent run build
+
+            - name: Build old + new update pair
+              working-directory: products/desktop/apps/code
+              run: bash scripts/dev-update/build-pair.sh
+
+            - name: Install Playwright
+              run: pnpm --filter code exec playwright install
+
+            - name: Run macOS update E2E
+              working-directory: products/desktop/apps/code
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/products/desktop/apps/code/out/update-report.json
+              run: |
+                  pnpm exec playwright test --config=tests/e2e/playwright.update.config.ts
+                  node -e '
+                    const r = require(process.env.GITHUB_WORKSPACE + "/products/desktop/apps/code/out/update-report.json");
+                    const s = r.stats || {};
+                    console.log("update e2e stats:", JSON.stringify(s));
+                    if (s.expected !== 1 || s.skipped || s.unexpected || s.flaky) {
+                      console.error("FAIL: expected exactly one passing update test");
+                      process.exit(1);
+                    }
+                  '
+
+            # Forge -> electron-builder leg. The old Forge app is a fixed pinned build
+            # (cb0ca68db), byte-identical on every run, so cache it and skip the ~11 min
+            # rebuild that dominates this job. The key tracks the build script, which
+            # pins the ref; bump the script to force a rebuild. Built after the baseline
+            # leg so a flake in the (riskier) old-build step can never mask the baseline.
+            - name: Cache old Forge app (v0.55.132)
+              id: forge-cache
+              uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+              with:
+                  path: products/desktop/apps/code/out/old-forge
+                  key: forge-app-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('products/desktop/apps/code/scripts/dev-update/build-old-forge.sh') }}
+
+            # Reuse the cached app only if its signature still verifies, otherwise rebuild.
+            # This makes a missing or tar-corrupted restore degrade to today's behaviour
+            # (a full build) instead of a confusing swap failure in the Forge leg.
+            - name: Build old Forge app if not cached
+              working-directory: products/desktop/apps/code
+              env:
+                  CACHE_HIT: ${{ steps.forge-cache.outputs.cache-hit }}
+              run: |
+                  APP="out/old-forge/PostHog Code.app"
+                  if [ "$CACHE_HIT" = "true" ] && codesign --verify --strict "$APP" 2>/dev/null; then
+                    echo "Reusing cached Forge app with a valid signature"
+                    codesign --verify --strict --verbose=2 "$APP"
+                  else
+                    echo "No usable cached Forge app; building from the pinned ref"
+                    rm -rf out/old-forge
+                    bash scripts/dev-update/build-old-forge.sh
+                  fi
+
+            - name: Run macOS Forge to builder update E2E
+              working-directory: products/desktop/apps/code
+              env:
+                  PLAYWRIGHT_JSON_OUTPUT_NAME: ${{ github.workspace }}/products/desktop/apps/code/out/update-forge-report.json
+              run: |
+                  pnpm exec playwright test --config=tests/e2e/playwright.update-forge.config.ts
+                  node -e '
+                    const r = require(process.env.GITHUB_WORKSPACE + "/products/desktop/apps/code/out/update-forge-report.json");
+                    const s = r.stats || {};
+                    console.log("forge update e2e stats:", JSON.stringify(s));
+                    if (s.expected !== 1 || s.skipped || s.unexpected || s.flaky) {
+                      console.error("FAIL: expected exactly one passing forge update test");
+                      process.exit(1);
+                    }
+                  '
+
+            - name: Render update proof summaries
+              if: always()
+              working-directory: products/desktop/apps/code
+              run: |
+                  node -e '
+                    const fs = require("fs");
+                    const proofs = [
+                      ["out/update-proof/proof.json", "macOS auto-update proof (builder -> builder)"],
+                      ["out/update-proof-forge/proof.json", "macOS auto-update proof (Forge -> builder)"],
+                    ];
+                    const cell = (v) => v === undefined || v === null ? "-" : String(v).replace(/\|/g, "\\|").replace(/\n/g, " ");
+                    for (const [p, title] of proofs) {
+                      if (!fs.existsSync(p)) { console.log("no proof file at " + p); continue; }
+                      const d = JSON.parse(fs.readFileSync(p, "utf8"));
+                      const rows = [
+                        ["Result", d.result],
+                        ["Old version", d.oldVersion],
+                        ["New version", d.newVersion],
+                        ["Booted on", d.bootedOn],
+                        ["Feed offered", d.feedAvailableVersion],
+                        ["Downloaded", d.downloaded],
+                        ["Bundle after swap", d.bundleVersionAfterSwap],
+                        ["Auto-relaunched exe", d.autoRelaunchedExecutable],
+                        ["Fresh launch version", d.freshLaunchVersion],
+                        ["ShipIt cache", d.shipItExists ? (d.shipItEntries || []).join(", ") : "missing"],
+                        ["Failed step", d.failedStep],
+                        ["Error", d.error],
+                        ["Finished", d.finishedAt],
+                      ];
+                      const md = ["## " + title + ": " + d.result, "", "| Check | Value |", "| --- | --- |"]
+                        .concat(rows.map((r) => "| " + r[0] + " | " + cell(r[1]) + " |"))
+                        .join("\n");
+                      fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md + "\n\n");
+                      console.log(md);
+                    }
+                  '
+
+            - name: Upload proof, report and logs
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: update-e2e-macos
+                  path: |
+                      products/desktop/apps/code/out/update-proof/
+                      products/desktop/apps/code/out/update-proof-forge/
+                      products/desktop/apps/code/out/update-report.json
+                      products/desktop/apps/code/out/update-forge-report.json
+                      products/desktop/apps/code/playwright-results/
+                      /Users/runner/.posthog-code/logs/
+                      /Users/runner/Library/Caches/com.posthog.array.ShipIt/
+                  if-no-files-found: ignore
+                  retention-days: 7
+
+            - name: Upload old build (1.0.0)
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: update-old-build-1.0.0
+                  path: |
+                      products/desktop/apps/code/out/PostHog-Code-1.0.0-arm64-mac.zip
+                      products/desktop/apps/code/out/PostHog-Code-1.0.0-arm64-mac.zip.blockmap
+                  if-no-files-found: warn
+                  retention-days: 7
+
+            - name: Upload new build feed (2.0.0)
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: update-new-build-2.0.0
+                  path: products/desktop/apps/code/out/dev-update-feed/
+                  if-no-files-found: warn
+                  retention-days: 7
+
+            # upload-artifact follows symlinks and repacks them as real files, which
+            # breaks the framework layout and the code signature. ditto -c -k preserves
+            # both, so the pulled zip extracts to a bundle Squirrel still accepts (the
+            # same way the baseline old app travels). run-from-ci-forge.sh consumes this.
+            - name: Package old Forge app for upload
+              if: always()
+              working-directory: products/desktop/apps/code
+              run: |
+                  APP="out/old-forge/PostHog Code.app"
+                  ZIP="out/PostHog-Code-forge-1.0.0-arm64-mac.zip"
+                  if [ ! -d "$APP" ]; then
+                    echo "no Forge app to package (an earlier step likely failed); skipping"
+                    exit 0
+                  fi
+                  ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+                  # Prove the zip round-trips to a still-valid signature, so the artifact
+                  # run-from-ci-forge.sh pulls is usable and not silently corrupt.
+                  VERIFY_DIR="$(mktemp -d)"
+                  ditto -x -k "$ZIP" "$VERIFY_DIR"
+                  codesign --verify --strict "$VERIFY_DIR/PostHog Code.app"
+                  rm -rf "$VERIFY_DIR"
+                  echo "OK: packaged Forge app zip verifies"
+
+            - name: Upload old Forge build (v0.55.132)
+              if: always()
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: update-old-forge-build-1.0.0
+                  path: products/desktop/apps/code/out/PostHog-Code-forge-1.0.0-arm64-mac.zip
+                  if-no-files-found: warn
+                  retention-days: 7

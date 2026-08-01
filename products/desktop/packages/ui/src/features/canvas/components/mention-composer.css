@@ -1,0 +1,13 @@
+/* Tiptap placeholder - targets the empty first paragraph */
+.mention-composer p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: var(--muted-foreground);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+.mention-composer .ProseMirror-selectednode {
+  background: var(--accent-a4);
+  border-radius: var(--radius-1);
+}

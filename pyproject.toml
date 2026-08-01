@@ -324,6 +324,8 @@ exclude = [
     "./env",
     "./posthog/hogql/grammar",
     "products/*/skills/*/scripts",
+    # imported desktop app; Biome-linted by its own desktop-* CI
+    "products/desktop",
 ]
 
 [tool.ruff.lint]
@@ -458,7 +460,7 @@ exclude_gitignore = true
 # (both resolve to top-level module "conftest")
 # rust/deltalite/python: pytest suite for the maturin-built extension; nothing Django
 # imports it and it has its own CI (ci-deltalite-python.yml).
-exclude = ["^(bin/.*|tools/.*|rust/deltalite/python/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|rust/deltalite/python/.*|products/desktop/.*|products/[^/]+/skills/[^/]+/scripts/.*|gunicorn\\.config\\.py|manage\\.py|conftest\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"

@@ -1,0 +1,78 @@
+name: Desktop Agent Tag
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - 'products/desktop/packages/agent/**'
+            - '.github/workflows/desktop-agent-tag.yml'
+            - '.github/workflows/desktop-agent-release.yml'
+
+concurrency:
+    group: desktop-agent-tag
+    cancel-in-progress: false
+
+jobs:
+    tag:
+        permissions:
+            contents: write
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              with:
+                  app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
+
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  filter: blob:none
+                  token: ${{ steps.app-token.outputs.token }}
+
+            - name: Compute version and create tag
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  # Find the latest agent base version tag (agent-vX.Y or agent-vX.Y.0 format)
+                  LATEST_TAG=$(git tag --list 'agent-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^agent-v[0-9]+\.[0-9]+(\.0)?$' | head -1)
+
+                  if [ -z "$LATEST_TAG" ]; then
+                    echo "No agent version tag found. Create one with: git tag agent-v2.1 && git push origin agent-v2.1"
+                    exit 1
+                  fi
+
+                  # Extract major.minor from tag
+                  VERSION_PART=${LATEST_TAG#agent-v}
+                  MAJOR=$(echo "$VERSION_PART" | cut -d. -f1)
+                  MINOR=$(echo "$VERSION_PART" | cut -d. -f2)
+
+                  # Count commits touching the agent package since the base tag. In the
+                  # monorepo an unscoped count would include every PostHog commit and
+                  # inflate patch numbers meaninglessly.
+                  PATCH=$(git rev-list "$LATEST_TAG"..HEAD --count -- products/desktop/packages/agent)
+
+                  if [ "$PATCH" -eq 0 ]; then
+                    echo "No agent commits since $LATEST_TAG. Nothing to release."
+                    exit 0
+                  fi
+
+                  NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+                  TAG="agent-v$NEW_VERSION"
+
+                  if git rev-parse "$TAG" >/dev/null 2>&1; then
+                    echo "Tag $TAG already exists. Nothing new to release."
+                    exit 0
+                  fi
+
+                  echo "Creating tag: $TAG (from base tag $LATEST_TAG + $PATCH commits)"
+
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+                  git config user.name "github-actions[bot]"
+                  git tag -a "$TAG" -m "Agent release $TAG"
+                  git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"
