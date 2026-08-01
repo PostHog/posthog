@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from posthog.api.capture import capture_internal
 from posthog.api.utils import get_token
 from posthog.exceptions import (
+    DatabaseTemporarilyUnavailable,
     RequestParsingError,
     UnspecifiedCompressionFallbackParsingError,
     generate_exception_response,
@@ -146,7 +147,21 @@ def push_subscriptions(request: Request):
             ),
         )
 
-    team = Team.objects.get_team_from_cache_or_token(api_key)
+    try:
+        team = Team.objects.get_team_from_cache_or_token(api_key)
+    except DatabaseTemporarilyUnavailable as e:
+        response = cors_response(
+            request,
+            generate_exception_response(
+                "push_subscriptions",
+                str(e.detail),
+                type="server_error",
+                code=e.default_code,
+                status_code=e.status_code,
+            ),
+        )
+        response["Retry-After"] = str(e.wait)
+        return response
     if not team:
         return cors_response(
             request,

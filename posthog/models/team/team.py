@@ -8,7 +8,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
-from django.db import connection, models, transaction
+from django.db import InterfaceError, OperationalError, connection, models, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 
@@ -17,6 +17,8 @@ import pydantic
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
+from posthog.db_errors import is_transient_db_error
+from posthog.exceptions import DatabaseTemporarilyUnavailable
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
@@ -214,6 +216,13 @@ class TeamManager(models.Manager):
 
         except Team.DoesNotExist:
             return None
+        except (OperationalError, InterfaceError) as e:
+            # This backs public, unauthenticated, token-scoped config endpoints (surveys,
+            # early access features, product tours, web experiments) that SDKs call on page
+            # load. A transient Postgres blip here shouldn't 500 with the driver's raw error.
+            if not is_transient_db_error(e):
+                raise
+            raise DatabaseTemporarilyUnavailable() from e
 
     def get_team_from_cache_or_secret_api_token(self, secret_api_token: Optional[str]) -> Optional["Team"]:
         if not secret_api_token:
@@ -229,6 +238,12 @@ class TeamManager(models.Manager):
 
         except Team.DoesNotExist:
             return None
+        except (OperationalError, InterfaceError) as e:
+            # Same transient-Postgres handling as get_team_from_cache_or_token above; this is
+            # its secret-token twin, used by push subscriptions.
+            if not is_transient_db_error(e):
+                raise
+            raise DatabaseTemporarilyUnavailable() from e
 
     def increment_id_sequence(self) -> int:
         """Increment the `Team.id` field's sequence and return the latest value.

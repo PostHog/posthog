@@ -25,7 +25,7 @@ from posthog.api.utils import get_token
 from posthog.cloud_utils import is_cloud
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.event_usage import report_user_action
-from posthog.exceptions import generate_exception_response
+from posthog.exceptions import DatabaseTemporarilyUnavailable, generate_exception_response
 from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -1147,7 +1147,21 @@ def product_tours(request):
             ),
         )
 
-    team = Team.objects.get_team_from_cache_or_token(token)
+    try:
+        team = Team.objects.get_team_from_cache_or_token(token)
+    except DatabaseTemporarilyUnavailable as e:
+        response = cors_response(
+            request,
+            generate_exception_response(
+                "product_tours",
+                str(e.detail),
+                type="server_error",
+                code=e.default_code,
+                status_code=e.status_code,
+            ),
+        )
+        response["Retry-After"] = str(e.wait)
+        return response
     if team is None:
         return cors_response(
             request,

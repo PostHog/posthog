@@ -16,7 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import get_token
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
-from posthog.exceptions import generate_exception_response
+from posthog.exceptions import DatabaseTemporarilyUnavailable, generate_exception_response
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
@@ -544,7 +544,21 @@ def early_access_features(request: Request):
             ),
         )
 
-    team = Team.objects.get_team_from_cache_or_token(token)
+    try:
+        team = Team.objects.get_team_from_cache_or_token(token)
+    except DatabaseTemporarilyUnavailable as e:
+        response = cors_response(
+            request,
+            generate_exception_response(
+                "early_access_features",
+                str(e.detail),
+                type="server_error",
+                code=e.default_code,
+                status_code=e.status_code,
+            ),
+        )
+        response["Retry-After"] = str(e.wait)
+        return response
     if team is None:
         return cors_response(
             request,

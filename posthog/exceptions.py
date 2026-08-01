@@ -1,3 +1,4 @@
+import math
 from typing import Any, Optional, TypedDict
 
 from django.http.request import HttpRequest
@@ -67,6 +68,19 @@ class DatabaseSchemaUnavailable(APIException):
     status_code = 503
     default_detail = "Couldn't load your project's schema. Try again, and if it keeps happening contact support."
     default_code = "database_schema_unavailable"
+
+
+class DatabaseTemporarilyUnavailable(APIException):
+    # A transient Postgres connection failure (pool saturation, failover, restart) reaching
+    # a request handler. 503 + Retry-After tells clients to back off and retry instead of
+    # treating it as a permanent failure, and keeps the driver's raw error text out of the
+    # response.
+    status_code = 503
+    default_code = "database_temporarily_unavailable"
+    default_detail = "We're having trouble reaching the database right now. Please try again in a moment."
+    # Seconds a well-behaved client should wait before retrying; read by exception_handler
+    # below and copied onto the Retry-After header.
+    wait = 1
 
 
 class ClickHouseAtCapacity(APIException):
@@ -159,6 +173,12 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     from posthog.utils import absolute_uri
 
     response = _exceptions_hog_handler(exc, context)
+    if response is not None:
+        # drf-exceptions-hog builds its own response, so DRF's built-in Retry-After
+        # handling for APIException.wait (normally only set by Throttled) never runs.
+        wait = getattr(exc, "wait", None)
+        if wait is not None:
+            response["Retry-After"] = str(math.ceil(wait))
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
         # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).

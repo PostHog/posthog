@@ -14,7 +14,7 @@ from rest_framework.request import Request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.event_usage import report_user_action
-from posthog.exceptions import generate_exception_response
+from posthog.exceptions import DatabaseTemporarilyUnavailable, generate_exception_response
 from posthog.models import Team
 from posthog.utils_cors import cors_response
 
@@ -285,7 +285,21 @@ def web_experiments(request: Request):
         )
 
     if request.method == "GET":
-        team = Team.objects.get_team_from_cache_or_token(token)
+        try:
+            team = Team.objects.get_team_from_cache_or_token(token)
+        except DatabaseTemporarilyUnavailable as e:
+            response = cors_response(
+                request,
+                generate_exception_response(
+                    "experiments",
+                    str(e.detail),
+                    type="server_error",
+                    code=e.default_code,
+                    status_code=e.status_code,
+                ),
+            )
+            response["Retry-After"] = str(e.wait)
+            return response
         if team is None:
             return cors_response(
                 request,
