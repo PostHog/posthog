@@ -26,6 +26,7 @@ use personhog_leader::inflight::InflightTracker;
 use personhog_leader::service::{PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::warming::WarmClientPools;
 use personhog_leader::warnings::WarningsProducer;
+use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
 use personhog_proto::personhog::types::v1::{
     GetPersonRequest, Person, UpdatePersonPropertiesRequest,
@@ -451,6 +452,7 @@ async fn writes_fenced_after_drain_reads_still_served() {
         warming,
         pools,
         None,
+        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new()),
     );
 
     cache.create_partition(0);
@@ -569,6 +571,7 @@ async fn drain_fences_before_waiting_on_inflight() {
         warming,
         pools,
         None,
+        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new()),
     ));
 
     cache.create_partition(0);
@@ -2446,4 +2449,78 @@ async fn oversize_updates_are_rejected_and_oversized_rows_remediated() {
     );
 
     cancel.cancel();
+}
+
+// ============================================================
+// A version this pod emitted without hearing the outcome is spent
+// ============================================================
+
+/// A cancelled request, or a commit whose fate stayed unknown, can leave a
+/// record on the changelog that this pod never learned about. The cache
+/// still holds the version from before that write, so the next update for
+/// the same person would derive the same number again — and the writer's
+/// strict version guard keeps whichever of the two records arrived first,
+/// discarding the other. When the discarded one is the acked write, the
+/// acknowledgement was a lie.
+///
+/// Driving the RPC rather than the derivation: the floor existing is not
+/// the property that matters, the write path consulting it is.
+#[tokio::test]
+async fn an_unresolved_version_is_never_reused() {
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer.clone(),
+        CHANGELOG_TOPIC.to_string(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        None,
+    );
+
+    cache.create_partition(0);
+    let person = test_cached_person();
+    let cached_version = person.version;
+    seed_person(&cache, 0, person);
+
+    // The state a write that was never answered for leaves behind: the
+    // cache is untouched, but versions up to this one may already exist.
+    let spent = cached_version + 4;
+    service.emitted_versions().raise_for_test(
+        0,
+        PersonCacheKey {
+            team_id: 1,
+            person_id: 42,
+        },
+        spent,
+    );
+
+    let response = service
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                team_id: 1,
+                person_id: 42,
+                event_name: "$set".to_string(),
+                set_properties: serde_json::to_vec(&serde_json::json!({"name": "Updated"}))
+                    .unwrap(),
+                set_once_properties: vec![],
+                unset_properties: vec![],
+            },
+            0,
+        ))
+        .await
+        .expect("the update itself must still succeed");
+
+    assert_eq!(
+        response.into_inner().person.unwrap().version,
+        spent + 1,
+        "the write must derive past every version this pod already emitted, \
+         not merely past the one its cache happens to hold"
+    );
 }

@@ -20,6 +20,7 @@ use crate::cache::{
     approx_person_bytes, CacheLookup, CachedPerson, DirtyIndex, DirtyMark, PartitionedCache,
     PersonCacheKey,
 };
+use crate::emitted::{EmittedVersionGuard, EmittedVersions};
 use crate::fencing::{FencedChangelogProducers, FencedProduceError};
 use crate::inflight::InflightTracker;
 use crate::kafka::produce_person_changelog;
@@ -86,6 +87,9 @@ pub struct PersonHogLeaderService {
     /// Present when broker-enforced epoch fencing is on; the write
     /// path produces through the partition's transaction window.
     fenced: Option<Arc<FencedChangelogProducers>>,
+    /// Versions emitted without a confirmed outcome, so a later write for
+    /// the same person cannot reuse one.
+    emitted_versions: Arc<EmittedVersions>,
 }
 
 impl PersonHogLeaderService {
@@ -117,6 +121,7 @@ impl PersonHogLeaderService {
             size_limits,
             warnings,
             fenced,
+            emitted_versions: Arc::new(EmittedVersions::new()),
         }
     }
 
@@ -150,6 +155,12 @@ impl PersonHogLeaderService {
             "source" => "cache", "outcome" => "ok"
         )
         .increment(1);
+    }
+
+    /// The version floors this service maintains, shared with the
+    /// handoff handler so a released partition's floors go with it.
+    pub fn emitted_versions(&self) -> Arc<EmittedVersions> {
+        Arc::clone(&self.emitted_versions)
     }
 
     /// Recover a cache miss from the right source. A person in the dirty
@@ -672,13 +683,21 @@ impl PersonHogLeader for PersonHogLeaderService {
         }
 
         let approx_bytes = approx_person_bytes(jsonb_column_size(&new_properties));
+        // A version this pod already put on the wire is spent even when
+        // it never learned the outcome, so the next one has to clear that
+        // floor as well as the state it derived from. Reusing it produces
+        // a second record at the same version, and the writer's strict
+        // guard keeps only whichever arrived first.
+        let base_version = self
+            .emitted_versions
+            .floor_for(partition, &cache_key, person.version);
         let updated_person = CachedPerson {
             id: person.id,
             uuid: person.uuid.clone(),
             team_id: person.team_id,
             properties: new_properties,
             created_at: person.created_at,
-            version: person.version + 1,
+            version: base_version + 1,
             is_identified: person.is_identified,
             approx_bytes,
         };
@@ -702,6 +721,18 @@ impl PersonHogLeader for PersonHogLeaderService {
 
         let proto = cached_person_to_proto(&updated_person);
 
+        // From here the record may reach the changelog whatever happens
+        // to this request — including the request simply ceasing to exist
+        // when the client's deadline expires. The guard is what makes the
+        // version un-reusable in that case.
+        let mut emitted = EmittedVersionGuard::new(
+            Arc::clone(&self.emitted_versions),
+            partition,
+            cache_key.clone(),
+            updated_person.version,
+        );
+        emitted.emitting();
+
         // Produce to Kafka first, then update the cache on success.
         // Readers only ever see durably committed state.
         let offset = if let Some(fenced) = &self.fenced {
@@ -713,6 +744,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // classifies it as a bounce and re-resolves toward the
                 // real owner.
                 Err(e @ FencedProduceError::Fenced) => {
+                    // Rejected at the broker, so the record does not
+                    // exist and its version is free.
+                    emitted.discarded();
                     tracing::error!(
                         team_id = cache_key.team_id,
                         person_id = cache_key.person_id,
@@ -740,6 +774,7 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // admission fence uses, so the router bounces and
                 // re-resolves instead of surfacing a hard error.
                 Err(e @ FencedProduceError::NotAcquired) => {
+                    emitted.discarded();
                     tracing::warn!(
                         team_id = cache_key.team_id,
                         person_id = cache_key.person_id,
@@ -761,6 +796,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // retry to re-derive its version from the changelog,
                 // where the doubt is resolved.
                 Err(e @ FencedProduceError::Indeterminate(_)) => {
+                    // Deliberately not settled: whether the record exists
+                    // is exactly what is unknown, so the version stays
+                    // spent and the retry derives past it.
                     self.cache.remove(partition, &cache_key);
                     counter!("personhog_leader_indeterminate_evictions_total").increment(1);
                     tracing::error!(
@@ -779,6 +817,9 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // write is safe to retry, and ABORTED is the code the
                 // clients actually retry on.
                 Err(e) => {
+                    // The window aborted, so no record became visible and
+                    // the version can be derived again.
+                    emitted.discarded();
                     tracing::error!(
                         team_id = cache_key.team_id,
                         person_id = cache_key.person_id,
@@ -796,6 +837,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             {
                 Ok(offset) => offset,
                 Err(e) => {
+                    emitted.discarded();
                     tracing::error!(
                         team_id = cache_key.team_id,
                         person_id = cache_key.person_id,
@@ -822,6 +864,9 @@ impl PersonHogLeader for PersonHogLeaderService {
             },
         );
         self.cache.put(partition, cache_key, updated_person);
+        // The cache carries the version now, so the floor has nothing
+        // left to say.
+        emitted.resolved();
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {

@@ -137,6 +137,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/_liveness", get(move || async move { liveness.check() }));
     let metrics_router = setup_metrics_routes(health_router);
     preregister_metrics();
+    counter!("personhog_leader_unresolved_versions_total").increment(0);
+    gauge!("personhog_leader_unresolved_versions").set(0.0);
 
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
@@ -301,6 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Arc::clone(&warm_pools),
         fenced,
+        service.emitted_versions(),
     );
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)
@@ -584,6 +587,8 @@ async fn discover_own_controller(
 /// precedes a series' first sample.
 fn preregister_metrics() {
     counter!("personhog_leader_indeterminate_evictions_total").increment(0);
+    counter!("personhog_leader_unresolved_versions_total").increment(0);
+    gauge!("personhog_leader_unresolved_versions").set(0.0);
     counter!("personhog_leader_warmed_messages_total").increment(0);
     counter!("personhog_leader_warm_retries_exhausted_total", "stage" => "committed_offset")
         .increment(0);

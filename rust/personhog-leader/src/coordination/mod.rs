@@ -7,6 +7,7 @@ use personhog_coordination::pod::HandoffHandler;
 use tracing::info;
 
 use crate::cache::{DirtyIndex, PartitionedCache};
+use crate::emitted::EmittedVersions;
 use crate::fencing::{FenceGuard, FencedChangelogProducers};
 use crate::inflight::InflightTracker;
 use crate::warming::{warm_from_kafka, WarmClientPools, WarmingConfig};
@@ -51,6 +52,9 @@ pub struct LeaderHandoffHandler {
     /// partition initializes its transactional producer (fencing every
     /// predecessor), and releasing it drops the producer.
     fenced: Option<Arc<FencedChangelogProducers>>,
+    /// Shared with the service, so that giving up a partition also gives
+    /// up the version floors held for its persons.
+    emitted_versions: Arc<EmittedVersions>,
 }
 
 impl LeaderHandoffHandler {
@@ -61,6 +65,7 @@ impl LeaderHandoffHandler {
         warming: WarmingConfig,
         pools: Arc<WarmClientPools>,
         fenced: Option<Arc<FencedChangelogProducers>>,
+        emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
         Self {
             cache,
@@ -69,6 +74,7 @@ impl LeaderHandoffHandler {
             warming,
             pools,
             fenced,
+            emitted_versions,
         }
     }
 
@@ -155,6 +161,10 @@ impl HandoffHandler for LeaderHandoffHandler {
         // The new owner's warming rebuilds its own marks; stale marks here
         // would only pin memory for a partition this pod no longer serves.
         self.dirty_index.clear_partition(partition);
+        // The incoming owner derives versions from the changelog, which
+        // is the authority these floors stood in for; carrying them would
+        // only constrain a partition this pod no longer serves.
+        self.emitted_versions.clear_partition(partition);
         info!(partition, "partition released");
         Ok(())
     }
@@ -234,6 +244,7 @@ mod tests {
             },
             pools,
             None,
+            Arc::new(EmittedVersions::new()),
         )
     }
 
