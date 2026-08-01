@@ -15,7 +15,8 @@ be treated as a bug in the sync.
 2. Replace the `products/desktop/` tree with `git archive <sha> | tar -x -C products/desktop/`, then delete
    `products/desktop/.github` (workflows live at the monorepo root, transformed per the rules below).
    `products/desktop/MIGRATION.md` (this file) is monorepo-only: restore it and update the pinned SHA.
-   Restore `products/desktop/product.yaml` too (see the drift list below).
+   Restore `products/desktop/product.yaml` and `products/desktop/POST-MIGRATION.md` too (see
+   the drift list below).
 3. Re-derive each `.github/workflows/desktop-*.yml` from its source workflow (mapping table
    below) by applying the transform rules. If a source workflow changed, re-apply the rules
    to the new version rather than hand-merging the diff.
@@ -30,8 +31,9 @@ be treated as a bug in the sync.
 The tree is a verbatim copy of the source at the pinned SHA except:
 
 - `.github/` is not imported (see workflow mapping below).
-- `MIGRATION.md` (this file) and `docs/plan.md` (the migration plan) exist only in the
-  monorepo; restore both on a resync.
+- `MIGRATION.md` (this file), `POST-MIGRATION.md` (the post-merge runbook) and
+  `docs/plan.md` (the migration plan) exist only in the monorepo; restore all three on a
+  resync.
 - `product.yaml` is monorepo-only and must be restored on a resync. It declares
   `owners: [team-posthog-code]` for the distributed ownership resolver, which drives
   reviewer auto-assignment, `team/` labels and Slack routing to `#team-desktop`. Losing it
@@ -225,6 +227,10 @@ ports from source using these rules.
 
 ## Not done in this PR (follow-ups)
 
+Everything that has to happen once this merges is sequenced in
+[`POST-MIGRATION.md`](./POST-MIGRATION.md). The entries below are the same work seen from
+the PR's side; that file is the one to follow on merge day.
+
 - **Secrets/vars**: the ported workflows expect these to exist in PostHog/posthog (repo or
   org scope): Apple signing (`APPLE_*`, `CSC_*`), `VITE_POSTHOG_API_KEY`,
   `VITE_POSTHOG_API_HOST`, `POSTHOG_SOURCEMAP_API_KEY`, `POSTHOG_ENV_ID`, `POSTHOG_HOST`,
@@ -235,8 +241,10 @@ ports from source using these rules.
 - **Required checks**: register `Desktop Build Pass`, `Desktop Typecheck Pass`,
   `Desktop Quality Pass`, `Desktop Tests Pass` (and optionally `Desktop Storybook Pass`)
   as required status checks once this merges.
-- **Base tag**: create `desktop-v<X>.<Y>.0` continuing the code repo's version sequence,
-  or the tag workflow has no base to count from.
+- **Base tag**: create `desktop-v<X>.<Y>.0`, or the tag workflow has no base to count from.
+  Use the next unused minor above the code repo's latest release, not the minor it is
+  currently on: the patch counter restarts from the new tag, so reusing that minor emits a
+  version that already exists on the legacy feed. See `POST-MIGRATION.md` step 2.
 - **npm trusted publisher** for `@posthog/agent`: re-register as posthog/posthog +
   `desktop-agent-release.yml`.
 - **Backend test coupling**: add `products/desktop/packages/{agent,shared,git}/**` to
