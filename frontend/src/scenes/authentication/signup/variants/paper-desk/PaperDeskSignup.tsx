@@ -29,7 +29,7 @@ import { signupLogic } from '../../signupForm/signupLogic'
 // (removeChild/insertBefore NotFoundError, see react#11538). Text inside its own element is safe.
 const NOTES: Record<number, string[]> = {
     0: ['// create an account', '// 1M events free, every month'],
-    1: ['// step 2 of 2', '// make it a good one'],
+    1: ['// step 2 of 3', '// make it a good one'],
     2: ['// almost there', '// last step'],
 }
 
@@ -305,7 +305,7 @@ function SignupAuthPanel(): JSX.Element {
                         !passkeyRegistered && validatedPassword.feedback ? validatedPassword.feedback : undefined
                     }
                 >
-                    Create account
+                    Continue
                 </LemonButton>
             </Form>
         </PaperDeskCard>
