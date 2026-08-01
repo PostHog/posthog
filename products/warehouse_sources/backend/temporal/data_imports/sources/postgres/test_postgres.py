@@ -974,12 +974,22 @@ class TestPostgresSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Recursive RLS policy error should be non-retryable: {error_msg}"
 
-    def test_recursive_rls_policy_returns_friendly_message(self, source):
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            'infinite recursion detected in policy for relation "list_members"',
+            # Temporal-wrapped form matches both this pattern and the "InvalidObjectDefinition"
+            # class-name key; `update_external_data_job_model` takes the friendly message from the
+            # *first* matching dict entry, so the specific pattern must be ordered before the
+            # class-name key or its `None` value silently shadows this actionable message.
+            'InvalidObjectDefinition: infinite recursion detected in policy for relation "orders"',
+        ],
+    )
+    def test_recursive_rls_policy_returns_friendly_message(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
-        error_msg = 'infinite recursion detected in policy for relation "list_members"'
-        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
-        assert friendly, "Recursive RLS policy error should surface an actionable message"
-        assert "BYPASSRLS" in friendly[0]
+        first_match = next((reason for pattern, reason in non_retryable.items() if pattern in error_msg), None)
+        assert first_match is not None, "Recursive RLS policy error should surface an actionable message"
+        assert "BYPASSRLS" in first_match
 
     @pytest.mark.parametrize(
         "error_msg",
