@@ -3,6 +3,7 @@ Module to centralize event reporting on the server-side.
 """
 
 import re
+import hashlib
 from enum import StrEnum
 from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
@@ -133,6 +134,22 @@ def report_user_logged_in(
         event="user logged in",
         properties={"social_provider": social_provider},
         groups=groups(user.current_organization, user.current_team),
+    )
+
+
+def report_user_login_failed(email: str, existing_user: User | None) -> None:
+    """
+    Reports a failed password login attempt, so we can measure how often this happens
+    and whether the account existed. Uses a hashed distinct_id when no user matched, since
+    the attempted email may just be a typo rather than belonging to the person typing it.
+    """
+    distinct_id = existing_user.distinct_id if existing_user else hashlib.sha256(email.lower().encode()).hexdigest()
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event="user login failed",
+        properties={"account_found": existing_user is not None},
+        groups=groups(existing_user.current_organization, existing_user.current_team) if existing_user else groups(),
     )
 
 

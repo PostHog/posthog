@@ -9,6 +9,7 @@ import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import { EmailDomainSuggestion } from 'lib/components/EmailDomainSuggestion/EmailDomainSuggestion'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { usePrevious } from 'lib/hooks/usePrevious'
@@ -34,8 +35,15 @@ import { SessionRiskBanner } from '../../SessionRiskBanner'
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 function Login(): JSX.Element {
-    const { precheck, resendCodeBasedVerification, exitCodeVerification, resetLogin, devLogin, loadDevUsers } =
-        useActions(loginLogic)
+    const {
+        precheck,
+        resendCodeBasedVerification,
+        exitCodeVerification,
+        resetLogin,
+        devLogin,
+        loadDevUsers,
+        setLoginValue,
+    } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -210,6 +218,10 @@ function Login(): JSX.Element {
                                 badgeText={lastLoginMethod === 'password' ? 'Last used' : undefined}
                             />
                         </LemonField>
+                        <EmailDomainSuggestion
+                            email={login.email}
+                            onAccept={(email) => setLoginValue('email', email)}
+                        />
                         <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
                             <LemonField
                                 name="password"

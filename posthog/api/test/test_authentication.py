@@ -225,6 +225,26 @@ class TestLoginAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("wrong_password_for_real_account", True),
+            ("no_account_with_this_email", False),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_failed_login_is_captured_with_whether_the_account_exists(self, _name, account_exists, mock_capture):
+        email = self.CONFIG_EMAIL if account_exists else "typo" + self.CONFIG_EMAIL
+        response = self.client.post("/api/login", {"email": email, "password": "wrong_password"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        expected_distinct_id = self.user.distinct_id if account_exists else ANY
+        mock_capture.assert_any_call(
+            distinct_id=expected_distinct_id,
+            event="user login failed",
+            properties={"account_found": account_exists},
+            groups=ANY,
+        )
+
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     def test_email_unverified_user_cant_log_in_if_email_available(

@@ -11,6 +11,7 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { EmailDomainSuggestion } from 'lib/components/EmailDomainSuggestion/EmailDomainSuggestion'
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -96,7 +97,8 @@ function EmailUnavailable(): JSX.Element {
 }
 
 function ResetForm(): JSX.Element {
-    const { isRequestPasswordResetSubmitting } = useValues(passwordResetLogic)
+    const { isRequestPasswordResetSubmitting, requestPasswordReset } = useValues(passwordResetLogic)
+    const { setRequestPasswordResetValue } = useActions(passwordResetLogic)
 
     return (
         <Form
@@ -118,6 +120,10 @@ function ResetForm(): JSX.Element {
                     disabled={isRequestPasswordResetSubmitting}
                 />
             </LemonField>
+            <EmailDomainSuggestion
+                email={requestPasswordReset.email}
+                onAccept={(email) => setRequestPasswordResetValue('email', email)}
+            />
             <LemonButton
                 fullWidth
                 type="primary"

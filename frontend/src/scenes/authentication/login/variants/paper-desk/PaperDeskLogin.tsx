@@ -6,6 +6,7 @@ import { twMerge } from 'tailwind-merge'
 import { IconCheckCircle } from '@posthog/icons'
 
 import { getCookie } from 'lib/api'
+import { EmailDomainSuggestion } from 'lib/components/EmailDomainSuggestion/EmailDomainSuggestion'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { usePrevious } from 'lib/hooks/usePrevious'
@@ -32,7 +33,7 @@ import { SessionRiskBanner } from '../../SessionRiskBanner'
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 function Login(): JSX.Element {
-    const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
+    const { precheck, exitCodeVerification, resendCodeBasedVerification, setLoginValue } = useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -196,6 +197,10 @@ function Login(): JSX.Element {
                                 />
                             )}
                         </LemonField>
+                        <EmailDomainSuggestion
+                            email={login.email}
+                            onAccept={(email) => setLoginValue('email', email)}
+                        />
                         {!isPasswordHidden && (
                             <LemonField
                                 name="password"

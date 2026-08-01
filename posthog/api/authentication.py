@@ -51,7 +51,7 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import report_user_logged_in, report_user_login_failed, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
@@ -323,6 +323,7 @@ class LoginSerializer(serializers.Serializer):
             if handler.is_locked(axes_request, credentials=axes_credentials):
                 raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
+            report_user_login_failed(validated_data["email"], existing_user)
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         if not is_email_verified_for_login(user, next_url):
