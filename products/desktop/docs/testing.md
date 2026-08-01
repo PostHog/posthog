@@ -193,24 +193,9 @@ This drives whatever profile is signed into `~/.posthog-code`; do not mutate pro
 
 Every story is screenshot in Chromium in both themes (`<story-id>--dark.png` and `--light.png`) using `@storybook/test-runner`, following posthog/posthog's setup. The harness lives in `apps/code/.storybook/test-runner.ts`.
 
-PNGs are never committed. The `Storybook visual regression` workflow captures every story and submits the images to the [PostHog Visual Review product](https://us.posthog.com/project/2/visual_review) via the `vr` CLI (built from posthog/posthog). VR diffs against the signed hash manifest committed at `apps/code/snapshots.yml`, posts the result on the PR, and — once a human approves the changes in the VR UI — commits the updated manifest back to the PR branch. The next run then matches and goes green.
+PNGs are never committed. CI for this suite was removed after the monorepo import: the committed `apps/code/snapshots.yml` baseline is signed for the PostHog/code Visual Review registration, so every submission from posthog/posthog flagged all stories as new. `products/desktop/POST-MIGRATION.md` step 6 covers restoring it once VR is re-registered against posthog/posthog. The local capture workflow below still works.
 
-One-time setup (not yet done — the vr step no-ops until it is):
-
-1. Register `PostHog/code` as a repo in Visual Review settings (project 2 on us.posthog.com); this mints the repo UUID.
-2. Create a PostHog personal API key with the `visual_review` scope and store it as the `VR_API_TOKEN` Actions secret on this repo.
-3. Commit the seeded baseline at `apps/code/snapshots.yml`:
-
-   ```yaml
-   version: 1
-   config:
-       api: https://us.posthog.com
-       team: "2"
-       repo: <uuid-from-step-1>
-   snapshots: {}
-   ```
-
-Run locally to debug a story before pushing (local PNGs are gitignored):
+Run locally to debug a story (local PNGs are gitignored):
 
 ```bash
 pnpm --filter code build-storybook

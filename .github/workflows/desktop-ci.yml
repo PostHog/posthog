@@ -1,11 +1,11 @@
 name: Desktop CI
 
-# One dispatch per PR event instead of five. GitHub's run-queue cap
+# One dispatch per PR event instead of four. GitHub's run-queue cap
 # (500 runs/10s/repo) counts workflow runs, and a run that calls reusable
 # workflows counts once, so the whole desktop suite costs one slot per push.
 #
 # The suites themselves stay unfiltered here on purpose: each child gates its
-# own work on an internal `changes` job, so a non-desktop PR pays five short
+# own work on an internal `changes` job, so a non-desktop PR pays four short
 # detector jobs and skips everything else. A trigger-level `paths:` filter
 # would stop the `Desktop * Pass` checks from ever reporting, leaving any PR
 # that requires them stuck waiting for status.
@@ -54,11 +54,3 @@ jobs:
             POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY }}
             POSTHOG_CODE_E2E_GATEWAY_URL: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_URL }}
             TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
-
-    storybook:
-        uses: ./.github/workflows/desktop-storybook.yml
-        secrets:
-            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
-            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-            TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
-            VR_API_TOKEN: ${{ secrets.VR_API_TOKEN }}
