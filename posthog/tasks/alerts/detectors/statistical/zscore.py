@@ -43,15 +43,24 @@ class ZScoreDetector(BaseDetector):
         """Check if the most recent point is an anomaly based on z-score."""
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
+        diffs_n = self.preprocessing_config.get("diffs_n", 0) or 0
+        offset = max(self.training_offset, 1)
 
-        if not self._validate_data(data, min_length=window + 1):
+        if not self._validate_data(data, min_length=window + offset + diffs_n):
             return DetectionResult(is_anomaly=False)
 
+        original_length = len(data)
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
+        # Differencing prepends synthetic (zero-valued) points to keep the array
+        # length unchanged - drop them so the training window only ever sees
+        # genuine differenced values.
+        values = values[diffs_n:]
 
-        # Use rolling window for mean/std (exclude current point)
-        window_data = values[-(window + 1) : -1]
+        # Use rolling window for mean/std, honoring training_offset to exclude
+        # points closest to the one being scored, so a live check agrees with
+        # detect_batch().
+        window_data = values[-(window + offset) : -offset]
         mean = np.mean(window_data)
         std = np.std(window_data)
 
@@ -62,7 +71,7 @@ class ZScoreDetector(BaseDetector):
             return DetectionResult(
                 is_anomaly=is_anomaly,
                 score=1.0 if is_anomaly else 0.0,
-                triggered_indices=[len(values) - 1] if is_anomaly else [],
+                triggered_indices=[original_length - 1] if is_anomaly else [],
                 all_scores=[1.0 if is_anomaly else 0.0],
                 metadata={"mean": float(mean), "std": 0.0, "value": float(current_value), "raw_zscore": None},
             )
@@ -74,7 +83,7 @@ class ZScoreDetector(BaseDetector):
         return DetectionResult(
             is_anomaly=prob > threshold,
             score=prob,
-            triggered_indices=[len(values) - 1] if prob > threshold else [],
+            triggered_indices=[original_length - 1] if prob > threshold else [],
             all_scores=[prob],
             metadata={
                 "mean": float(mean),
@@ -88,18 +97,23 @@ class ZScoreDetector(BaseDetector):
         """Check all points for z-score anomalies."""
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         window = self.config.get("window", 30)
+        diffs_n = self.preprocessing_config.get("diffs_n", 0) or 0
+        offset = max(self.training_offset, 1)
 
-        if not self._validate_data(data, min_length=window + 1):
+        if not self._validate_data(data, min_length=window + offset + diffs_n):
             return DetectionResult(is_anomaly=False)
 
         data = self.preprocess(data)
         values = data if data.ndim == 1 else data[:, 0]
+        # Keep indices aligned with the original series: scores/triggers below
+        # are shifted back by diffs_n before being returned.
+        values = values[diffs_n:]
 
         triggered = []
-        scores: list[float | None] = [None] * window
+        scores: list[float | None] = [None] * (diffs_n + window + offset - 1)
 
-        for i in range(window, len(values)):
-            window_data = values[i - window : i]
+        for i in range(window + offset - 1, len(values)):
+            window_data = values[i - window - offset + 1 : i - offset + 1]
             mean = np.mean(window_data)
             std = np.std(window_data)
 
@@ -108,7 +122,7 @@ class ZScoreDetector(BaseDetector):
             if std == 0:
                 if abs(current_val - mean) > 0:
                     scores.append(1.0)
-                    triggered.append(i)
+                    triggered.append(i + diffs_n)
                 else:
                     scores.append(0.0)
                 continue
@@ -119,7 +133,7 @@ class ZScoreDetector(BaseDetector):
             scores.append(prob)
 
             if prob > threshold:
-                triggered.append(i)
+                triggered.append(i + diffs_n)
 
         return DetectionResult(
             is_anomaly=len(triggered) > 0,
