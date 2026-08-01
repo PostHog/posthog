@@ -39,7 +39,6 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Optional
 
-from django.core.cache import cache
 from django.db import models
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -56,7 +55,7 @@ from posthog.models import EventProperty
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.utils import get_safe_cache
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -244,7 +243,7 @@ def get_experiment_session_bucket(
         filter_test_accounts=filter_test_accounts,
         used_exposure_fallback=use_exposure_fallback,
     )
-    cache.set(cache_key, result, timeout=SESSION_BUCKET_CACHE_TTL)
+    safe_cache_set(cache_key, result, timeout=SESSION_BUCKET_CACHE_TTL)
     return result
 
 
