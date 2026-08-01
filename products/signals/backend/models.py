@@ -1105,9 +1105,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         """
 
         ACTIVE = "active", "Active"
-        # Warned by a system writer: will be paused on a set date unless something changes.
-        # Still scheduled. A state rather than a notification so the sweep that sets it is
-        # idempotent and any human touch has something concrete to clear.
+        # Warned by a system writer. Still scheduled; whether the warning later advances to a
+        # pause depends on its reason (an `ignored` warning pauses after a grace period, a
+        # `no_output` one only ever warns). A state rather than a notification so the sweep
+        # that sets it is idempotent and any human touch has something concrete to clear.
         PENDING_PAUSE = "pending_pause", "Pending pause"
         PAUSED_BY_SYSTEM = "paused_by_system", "Paused by system"
         # A human switched the scout off. No system writer may resume or re-pause it.
@@ -1333,6 +1334,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 kwargs["update_fields"] = fields | touched
         super().save(*args, **kwargs)
 
+    @classmethod
+    def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
+        """The ownership rule compares writers, not exact reasons: the inactivity sweep owns
+        both `no_output` and `ignored`, and must be able to reclassify its own warning from
+        one to the other without being refused as a foreign writer."""
+        if current == incoming:
+            return True
+        inactivity: set[str] = set(cls.INACTIVITY_PAUSE_REASONS)
+        return current in inactivity and incoming in inactivity
+
     def transition_status_by_system(
         self,
         new_status: "SignalScoutConfig.Status",
@@ -1342,11 +1353,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     ) -> bool:
         """Apply a system-driven status transition under the reason-scoped ownership rule.
 
-        `pause_reason` names the calling writer (an inactivity sweep passes `no_output`, a
-        failure breaker `repeated_failures`) as well as the reason recorded on a pause. The
-        rule: a system writer may never touch `paused_by_user`, and may only move a scout
-        whose current pause carries its own reason, so independent pause mechanisms cannot
-        clear or overwrite each other's state. The checks run against a freshly locked row,
+        `pause_reason` names the calling writer (an inactivity sweep passes `no_output` or
+        `ignored`, a failure breaker `repeated_failures`) as well as the reason recorded on a
+        pause. The rule: a system writer may never touch `paused_by_user`, and may only move a
+        scout whose current pause carries a reason it owns (`_pause_reasons_share_writer`), so
+        independent pause mechanisms cannot clear or overwrite each other's state. The checks run against a freshly locked row,
         not the caller's instance, so a human pause or another writer's claim that landed
         after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
         caller read the state its decision is based on) to also refuse the transition if the
@@ -1371,7 +1382,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 return False
             if locked.status == self.Status.PAUSED_BY_USER:
                 return False
-            if locked.status != self.Status.ACTIVE and locked.pause_reason != pause_reason:
+            if locked.status != self.Status.ACTIVE and not self._pause_reasons_share_writer(
+                locked.pause_reason, pause_reason
+            ):
                 return False
             # A warning is weaker than a pause: a delayed or retried warn must not reopen a
             # scout its own writer already paused (pending_pause is runnable).
