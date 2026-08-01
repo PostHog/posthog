@@ -907,7 +907,7 @@ async def test_sandbox_env_matches_config_network_access(
     # Provenance stamp: `metadata.network_access` is present exactly when the run departed from
     # the trusted default — a later config edit must not rewrite what past runs could reach.
     bridge = await database_sync_to_async(SignalScoutRun.objects.unscoped().get)(id=run_result.run_id)
-    assert bridge.metadata.get("network_access") == ("full" if network_access == "full" else None)
+    assert (bridge.metadata or {}).get("network_access") == ("full" if network_access == "full" else None)
 
 
 @parameterized.expand(
