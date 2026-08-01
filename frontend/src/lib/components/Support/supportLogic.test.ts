@@ -322,4 +322,38 @@ describe('supportLogic', () => {
             expect(aiTicketCaptures()).toHaveLength(0)
         })
     })
+
+    describe('URL sync while typing', () => {
+        let logic: ReturnType<typeof supportLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            sidePanelStateLogic.mount()
+            logic = supportLogic.build()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic?.unmount()
+        })
+
+        // kea-forms' <Field> reports the field name as a path array (e.g. `['message']`), not a bare
+        // string. Comparing that array against `'message'` is always true, so the guard used to fire
+        // on every keystroke and resync the URL on every render.
+        it('does not resync the URL for a text field reported as a kea-forms name path', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSendSupportRequestValue(['message'] as any, 'h')
+            }).toFinishAllListeners()
+
+            expect(sidePanelStateLogic.values.selectedTabOptions).toBeNull()
+        })
+
+        it('still resyncs the URL for a non-text field reported as a kea-forms name path', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSendSupportRequestValue(['kind'] as any, 'bug')
+            }).toFinishAllListeners()
+
+            expect(sidePanelStateLogic.values.selectedTabOptions).toBe('bug:::false')
+        })
+    })
 })

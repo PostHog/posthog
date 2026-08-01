@@ -754,7 +754,14 @@ export const supportLogic = kea<supportLogicType>([
             ].join(':')
 
             if (panelOptions !== ':') {
-                actions.setSidePanelOptions(panelOptions)
+                try {
+                    actions.setSidePanelOptions(panelOptions)
+                } catch (e) {
+                    // Hardened browser privacy settings (e.g. Firefox) can make history.replaceState
+                    // throw a SecurityError. Losing the in-progress support request over a URL sync
+                    // failure is worse than skipping the URL update.
+                    posthog.captureException(e)
+                }
             }
         },
         openSupportForm: async ({
@@ -1164,8 +1171,11 @@ export const supportLogic = kea<supportLogicType>([
         },
 
         setSendSupportRequestValue: ({ name }) => {
+            // kea-forms passes the field name as a path (e.g. `['message']`), not a bare string
+            const fieldName = Array.isArray(name) ? name[name.length - 1] : name
+
             // Only update URL params for non-text fields to prevent focus loss during typing
-            if (name !== 'message' && name !== 'name' && name !== 'email') {
+            if (fieldName !== 'message' && fieldName !== 'name' && fieldName !== 'email') {
                 actions.updateUrlParams()
             }
         },
