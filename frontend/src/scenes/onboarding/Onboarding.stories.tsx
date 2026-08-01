@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
 import { router } from 'kea-router'
@@ -194,10 +196,20 @@ export const SessionReplayConfiguration: Story = {
 export const SessionReplayOptIn: Story = {
     render: () => {
         useMountedLogic(onboardingLogic)
-        const { setProduct } = useActions(onboardingLogic)
+        const { setProduct, setSecondaryProductKeys } = useActions(onboardingLogic)
+
+        // The step only renders for a team that hasn't already opted in — the default
+        // mocked team has it enabled, which would otherwise hide this step.
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/': { ...MOCK_DEFAULT_TEAM, session_recording_opt_in: false },
+            },
+        })
 
         useDelayedOnMountEffect(() => {
             setProduct(availableOnboardingProducts[ProductKey.PRODUCT_ANALYTICS])
+            // The step only renders when session replay was actually selected.
+            setSecondaryProductKeys([ProductKey.SESSION_REPLAY])
             router.actions.push(
                 urls.onboarding({ productKey: ProductKey.PRODUCT_ANALYTICS, stepKey: OnboardingStepKey.SESSION_REPLAY })
             )
