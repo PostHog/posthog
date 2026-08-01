@@ -23,6 +23,7 @@
 //! aborted records (consumers run `read_committed`), so the coupling is
 //! visible only as grouped retryable errors.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{fmt, mem};
@@ -119,7 +120,38 @@ struct PartitionFence {
     /// Signalled when a committing window finishes, letting blocked
     /// writers open the next one.
     window_closed: Notify,
+    /// Set when the producer is left in a transaction state no later
+    /// `begin_transaction` can recover from — an abort that exhausted its
+    /// retries, or a commit whose outcome stayed unknown.
+    ///
+    /// Such a producer is still installed, so presence alone cannot tell
+    /// a working fence from a dead one. Without this flag the repair pass
+    /// sees a fence, concludes there is nothing to do, and the partition
+    /// stays unwritable until a handoff moves it.
+    unusable: AtomicBool,
     commit_timeout: Duration,
+}
+
+impl PartitionFence {
+    /// Retire the producer: writes stop attempting it and the repair pass
+    /// stops treating the partition as fenced.
+    fn condemn(&self, partition: u32, reason: &'static str) {
+        if !self.unusable.swap(true, Ordering::Relaxed) {
+            counter!(
+                "personhog_leader_fence_condemned_total",
+                "reason" => reason
+            )
+            .increment(1);
+            error!(
+                partition,
+                reason, "changelog producer left unusable; awaiting re-acquisition"
+            );
+        }
+    }
+
+    fn is_usable(&self) -> bool {
+        !self.unusable.load(Ordering::Relaxed)
+    }
 }
 
 /// One seat in the open window, released on drop.
@@ -321,6 +353,7 @@ impl FencedChangelogProducers {
                 }),
                 sends_settled: Notify::new(),
                 window_closed: Notify::new(),
+                unusable: AtomicBool::new(false),
                 commit_timeout: self.commit_timeout,
             }),
         );
@@ -331,6 +364,20 @@ impl FencedChangelogProducers {
     /// survives; only a future owner's init advances it.
     pub fn release(&self, partition: u32) {
         self.partitions.remove(&partition);
+    }
+
+    /// Put the partition's producer into the state a failed abort or an
+    /// unknown commit leaves it in.
+    ///
+    /// Reaching that state for real takes a broker fault landing inside a
+    /// transaction, which no test can stage against a healthy cluster —
+    /// but what happens *afterwards* is the entire reason the state is
+    /// tracked, so the aftermath has to be reachable.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn condemn_for_test(&self, partition: u32) {
+        if let Some(fence) = self.partitions.get(&partition) {
+            fence.condemn(partition, "test");
+        }
     }
 
     /// Produce one changelog record inside the partition's current
@@ -349,6 +396,17 @@ impl FencedChangelogProducers {
                 counter!("personhog_leader_kafka_produce_errors_total").increment(1);
                 FencedProduceError::NotAcquired
             })?;
+
+        // A condemned producer cannot begin another transaction, so
+        // evict it here rather than discovering that one failed
+        // `begin_transaction` at a time. Dropping it turns every later
+        // write into an ownership answer the router can act on, and
+        // leaves the partition in the state the repair pass looks for.
+        if !fence.is_usable() {
+            self.forget_fence(partition, &fence);
+            counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+            return Err(FencedProduceError::NotAcquired);
+        }
 
         // Join the open window, or open one. A window mid-commit admits
         // no joiners; wait for it to close and retry.
@@ -536,13 +594,35 @@ const ABORT_RETRIES: usize = 3;
 /// is declared unknown.
 const COMMIT_RETRIES: usize = 3;
 
-/// What is known about a window's records after a failed commit.
+/// What is known about a window's records after a failed commit, and
+/// whether the producer survived learning it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CommitOutcome {
     /// The transaction is definitely aborted; nothing became visible.
     Aborted,
+    /// Definitely aborted, but the abort never landed, so the producer is
+    /// stuck in a state it cannot begin another transaction from.
+    AbortedProducerDead,
     /// Whether the records committed is not known.
+    ///
+    /// There is no healthy-producer form of this: a commit fails without
+    /// a definite outcome only when the error is neither retriable nor
+    /// abort-requiring, which is librdkafka's fatal class, or when the
+    /// follow-up abort itself failed. Both leave the producer unusable.
     Unknown,
+}
+
+impl CommitOutcome {
+    /// Whether the records are known not to have become visible.
+    fn is_aborted(self) -> bool {
+        matches!(self, Self::Aborted | Self::AbortedProducerDead)
+    }
+
+    /// Whether the producer must be replaced before this partition can
+    /// take another write.
+    fn producer_dead(self) -> bool {
+        matches!(self, Self::AbortedProducerDead | Self::Unknown)
+    }
 }
 
 /// Transaction errors librdkafka documents as safe to re-attempt.
@@ -629,10 +709,10 @@ async fn commit_window_after(
     let commit_start = Instant::now();
     let result = spawn_blocking(move || {
         if poisoned {
-            // Retry a retriable abort: leaving the producer in its
-            // abortable state would fail every later `begin_transaction`
-            // with an error no path re-acquires from, stranding the
-            // partition until the next handoff.
+            // Retry a retriable abort: a producer left in its abortable
+            // state fails every later `begin_transaction`, so exhausting
+            // the retries costs the producer itself, not just this
+            // window.
             let mut abort = producer.abort_transaction(timeout);
             for _ in 0..ABORT_RETRIES {
                 match &abort {
@@ -643,11 +723,18 @@ async fn commit_window_after(
                     _ => break,
                 }
             }
-            if let Err(e) = &abort {
-                counter!("personhog_leader_fence_abort_exhausted_total").increment(1);
-                error!(error = %e, "abort of a poisoned window failed; producer left unusable");
+            match abort {
+                Ok(()) => Err((KafkaError::Canceled, CommitOutcome::Aborted)),
+                // The records are still definitely not visible — an abort
+                // that did not land leaves the transaction open, and open
+                // is not committed. What is lost is the producer: it stays
+                // in its abortable state, where every later
+                // `begin_transaction` fails.
+                Err(e) => {
+                    counter!("personhog_leader_fence_abort_exhausted_total").increment(1);
+                    Err((e, CommitOutcome::AbortedProducerDead))
+                }
             }
-            Err((KafkaError::Canceled, CommitOutcome::Aborted))
         } else {
             // A commit that fails is not the same as a commit that did
             // not happen. librdkafka distinguishes three cases and the
@@ -671,13 +758,31 @@ async fn commit_window_after(
             match attempt {
                 Ok(()) => Ok(()),
                 Err(KafkaError::Transaction(e)) if e.txn_requires_abort() => {
-                    if let Err(abort_err) = producer.abort_transaction(timeout) {
+                    // Retried on the same terms as the poisoned path: an
+                    // abort that fails once for a moving coordinator is
+                    // the same event there, and giving up after one
+                    // attempt turns a recoverable abort into a dead
+                    // producer and a definite outcome into an unknown one.
+                    let mut abort = producer.abort_transaction(timeout);
+                    for _ in 0..ABORT_RETRIES {
+                        match &abort {
+                            Err(e) if e.rdkafka_error_code().is_some_and(retriable_txn_error) => {
+                                warn!(error = %e, "abort after a failed commit failed; retrying");
+                                abort = producer.abort_transaction(timeout);
+                            }
+                            _ => break,
+                        }
+                    }
+                    match abort {
+                        Ok(()) => Err((KafkaError::Transaction(e), CommitOutcome::Aborted)),
                         // The abort itself is now in doubt, so the
                         // records are too.
-                        return Err((abort_err, CommitOutcome::Unknown));
+                        Err(abort_err) => Err((abort_err, CommitOutcome::Unknown)),
                     }
-                    Err((KafkaError::Transaction(e), CommitOutcome::Aborted))
                 }
+                // Neither retriable nor abort-requiring: the transaction
+                // is left open with its fate unknown, and this producer
+                // has no way back to a state where it can begin another.
                 Err(e) => Err((e, CommitOutcome::Unknown)),
             }
         }
@@ -693,6 +798,16 @@ async fn commit_window_after(
         Ok(Err((e, outcome))) => {
             histogram!("personhog_leader_fence_commit_ms", "outcome" => "failed")
                 .record(commit_start.elapsed().as_secs_f64() * 1000.0);
+            if outcome.producer_dead() {
+                fence.condemn(
+                    partition,
+                    if outcome.is_aborted() {
+                        "abort_exhausted"
+                    } else {
+                        "commit_indeterminate"
+                    },
+                );
+            }
             if is_fenced(&e) || producer_fenced(fence.producer.inner()) {
                 // A poisoned window's fence was already classified and
                 // counted where the send failed; counting again here
@@ -711,7 +826,7 @@ async fn commit_window_after(
                     "changelog window fenced by a newer owner — this pod's claim is stale"
                 );
                 Err(FencedProduceError::Fenced)
-            } else if outcome == CommitOutcome::Aborted {
+            } else if outcome.is_aborted() {
                 counter!(
                     "personhog_leader_fence_aborts_total",
                     "partition" => partition.to_string()
@@ -766,6 +881,9 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_exhausted_total").increment(0);
+    for reason in ["abort_exhausted", "commit_indeterminate"] {
+        counter!("personhog_leader_fence_condemned_total", "reason" => reason).increment(0);
+    }
     counter!("personhog_leader_fence_commit_retries_total").increment(0);
     counter!("personhog_leader_fenced_partition_drops_total").increment(0);
     counter!("personhog_leader_kafka_produce_errors_total").increment(0);

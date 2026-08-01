@@ -311,3 +311,41 @@ fn an_unknown_commit_outcome_is_not_reported_as_a_failure() {
         "the message must say what is actually known: {indeterminate}"
     );
 }
+
+/// A producer whose abort exhausted its retries, or whose commit outcome
+/// stayed unknown, is left in a transaction state it cannot begin another
+/// window from. It is still installed, so nothing that checks for the
+/// *presence* of a fence can tell it apart from a working one.
+///
+/// The partition must therefore stop reporting itself as fenced and start
+/// answering writes as an ownership question, which is what a router can
+/// act on and what a repair pass looks for. Reporting a retryable failure
+/// instead leaves every write on the partition failing for as long as the
+/// process lives, with reads still served and nothing to escalate.
+#[tokio::test]
+async fn a_condemned_producer_stops_claiming_the_partition() {
+    let topic = format!("fence_condemned_{}", uuid::Uuid::new_v4().simple());
+    let producers = fenced_producers(&topic);
+    producers.acquire(0).await.expect("acquire the fence");
+    producers
+        .produce(0, &test_person(1))
+        .await
+        .expect("a healthy fence writes");
+
+    producers.condemn_for_test(0);
+
+    match producers.produce(0, &test_person(2)).await {
+        Err(FencedProduceError::NotAcquired) => {}
+        other => panic!("a condemned producer must not answer as a live fence, got {other:?}"),
+    }
+
+    // And it must have been given up rather than merely refused once: a
+    // re-acquisition is the only thing that makes the partition writable
+    // again, and it can only run against a partition this pod no longer
+    // claims to fence.
+    producers.acquire(0).await.expect("re-acquire the fence");
+    producers
+        .produce(0, &test_person(3))
+        .await
+        .expect("a re-acquired fence writes again");
+}
