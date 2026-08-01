@@ -56,6 +56,7 @@ from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.utils import get_safe_cache
 
+from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     build_exposure_event_conditions,
@@ -257,6 +258,9 @@ def _cache_key(
             window_start.replace(second=0, microsecond=0).isoformat(),
             window_end.replace(second=0, microsecond=0).isoformat(),
             limit,
+            # Property restrictions are compiled into the SQL, so unlike recording access they
+            # can't be re-filtered on read; a restriction change has to miss the cache instead.
+            sorted(get_restricted_properties_for_team(user=user, team=team)),
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
