@@ -56,7 +56,10 @@ class IQRDetector(BaseDetector):
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
-        diffs_n = self.preprocessing_config.get("diffs_n", 0) or 0
+        # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
+        # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
+        # is introduced regardless of the configured magnitude.
+        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
         offset = max(self.training_offset, 1)
 
         if not self._validate_data(data, min_length=window + offset + diffs_n):
@@ -117,7 +120,10 @@ class IQRDetector(BaseDetector):
         threshold = self.config.get("threshold", self.DEFAULT_THRESHOLD)
         multiplier = self.config.get("multiplier", 1.5)
         window = self.config.get("window", 30)
-        diffs_n = self.preprocessing_config.get("diffs_n", 0) or 0
+        # preprocess() only ever runs a single first-difference pass when diffs_n is truthy
+        # (it's a boolean toggle, not a pass count), so exactly one synthetic leading point
+        # is introduced regardless of the configured magnitude.
+        diffs_n = 1 if self.preprocessing_config.get("diffs_n") else 0
         offset = max(self.training_offset, 1)
 
         if not self._validate_data(data, min_length=window + offset + diffs_n):

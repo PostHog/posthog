@@ -192,10 +192,15 @@ class TestStatisticalDetectors:
         # With diffs_n=1, the training window needs one extra raw point beyond
         # window+1, otherwise first_difference()'s synthetic leading value (a
         # zero) would land inside the fit window and silently shrink it by one
-        # genuine point. window+1 (the old minimum) must now be rejected.
+        # genuine point. window+1 must be rejected outright, not scored — a
+        # scored-but-not-anomalous flat series would also report is_anomaly=False,
+        # so assert the rejection path specifically via its empty metadata/score.
         data = np.array([10, 10, 10, 10, 10, 10])  # len == window + 1
         detector = detector_cls({"threshold": 0.9, "window": 5, "preprocessing": {"diffs_n": 1}})
-        assert detector.detect(data).is_anomaly is False
+        result = detector.detect(data)
+        assert result.is_anomaly is False
+        assert result.score is None
+        assert result.metadata == {}
 
     @parameterized.expand(
         [
@@ -211,13 +216,17 @@ class TestStatisticalDetectors:
     def test_batch_triggered_indices_align_with_raw_series_when_diffing(
         self, _name: str, detector_cls: Any, data: Any, spike_index: int
     ) -> None:
-        # detect_batch trims preprocess()'s synthetic leading points internally;
-        # triggered_indices/all_scores must be shifted back so callers (which map
-        # indices to dates on the original series) don't get an off-by-one against
-        # every date after the first.
+        # detect_batch trims preprocess()'s synthetic leading point internally, so the
+        # first scorable position shifts one later than window alone (window + diffs_n
+        # leading Nones, not just window) — asserting that count fails against the old
+        # un-shifted indexing. triggered_indices/all_scores must be shifted back so
+        # callers (which map indices to dates on the original series) don't get an
+        # off-by-one against every date after the first.
         detector = detector_cls({"threshold": 0.9, "window": 5, "preprocessing": {"diffs_n": 1}})
         result = detector.detect_batch(data)
         assert len(result.all_scores) == len(data)
+        assert result.all_scores[:6] == [None] * 6
+        assert result.all_scores[6] is not None
         assert all(0 <= i < len(data) for i in result.triggered_indices)
         # A diffed detector may also flag the reversion right after the spike, but
         # never an index outside the raw series.
@@ -231,14 +240,30 @@ class TestStatisticalDetectors:
         ]
     )
     def test_detect_honors_training_offset_n(self, _name: str, detector_cls: Any, data: Any) -> None:
-        # detect() used to hardcode a training_offset of 1 regardless of config,
-        # so training_offset_n had no effect on live checks. Placing a spike so
-        # it falls inside the offset=1 training window but outside the offset=4
-        # one must change whether the same trailing point trips.
+        # Changing training_offset_n must change which historical points enter the
+        # training window: a spike that falls inside the offset=1 window but outside
+        # the offset=4 one must flip whether the same trailing point is flagged.
         offset_1 = detector_cls({"threshold": 0.9, "window": 5, "training_offset_n": 1})
         offset_4 = detector_cls({"threshold": 0.9, "window": 5, "training_offset_n": 4})
         assert offset_1.detect(data).is_anomaly is False
         assert offset_4.detect(data).is_anomaly is True
+
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector),
+            ("iqr", IQRDetector),
+            ("mad", MADDetector),
+        ]
+    )
+    def test_handles_explicit_none_preprocessing(self, _name: str, detector_cls: Any) -> None:
+        # Serializers round-trip a detector_config with an explicit "preprocessing": None
+        # key (not merely omitted) when no preprocessing was configured. `config.get(key,
+        # {})` only falls back to `{}` when the key is absent, so a present-but-None value
+        # used to reach detect()/detect_batch() as None and crash on `.get("diffs_n", ...)`.
+        detector = detector_cls({"threshold": 0.9, "window": 5, "preprocessing": None})
+        data = np.arange(20, dtype=float)
+        detector.detect(data)
+        detector.detect_batch(data)
 
 
 class TestPyODDetectors:
