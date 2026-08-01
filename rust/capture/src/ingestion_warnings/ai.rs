@@ -13,7 +13,12 @@ use serde_json::{json, Map};
 use crate::ai_rejection::{AiFailure, AiRejection};
 use crate::api::CaptureError;
 
-/// Map a rejection to the warning the customer should see.
+/// Map a rejection to the warning the customer should see, or `None` when they
+/// can't act on it.
+///
+/// Attributable is not the same as actionable. Every rejection here happens
+/// after the token is read, so all of them *could* be attributed to a team; the
+/// bar for emitting is that the customer can change something to stop it.
 ///
 /// Five of these reuse types the analytics paths already emit, because the
 /// condition is identical and a reader of the v2 table shouldn't have to learn a
@@ -23,38 +28,36 @@ use crate::api::CaptureError;
 ///
 /// Exhaustive with no catch-all, so a new rejection variant fails to compile
 /// until someone decides whether customers should see a warning for it.
-pub fn warning_for_ai_rejection(rejection: &AiRejection) -> WarningType {
+pub fn warning_for_ai_rejection(rejection: &AiRejection) -> Option<WarningType> {
     match rejection {
         // Sending ordinary analytics to the AI path, or omitting the one
         // property every AI event needs.
         AiRejection::EventNameNotAllowed(_)
         | AiRejection::AiModelMissing
         | AiRejection::AiModelNotString
-        | AiRejection::AiModelEmpty => WarningType::InvalidAiEvent,
+        | AiRejection::AiModelEmpty => Some(WarningType::InvalidAiEvent),
 
         // Shared with the analytics paths: same mistake, same type.
         AiRejection::EventMissingName
         | AiRejection::EventNameRequired
-        | AiRejection::EventNameEmpty => WarningType::MissingEventName,
+        | AiRejection::EventNameEmpty => Some(WarningType::MissingEventName),
         AiRejection::EventMissingDistinctId
         | AiRejection::DistinctIdRequired
-        | AiRejection::DistinctIdEmpty => WarningType::MissingDistinctId,
-        AiRejection::EventUuidRequired => WarningType::MissingEventUuid,
-        AiRejection::EventUuidInvalid(_) => WarningType::InvalidEventUuid,
+        | AiRejection::DistinctIdEmpty => Some(WarningType::MissingDistinctId),
+        AiRejection::EventUuidRequired => Some(WarningType::MissingEventUuid),
+        AiRejection::EventUuidInvalid(_) => Some(WarningType::InvalidEventUuid),
         AiRejection::EventPartTooBig { .. }
         | AiRejection::EventAndPropertiesTooBig { .. }
-        | AiRejection::SumOfPartsTooBig { .. } => WarningType::MessageSizeTooLarge,
+        | AiRejection::SumOfPartsTooBig { .. } => Some(WarningType::MessageSizeTooLarge),
 
         // The properties object specifically is missing or unreadable.
         AiRejection::EventMissingProperties
         | AiRejection::PropertiesPartNotUtf8
-        | AiRejection::PropertiesPartNotJson => WarningType::MalformedEventProperties,
+        | AiRejection::PropertiesPartNotJson => Some(WarningType::MalformedEventProperties),
 
-        // Everything structural about the multipart request itself.
+        // Structural problems the customer built into the request.
         AiRejection::NotMultipart
         | AiRejection::InvalidBoundary(_)
-        | AiRejection::MultipartParseFailed(_)
-        | AiRejection::FieldDataUnreadable(_)
         | AiRejection::MissingEventPart
         | AiRejection::FirstPartNotEvent(_)
         | AiRejection::DuplicateEventPart
@@ -67,7 +70,17 @@ pub fn warning_for_ai_rejection(rejection: &AiRejection) -> WarningType {
         | AiRejection::BlobContentTypeUnsupported { .. }
         | AiRejection::BlobEmpty(_)
         | AiRejection::BlobPropertyNested(_)
-        | AiRejection::BlobPropertyDuplicate(_) => WarningType::InvalidAiPayload,
+        | AiRejection::BlobPropertyDuplicate(_) => Some(WarningType::InvalidAiPayload),
+
+        // The body stream broke mid-read, so the request was truncated or
+        // aborted. We can't tell a client that hung up from a proxy or our own
+        // load balancer dropping the connection, and blaming the customer's
+        // payload for a drop we caused is worse than staying quiet. Same call
+        // the legacy path makes for `BodyReadTimeout`.
+        //
+        // Little is lost: a body that is genuinely malformed rather than
+        // truncated fails one of the specific arms above, which say more.
+        AiRejection::MultipartParseFailed(_) | AiRejection::FieldDataUnreadable(_) => None,
     }
 }
 
@@ -93,16 +106,24 @@ fn warning_for_ai_failure(
 ) -> Option<(WarningType, Map<String, serde_json::Value>)> {
     match failure {
         AiFailure::Rejected(rejection) => {
-            Some((warning_for_ai_rejection(rejection), details_for(rejection)))
+            Some((warning_for_ai_rejection(rejection)?, details_for(rejection)))
         }
-        // The gzip decompressor raises this after the token is read, when the
-        // decompressed body would exceed the endpoint's limit. Every other
-        // `CaptureError` reaching here is ours: quota is surfaced through
-        // billing, and blob storage, S3, and Kafka failures are not the
-        // customer's to fix.
+
+        // Both of these come from the gzip decompressor, the only shared helper
+        // the handler calls after reading the token. Its size check raises
+        // `EventTooBig`; a corrupt stream raises `RequestDecodingError`. Bad
+        // compression is the customer's payload just as much as a wrong
+        // Content-Type is, so it gets the same treatment.
         AiFailure::Other(CaptureError::EventTooBig(_)) => {
             Some((WarningType::MessageSizeTooLarge, Map::new()))
         }
+        AiFailure::Other(CaptureError::RequestDecodingError(_)) => {
+            Some((WarningType::InvalidAiPayload, Map::new()))
+        }
+
+        // Everything else reaching here is ours: quota is surfaced through
+        // billing, and blob storage, S3, Kafka, and serialization failures are
+        // not the customer's to fix.
         AiFailure::Other(_) => None,
     }
 }
@@ -167,32 +188,35 @@ mod tests {
     #[rstest]
     #[case::wrong_event_name(
         AiRejection::EventNameNotAllowed("$pageview".to_string()),
-        WarningType::InvalidAiEvent
+        Some(WarningType::InvalidAiEvent)
     )]
-    #[case::no_model(AiRejection::AiModelMissing, WarningType::InvalidAiEvent)]
-    #[case::no_event_name(AiRejection::EventNameRequired, WarningType::MissingEventName)]
-    #[case::no_distinct_id(AiRejection::DistinctIdEmpty, WarningType::MissingDistinctId)]
-    #[case::no_uuid(AiRejection::EventUuidRequired, WarningType::MissingEventUuid)]
+    #[case::no_model(AiRejection::AiModelMissing, Some(WarningType::InvalidAiEvent))]
+    #[case::no_event_name(AiRejection::EventNameRequired, Some(WarningType::MissingEventName))]
+    #[case::no_distinct_id(AiRejection::DistinctIdEmpty, Some(WarningType::MissingDistinctId))]
+    #[case::no_uuid(AiRejection::EventUuidRequired, Some(WarningType::MissingEventUuid))]
     #[case::bad_uuid(
         AiRejection::EventUuidInvalid("nope".to_string()),
-        WarningType::InvalidEventUuid
+        Some(WarningType::InvalidEventUuid)
     )]
     #[case::oversize(
         AiRejection::SumOfPartsTooBig { size: 1, max: 0 },
-        WarningType::MessageSizeTooLarge
+        Some(WarningType::MessageSizeTooLarge)
     )]
     #[case::bad_properties(
         AiRejection::PropertiesPartNotJson,
-        WarningType::MalformedEventProperties
+        Some(WarningType::MalformedEventProperties)
     )]
-    #[case::bad_multipart(AiRejection::NotMultipart, WarningType::InvalidAiPayload)]
+    #[case::bad_multipart(AiRejection::NotMultipart, Some(WarningType::InvalidAiPayload))]
+    // Truncated or aborted body: fault is ambiguous, so nothing is emitted.
+    #[case::truncated_stream(AiRejection::MultipartParseFailed("eof".to_string()), None)]
+    #[case::truncated_field(AiRejection::FieldDataUnreadable("eof".to_string()), None)]
     #[case::bad_blob(
         AiRejection::BlobEmpty("event.properties.x".to_string()),
-        WarningType::InvalidAiPayload
+        Some(WarningType::InvalidAiPayload)
     )]
     fn rejections_map_to_their_warning(
         #[case] rejection: AiRejection,
-        #[case] expected: WarningType,
+        #[case] expected: Option<WarningType>,
     ) {
         assert_eq!(warning_for_ai_rejection(&rejection), expected);
     }
@@ -204,49 +228,13 @@ mod tests {
     // can't slip in mapped to an untrusted type.
     #[test]
     fn every_rejection_maps_to_a_trusted_single_routed_type() {
-        let all = [
-            AiRejection::NotMultipart,
-            AiRejection::InvalidBoundary("x".to_string()),
-            AiRejection::MultipartParseFailed("x".to_string()),
-            AiRejection::FieldDataUnreadable("x".to_string()),
-            AiRejection::MissingEventPart,
-            AiRejection::FirstPartNotEvent("x".to_string()),
-            AiRejection::DuplicateEventPart,
-            AiRejection::UnknownField("x".to_string()),
-            AiRejection::EventPartNotUtf8,
-            AiRejection::EventPartNotJson,
-            AiRejection::EventNotObject,
-            AiRejection::PropertiesPartNotUtf8,
-            AiRejection::PropertiesPartNotJson,
-            AiRejection::ConflictingProperties,
-            AiRejection::EventMissingProperties,
-            AiRejection::BlobContentTypeMissing("x".to_string()),
-            AiRejection::BlobContentTypeUnsupported {
-                field: "x".to_string(),
-                content_type: "y".to_string(),
-            },
-            AiRejection::BlobEmpty("x".to_string()),
-            AiRejection::BlobPropertyNested("x".to_string()),
-            AiRejection::BlobPropertyDuplicate("x".to_string()),
-            AiRejection::EventPartTooBig { size: 1, max: 0 },
-            AiRejection::EventAndPropertiesTooBig { size: 1, max: 0 },
-            AiRejection::SumOfPartsTooBig { size: 1, max: 0 },
-            AiRejection::EventMissingName,
-            AiRejection::EventNameRequired,
-            AiRejection::EventNameEmpty,
-            AiRejection::EventMissingDistinctId,
-            AiRejection::DistinctIdRequired,
-            AiRejection::DistinctIdEmpty,
-            AiRejection::EventUuidRequired,
-            AiRejection::EventUuidInvalid("x".to_string()),
-            AiRejection::EventNameNotAllowed("x".to_string()),
-            AiRejection::AiModelMissing,
-            AiRejection::AiModelNotString,
-            AiRejection::AiModelEmpty,
-        ];
+        let mut silent = Vec::new();
 
-        for rejection in &all {
-            let warning = warning_for_ai_rejection(rejection);
+        for rejection in crate::ai_rejection::all_variants() {
+            let Some(warning) = warning_for_ai_rejection(&rejection) else {
+                silent.push(rejection);
+                continue;
+            };
             assert!(
                 warning.capture_produced(),
                 "{rejection:?} maps to {warning:?}, which is not on the consumer trust allowlist"
@@ -258,6 +246,24 @@ mod tests {
                 "{warning:?} must be on exactly one emit route"
             );
         }
+
+        // Pinned rather than merely allowed: staying silent is a judgment call
+        // about fault, so a third variant joining this set should be a decision
+        // someone made here, not a mapping someone forgot. Compared by variant,
+        // since the payload values are placeholders.
+        let silent: Vec<_> = silent.iter().map(std::mem::discriminant).collect();
+        let expected = [
+            AiRejection::MultipartParseFailed(String::new()),
+            AiRejection::FieldDataUnreadable(String::new()),
+        ];
+        assert_eq!(
+            silent,
+            expected
+                .iter()
+                .map(std::mem::discriminant)
+                .collect::<Vec<_>>(),
+            "the set of rejections that emit nothing changed"
+        );
     }
 
     #[test]
@@ -336,20 +342,25 @@ mod tests {
         );
     }
 
-    // The gzip decompressor raises EventTooBig after the token is read, so it is
-    // attributable even though it is not an AiRejection.
-    #[test]
-    fn oversize_decompressed_body_warns() {
+    // The gzip decompressor is the one shared helper the handler calls after
+    // reading the token, so both its failures are attributable and actionable
+    // even though neither is an AiRejection.
+    #[rstest]
+    #[case::oversize(
+        CaptureError::EventTooBig("too big".to_string()),
+        WarningType::MessageSizeTooLarge
+    )]
+    #[case::corrupt_gzip(
+        CaptureError::RequestDecodingError("invalid GZIP data".to_string()),
+        WarningType::InvalidAiPayload
+    )]
+    fn gzip_failures_warn(#[case] err: CaptureError, #[case] expected: WarningType) {
         let emitter = CollectingEmitter::default();
-        emit_ai_failure_warning(
-            Some(&emitter),
-            &request(),
-            &AiFailure::Other(CaptureError::EventTooBig("too big".to_string())),
-        );
+        emit_ai_failure_warning(Some(&emitter), &request(), &AiFailure::Other(err));
 
         let emitted = emitter.emitted();
         assert_eq!(emitted.len(), 1);
-        assert_eq!(emitted[0].warning, WarningType::MessageSizeTooLarge);
+        assert_eq!(emitted[0].warning, expected);
     }
 
     #[rstest]

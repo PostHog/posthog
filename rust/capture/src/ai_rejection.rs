@@ -227,66 +227,16 @@ impl fmt::Display for AiRejection {
     }
 }
 
-impl From<AiRejection> for CaptureError {
-    fn from(rejection: AiRejection) -> Self {
-        let message = rejection.message();
-        match rejection.kind() {
-            ErrorKind::Decoding => CaptureError::RequestDecodingError(message),
-            ErrorKind::Parsing => CaptureError::RequestParsingError(message),
-            ErrorKind::TooBig => CaptureError::EventTooBig(message),
-        }
-    }
-}
-
-/// Why an AI request failed: something the customer sent, or something on our
-/// side.
+/// Every variant with the exact message it puts on the wire.
 ///
-/// Splitting these is what lets the handler emit a warning for the first kind
-/// and stay silent for the second, while both still become a `CaptureError` for
-/// the response. `From` impls in both directions keep `?` working unchanged at
-/// every existing call site.
-#[derive(Debug)]
-pub enum AiFailure {
-    Rejected(AiRejection),
-    Other(CaptureError),
-}
-
-impl From<AiRejection> for AiFailure {
-    fn from(rejection: AiRejection) -> Self {
-        Self::Rejected(rejection)
-    }
-}
-
-impl From<CaptureError> for AiFailure {
-    fn from(err: CaptureError) -> Self {
-        Self::Other(err)
-    }
-}
-
-impl From<AiFailure> for CaptureError {
-    fn from(failure: AiFailure) -> Self {
-        match failure {
-            AiFailure::Rejected(rejection) => rejection.into(),
-            AiFailure::Other(err) => err,
-        }
-    }
-}
-
+/// The single list of all variants in the crate. Variants carry `String`s so it
+/// can't be a const like `WarningType::ALL`, and it lives here rather than in a
+/// test module because two of them need it: the parity check below and the
+/// warning mapping in `ingestion_warnings::ai`. Two hand-maintained copies would
+/// drift, leaving a new variant silently untested by both.
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use axum::response::IntoResponse;
-    use rstest::rstest;
-
-    /// Every variant, with the exact message and `CaptureError` variant the
-    /// handler produced before `AiRejection` existed.
-    ///
-    /// This is the regression guard for the refactor: the enum is only safe if
-    /// each condition still puts the same thing on the wire, and a reviewer
-    /// cannot verify ~30 inline `format!`s by eye. Statuses are asserted
-    /// separately below via the `CaptureError` mapping.
-    fn message_parity_cases() -> Vec<(AiRejection, &'static str)> {
-        vec![
+pub(crate) fn all_variants_with_messages() -> Vec<(AiRejection, &'static str)> {
+    vec![
             (
                 AiRejection::NotMultipart,
                 "Content-Type must be multipart/form-data",
@@ -415,16 +365,105 @@ mod tests {
             ),
             (AiRejection::AiModelNotString, "$ai_model must be a string"),
             (AiRejection::AiModelEmpty, "$ai_model cannot be empty"),
-        ]
-    }
+    ]
+}
 
+/// [`all_variants_with_messages`] without the messages, for callers that only
+/// need to walk every variant.
+#[cfg(test)]
+pub(crate) fn all_variants() -> Vec<AiRejection> {
+    all_variants_with_messages()
+        .into_iter()
+        .map(|(rejection, _)| rejection)
+        .collect()
+}
+
+impl From<AiRejection> for CaptureError {
+    fn from(rejection: AiRejection) -> Self {
+        let message = rejection.message();
+        match rejection.kind() {
+            ErrorKind::Decoding => CaptureError::RequestDecodingError(message),
+            ErrorKind::Parsing => CaptureError::RequestParsingError(message),
+            ErrorKind::TooBig => CaptureError::EventTooBig(message),
+        }
+    }
+}
+
+/// Why an AI request failed: something the customer sent, or something on our
+/// side.
+///
+/// Splitting these is what lets the handler emit a warning for the first kind
+/// and stay silent for the second, while both still become a `CaptureError` for
+/// the response. `From` impls in both directions keep `?` working unchanged at
+/// every existing call site.
+#[derive(Debug)]
+pub enum AiFailure {
+    Rejected(AiRejection),
+    Other(CaptureError),
+}
+
+impl From<AiRejection> for AiFailure {
+    fn from(rejection: AiRejection) -> Self {
+        Self::Rejected(rejection)
+    }
+}
+
+impl From<CaptureError> for AiFailure {
+    fn from(err: CaptureError) -> Self {
+        Self::Other(err)
+    }
+}
+
+impl From<AiFailure> for CaptureError {
+    fn from(failure: AiFailure) -> Self {
+        match failure {
+            AiFailure::Rejected(rejection) => rejection.into(),
+            AiFailure::Other(err) => err,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+    use rstest::rstest;
+
+    /// The regression guard for the refactor that introduced this enum: the ~30
+    /// conditions it replaced each has to keep putting the same thing on the
+    /// wire, and a reviewer can't verify that many inline `format!`s by eye.
+    ///
+    /// The pre-existing tests in `tests/integration_ai_endpoint.rs` are the
+    /// end-to-end half of the same proof; they pass unmodified.
     #[test]
     fn every_rejection_keeps_its_original_wire_message() {
-        for (rejection, expected) in message_parity_cases() {
+        for (rejection, expected) in all_variants_with_messages() {
             assert_eq!(rejection.message(), expected, "message for {rejection:?}");
             // Display and message must not drift apart; callers use both.
             assert_eq!(rejection.to_string(), expected);
         }
+    }
+
+    // `all_variants_with_messages` is hand-written, so it can fall behind the
+    // enum. Counting arms in the exhaustive `message` match is the cheapest way
+    // to notice: a new variant compiles there but is missing here.
+    #[test]
+    fn the_variant_list_covers_every_variant() {
+        let listed = all_variants();
+        let unique: std::collections::HashSet<_> =
+            listed.iter().map(std::mem::discriminant).collect();
+
+        assert_eq!(
+            unique.len(),
+            listed.len(),
+            "all_variants lists the same variant twice"
+        );
+        assert_eq!(
+            listed.len(),
+            35,
+            "variant count changed — add the new variant to all_variants_with_messages \
+             and update this expected count"
+        );
     }
 
     // The response body is the message, so a CaptureError variant swap would
