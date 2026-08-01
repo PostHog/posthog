@@ -262,11 +262,11 @@ class DeltaTableHelper:
                 await self._capture_unless_transient(e)
                 error_text = "".join(str(arg) for arg in e.args)
                 # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
-                # metadata action or containing no commit files at all — impossible on a healthy
-                # table, since `is_deltatable` above already confirmed the log directory exists):
-                # wipe so the sync starts fresh. "No files in log segment" is delta-rs's own kernel
-                # raising `DeltaTableError::NotATable` when the log directory has zero usable commit
-                # files (e.g. a stray marker left by an interrupted purge/write).
+                # metadata action or containing no commit files at all, which can't happen on a
+                # healthy table since `is_deltatable` above already confirmed the log directory
+                # exists): wipe so the sync starts fresh. "No files in log segment" is delta-rs's
+                # own kernel raising `DeltaTableError::NotATable` because the log directory has
+                # zero usable commit files, e.g. a stray marker left by an interrupted purge/write.
                 if (
                     "parse decimal overflow" in error_text
                     or "No table metadata or protocol found" in error_text
