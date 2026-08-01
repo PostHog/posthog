@@ -92,6 +92,14 @@ MAX_BUCKET_SCAN_DAYS = 30
 # Rows fetched before filtering to sessions that actually have a recording, so the cap isn't
 # spent on sessions sampled out of replay.
 RECORDING_LOOKUP_FACTOR = 3
+# Ceilings on how wide one scan can get. An experiment's metric count and a funnel's step count
+# are user-configurable with no server-side cap, so without these a single request can compile a
+# query hundreds of conditions wide over the whole window. The numbers mirror MAX_SCANNED_METRICS
+# and MAX_AGGREGATE_GROUPS in the metric-events scan. Over the ceiling the request is refused
+# rather than quietly computed over a subset: a bucket answered over fewer metrics than asked for
+# is a different question, and for `no_metric_activity` a dropped metric inflates the result.
+MAX_BUCKET_METRICS = 50
+MAX_BUCKET_SOURCES = 200
 # Per (team, viewer, experiment, bucket spec). Shorter than the session-context cache: that
 # caches an immutable-ish fact about one recording, this caches a list that should visibly grow
 # as an experiment runs. Keyed by viewer for the same reason — the metric set is read through
@@ -153,7 +161,31 @@ class ExcludedBucketMetric:
 
 
 @dataclass(frozen=True)
+class SessionBucketScan:
+    """What the scan found, and what gets cached: every recorded match, most recent first, not yet
+    cut to `limit`.
+
+    The cut waits for the viewer's per-recording access filter, which runs on read so a revocation
+    lands even on a warm entry. Cutting first would let a denied recording spend a returned slot,
+    and would let `truncated` carry the one bit that a recording the viewer can't see matched.
+    """
+
+    candidate_session_ids: list[str]
+    # The scan filled its over-fetch batch, so more matches may exist beyond the ones it saw.
+    scan_hit_cap: bool
+    limit: int
+    considered_metrics: list[BucketMetric]
+    excluded_metrics: list[ExcludedBucketMetric]
+    date_from: datetime
+    date_to: datetime
+    filter_test_accounts: bool
+    used_exposure_fallback: bool
+
+
+@dataclass(frozen=True)
 class SessionBucketResult:
+    """One viewer's answer: the sessions they may see, cut to the limit."""
+
     session_ids: list[str]
     truncated: bool
     considered_metrics: list[BucketMetric]
@@ -162,6 +194,20 @@ class SessionBucketResult:
     date_to: datetime
     filter_test_accounts: bool
     used_exposure_fallback: bool
+
+
+def finalize_session_bucket(scan: SessionBucketScan, accessible_session_ids: list[str]) -> SessionBucketResult:
+    """Cut the sessions this viewer may see to the limit, and say whether anything was left out."""
+    return SessionBucketResult(
+        session_ids=accessible_session_ids[: scan.limit],
+        truncated=len(accessible_session_ids) > scan.limit or scan.scan_hit_cap,
+        considered_metrics=scan.considered_metrics,
+        excluded_metrics=scan.excluded_metrics,
+        date_from=scan.date_from,
+        date_to=scan.date_to,
+        filter_test_accounts=scan.filter_test_accounts,
+        used_exposure_fallback=scan.used_exposure_fallback,
+    )
 
 
 def get_experiment_session_bucket(
@@ -173,8 +219,11 @@ def get_experiment_session_bucket(
     metric_uuids: list[str],
     variant: Optional[str],
     limit: int,
-) -> SessionBucketResult:
+) -> SessionBucketScan:
     """Session ids of this experiment's exposed sessions matching `bucket`, most recent first.
+
+    The caller filters the result through the viewer's per-recording access control and passes it
+    to `finalize_session_bucket`, which cuts it to `limit`.
 
     `user` is the viewer: metric sources and exposure criteria can filter on arbitrary event
     properties, so the query must run under that user's property-level access control, as the
@@ -233,7 +282,7 @@ def get_experiment_session_bucket(
     if cached is not None:
         return cached
 
-    session_ids, truncated = _query_bucket_sessions(
+    candidate_session_ids, scan_hit_cap = _query_bucket_sessions(
         team,
         user,
         experiment,
@@ -245,9 +294,10 @@ def get_experiment_session_bucket(
         limit=limit,
         use_exposure_fallback=use_exposure_fallback,
     )
-    result = SessionBucketResult(
-        session_ids=session_ids,
-        truncated=truncated,
+    result = SessionBucketScan(
+        candidate_session_ids=candidate_session_ids,
+        scan_hit_cap=scan_hit_cap,
+        limit=limit,
         considered_metrics=[
             BucketMetric(metric_uuid=metric.metric_uuid, metric_name=metric.metric_name) for metric in considered
         ],
@@ -272,7 +322,7 @@ def _cache_key(
     window_end: datetime,
     limit: int,
 ) -> str:
-    # The version segment must be bumped whenever SessionBucketResult changes shape: entries are
+    # The version segment must be bumped whenever SessionBucketScan changes shape: entries are
     # pickled, so a deploy would otherwise restore instances missing the new fields.
     spec = json.dumps(
         [
@@ -283,6 +333,8 @@ def _cache_key(
             # minute keeps a burst of requests on one entry without pinning a stale window.
             window_start.replace(second=0, microsecond=0).isoformat(),
             window_end.replace(second=0, microsecond=0).isoformat(),
+            # Part of the key even though the cut happens on read: the scan over-fetches a
+            # multiple of the limit, so a larger one looks further than a cached smaller one did.
             limit,
             # Property restrictions are compiled into the SQL, so unlike recording access they
             # can't be re-filtered on read; a restriction change has to miss the cache instead.
@@ -290,7 +342,7 @@ def _cache_key(
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]
-    return f"experiment_session_bucket_v2_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_bucket_v3_{team.pk}_{user.pk}_{experiment.pk}_{digest}"
 
 
 def _resolve_requested_metrics(experiment: Experiment, metric_uuids: list[str]) -> list[MetricEventSource]:
@@ -329,6 +381,17 @@ def _partition_metrics(
     if not considered:
         raise SessionBucketUnavailable(
             "None of these metrics can be matched to recordings, so no session set would be meaningful."
+        )
+    if len(considered) > MAX_BUCKET_METRICS:
+        raise SessionBucketUnavailable(
+            f"This bucket would be computed over {len(considered)} metrics, more than the {MAX_BUCKET_METRICS} "
+            "one scan can cover. Ask for fewer metrics."
+        )
+    source_count = sum(len(metric.sources) for metric in considered)
+    if source_count > MAX_BUCKET_SOURCES:
+        raise SessionBucketUnavailable(
+            f"These metrics count {source_count} events between them, more than the {MAX_BUCKET_SOURCES} "
+            "one scan can cover. Ask for fewer metrics."
         )
     if bucket == SessionBucket.FUNNEL_DROPOFF:
         if len(considered) != 1:
@@ -578,6 +641,7 @@ def _query_bucket_sessions(
 
     candidate_ids = [str(row[0]) for row in response.results or []]
     exists_by_id = SessionReplayEvents().batch_exists(candidate_ids, team)
-    session_ids = [session_id for session_id in candidate_ids if exists_by_id.get(session_id)]
-    truncated = len(session_ids) > limit or len(candidate_ids) >= fetch_limit
-    return session_ids[:limit], truncated
+    # Not cut to `limit` here: the caller drops the recordings this viewer can't open first, and
+    # the cut has to come after that.
+    recorded_ids = [session_id for session_id in candidate_ids if exists_by_id.get(session_id)]
+    return recorded_ids, len(candidate_ids) >= fetch_limit

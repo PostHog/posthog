@@ -10,7 +10,6 @@ This will be refactored incrementally in subsequent PRs to match the product arc
 
 import json
 import asyncio
-from dataclasses import replace
 from typing import Any, Literal, cast
 
 from django.conf import settings
@@ -106,6 +105,7 @@ from products.experiments.backend.running_time_calculator import (
 from products.experiments.backend.session_buckets import (
     SessionBucket,
     SessionBucketUnavailable,
+    finalize_session_bucket,
     get_experiment_session_bucket,
 )
 from products.experiments.backend.session_context import get_session_experiment_context, get_session_experiment_contexts
@@ -1446,7 +1446,7 @@ class EnterpriseExperimentsViewSet(
             raise PermissionDenied("Reading experiment session buckets requires session replay access.")
 
         try:
-            result = get_experiment_session_bucket(
+            scan = get_experiment_session_bucket(
                 team=self.team,
                 # user threads through to the HogQL query: metric sources and exposure criteria
                 # can filter on arbitrary properties, which must respect the viewer's
@@ -1462,11 +1462,12 @@ class EnterpriseExperimentsViewSet(
             raise ValidationError(str(error))
 
         # Applied to the computed set rather than inside the scan: the bucket is cached per
-        # viewer, so filtering on read honors a revocation that lands while an entry is warm.
-        # `truncated` still describes the scan, not this filter.
-        result = replace(
-            result,
-            session_ids=_accessible_session_ids(request, self.user_access_control, self.team, result.session_ids),
+        # viewer, so filtering on read honors a revocation that lands while an entry is warm. The
+        # cut to `limit` follows it, so a denied recording never spends a returned slot and
+        # `truncated` describes what this viewer may see.
+        result = finalize_session_bucket(
+            scan,
+            _accessible_session_ids(request, self.user_access_control, self.team, scan.candidate_session_ids),
         )
         return Response(ExperimentSessionBucketResponseSerializer(result).data)
 
