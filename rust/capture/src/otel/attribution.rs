@@ -121,7 +121,12 @@ mod tests {
     fn sdk_attribution_falls_back_to_unknown_when_unusable() {
         let over_bound = "w".repeat(MAX_SDK_ATTRIBUTION_LEN + 1);
         let cases = [
-            ("unparsed body", None, UNKNOWN_ATTRIBUTION, UNKNOWN_ATTRIBUTION),
+            (
+                "unparsed body",
+                None,
+                UNKNOWN_ATTRIBUTION,
+                UNKNOWN_ATTRIBUTION,
+            ),
             (
                 "no resource",
                 Some(request_with(vec![None])),
