@@ -293,15 +293,28 @@ pub struct Config {
 /// window that is already committing, so it pays that window's send and
 /// commit before its own — hence the factor of two below.
 ///
+/// A commit may also be re-attempted, and the shares are sized so that
+/// every attempt the code will make still fits. The alternative was a
+/// bound that quietly assumed a single attempt while the retry loop
+/// spent three times it: an assertion the runway could not honour is
+/// worse than a tighter timeout, because the whole point of deriving
+/// these from the lease is that a write cannot outlive the fence that
+/// ends its session.
+///
 /// librdkafka additionally requires `message.timeout.ms <= transaction
 /// .timeout.ms`, and rejects a `transaction.timeout.ms` under a second.
 /// Deriving both from the runway satisfies every relation by
 /// construction wherever the lease TTL leaves room, and
 /// [`Config::validate_fencing_timescales`] refuses the configurations
 /// where it does not.
-const FENCING_MESSAGE_SHARE: u32 = 3;
-const FENCING_TXN_SHARE: u32 = 6;
+const FENCING_MESSAGE_SHARE: u32 = 2;
+const FENCING_TXN_SHARE: u32 = 4;
 const FENCING_SHARE_BASE: u32 = 10;
+
+/// How many times a window's commit is attempted in total, counting the
+/// first. The shares above are sized around this number, so changing one
+/// without the other breaks the runway bound.
+pub const FENCING_COMMIT_ATTEMPTS: u32 = 2;
 
 /// librdkafka's documented minimum for `transaction.timeout.ms`.
 const MIN_TXN_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -390,14 +403,16 @@ impl Config {
             ));
         }
         // A write parked behind a committing window pays that window's
-        // send and commit before its own, so the runway has to cover two.
-        let queued_worst_case = window + (message + txn) * 2;
+        // send and commit before its own, so the runway has to cover
+        // two — each of them including every commit attempt the code
+        // will make, not just the first.
+        let queued_worst_case = window + (message + txn * FENCING_COMMIT_ATTEMPTS) * 2;
         if queued_worst_case > runway {
             return Err(format!(
                 "a fenced write queued behind another can take {queued_worst_case:?} \
-                 (window {window:?} + 2 × (send {message:?} + commit {txn:?})), longer than \
-                 the lease self-fence runway ({runway:?} = LEASE_TTL {}s / 3); raise LEASE_TTL \
-                 or lower the fencing timeouts",
+                 (window {window:?} + 2 × (send {message:?} + {FENCING_COMMIT_ATTEMPTS} × commit \
+                 {txn:?})), longer than the lease self-fence runway ({runway:?} = LEASE_TTL \
+                 {}s / 3); raise LEASE_TTL or lower the fencing timeouts",
                 self.lease_ttl,
             ));
         }
@@ -529,13 +544,47 @@ mod fencing_timescale_tests {
                 assert!(txn >= MIN_TXN_TIMEOUT, "LEASE_TTL={lease_ttl}");
                 assert!(message >= MIN_MESSAGE_TIMEOUT, "LEASE_TTL={lease_ttl}");
                 assert!(message <= txn, "LEASE_TTL={lease_ttl}");
-                let queued = Duration::from_millis(config.fencing_window_ms) + (message + txn) * 2;
+                // Mirrors the production bound, retries included: a
+                // check that models fewer attempts than the code makes
+                // would accept exactly the configurations that break it.
+                let queued = Duration::from_millis(config.fencing_window_ms)
+                    + (message + txn * FENCING_COMMIT_ATTEMPTS) * 2;
                 assert!(
                     queued <= config.lease_fence_runway(),
                     "LEASE_TTL={lease_ttl}: queued worst case {queued:?} exceeds runway"
                 );
             }
         }
+    }
+
+    /// The retry budget and the timeout shares are one decision split
+    /// across two constants. Raising the attempt count without shrinking
+    /// the shares puts the code back outside the runway it validates
+    /// against — silently, because every existing test would still pass.
+    #[test]
+    fn the_production_ttl_affords_every_commit_attempt() {
+        let config = fenced(30);
+        let (message, txn, runway, window) = (
+            config.fencing_message_timeout(),
+            config.fencing_txn_timeout(),
+            config.lease_fence_runway(),
+            Duration::from_millis(config.fencing_window_ms),
+        );
+        let queued = window + (message + txn * FENCING_COMMIT_ATTEMPTS) * 2;
+        assert!(
+            queued <= runway,
+            "{FENCING_COMMIT_ATTEMPTS} commit attempts need {queued:?}, runway is {runway:?}: \
+             lower FENCING_TXN_SHARE / FENCING_MESSAGE_SHARE, or lower the attempt count"
+        );
+        // And it must be the attempts that are tight, not the shares
+        // being trivially small: a budget that fits ten attempts would
+        // mean the timeouts had collapsed toward their floors.
+        let one_more = window + (message + txn * (FENCING_COMMIT_ATTEMPTS + 1)) * 2;
+        assert!(
+            one_more > runway,
+            "the shares leave room for more attempts than are configured; raise \
+             FENCING_COMMIT_ATTEMPTS or the shares rather than leaving runway unused"
+        );
     }
 
     /// The production lease TTL must actually be usable with fencing on,

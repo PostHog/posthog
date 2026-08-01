@@ -43,6 +43,7 @@ use tracing::{error, warn};
 
 use personhog_proto::personhog::types::v1::Person;
 
+use crate::config::FENCING_COMMIT_ATTEMPTS;
 use crate::kafka::changelog_message_key;
 
 /// The fencing scope is the partition: every owner of partition `p`
@@ -592,7 +593,12 @@ const ABORT_RETRIES: usize = 3;
 
 /// How many times a retriable commit is re-attempted before its outcome
 /// is declared unknown.
-const COMMIT_RETRIES: usize = 3;
+///
+/// Derived from the attempt budget the lease runway affords, rather than
+/// chosen independently: `validate_fencing_timescales` sizes the fencing
+/// timeouts so that exactly this many attempts still fit inside the
+/// window the keepalive reserves for self-fencing.
+const COMMIT_RETRIES: usize = FENCING_COMMIT_ATTEMPTS as usize - 1;
 
 /// What is known about a window's records after a failed commit, and
 /// whether the producer survived learning it.
