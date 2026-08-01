@@ -17,6 +17,7 @@ vi.mock('@/lib/posthog', () => ({
 
 import { trackExecuteSqlGeneration, trackInitEvent, trackToolCall } from '@/hono/analytics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
@@ -116,16 +117,36 @@ describe('Hono MCP analytics contexts', () => {
         expect(properties.mcp_session_vendor_client).toBeUndefined()
     })
 
-    it('stamps $mcp_tool_category from the catalogued tool definition', async () => {
+    it('stamps $mcp_tool_category and $mcp_tool_description from the catalogued tool definition', async () => {
         await trackToolCall('query-logs', 5, false, makeState())
 
-        expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_tool_category).toBe('Logs')
+        const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+        expect(properties.$mcp_tool_category).toBe('Logs')
+        // query-logs' catalogued description is ~13 KB, so this assertion also locks in
+        // the capture-side clip. Description capture died silently once before (the hono
+        // migration dropped it while the category stamp survived), so the two are asserted
+        // together at the same call site.
+        expect(properties.$mcp_tool_description).toBe(
+            getToolDefinition('query-logs').description.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH)
+        )
+        expect((properties.$mcp_tool_description as string).length).toBe(MAX_CAPTURED_DESCRIPTION_LENGTH)
     })
 
-    it('omits $mcp_tool_category for tools without a catalogued definition', async () => {
+    it('omits $mcp_tool_category and $mcp_tool_description for tools without a catalogued definition', async () => {
         await trackToolCall('exec', 5, false, makeState())
 
         expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_category')
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties).not.toHaveProperty('$mcp_tool_description')
+    })
+
+    it('prefers the served description over the catalog text, clipped', async () => {
+        // execute-sql advertises a per-request formatted description, so stamping
+        // the catalog text would record words the agent never saw.
+        const served = 'served '.repeat(200)
+        await trackToolCall('query-logs', 5, false, makeState(), undefined, undefined, served)
+
+        const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+        expect(properties.$mcp_tool_description).toBe(served.slice(0, MAX_CAPTURED_DESCRIPTION_LENGTH))
     })
 
     describe('trackExecuteSqlGeneration', () => {

@@ -70,6 +70,7 @@ function ScannerPicker({ sessionId }: { sessionId: string }): JSX.Element {
                                     fullWidth
                                     size="small"
                                     onClick={() => observe(scanner.id)}
+                                    disabledReason={observing ? 'Starting an observation…' : undefined}
                                     data-attr="vision-scan-pick-scanner"
                                     data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                                 >

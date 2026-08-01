@@ -10,6 +10,8 @@ from django.conf import settings
 from django.db import IntegrityError
 from django.utils import timezone
 
+import httpx
+import aiohttp
 import psycopg.errors
 from asgiref.sync import sync_to_async
 from google.genai.errors import APIError
@@ -19,6 +21,7 @@ from structlog.testing import capture_logs
 from temporalio.exceptions import (
     ActivityError,
     ApplicationError,
+    ChildWorkflowError,
     TimeoutError as TemporalTimeoutError,
     TimeoutType,
 )
@@ -83,6 +86,7 @@ from products.replay_vision.backend.temporal.errors import (
     IneligibleSessionKind,
     ScannerFailureError,
 )
+from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     REDIS_INDEX_KEY as _GEMINI_REDIS_INDEX_KEY,
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
@@ -128,6 +132,7 @@ from products.replay_vision.backend.temporal.types import (
 from products.replay_vision.backend.temporal.workflow import (
     _activity_timeout_kind,
     _extract_kind_for_type,
+    _failure_type,
     _root_cause_message,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
@@ -1370,7 +1375,7 @@ class TestFetchSessionEventsActivity:
 
     @pytest.mark.asyncio
     async def test_loads_every_page_until_source_is_exhausted(self) -> None:
-        # No event cap: when a page reports `has_more`, keep paging and load the whole session.
+        # Below the row cap, a page reporting `has_more` keeps paging and loads the whole session.
         scanner = await sync_to_async(_make_scanner)()
         observation_id = uuid.uuid4()
         start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
@@ -1398,6 +1403,46 @@ class TestFetchSessionEventsActivity:
         assert stored is not None
         assert mock_obj.get_events.call_count == 2  # paged through both, not capped at one page
         assert len(stored.events.rows) == 3  # every event from both pages
+        assert stored.events_truncated is False
+
+    @pytest.mark.asyncio
+    async def test_stops_paging_at_the_row_cap_and_marks_the_result_truncated(self) -> None:
+        # Eligibility caps active seconds, not event count, so an instrumentation loop can page forever
+        # and blow up worker memory, the Redis blob, and the events index. The prompt has to say so, or
+        # the model reads a missing late event as "nothing happened".
+        scanner = await sync_to_async(_make_scanner)()
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": start, "duration": 60, "active_seconds": 30}
+        cols = ["event", "timestamp", "$session_id"]
+
+        # Distinct per page: the cap counts raw rows, before `_process_events` dedups them.
+        def _page(offset: int) -> list[tuple]:
+            return [("$autocapture", start, f"s-{offset + i}") for i in range(4)]
+
+        mock_obj = self._make_session_replay_events_mock(
+            metadata, [(cols, _page(0), True), (cols, _page(4), True), (cols, _page(8), True)]
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+                return_value=mock_obj,
+            ),
+            patch("products.replay_vision.backend.temporal.activities.fetch_session_events._MAX_TOTAL_EVENT_ROWS", 6),
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
+        assert stored is not None
+        # Two pages of 4 reach 8 rows, past the cap of 6: it stops there rather than draining the source.
+        assert mock_obj.get_events.call_count == 2
+        assert len(stored.events.rows) == 6
+        assert stored.events_truncated is True
 
     @pytest.mark.asyncio
     async def test_stops_paging_once_no_more(self) -> None:
@@ -1600,9 +1645,11 @@ class _WorkflowMocks:
         *,
         activity_results: dict[Any, Any] | None = None,
         activity_errors: dict[Any, Exception] | None = None,
+        child_error: Exception | None = None,
     ) -> None:
         self.activity_results = activity_results or {}
         self.activity_errors = activity_errors or {}
+        self.child_error = child_error
         self.activity_calls: list[tuple[Any, Any]] = []
         self.child_calls: list[tuple[tuple, dict]] = []
 
@@ -1614,6 +1661,8 @@ class _WorkflowMocks:
 
     async def execute_child_workflow(self, *args: Any, **kwargs: Any) -> Any:
         self.child_calls.append((args, kwargs))
+        if self.child_error is not None:
+            raise self.child_error
         return None
 
 
@@ -1701,6 +1750,53 @@ async def test_apply_scanner_workflow_marks_failed_when_fetch_raises() -> None:
     failed_input = mocks.activity_calls[-1][1]
     assert failed_input.observation_id == new_observation_id
     assert "no events" in failed_input.error_reason.lower()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rasterizer_type,expect_ineligible,expected_kind",
+    [
+        # An unrenderable recording is a gate, so it must not land on the failed path telling the user to retry.
+        ("NO_SNAPSHOTS", True, "no_snapshots"),
+        ("CAPTURE_ABORTED", False, "rasterization_failed"),
+        (None, False, "rasterization_failed"),
+    ],
+)
+async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
+    rasterizer_type: str | None, expect_ineligible: bool, expected_kind: str
+) -> None:
+    new_observation_id = uuid.uuid4()
+    leaf = (
+        # `non_retryable=False` is the real arrival shape: the rasterizer keeps NO_SNAPSHOTS retryable while blocks may
+        # still be landing, so it only reaches us once the attempts are spent. Classification keys off the type alone.
+        ApplicationError("No snapshots after processing", type=rasterizer_type, non_retryable=False)
+        if rasterizer_type
+        else RuntimeError("browser pod vanished")
+    )
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        # Mirrors how the rasterizer's own error reaches the parent: wrapped twice by Temporal.
+        child_error=_wrap_in_child_workflow_error(_wrap_in_activity_error(leaf))
+        if isinstance(leaf, ApplicationError)
+        else leaf,
+    )
+
+    with pytest.raises(Exception):
+        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks)
+
+    called = {fn for fn, _ in mocks.activity_calls}
+    terminal = mark_observation_ineligible_activity if expect_ineligible else mark_observation_failed_activity
+    other = mark_observation_failed_activity if expect_ineligible else mark_observation_ineligible_activity
+    assert terminal in called
+    assert other not in called
+    assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
+    # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
+    assert upload_video_to_gemini_activity not in called
 
 
 @pytest.mark.asyncio
@@ -2217,6 +2313,107 @@ def _wrap_in_activity_error(cause: ApplicationError) -> ActivityError:
     return activity_err
 
 
+def _wrap_in_child_workflow_error(cause: BaseException) -> ChildWorkflowError:
+    """Same idea one level up: what a failing child workflow raises into the parent's `except` block."""
+    child_err = ChildWorkflowError.__new__(ChildWorkflowError)
+    child_err.__cause__ = cause
+    return child_err
+
+
+class TestClassifyGeminiError:
+    """An unclassified provider error lands as `internal_error`, which sends the user to support over an outage they
+    could just retry. These cases pin the mapping that keeps it out of that bucket."""
+
+    @parameterized.expand(
+        [
+            ("rate_limited", 429, FailureKind.PROVIDER_TRANSIENT),
+            ("server_error", 500, FailureKind.PROVIDER_TRANSIENT),
+            ("bad_gateway", 502, FailureKind.PROVIDER_TRANSIENT),
+            ("unavailable", 503, FailureKind.PROVIDER_TRANSIENT),
+            ("gateway_timeout", 504, FailureKind.PROVIDER_TRANSIENT),
+            ("request_timeout", 408, FailureKind.PROVIDER_TRANSIENT),
+            ("bad_request", 400, FailureKind.PROVIDER_REJECTED),
+            ("permission_denied", 403, FailureKind.PROVIDER_REJECTED),
+            ("payload_too_large", 413, FailureKind.PROVIDER_REJECTED),
+        ]
+    )
+    def test_maps_api_error_status_codes(self, _label: str, code: int, expected: FailureKind) -> None:
+        assert classify_gemini_error(APIError(code, {"error": {"message": "boom"}})) is expected
+
+    @parameterized.expand(
+        [
+            ("httpx_connect", httpx.ConnectError("connection reset by peer")),
+            ("httpx_read_timeout", httpx.ReadTimeout("timed out")),
+            ("aiohttp_disconnected", aiohttp.ServerDisconnectedError()),
+        ]
+    )
+    def test_maps_transport_errors_to_provider_transient(self, _label: str, error: Exception) -> None:
+        # These carry no HTTP response, so the status-code mapping can't see them; an unreachable provider is
+        # the same user story as a 5xx and must not land as internal_error.
+        assert classify_gemini_error(error) is FailureKind.PROVIDER_TRANSIENT
+
+    def test_leaves_non_provider_exceptions_unclassified(self) -> None:
+        # Claiming a kind here would be worse than the status quo: a PostHog bug would be blamed on the provider,
+        # and for the transient kinds it would burn the retry budget before failing anyway.
+        assert classify_gemini_error(ValueError("bad arg")) is None
+
+
+class TestGeminiErrorRedaction:
+    """`error_reason` is shown to the user verbatim, and a Gemini error body can quote request content
+    (prompt text, file references). The provider-facing activities must surface only the fixed summary."""
+
+    _BODY = {
+        "error": {"message": "invalid prompt: 'the user's confidential prompt text'", "status": "INVALID_ARGUMENT"}
+    }
+
+    @pytest.mark.asyncio
+    async def test_provider_activity_redacts_the_error_body(self) -> None:
+        with patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._call_scanner_provider",
+            side_effect=APIError(400, self._BODY),
+        ):
+            with pytest.raises(ScannerFailureError) as exc_info:
+                await ActivityEnvironment().run(
+                    call_scanner_provider_activity,
+                    CallScannerProviderInputs(
+                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                    ),
+                )
+        assert exc_info.value.kind is FailureKind.PROVIDER_REJECTED
+        assert exc_info.value.message == "The AI provider returned HTTP 400 INVALID_ARGUMENT"
+
+    @pytest.mark.asyncio
+    async def test_upload_activity_redacts_the_error_body(self) -> None:
+        with patch(
+            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini._upload_video",
+            side_effect=APIError(
+                429, {"error": {"message": "quota for 'wf-secret-name'", "status": "RESOURCE_EXHAUSTED"}}
+            ),
+        ):
+            with pytest.raises(ScannerFailureError) as exc_info:
+                await ActivityEnvironment().run(upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=1))
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.message == "The AI provider returned HTTP 429 RESOURCE_EXHAUSTED"
+
+    @pytest.mark.asyncio
+    async def test_provider_activity_classifies_transport_errors_as_transient(self) -> None:
+        # A dropped connection has no HTTP response, so it would otherwise escape unclassified and land as
+        # internal_error with contact-support copy for what is a retryable provider outage.
+        with patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._call_scanner_provider",
+            side_effect=httpx.ConnectError("connection reset by peer"),
+        ):
+            with pytest.raises(ScannerFailureError) as exc_info:
+                await ActivityEnvironment().run(
+                    call_scanner_provider_activity,
+                    CallScannerProviderInputs(
+                        team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+                    ),
+                )
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.message == "PostHog could not reach the AI provider (ConnectError)"
+
+
 class TestWorkflowErrorHelpers:
     """Unit tests for the workflow's exception-classification helpers."""
 
@@ -2254,15 +2451,22 @@ class TestWorkflowErrorHelpers:
     def test_root_cause_message_falls_back_to_str_for_bare_exceptions(self) -> None:
         assert _root_cause_message(ValueError("bad arg")) == "bad arg"
 
+    def test_failure_type_survives_a_child_workflow_wrap(self) -> None:
+        # The rasterizer's code reaches the parent through ChildWorkflowError -> ActivityError -> ApplicationError.
+        # Losing it to that wrapping is what makes an unrenderable recording look like a generic render failure.
+        leaf = ApplicationError("No snapshots after processing", type="NO_SNAPSHOTS", non_retryable=True)
+        wrapped = _wrap_in_child_workflow_error(_wrap_in_activity_error(leaf))
+        assert _failure_type(wrapped) == "NO_SNAPSHOTS"
+
     @parameterized.expand(
         [
             ("provider_call_timeout", "call_scanner_provider_activity", True, "provider_transient"),
             ("upload_timeout", "replay_vision_upload_video_to_gemini_activity", True, "provider_transient"),
-            ("other_activity_timeout", "replay_vision_fetch_session_events_activity", True, None),
+            ("other_activity_timeout", "replay_vision_fetch_session_events_activity", True, "infra_transient"),
             ("provider_call_non_timeout", "call_scanner_provider_activity", False, None),
         ]
     )
-    def test_activity_timeout_kind_maps_provider_activity_timeouts(
+    def test_activity_timeout_kind_separates_provider_from_our_own_infra(
         self, _label: str, activity_type: str, timed_out: bool, expected: str | None
     ) -> None:
         err = ActivityError(

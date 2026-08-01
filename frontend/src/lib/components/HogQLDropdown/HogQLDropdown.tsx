@@ -13,11 +13,13 @@ export const HogQLDropdown = ({
     tableName,
     hogQLEditorPlaceholder,
     className = '',
+    size,
 }: {
     hogQLValue: string
     tableName: string
     className?: string
     hogQLEditorPlaceholder?: string
+    size?: 'small' | 'medium'
     onHogQLValueChange: (hogQLValue: string) => void
 }): JSX.Element => {
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
@@ -46,6 +48,7 @@ export const HogQLDropdown = ({
                 <LemonButton
                     fullWidth
                     type="secondary"
+                    size={size}
                     onClick={() => setIsHogQLDropdownVisible(!isHogQLDropdownVisible)}
                 >
                     <code>{hogQLValue}</code>

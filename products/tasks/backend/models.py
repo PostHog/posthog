@@ -52,6 +52,12 @@ from products.tasks.backend.storage import append_jsonl_object
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
+MCPBuiltInAgentKey = Literal["support", "scout"]
+MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
+MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
+    "support_reply": "support",
+    "signals_scout": "scout",
+}
 
 
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
@@ -293,6 +299,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if is_new:
             self._track_task_created()
 
+    @property
+    def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
+        expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
+        marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
+        return expected_key if marker == expected_key else None
+
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> models.QuerySet["Task"]:
         # Tasks live only on the desktop surface, never the web app tree.
@@ -518,6 +530,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -591,6 +604,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
+        expected_agent_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
+        if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
+            raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
+
         task = Task.objects.create(
             team=team,
             title=title,
@@ -603,6 +620,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             channel=channel,
             internal=internal,
             json_schema=resolve_schema(output_schema) if output_schema else None,
+            state={MCP_BUILT_IN_AGENT_STATE_KEY: mcp_builtin_agent_key} if mcp_builtin_agent_key else {},
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -734,6 +752,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -758,6 +777,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             interaction_origin=interaction_origin,
             model=model,
             initial_permission_mode=initial_permission_mode,
+            mcp_builtin_agent_key=mcp_builtin_agent_key,
         )
         return task
 
@@ -799,6 +819,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
         github_read_access: bool = False,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -832,6 +853,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
+            mcp_builtin_agent_key=mcp_builtin_agent_key,
         )
 
         run_extra_state = dict(extra_state or {})
@@ -2257,6 +2279,11 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         default=list, db_default=models.Value("[]"), help_text="Chronological artifact versions."
     )
     current_version = models.PositiveIntegerField(default=1, db_default=1)
+    # Slack delivery exchanges this for an anonymous image url that bypasses export access
+    # checks, so it's a dedicated column the API never accepts from callers — only the chart
+    # endpoint sets it, for an export it rendered itself. Plain id, not an FK: exports live in
+    # another product and expire on their own TTL; delivery treats a dangling id as no link.
+    export_asset_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

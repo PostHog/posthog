@@ -320,6 +320,11 @@ pub struct ProcessedEventMetadata {
     /// [`OverflowReason`] for who sets this and what each variant maps to in
     /// the kafka sink.
     pub overflow_reason: Option<OverflowReason>,
+    /// Char count of the event's original distinct_id when extraction cut it
+    /// down to the 200-char cap; `None` when it was ingested unmodified.
+    /// Feeds the `distinct_id_truncated` ingestion warning; nothing routes on
+    /// it.
+    pub distinct_id_truncated_from: Option<usize>,
 }
 
 #[cfg(test)]

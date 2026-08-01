@@ -163,6 +163,7 @@ mod tests {
                 redirect_to_topic: None,
                 skip_heatmap_processing: false,
                 overflow_reason: None,
+                distinct_id_truncated_from: None,
             },
         };
 
@@ -215,6 +216,7 @@ mod tests {
                 redirect_to_topic: None,
                 skip_heatmap_processing: false,
                 overflow_reason: None,
+                distinct_id_truncated_from: None,
             },
         };
 

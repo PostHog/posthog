@@ -126,6 +126,7 @@ pub fn build_events(
             redirect_to_topic: restrictions.redirect_to_topic().map(|s| s.to_string()),
             skip_heatmap_processing: false,
             overflow_reason: None,
+            distinct_id_truncated_from: None,
         };
 
         processed.push(ProcessedEvent {
