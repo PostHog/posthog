@@ -21,7 +21,7 @@ use utils::*;
 
 use anyhow::Result;
 use common_types::CapturedEvent;
-use serde_json::Value;
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use capture::v1::analytics::types::Event;
@@ -75,6 +75,64 @@ async fn v1_validation_drop_emits_warning_envelope_to_kafka() -> Result<()> {
     assert_eq!(
         inner["properties"], expected["properties"],
         "capture's envelope drifted from the fixture the Node consumer test replays"
+    );
+
+    events_topic.assert_empty();
+    warnings_topic.assert_empty();
+    Ok(())
+}
+
+#[tokio::test]
+async fn legacy_processing_abort_emits_warning_envelope_to_kafka() -> Result<()> {
+    setup_tracing();
+    let token = random_string("phc_legacy_warn", 16);
+    let events_topic = EphemeralTopic::new().await;
+    let historical_topic = EphemeralTopic::new().await;
+    let warnings_topic = EphemeralTopic::new().await;
+    let server =
+        ServerHandle::for_topics_with_warnings(&events_topic, &historical_topic, &warnings_topic)
+            .await;
+
+    // The legacy pipeline aborts the whole request on the first invalid
+    // event, so the warning charges the full batch count even though
+    // processing never reached the second event.
+    let properties = json!({"$lib": "posthog-rs", "$lib_version": "1.0.0"});
+    let payload = json!({
+        "api_key": token,
+        "batch": [
+            {"event": "no-id-0", "properties": properties},
+            {"event": "no-id-1", "properties": properties},
+        ],
+    });
+    let res = server.capture_events(payload.to_string()).await;
+    assert_eq!(
+        res.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "a legacy batch abort rejects the whole request"
+    );
+
+    let envelope: CapturedEvent = serde_json::from_value(warnings_topic.next_event()?)?;
+    assert_eq!(envelope.event, "$$client_ingestion_warning");
+    assert_eq!(envelope.token, token);
+    assert_eq!(
+        envelope.distinct_id, token,
+        "distinct_id must be the token, never a caller-supplied value"
+    );
+
+    let inner: Value = serde_json::from_str(&envelope.data)?;
+    assert_eq!(
+        inner["properties"],
+        json!({
+            "$$client_ingestion_warning_type": "missing_distinct_id",
+            "$$client_ingestion_warning_source": "capture",
+            "$$client_ingestion_warning_details": {
+                "count": 2,
+                "lib": "posthog-rs",
+                "libVersion": "1.0.0",
+                "path": "/i/v0/e",
+                "pipelineStep": "capture_validation",
+            },
+        })
     );
 
     events_topic.assert_empty();

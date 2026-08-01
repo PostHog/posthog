@@ -52,9 +52,13 @@ def _get_running_jobs_for_dag(team_id: int, dag_id: str) -> list[DataModelingJob
     )
 
 
-def partition_running_jobs(
-    jobs: list[DataModelingJob], dag_id: str, node_ids: list[str] | None
-) -> tuple[list[DataModelingJob], list[DataModelingJob]]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class PartitionedJobs:
+    owned: list[DataModelingJob]
+    others: list[DataModelingJob]
+
+
+def partition_running_jobs(jobs: list[DataModelingJob], dag_id: str, node_ids: list[str] | None) -> PartitionedJobs:
     """Split this DAG's running jobs into the nodes this run owns and everything else.
 
     Cadence tiers of one DAG hold disjoint node sets, so only the owned half may be preempted —
@@ -73,7 +77,7 @@ def partition_running_jobs(
             ours.append(job)
         else:
             others.append(job)
-    return ours, others
+    return PartitionedJobs(owned=ours, others=others)
 
 
 async def _abandoned_jobs(temporal: Client, candidates: list[DataModelingJob]) -> list[DataModelingJob]:
@@ -134,8 +138,8 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     logger = LOGGER.bind()
 
     running_jobs = await _get_running_jobs_for_dag(inputs.team_id, inputs.dag_id)
-    ours, others = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids)
-    if not ours and not others:
+    partitioned = partition_running_jobs(running_jobs, inputs.dag_id, inputs.node_ids)
+    if not partitioned.owned and not partitioned.others:
         await logger.adebug("No previous DAG run to preempt")
         return
 
@@ -155,27 +159,27 @@ async def preempt_dag_run_activity(inputs: PreemptDAGRunInputs) -> None:
     # the new run free to materialize the same node concurrently. Cancelling first also means a
     # crash between the two steps is recoverable: the rows are still Running, so the retry
     # re-finds them and cancellation is idempotent.
-    if ours:
+    if partitioned.owned:
         await logger.ainfo(
-            f"Preempting previous DAG run: found {len(ours)} running jobs",
+            f"Preempting previous DAG run: found {len(partitioned.owned)} running jobs",
             dag_id=inputs.dag_id,
         )
-        for workflow_id in {job.workflow_id for job in ours if job.workflow_id}:
+        for workflow_id in {job.workflow_id for job in partitioned.owned if job.workflow_id}:
             try:
                 await temporal.get_workflow_handle(workflow_id).cancel()
                 await logger.ainfo(f"Requested cancellation of materialize workflow {workflow_id}")
             except Exception as e:
                 # workflow may have already completed — that's fine
                 await logger.awarning(f"Could not cancel materialize workflow {workflow_id}: {str(e)}")
-        updated_count = await _mark_jobs_failed([str(job.id) for job in ours], PREEMPTED_ERROR)
+        updated_count = await _mark_jobs_failed([str(job.id) for job in partitioned.owned], PREEMPTED_ERROR)
         await logger.ainfo(f"Marked {updated_count} jobs as preempted", dag_id=inputs.dag_id)
 
-    if not others:
+    if not partitioned.others:
         return
 
     # Best-effort cleanup: it must never undo or block the preemption above.
     try:
-        abandoned = await _abandoned_jobs(temporal, others)
+        abandoned = await _abandoned_jobs(temporal, partitioned.others)
         if abandoned:
             reaped = await _mark_jobs_failed([str(job.id) for job in abandoned], ABANDONED_ERROR)
             await logger.ainfo(f"Reaped {reaped} abandoned jobs", dag_id=inputs.dag_id)

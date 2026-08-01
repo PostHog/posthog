@@ -137,6 +137,7 @@ import {
     getInsightQueryError,
     getInsightWithRetry,
     isLayoutEditEventSource,
+    isRefreshRejectionStub,
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
@@ -716,6 +717,9 @@ export interface dashboardLogicActions {
             source: DashboardEventSource
         }
     }
+    setDashboardStreamFailed: () => {
+        value: true
+    }
     setDataColorThemeId: (dataColorThemeId: number | null) => {
         dataColorThemeId: number | null
     }
@@ -1169,6 +1173,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         tileStreamingComplete: true,
         /** Tile streaming failed. */
         tileStreamingFailure: (error: any) => ({ error }),
+        /** A non-404 stream failure left no dashboard to render — show a load error, not "not found". */
+        setDashboardStreamFailed: true,
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
@@ -1767,8 +1773,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardFailedToLoad: [
             false,
             {
+                loadDashboardStreaming: () => false,
                 loadDashboardSuccess: () => false,
+                // The stream auto-retries after transient errors; delivered metadata means it recovered,
+                // so clear the load-error state instead of leaving it latched over a loaded dashboard.
+                loadDashboardMetadataSuccess: () => false,
                 loadDashboardFailure: () => true,
+                setDashboardStreamFailed: () => true,
             },
         ],
         dashboardLayouts: [
@@ -3150,14 +3161,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         tileStreamingFailure: ({ error }) => {
-            if (error?.message?.includes('404') || error?.status === 404) {
+            // Only a genuine HTTP status from the stream's initial response should flip the scene.
+            // Transient network/stream errors carry no status, so a blip no longer masquerades as a
+            // missing dashboard — it surfaces as a toast instead of a hard "Dashboard not found".
+            if (error?.status === 404) {
                 actions.dashboardNotFound()
-            } else if (error?.message?.includes('403') || error?.status === 403) {
+            } else if (error?.status === 403) {
                 actions.setAccessDeniedToDashboard()
             } else {
                 // Show error toast for other errors (500s, network issues, etc.)
                 const errorMessage = error?.message || 'Dashboard streaming failed'
                 lemonToast.error(`Failed to load dashboard: ${errorMessage}`)
+                // If the stream died before any metadata arrived there is no dashboard to render.
+                // The empty-state gate would otherwise fall through to the "Dashboard not found" screen,
+                // so mark the load as failed to show a load-error state instead.
+                if (!values.dashboard) {
+                    actions.setDashboardStreamFailed()
+                }
             }
         },
 
@@ -3526,7 +3546,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     true
                 )
 
-                if (refreshedInsight) {
+                if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
                     const queryError = getInsightQueryError(refreshedInsight)
                     if (queryError) {
                         actions.setRefreshError(insight.short_id, queryError)
@@ -3626,7 +3646,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tile.filters_overrides
                         )
 
-                        if (refreshedInsight) {
+                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
                             const queryError = getInsightQueryError(refreshedInsight)
                             if (queryError) {
                                 actions.setRefreshError(insight.short_id, queryError)
@@ -3638,7 +3658,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 if (refreshedInsight.is_cached) {
                                     tilesRefreshedCachedCount++
                                 }
-
                                 eventUsageLogic.actions.reportDashboardTileRefreshed(
                                     dashboardId,
                                     tile,

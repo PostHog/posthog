@@ -21,11 +21,13 @@ use std::collections::HashSet;
 
 use common_ingestion_warnings::{
     emit_request_warning, WarningEmitter, WarningRequestContext, WarningSource, WarningType,
-    UNKNOWN_ATTRIBUTION,
+    CAPTURE_LEGACY_ANALYTICS, UNKNOWN_ATTRIBUTION,
 };
 use common_types::{EventWithLibraryInfo, RawEvent};
 use serde_json::{json, Map};
+use uuid::Uuid;
 
+use crate::api::CaptureError;
 use crate::v0_request::ProcessingContext;
 use crate::v1::context::RequestContext;
 
@@ -133,6 +135,39 @@ pub fn emit_rate_limit_warning(
     );
 }
 
+/// Emit the `distinct_id_truncated` warning for one legacy batch's events
+/// whose distinct_id was cut down to the 200-char cap at extraction. The
+/// events were ingested (modified, not dropped), so this is legacy-only: v1
+/// rejects oversized ids outright as `distinct_id_too_large`.
+///
+/// Identifier details are included only when the batch had exactly one
+/// truncated event; with several they would be an arbitrary pick, and `count`
+/// already carries the volume. The truncated value is at most 200 chars, so
+/// it needs no bounding of its own; `distinctIdLength` is the original char
+/// count, telling the customer how far over the cap they were.
+pub fn emit_distinct_id_truncated_warning(
+    emitter: Option<&dyn WarningEmitter>,
+    request: &WarningRequestContext,
+    sample: Option<(String, usize, Uuid)>,
+    count: u64,
+) {
+    let mut details = Map::new();
+    if let Some((distinct_id, original_chars, event_uuid)) = sample {
+        details.insert("distinctId".to_string(), json!(distinct_id));
+        details.insert("distinctIdLength".to_string(), json!(original_chars));
+        details.insert("eventUuid".to_string(), json!(event_uuid));
+    }
+
+    emit_request_warning(
+        emitter,
+        request,
+        CAPTURE_LEGACY_ANALYTICS,
+        WarningType::DistinctIdTruncated,
+        details,
+        count,
+    );
+}
+
 fn unknown_if_missing(value: Option<&str>) -> String {
     match value {
         Some(v) if !v.trim().is_empty() => v.to_string(),
@@ -140,9 +175,110 @@ fn unknown_if_missing(value: Option<&str>) -> String {
     }
 }
 
+/// Map a legacy-path request abort to the ingestion warning customers should
+/// see, or `None` for failures customers can't act on.
+///
+/// This is the legacy pipeline's counterpart to v1's `Error::tag()` →
+/// [`WarningType::from_tag`] route. It matches enum variants instead of the
+/// `to_metric_tag()` strings so renames are compile-checked, and it lives here
+/// rather than in `common_ingestion_warnings` so that crate never learns
+/// capture's error taxonomy.
+///
+/// `None` arms are deliberate and exhaustive, mirroring the exclusions v1
+/// pins in `from_tag_rejects_unregistered_tags`. There is no catch-all: a new
+/// `CaptureError` variant fails to compile here until someone decides whether
+/// customers should see a warning for it.
+pub fn warning_for_capture_error(err: &CaptureError) -> Option<WarningType> {
+    match err {
+        CaptureError::MissingEventName => Some(WarningType::MissingEventName),
+        CaptureError::MissingDistinctId => Some(WarningType::MissingDistinctId),
+        // Only the Kafka sink raises EventTooBig during processing; the
+        // transport-level size limits fail at the parsing stage, before a
+        // verified token exists, and so never reach the abort path. This is
+        // the same drop the nodejs pipeline reports as message_size_too_large
+        // when its own produce hits the broker limit.
+        CaptureError::EventTooBig(_) => Some(WarningType::MessageSizeTooLarge),
+
+        // Transport and parse failures surface before a verified token
+        // exists, so there is no team to attribute a warning to.
+        CaptureError::RequestDecodingError(_)
+        | CaptureError::RequestParsingError(_)
+        | CaptureError::RequestHydrationError(_)
+        | CaptureError::EmptyBatch
+        | CaptureError::EmptyPayload
+        | CaptureError::EmptyPayloadFiltered => None,
+
+        // Auth failures: the token is missing, ambiguous, or invalid, so any
+        // attribution would be untrustworthy.
+        CaptureError::NoTokenError
+        | CaptureError::MultipleTokensError
+        | CaptureError::TokenValidationError(_) => None,
+
+        // Validation conditions with no warning yet (candidates, not
+        // oversights), plus the recordings-only variants this analytics
+        // mapper never sees.
+        CaptureError::InvalidCookielessMode
+        | CaptureError::InvalidTimestamp
+        | CaptureError::MissingSnapshotData
+        | CaptureError::MissingSessionId
+        | CaptureError::MissingWindowId
+        | CaptureError::InvalidSessionId => None,
+
+        // Quota, rate, and ops-imposed drops are surfaced through billing and
+        // ops channels, not the warnings UI.
+        CaptureError::BillingLimit
+        | CaptureError::RateLimited
+        | CaptureError::GlobalRateLimitExceeded() => None,
+
+        // Sink and server failures are ours to fix, not the customer's.
+        CaptureError::RetryableSinkError
+        | CaptureError::NonRetryableSinkError
+        | CaptureError::ServiceUnavailable(_)
+        | CaptureError::BodyReadTimeout
+        | CaptureError::InternalError(_) => None,
+    }
+}
+
+/// Emit the ingestion warning for a legacy-path `process_events` abort, if the
+/// error maps to one.
+///
+/// The legacy pipeline rejects the whole request on the first invalid event.
+/// For validation aborts that means nothing was sent, so `count` charges the
+/// full batch, matching what `report_dropped_events` records for the same
+/// failure; it's floored at 1 for v1 parity, since a zero count would read as
+/// "nothing happened" in the v2 table. `EventTooBig` is the exception: the
+/// sink raises it per message after earlier events in the batch were already
+/// enqueued (and typically deliver despite the 413), so charging the batch
+/// would report delivered events as failed. It emits `count = 1` — at least
+/// one event was rejected — matching the sink's per-event
+/// `kafka_message_size` drop metric.
+pub fn emit_processing_abort_warning(
+    emitter: Option<&dyn WarningEmitter>,
+    context: &ProcessingContext,
+    err: &CaptureError,
+    event_count: u64,
+) {
+    let Some(warning) = warning_for_capture_error(err) else {
+        return;
+    };
+    let count = match err {
+        CaptureError::EventTooBig(_) => 1,
+        _ => event_count.max(1),
+    };
+    emit_request_warning(
+        emitter,
+        &legacy_request_context(context),
+        CAPTURE_LEGACY_ANALYTICS,
+        warning,
+        Map::new(),
+        count,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use common_ingestion_warnings::test_support::CollectingEmitter;
     use serde_json::json;
 
     fn raw_event(properties: serde_json::Value) -> RawEvent {
@@ -260,5 +396,148 @@ mod tests {
             assert_eq!(ctx.lib, expected_lib, "{label}: lib");
             assert_eq!(ctx.lib_version, expected_lib_version, "{label}: libVersion");
         }
+    }
+
+    #[test]
+    fn abort_warnings_map_only_customer_actionable_errors() {
+        let cases: [(CaptureError, Option<WarningType>); 13] = [
+            (
+                CaptureError::MissingEventName,
+                Some(WarningType::MissingEventName),
+            ),
+            (
+                CaptureError::MissingDistinctId,
+                Some(WarningType::MissingDistinctId),
+            ),
+            (
+                CaptureError::EventTooBig("too big".to_string()),
+                Some(WarningType::MessageSizeTooLarge),
+            ),
+            // Excluded on purpose; see warning_for_capture_error's doc.
+            (CaptureError::InvalidCookielessMode, None),
+            (CaptureError::EmptyBatch, None),
+            (CaptureError::EmptyPayload, None),
+            (CaptureError::InvalidTimestamp, None),
+            (
+                CaptureError::RequestParsingError("bad json".to_string()),
+                None,
+            ),
+            (CaptureError::NoTokenError, None),
+            (CaptureError::BillingLimit, None),
+            (CaptureError::RetryableSinkError, None),
+            (CaptureError::NonRetryableSinkError, None),
+            (CaptureError::InternalError("boom".to_string()), None),
+        ];
+
+        for (err, expected) in cases {
+            assert_eq!(
+                warning_for_capture_error(&err),
+                expected,
+                "mapping for {err:?}"
+            );
+        }
+    }
+
+    // Guards the trust chain end to end: a mapper arm for a type that is not
+    // capture-produced would be demoted to a generic client warning by the
+    // nodejs consumer, and one routed via DIRECT_EMIT would violate the
+    // common crate's one-route invariant. Both fail silently in production,
+    // so pin them here like the common crate's weld test does for from_tag.
+    #[test]
+    fn mapped_abort_warnings_ride_the_capture_produced_tag_route() {
+        let mapping_errors = [
+            CaptureError::MissingEventName,
+            CaptureError::MissingDistinctId,
+            CaptureError::EventTooBig("too big".to_string()),
+        ];
+        let mapped = mapping_errors.iter().filter_map(warning_for_capture_error);
+
+        for warning in mapped {
+            assert!(
+                warning.capture_produced(),
+                "{warning:?} is not on the consumer trust allowlist"
+            );
+            assert_eq!(
+                WarningType::from_tag(warning.as_str()),
+                Some(warning),
+                "{warning:?} must be tag-routed"
+            );
+            assert!(
+                !WarningType::DIRECT_EMIT.contains(&warning),
+                "{warning:?} must not also be direct-emit"
+            );
+        }
+    }
+
+    #[test]
+    fn abort_helper_charges_full_batch_with_legacy_validation_source() {
+        // (error, event_count, expected emitted count): a validation abort
+        // charges the batch size (nothing was sent), flooring zero to 1 so
+        // the v2 row never reads as a no-op, matching v1's batch-abort
+        // convention. EventTooBig charges 1: earlier batch events were
+        // already enqueued and typically deliver, so a batch count would
+        // report delivered events as failed.
+        let cases = [
+            (
+                CaptureError::MissingDistinctId,
+                WarningType::MissingDistinctId,
+                25u64,
+                25u64,
+            ),
+            (
+                CaptureError::MissingDistinctId,
+                WarningType::MissingDistinctId,
+                0u64,
+                1u64,
+            ),
+            (
+                CaptureError::EventTooBig("too big".to_string()),
+                WarningType::MessageSizeTooLarge,
+                25u64,
+                1u64,
+            ),
+        ];
+
+        for (error, expected_warning, event_count, expected_count) in cases {
+            let emitter = CollectingEmitter::default();
+            let context = legacy_context(SdkAttribution {
+                lib: Some("web".to_string()),
+                lib_version: Some("1.2.3".to_string()),
+            });
+
+            emit_processing_abort_warning(Some(&emitter), &context, &error, event_count);
+
+            let emitted = emitter.emitted();
+            assert_eq!(emitted.len(), 1, "{error:?} event_count={event_count}");
+            let warning = &emitted[0];
+            assert_eq!(warning.token, "tok");
+            assert_eq!(
+                warning.source,
+                common_ingestion_warnings::CAPTURE_LEGACY_ANALYTICS
+            );
+            assert_eq!(warning.warning, expected_warning);
+            assert_eq!(warning.count, expected_count, "{error:?}");
+            assert_eq!(warning.extra_details.get("lib"), Some(&json!("web")));
+            assert_eq!(
+                warning.extra_details.get("libVersion"),
+                Some(&json!("1.2.3"))
+            );
+            assert_eq!(warning.extra_details.get("path"), Some(&json!("/e/")));
+        }
+    }
+
+    #[test]
+    fn abort_helper_emits_nothing_for_unmapped_errors() {
+        let emitter = CollectingEmitter::default();
+        let context = legacy_context(SdkAttribution::default());
+
+        emit_processing_abort_warning(
+            Some(&emitter),
+            &context,
+            &CaptureError::RetryableSinkError,
+            10,
+        );
+
+        assert!(emitter.emitted().is_empty());
     }
 }

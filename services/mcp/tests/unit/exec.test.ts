@@ -295,7 +295,7 @@ describe('exec tool', () => {
             )
         })
 
-        it('propagates the UI resource URI and exec brand when the inner tool has a UI app and consumer is posthog-code', async () => {
+        it('keeps UI data in structuredContent (not _meta) when the tool has no formatted table', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
@@ -309,17 +309,19 @@ describe('exec tool', () => {
 
             // Text content still includes the TOON-formatted result for model context
             expect(result.content[0]!.text).toContain('id: 1')
-            // structuredContent is dropped; the UI data (with analytics) rides on _meta.
-            expect(result.structuredContent).toBeUndefined()
-            const appData = result._meta[APP_DATA_META_KEY] as {
+            // With no compact table to protect, the app payload stays in the standard
+            // structuredContent field (with analytics) rather than being duplicated under
+            // the non-standard `_meta` app-data key.
+            const structured = result.structuredContent as {
                 id: number
                 _analytics: { distinctId: string; toolName: string }
             }
-            expect(appData.id).toBe(1)
-            expect(appData._analytics).toEqual({
+            expect(structured.id).toBe(1)
+            expect(structured._analytics).toEqual({
                 distinctId: 'test-distinct-id',
                 toolName: 'mock-tool',
             })
+            expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
             // _meta on the response exposes the UI resource URI to clients that
             // only see the `exec` tool registered (single-exec mode). Both the
             // new nested key and the legacy flat key are emitted for
@@ -372,7 +374,7 @@ describe('exec tool', () => {
             }
         )
 
-        it('re-homes UI data onto _meta and gives the model TOON text even when there is no formatted override', async () => {
+        it('keeps UI data in structuredContent and gives the model TOON text when there is no formatted override', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
                 handler: async () => ({
@@ -387,11 +389,13 @@ describe('exec tool', () => {
                 _meta: { [key: string]: unknown }
             }
 
-            // Without a compact table the model reads TOON text, never verbose structuredContent.
-            expect(result.structuredContent).toBeUndefined()
+            // With no compact table there is nothing to protect: the model reads the data
+            // as TOON text, and the app payload stays in the standard structuredContent
+            // field rather than being duplicated under the non-standard `_meta` key.
             expect(result.content[0]!.text).toContain('_posthogUrl')
-            const appData = result._meta[APP_DATA_META_KEY] as { results: unknown }
-            expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            const structured = result.structuredContent as { results: unknown }
+            expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()
         })
 
         // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.

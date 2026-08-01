@@ -1046,6 +1046,39 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('matchingEventsMatchType', () => {
+        it('classifies a bare event-property filter as backend', () => {
+            // The shape the experiments server-side-flag exposure fallback produces
+            // ($feature/<key> with no event filter). Classifying it as 'none' would silently
+            // drop match indicators and skip-to-first-matching-event for those lists.
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'match-type-tests',
+                filters: {
+                    ...DEFAULT_RECORDING_FILTERS,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        key: '$feature/my-flag',
+                                        type: PropertyFilterType.Event,
+                                        value: ['test'],
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.matchingEventsMatchType.matchType).toBe('backend')
+        })
+    })
+
     describe('resetting filters', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({

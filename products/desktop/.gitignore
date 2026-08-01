@@ -1,0 +1,90 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+release/
+out/
+.vite/
+.turbo/
+storybook-static
+bin/
+
+# node-gyp configure artifact from a stray run at the repo root
+/build/
+
+# tsup bundled config artifacts (temporary files left behind when bundling TS configs)
+*.config.bundled_*.mjs
+# vite bundled config artifacts (left behind when a vitest run is interrupted)
+*.config.ts.timestamp-*.mjs
+
+# Environment
+.env
+.env.local
+.envrc
+
+# IDE
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+*.tgz
+*.log
+*.car
+
+# AI agents
+MEMORY.md
+.claude-config/
+.agent-trigger
+.posthog-code/
+.claude/worktrees/
+.claude/settings.local.json
+
+# Testing
+playwright-results/
+playwright-report/
+.playwright-cli
+test-results/
+*storybook.log
+.session-store.json
+.playwright-mcp
+# Trunk Flaky Tests JUnit reports (one per package, uploaded from CI)
+junit.xml
+
+# Downloaded binaries
+apps/code/resources/codex-acp/
+
+# Licensed fonts (downloaded from S3 during CI)
+apps/code/assets/fonts/BerkeleyMono/
+
+# Local dev skills (override shipped + remote skills in dev mode)
+plugins/posthog/local-skills/
+
+# Symlinked copies of posthog, to make developing against those APIs easier
+posthog-sym
+
+.claude/settings.local.json
+CLAUDE.local.md
+
+apps/mobile/ROADMAP.md
+# Local quill tarball for ChatX thread testing (not committed)
+.local-quill/
+
+# pi project-local config (per-developer MCP servers, prompts, etc.)
+.pi/
+
+# Storybook visual regression: PNGs are never committed. CI uploads captures
+# to the PostHog Visual Review product; the committed baseline is the signed
+# hash manifest apps/code/snapshots.yml.
+apps/code/.storybook/__snapshots__/

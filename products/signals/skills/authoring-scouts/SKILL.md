@@ -112,6 +112,10 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
   The standard flow is to make a scout and let it write — seeing what actually lands is the fastest way to calibrate it.
   Set **`emit=false` (dry-run)** only when you want to be extra careful: the scout still runs and logs its reasoning but writes nothing to the inbox.
   Reach for dry-run on a scout you expect to be chatty, expensive, or high-stakes; for most scouts, just writing and watching the inbox is the better loop.
+- `auto_pause_exempt` — defaults to `false`.
+  A scout whose reports nobody acts on is warned and then paused automatically (`pause_reason=ignored`) — every run costs a sandbox agent, so a scout producing output no human consumes shouldn't keep running forever. A scout that is merely quiet is only flagged (`pause_reason=no_output`, a warning that never advances to a pause), since a watch scout's silence can be its job.
+  `-config-list` shows the warning as `status=pending_pause` and the pause as `status=paused_by_system`; setting `enabled=true` again resumes the scout, and marks it exempt so the sweep never overrules a person twice.
+  Set `auto_pause_exempt=true` up front for a watchdog scout whose whole job is to stay quiet, so it never even picks up the quiet flag.
 
 ## Steering with notes (no authoring needed)
 

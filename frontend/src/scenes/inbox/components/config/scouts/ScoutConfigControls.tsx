@@ -135,6 +135,22 @@ export function ScoutConfigForm({
                     />
                 </div>
             ) : null}
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Opt out of auto-pause</span>
+                    <span className="text-[11.5px] text-muted">
+                        A scout is paused when nobody acts on its reports for a few weeks, and flagged as quiet when it
+                        surfaces nothing. Turn this on to opt this scout out of both.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.auto_pause_exempt}
+                    disabledReason={controlsDisabledReason}
+                    onChange={(checked) => onUpdate(config.id, { auto_pause_exempt: checked })}
+                    aria-label={`${config.skill_name} opt out of auto-pause`}
+                />
+            </div>
             <ScoutSlackDestination
                 destination={config.output_destinations?.slack}
                 onChange={(outputDestinations) => onUpdate(config.id, { output_destinations: outputDestinations })}

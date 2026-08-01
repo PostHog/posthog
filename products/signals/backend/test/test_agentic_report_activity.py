@@ -187,7 +187,7 @@ def _build_signals() -> list[SignalData]:
 @pytest.mark.django_db
 async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: None,
     )
     monkeypatch.setattr(
@@ -218,7 +218,7 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
     previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
 
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: previous,
     )
 
@@ -259,7 +259,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
         return previous
 
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         flaky_load,
     )
 
@@ -276,7 +276,7 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 @pytest.mark.django_db
 async def test_select_repository_activity_no_repo(monkeypatch, ateam):
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: None,
     )
     monkeypatch.setattr(
@@ -320,7 +320,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
     )
 
     monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
         lambda report_id: None,
     )
 

@@ -33,7 +33,15 @@ import '../Nodes/NotebookNodeZendeskTickets'
 import clsx from 'clsx'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
+import {
+    type CSSProperties,
+    type PointerEvent as ReactPointerEvent,
+    useCallback,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+} from 'react'
 
 import { IconComment, IconImage } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
@@ -43,6 +51,7 @@ import {
     QUERY_SQL_INSERT_COMMAND_KEY,
     createMarkdownNotebookRegistry,
 } from 'lib/components/MarkdownNotebook'
+import { NotebookComponentToolbarExtrasContext } from 'lib/components/MarkdownNotebook/componentToolbarExtras'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { isDiscussionCommentProps } from 'lib/components/MarkdownNotebook/markdown'
 import {
@@ -240,6 +249,9 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
             ViewComponent: RealNotebookNodeView,
             EditComponent: definition.EditComponent ?? RealNotebookNodeEdit,
             exclusiveEditPanel: definition.exclusiveEditPanel,
+            // Nodes with a Settings panel keep their filters toggle on read-only canvases
+            // (customer profiles), where the panel is the only way to configure them.
+            viewModeFilters: !!options?.Settings,
             insertCommand: definition.insertCommand,
             getTitle: (node: NotebookComponentBlockNode) =>
                 getMarkdownNotebookNodeTitle(node, nodeType, options, label),
@@ -557,6 +569,27 @@ export function MountedRealNotebookNodeComponent({
     )
 
     const nodeLogic = useMountedLogic(notebookNodeLogic(logicProps))
+    const {
+        actions: nodeActions,
+        customMenuItems: nodeMenuItems,
+        settingsDisabledReason: nodeSettingsDisabledReason,
+    } = useValues(nodeLogic)
+    const setToolbarExtras = useContext(NotebookComponentToolbarExtrasContext)
+
+    // The settings-panel instance (editOnly) shares the shell with the content instance;
+    // only the latter publishes, so a hidden panel doesn't clear the other's extras.
+    // No unmount cleanup on purpose: collapsing the node unmounts the component, and the
+    // toolbar menu must survive the collapse. The shell drops the state when IT unmounts.
+    useEffect(() => {
+        if (editOnly || !setToolbarExtras) {
+            return
+        }
+        setToolbarExtras({
+            actions: nodeActions,
+            menuItems: nodeMenuItems,
+            filtersDisabledReason: nodeSettingsDisabledReason,
+        })
+    }, [editOnly, nodeActions, nodeMenuItems, nodeSettingsDisabledReason, setToolbarExtras])
 
     const Component = options.Component
     const Settings = options.Settings
@@ -633,7 +666,15 @@ export function MountedRealNotebookNodeComponent({
     return (
         <NotebookNodeContext.Provider value={nodeLogic}>
             <BindLogic logic={notebookNodeLogic} props={logicProps}>
-                <div className="MarkdownNotebook__real-node" style={nodeStyle}>
+                <div
+                    className={clsx(
+                        'MarkdownNotebook__real-node',
+                        // The settings-only (filters panel) instance sizes to its content — the
+                        // 8rem min-height is for node output, not a one-row filter bar.
+                        editOnly && 'MarkdownNotebook__real-node--settings-only'
+                    )}
+                    style={nodeStyle}
+                >
                     {showSettings ? (
                         <div className="MarkdownNotebook__real-node-settings">
                             <Settings attributes={attributes} updateAttributes={updateAttributes} />

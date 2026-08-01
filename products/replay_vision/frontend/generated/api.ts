@@ -379,7 +379,7 @@ export const getVisionObservationsRetryCreateUrl = (projectId: string, id: strin
 }
 
 /**
- * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ * Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
  */
 export const visionObservationsRetryCreate = async (
     projectId: string,
@@ -757,7 +757,7 @@ export const getVisionScannersObservationsRetryCreateUrl = (projectId: string, s
 }
 
 /**
- * Delete a failed observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
+ * Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.
  */
 export const visionScannersObservationsRetryCreate = async (
     projectId: string,

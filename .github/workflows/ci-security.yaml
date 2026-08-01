@@ -33,6 +33,7 @@ jobs:
             products-frontend: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.products-frontend || 'true' }}
             devex: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.devex || 'true' }}
             test-rules: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.test-rules || 'true' }}
+            desktop: ${{ steps.oversized.outputs.force_all || steps.filter.outputs.desktop || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -41,10 +42,18 @@ jobs:
               id: oversized
               if: github.event_name == 'pull_request' && github.event.pull_request.changed_files > 3000
               run: echo "force_all=true" >> "$GITHUB_OUTPUT"
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              # forks can't read org secrets — fall back to github.token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' && steps.oversized.outputs.force_all != 'true'
               with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       python:
                         - 'bin/**'
@@ -91,6 +100,12 @@ jobs:
                       test-rules:
                         - '.semgrep/**'
                         - '.github/workflows/ci-security.yaml'
+                      # products/desktop is an imported standalone app. It doesn't follow the
+                      # monorepo's semgrep *convention* rules, so those jobs exclude it; this
+                      # filter gates semgrep-desktop, which gives it universal security coverage.
+                      desktop:
+                        - 'products/desktop/**'
+                        - '.github/workflows/ci-security.yaml'
 
     semgrep-python:
         needs: changes
@@ -127,6 +142,7 @@ jobs:
                       --exclude-rule trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport \
                       --exclude-rule "python.django.security.audit.csrf-exempt.no-csrf-exempt" \
                       --exclude-rule "generic.html-templates.security.var-in-href.var-in-href" \
+                      --exclude "products/desktop" \
                       --error \
                       --metrics=off \
                       --verbose \
@@ -396,6 +412,7 @@ jobs:
                     semgrep \
                       --config ".semgrep/rules/devex/" \
                       --severity=ERROR \
+                      --exclude "products/desktop" \
                       --error \
                       --metrics=off \
                       --verbose \
@@ -430,6 +447,49 @@ jobs:
                     ${{ env.SEMGREP_IMAGE }} \
                     semgrep --test .semgrep/
 
+    # products/desktop is an imported standalone app that does not follow the monorepo's
+    # semgrep *convention* rules (.semgrep custom rules, devex), so those jobs exclude it.
+    # This job gives its TS/Python real static security coverage from the universal registry
+    # packs, blocking on ERROR-severity findings only (the repo's ERROR-fails model).
+    semgrep-desktop:
+        needs: changes
+        if: needs.changes.outputs.desktop == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        steps:
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Run Semgrep (desktop, universal security packs)
+              run: |
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config "p/javascript" \
+                      --config "p/python" \
+                      --config "p/owasp-top-ten" \
+                      --config "p/security-audit" \
+                      --config "p/trailofbits" \
+                      --severity=ERROR \
+                      --error \
+                      --metrics=off \
+                      --verbose \
+                      --timeout 300 \
+                      products/desktop/
+
     semgrep_checks:
         needs:
             - changes
@@ -441,6 +501,7 @@ jobs:
             - semgrep-general
             - semgrep-devex
             - semgrep-test-rules
+            - semgrep-desktop
         name: Semgrep Checks Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -482,6 +543,10 @@ jobs:
                   fi
                   if [[ "${{ needs.semgrep-test-rules.result }}" != "success" && "${{ needs.semgrep-test-rules.result }}" != "skipped" ]]; then
                     echo "semgrep-test-rules did not complete successfully."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.semgrep-desktop.result }}" != "success" && "${{ needs.semgrep-desktop.result }}" != "skipped" ]]; then
+                    echo "semgrep-desktop did not complete successfully."
                     exit 1
                   fi
 

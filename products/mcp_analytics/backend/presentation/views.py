@@ -259,8 +259,10 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="mcp_analytics_sessions_intent_digest",
         description=(
             "Generate (or return the cached) LLM digest of what agents are trying to do with this MCP server, "
-            "derived from the most recent recorded $mcp_intents across all sessions. Content-addressed cache: "
-            "only regenerates when new intents arrive. Powers the dashboard's low-volume activity stage."
+            "derived from the most recent recorded $mcp_intents across all sessions: a one-sentence summary "
+            "plus semantic themes, each sized and attributed to tools from the intents themselves. Cached by "
+            "intent corpus and by recency, so repeated calls are cheap and a busy server regenerates at a "
+            "bounded rate. Powers the dashboard's activity tab."
         ),
         request=None,
         responses={
@@ -315,10 +317,24 @@ class MCPIntentClusterViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Return the most recent intent cluster snapshot for the current project. "
             "Returns an empty IDLE snapshot when no clustering run has happened yet."
         ),
+        parameters=[
+            OpenApiParameter(
+                name="tool",
+                type=str,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow the response to one tool: its pivot entry, the clusters it serves or switches "
+                    "with, and the overlap pairs it belongs to. Coverage meta stays whole-snapshot. Use "
+                    "this for single-tool views so they don't download every cluster and pivot to render "
+                    "one row. An unknown tool returns empty sections, not a 404."
+                ),
+            )
+        ],
         responses={200: MCPIntentClusterSnapshotSerializer},
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        snapshot = api.get_intent_cluster_snapshot(self.team)
+        snapshot = api.get_intent_cluster_snapshot(self.team, tool=request.query_params.get("tool") or None)
         serializer = self.get_serializer(snapshot)
         return Response(serializer.data)
 

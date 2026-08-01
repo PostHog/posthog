@@ -181,6 +181,40 @@ class TestStatisticalDetectors:
         for key in ["q1", "q3", "iqr", "raw_distance"]:
             assert key in result.metadata
 
+    def test_mad_rejects_data_that_only_covers_the_undiffed_window(self) -> None:
+        # With diffs_n=1, the training window needs one extra raw point beyond
+        # window+1, otherwise first_difference()'s synthetic leading value (a
+        # zero) would land inside the fit window and silently shrink it by one
+        # genuine point. window+1 (the old minimum) must now be rejected.
+        data = np.array([10, 10, 10, 10, 10, 10])  # len == window + 1
+        detector = MADDetector({"threshold": 0.9, "window": 5, "preprocessing": {"diffs_n": 1}})
+        assert detector.detect(data).is_anomaly is False
+
+    def test_mad_batch_triggered_indices_align_with_raw_series_when_diffing(self) -> None:
+        # detect_batch trims preprocess()'s synthetic leading points internally;
+        # triggered_indices/all_scores must be shifted back so callers (which
+        # map indices to posthog/tasks/alerts/detector.py's original series
+        # dates) don't get an off-by-one against every date after the first.
+        detector = MADDetector({"threshold": 0.9, "window": 5, "preprocessing": {"diffs_n": 1}})
+        result = detector.detect_batch(BATCH_DATA)
+        assert len(result.all_scores) == len(BATCH_DATA)
+        assert all(0 <= i < len(BATCH_DATA) for i in result.triggered_indices)
+        # The spike is at BATCH_DATA[6]; a diffed detector also flags the
+        # reversion at [7], but never an index outside the raw series.
+        assert 6 in result.triggered_indices
+
+    def test_mad_detect_honors_training_offset_n(self) -> None:
+        # detect() used to hardcode a training_offset of 1 regardless of
+        # config, so training_offset_n had no effect on live checks (only
+        # detect_batch's loop bounds implicitly depended on window). Placing
+        # a spike so it falls inside the offset=1 training window but outside
+        # the offset=4 one must change whether the same current point trips.
+        data = np.array([9, 11, 10, 9, 11, 10, 30, 11, 14])
+        offset_1 = MADDetector({"threshold": 0.9, "window": 5, "training_offset_n": 1})
+        offset_4 = MADDetector({"threshold": 0.9, "window": 5, "training_offset_n": 4})
+        assert offset_1.detect(data).is_anomaly is False
+        assert offset_4.detect(data).is_anomaly is True
+
 
 class TestPyODDetectors:
     @parameterized.expand(PYOD_DETECTORS_FOR_ANOMALY_TEST)

@@ -26,6 +26,7 @@ from posthog.slo.context import SloHandle, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.sync import database_sync_to_async_pool
 
+from products.alerts.backend.delivery_slo import alert_delivery_slo
 from products.alerts.backend.destinations import (
     alert_internal_event_delivered,
     flush_alert_internal_events,
@@ -646,6 +647,25 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                         slo_handles[alert_id].fail(failure_phase="evaluation")
                         local_stats["errored"] += 1
 
+                delivery_slo_handles: dict[str, SloHandle] = {}
+                for evaluation in evaluations:
+                    delivery_action = evaluation.outcome.notification
+                    if delivery_action != NotificationAction.NONE:
+                        alert_id = str(evaluation.alert.id)
+                        delivery_slo_handles[alert_id] = slo_stack.enter_context(
+                            alert_delivery_slo(
+                                alert_type="logs",
+                                notification_action=delivery_action.value,
+                                distinct_id=alert_id,
+                                team_id=evaluation.alert.team_id,
+                                resource_id=alert_id,
+                                properties={
+                                    "check_interval_minutes": evaluation.alert.check_interval_minutes,
+                                    "window_minutes": evaluation.alert.window_minutes,
+                                },
+                            )
+                        )
+
                 dispatched_or_errors = await asyncio.gather(
                     *(dispatch_async(ev, now) for ev in evaluations),
                     return_exceptions=True,
@@ -663,6 +683,8 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                             exc_info=result,
                         )
                         slo_handles[alert_id].fail(failure_phase="dispatch")
+                        if delivery_slo := delivery_slo_handles.get(alert_id):
+                            delivery_slo.fail(failure_phase="dispatch")
                         local_stats["errored"] += 1
                     else:
                         dispatched.append(result)
@@ -675,6 +697,14 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                 # sparing quiet cohorts the thread hop.
                 if any(d.produce_result is not None for d in dispatched):
                     dispatched = await asyncio.to_thread(_resolve_notification_deliveries, dispatched)
+
+                for dispatched_alert in dispatched:
+                    alert_id = str(dispatched_alert.evaluation.alert.id)
+                    if delivery_slo := delivery_slo_handles.get(alert_id):
+                        if dispatched_alert.notification_failed:
+                            delivery_slo.fail(failure_phase="notification_delivery")
+                        else:
+                            delivery_slo.succeed()
 
                 try:
                     saved, failed = (await save_cohort_async(dispatched, now)) if dispatched else ([], [])

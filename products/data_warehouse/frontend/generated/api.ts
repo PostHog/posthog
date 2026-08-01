@@ -62,6 +62,7 @@ import type {
     TableApi,
     ViewLinkApi,
     ViewLinkValidationApi,
+    ViewLinkValidationResponseApi,
     WarehouseColumnAnnotationApi,
     WarehouseColumnAnnotationsListParams,
     WarehouseColumnStatisticsApi,
@@ -411,8 +412,8 @@ export const getDataWarehouseOnboardTeamCreateUrl = (projectId: string) => {
 /**
  * Onboard this project onto the organization's existing managed warehouse.
  *
- * Requires a schema name; records the project's membership both in duckgres and in the
- * Django backfill state. Restricted to organization admins.
+ * Requires a schema name and records the project's membership in the Duckgres control plane.
+ * Restricted to organization admins.
  */
 export const dataWarehouseOnboardTeamCreate = async (
     projectId: string,
@@ -2289,8 +2290,8 @@ export const warehouseViewLinkValidateCreate = async (
     projectId: string,
     viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseViewLinkValidateCreateUrl(projectId), {
+): Promise<ViewLinkValidationResponseApi> => {
+    return apiMutator<ViewLinkValidationResponseApi>(getWarehouseViewLinkValidateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -2437,8 +2438,8 @@ export const warehouseViewLinksValidateCreate = async (
     projectId: string,
     viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getWarehouseViewLinksValidateCreateUrl(projectId), {
+): Promise<ViewLinkValidationResponseApi> => {
+    return apiMutator<ViewLinkValidationResponseApi>(getWarehouseViewLinksValidateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

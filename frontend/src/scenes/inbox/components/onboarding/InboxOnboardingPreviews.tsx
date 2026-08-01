@@ -1,3 +1,5 @@
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 
 import { SignalReport, SignalReportStatus } from '../../types'
@@ -7,8 +9,11 @@ import { playMeep } from './meep'
 /**
  * Onboarding previews that render the *real* inbox `ReportCard` (the very component the Pull
  * requests / Reports tabs use), fed mock data – so they read as the genuine article rather than a
- * lookalike. Every click inside a card is intercepted (capture phase) and turned into a cheeky
- * `meep` instead of navigating or archiving, so the samples stay inert while still feeling alive.
+ * lookalike. Because they look real, they're marked plainly as examples: an "Example" tag sits on
+ * each card, the card itself is made non-interactive (so its Review/Archive buttons don't offer
+ * live hover states or misleading tooltips), and a single click surface explains that the real work
+ * arrives once you run the setup command. The meep stays as flair, but it's no longer the only sign
+ * a click did anything.
  *
  * The sample work is a wink at Silicon Valley (the show): Pied Piper's middle-out compression and
  * the ever-looming Hooli.
@@ -54,33 +59,48 @@ const REPORT_SAMPLE: Omit<SignalReport, 'created_at' | 'updated_at'> = {
 }
 
 /**
- * Wraps a real `ReportCard` so the whole card is inert-but-playful: an `onClickCapture` swallows
- * every click (stopping the card's links/buttons from navigating or archiving) and meeps instead.
+ * Wraps a real `ReportCard` and makes it legibly a sample. The card is rendered non-interactive
+ * (`pointer-events-none`, `aria-hidden`) so its Review/Archive buttons and links no longer offer
+ * live hover states or misleading tooltips ("Archive this report") that invite dead clicks. An
+ * "Example" tag labels it at a glance, and a single click surface on top plays the meep flair while
+ * a tooltip explains that real work lands here once the setup command runs.
  */
-function MeepCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls' | 'reports' }): JSX.Element {
+function PreviewCard({ report, tabKey }: { report: SignalReport; tabKey: 'pulls' | 'reports' }): JSX.Element {
     return (
         // `@container` so ReportCard's `@lg:` row layout resolves against the preview width (it has no
-        // inbox-list container here). `role="presentation"` – the swallowed clicks are pure flair.
-        <div
-            role="presentation"
-            className="@container"
-            onClickCapture={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                playMeep()
-            }}
-        >
-            <ReportCard report={report} tabKey={tabKey} />
+        // inbox-list container here). `role="presentation"` – the whole thing is decorative.
+        <div role="presentation" className="@container relative">
+            {/* The real card, kept inert: no navigation, no hover affordances, not focusable. */}
+            <div aria-hidden className="pointer-events-none">
+                <ReportCard report={report} tabKey={tabKey} />
+            </div>
+
+            {/* Always-visible label so the sample reads as a sample, not live work. Sits on the top
+                border and stays out of the way of clicks (handled by the overlay below). */}
+            <LemonTag type="highlight" size="small" className="pointer-events-none absolute -top-2 left-4 z-20">
+                Example
+            </LemonTag>
+
+            {/* One interactive surface over the whole card: a click plays the meep flair, and the
+                tooltip is the real signal – it says this is a preview and how to get the real thing. */}
+            <Tooltip title="This is an example. Run the command above to get real ones in your inbox.">
+                <button
+                    type="button"
+                    aria-label="Example card – run the setup command to get real ones in your inbox"
+                    className="absolute inset-0 z-10 h-full w-full cursor-pointer"
+                    onClick={() => playMeep()}
+                />
+            </Tooltip>
         </div>
     )
 }
 
 export function PullRequestPreview(): JSX.Element {
     const landed = landedHoursAgo(2)
-    return <MeepCard report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }} tabKey="pulls" />
+    return <PreviewCard report={{ ...PULL_REQUEST_SAMPLE, created_at: landed, updated_at: landed }} tabKey="pulls" />
 }
 
 export function ReportPreview(): JSX.Element {
     const landed = landedHoursAgo(4)
-    return <MeepCard report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }} tabKey="reports" />
+    return <PreviewCard report={{ ...REPORT_SAMPLE, created_at: landed, updated_at: landed }} tabKey="reports" />
 }

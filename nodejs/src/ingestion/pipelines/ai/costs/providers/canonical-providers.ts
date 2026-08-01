@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-07-30 10:43:04 UTC
+// Generated at: 2026-07-31 10:53:24 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -62,6 +62,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp8'
     | 'deepinfra-turbo'
     | 'deepseek'
+    | 'deepseek-fp8'
     | 'digitalocean'
     | 'fireworks'
     | 'fireworks-fast'
@@ -125,6 +126,7 @@ export type CanonicalProvider =
     | 'nvidia'
     | 'nvidia-bf16'
     | 'open-inference-bf16'
+    | 'open-inference-fp8'
     | 'openai'
     | 'openai-default'
     | 'openai-default-flex'
@@ -139,7 +141,7 @@ export type CanonicalProvider =
     | 'perceptron'
     | 'perplexity'
     | 'phala'
-    | 'poolside-bf16'
+    | 'poolside-fp4'
     | 'poolside-fp8'
     | 'reka-bf16'
     | 'reka-fp8'
@@ -169,6 +171,7 @@ export type CanonicalProvider =
     | 'venice-fp4'
     | 'venice-fp8'
     | 'venice-int4'
+    | 'wafer'
     | 'wafer-fast'
     | 'wafer-fp4'
     | 'xai'
