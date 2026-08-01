@@ -1,5 +1,7 @@
 -- Lifecycle: classify each person's weekly activity as new / returning / resurrecting, and count dormant.
--- Compares each active week to the person's previous active week and their first-ever active week.
+-- Compares each active week to the person's previous active week and their first active week in the window.
+-- Note: first_week is the earliest week WITHIN this window, so a user active just before it can show as
+-- "new" at the window's left edge. Extend the window one interval earlier if that boundary matters.
 WITH activity AS (
     SELECT DISTINCT
         person_id,
