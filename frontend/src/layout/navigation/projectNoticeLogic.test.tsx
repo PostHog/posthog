@@ -264,7 +264,7 @@ describe('projectNoticeLogic', () => {
 
         it('suppresses the nudge on the Tracing scene, whose spans arrive server-side over OTLP', async () => {
             sceneLogic.mount()
-            sceneLogic.actions.setScene(Scene.Tracing, undefined, {})
+            sceneLogic.actions.setScene(Scene.Tracing, undefined, { params: {}, searchParams: {}, hashParams: {} })
 
             const logic = await mountWithDetectedProxy(false)
 
