@@ -307,14 +307,30 @@ pub struct Config {
 /// construction wherever the lease TTL leaves room, and
 /// [`Config::validate_fencing_timescales`] refuses the configurations
 /// where it does not.
-const FENCING_MESSAGE_SHARE: u32 = 2;
-const FENCING_TXN_SHARE: u32 = 4;
+const FENCING_MESSAGE_SHARE: u32 = 1;
+const FENCING_TXN_SHARE: u32 = 3;
 const FENCING_SHARE_BASE: u32 = 10;
 
 /// How many times a window's commit is attempted in total, counting the
-/// first. The shares above are sized around this number, so changing one
-/// without the other breaks the runway bound.
+/// first.
 pub const FENCING_COMMIT_ATTEMPTS: u32 = 2;
+
+/// How many times a window's abort is attempted in total.
+///
+/// One, deliberately. An abort that does not land leaves the producer in
+/// a state it cannot begin another transaction from — which is a
+/// condemned fence, given up on the next write and re-taken by a fresh
+/// acquisition, whose `init_transactions` aborts the pending transaction
+/// at the broker as a side effect. Retrying the abort is therefore a
+/// slower, less reliable version of a recovery that already exists, and
+/// it is not free: every attempt is bounded by the transaction timeout
+/// and has to fit the same runway.
+pub const FENCING_ABORT_ATTEMPTS: u32 = 1;
+
+/// Every call bounded by the transaction timeout that one window can
+/// make. Both the runway bound and the broker's own patience are sized
+/// from this, so the two cannot drift apart.
+pub const FENCING_TXN_CALLS: u32 = FENCING_COMMIT_ATTEMPTS + FENCING_ABORT_ATTEMPTS;
 
 /// librdkafka's documented minimum for `transaction.timeout.ms`.
 const MIN_TXN_TIMEOUT: Duration = Duration::from_millis(1000);
@@ -366,9 +382,22 @@ impl Config {
     /// the resulting epoch bump reads exactly like a fence from a real
     /// successor.
     pub fn fencing_broker_txn_timeout(&self) -> Duration {
-        Duration::from_millis(self.fencing_window_ms)
+        // Every transaction-timeout-bounded call the window can make, not
+        // just the first: a commit that retries, or a commit followed by
+        // an abort, keeps the transaction open for all of them. A bound
+        // that covers only one call lets the broker abandon a window this
+        // pod is still legitimately working, and that epoch bump is
+        // indistinguishable from a real successor's fence — so a
+        // retriable blip would read as "this pod's claim is stale" and
+        // cost the partition its fence.
+        //
+        // Half again on top, because the arithmetic is a floor: the
+        // window sleep can overshoot and each blocking call waits its
+        // turn on the blocking pool.
+        let lifetime = Duration::from_millis(self.fencing_window_ms)
             + self.fencing_message_timeout()
-            + self.fencing_txn_timeout()
+            + self.fencing_txn_timeout() * FENCING_TXN_CALLS;
+        lifetime + lifetime / 2
     }
 
     /// Every relation the fenced produce path depends on, checked at
@@ -406,11 +435,11 @@ impl Config {
         // send and commit before its own, so the runway has to cover
         // two — each of them including every commit attempt the code
         // will make, not just the first.
-        let queued_worst_case = window + (message + txn * FENCING_COMMIT_ATTEMPTS) * 2;
+        let queued_worst_case = window + (message + txn * FENCING_TXN_CALLS) * 2;
         if queued_worst_case > runway {
             return Err(format!(
                 "a fenced write queued behind another can take {queued_worst_case:?} \
-                 (window {window:?} + 2 × (send {message:?} + {FENCING_COMMIT_ATTEMPTS} × commit \
+                 (window {window:?} + 2 × (send {message:?} + {FENCING_TXN_CALLS} × commit/abort \
                  {txn:?})), longer than the lease self-fence runway ({runway:?} = LEASE_TTL \
                  {}s / 3); raise LEASE_TTL or lower the fencing timeouts",
                 self.lease_ttl,
@@ -562,7 +591,7 @@ mod fencing_timescale_tests {
     /// the shares puts the code back outside the runway it validates
     /// against — silently, because every existing test would still pass.
     #[test]
-    fn the_production_ttl_affords_every_commit_attempt() {
+    fn the_production_ttl_affords_every_transaction_call() {
         let config = fenced(30);
         let (message, txn, runway, window) = (
             config.fencing_message_timeout(),
@@ -570,21 +599,46 @@ mod fencing_timescale_tests {
             config.lease_fence_runway(),
             Duration::from_millis(config.fencing_window_ms),
         );
-        let queued = window + (message + txn * FENCING_COMMIT_ATTEMPTS) * 2;
+        let queued = window + (message + txn * FENCING_TXN_CALLS) * 2;
         assert!(
             queued <= runway,
-            "{FENCING_COMMIT_ATTEMPTS} commit attempts need {queued:?}, runway is {runway:?}: \
-             lower FENCING_TXN_SHARE / FENCING_MESSAGE_SHARE, or lower the attempt count"
+            "{FENCING_TXN_CALLS} transaction calls need {queued:?}, runway is {runway:?}: \
+             lower FENCING_TXN_SHARE / FENCING_MESSAGE_SHARE, or lower the attempt counts"
         );
         // And it must be the attempts that are tight, not the shares
         // being trivially small: a budget that fits ten attempts would
         // mean the timeouts had collapsed toward their floors.
-        let one_more = window + (message + txn * (FENCING_COMMIT_ATTEMPTS + 1)) * 2;
+        let one_more = window + (message + txn * (FENCING_TXN_CALLS + 1)) * 2;
         assert!(
             one_more > runway,
             "the shares leave room for more attempts than are configured; raise \
-             FENCING_COMMIT_ATTEMPTS or the shares rather than leaving runway unused"
+             the attempt counts or the shares rather than leaving runway unused"
         );
+    }
+
+    /// The broker's patience has to cover the whole window, not the first
+    /// call into it. A bound shorter than the lifetime lets the broker
+    /// abandon a window this pod is still working, and that epoch bump
+    /// is indistinguishable from a real successor's fence — so a
+    /// retriable blip would cost the partition its fence and read as a
+    /// stale claim.
+    #[test]
+    fn the_broker_waits_out_the_whole_window() {
+        for lease_ttl in [21, 30, 60, 300] {
+            let config = fenced(lease_ttl);
+            if config.validate_fencing_timescales().is_err() {
+                continue;
+            }
+            let lifetime = Duration::from_millis(config.fencing_window_ms)
+                + config.fencing_message_timeout()
+                + config.fencing_txn_timeout() * FENCING_TXN_CALLS;
+            assert!(
+                config.fencing_broker_txn_timeout() >= lifetime,
+                "LEASE_TTL={lease_ttl}: broker bound {:?} is under the window's own worst \
+                 case {lifetime:?}",
+                config.fencing_broker_txn_timeout(),
+            );
+        }
     }
 
     /// The production lease TTL must actually be usable with fencing on,

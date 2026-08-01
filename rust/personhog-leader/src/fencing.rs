@@ -501,6 +501,17 @@ impl FencedChangelogProducers {
                 counter!("personhog_leader_kafka_produce_errors_total").increment(1);
                 return Err(self.classify(&fence, partition, e));
             }
+            // The fence can be condemned while this write is parked: the
+            // commit that condemns it is the same one whose end wakes us.
+            // Checking only on the way in would let a woken writer open a
+            // window on a producer that cannot begin one, and answer with
+            // a retryable failure rather than the ownership bounce that
+            // gets the partition re-acquired.
+            if !fence.is_usable() {
+                self.forget_fence(partition, &fence);
+                counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+                return Err(FencedProduceError::NotAcquired);
+            }
             closed.await;
         };
         // Near-zero when a window was open or the producer idle; the tail
@@ -656,10 +667,6 @@ impl FencedChangelogProducers {
     }
 }
 
-/// How many times a retriable abort is re-attempted before the producer
-/// is declared unusable.
-const ABORT_RETRIES: usize = 3;
-
 /// How many times a retriable commit is re-attempted before its outcome
 /// is declared unknown.
 ///
@@ -698,18 +705,6 @@ impl CommitOutcome {
     fn producer_dead(self) -> bool {
         matches!(self, Self::AbortedProducerDead | Self::Unknown)
     }
-}
-
-/// Transaction errors librdkafka documents as safe to re-attempt.
-fn retriable_txn_error(code: RDKafkaErrorCode) -> bool {
-    matches!(
-        code,
-        RDKafkaErrorCode::OperationTimedOut
-            | RDKafkaErrorCode::RequestTimedOut
-            | RDKafkaErrorCode::NotCoordinator
-            | RDKafkaErrorCode::CoordinatorNotAvailable
-            | RDKafkaErrorCode::CoordinatorLoadInProgress
-    )
 }
 
 fn is_fenced(e: &KafkaError) -> bool {
@@ -785,17 +780,7 @@ async fn commit_window_after(
             // state fails every later `begin_transaction`, so exhausting
             // the retries costs the producer itself, not just this
             // window.
-            let mut abort = producer.abort_transaction(timeout);
-            for _ in 0..ABORT_RETRIES {
-                match &abort {
-                    Err(e) if e.rdkafka_error_code().is_some_and(retriable_txn_error) => {
-                        warn!(error = %e, "abort of a poisoned window failed; retrying");
-                        abort = producer.abort_transaction(timeout);
-                    }
-                    _ => break,
-                }
-            }
-            match abort {
+            match producer.abort_transaction(timeout) {
                 Ok(()) => Err((KafkaError::Canceled, CommitOutcome::Aborted)),
                 // The records are still definitely not visible — an abort
                 // that did not land leaves the transaction open, and open
@@ -830,22 +815,7 @@ async fn commit_window_after(
             match attempt {
                 Ok(()) => Ok(()),
                 Err(KafkaError::Transaction(e)) if e.txn_requires_abort() => {
-                    // Retried on the same terms as the poisoned path: an
-                    // abort that fails once for a moving coordinator is
-                    // the same event there, and giving up after one
-                    // attempt turns a recoverable abort into a dead
-                    // producer and a definite outcome into an unknown one.
-                    let mut abort = producer.abort_transaction(timeout);
-                    for _ in 0..ABORT_RETRIES {
-                        match &abort {
-                            Err(e) if e.rdkafka_error_code().is_some_and(retriable_txn_error) => {
-                                warn!(error = %e, "abort after a failed commit failed; retrying");
-                                abort = producer.abort_transaction(timeout);
-                            }
-                            _ => break,
-                        }
-                    }
-                    match abort {
+                    match producer.abort_transaction(timeout) {
                         Ok(()) => Err((KafkaError::Transaction(e), CommitOutcome::Aborted)),
                         // The abort itself is now in doubt, so the
                         // records are too.
@@ -880,7 +850,14 @@ async fn commit_window_after(
                     },
                 );
             }
-            if is_fenced(&e) || producer_fenced(fence.producer.inner()) {
+            // A fence only settles the records' fate when the window is
+            // also known to have aborted. A commit that timed out and was
+            // re-attempted may already have landed, and the pod can
+            // discover the fence afterwards — reporting that as `Fenced`
+            // tells the caller the record does not exist, which frees its
+            // version for reuse and puts a second record at the same
+            // number behind one that may already be committed.
+            if outcome.is_aborted() && (is_fenced(&e) || producer_fenced(fence.producer.inner())) {
                 // A poisoned window's fence was already classified and
                 // counted where the send failed; counting again here
                 // would report two fences for one event.
@@ -983,5 +960,55 @@ fn clone_outcome(outcome: &Result<(), FencedProduceError>) -> Result<(), FencedP
         Err(FencedProduceError::Indeterminate(e)) => {
             Err(FencedProduceError::Indeterminate(e.clone()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every arrow *into* the condemned state, as a table.
+    ///
+    /// The aftermath is covered end to end against a real broker, but the
+    /// classification that gets there is not: reaching it for real needs a
+    /// broker fault landing inside a transaction. These are the two
+    /// outcomes that must condemn — an abort that never landed, and a
+    /// commit whose fate is unknown — and the two that must not, because
+    /// a producer that cleanly aborted is still perfectly usable.
+    #[test]
+    fn only_the_outcomes_that_strand_the_producer_condemn_it() {
+        for (outcome, dead, aborted) in [
+            (CommitOutcome::Aborted, false, true),
+            (CommitOutcome::AbortedProducerDead, true, true),
+            (CommitOutcome::Unknown, true, false),
+        ] {
+            assert_eq!(
+                outcome.producer_dead(),
+                dead,
+                "{outcome:?} must {} leave the producer unusable",
+                if dead { "" } else { "not" }
+            );
+            assert_eq!(
+                outcome.is_aborted(),
+                aborted,
+                "{outcome:?} must {} settle the records as not visible",
+                if aborted { "" } else { "not" }
+            );
+        }
+    }
+
+    /// An unknown outcome must never be reported as a definite abort, in
+    /// either direction. The caller frees the write's version on a
+    /// definite answer, and freeing it for a record that may exist puts a
+    /// second record at the same version behind one that may already be
+    /// committed — which the writer's strict guard resolves by discarding
+    /// whichever arrived second.
+    #[test]
+    fn an_unknown_outcome_is_never_a_definite_abort() {
+        assert!(!CommitOutcome::Unknown.is_aborted());
+        assert!(
+            CommitOutcome::Unknown.producer_dead(),
+            "an unknown commit leaves a transaction open that nothing can close"
+        );
     }
 }
