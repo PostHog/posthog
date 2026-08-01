@@ -57,14 +57,9 @@ export const FilterRow = React.memo(function FilterRow({
 
     const { key } = item
     const isValid = isValidPropertyFilter(item)
-
-    const handleVisibleChange = (visible: boolean): void => {
-        if (!visible && isValid && !item.key) {
-            onRemove(index)
-        }
-
-        setOpen(visible)
-    }
+    // `isValid` only requires *some* truthy field (e.g. a chosen category before a key exists),
+    // so a row can be "valid" without a usable property key yet — that's still a draft.
+    const hasCompletedSelection = isValid && !!item.key
 
     return (
         <>
@@ -93,10 +88,10 @@ export const FilterRow = React.memo(function FilterRow({
                     <Popover
                         className="filter-row-popover"
                         visible={open}
-                        onClickOutside={() => handleVisibleChange(false)}
+                        onClickOutside={() => setOpen(false)}
                         overlay={filterComponent(() => setOpen(false))}
                     >
-                        {isValid ? (
+                        {hasCompletedSelection ? (
                             <PropertyFilterButton
                                 onClick={() => setOpen(!open)}
                                 onClose={() => onRemove(index)}

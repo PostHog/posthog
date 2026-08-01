@@ -851,8 +851,18 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             createEmptyListStorage('', true),
             {
                 loadRemoteItems: async ({ offset, limit }, breakpoint) => {
+                    // Scroll-triggered pagination lands on an offset the user already committed to by
+                    // scrolling there — unlike a search keystroke, there's nothing to debounce against.
+                    // Debouncing it the same way stalls every page behind an extra 500ms, and letting a
+                    // later page's fetch discard an earlier one's result (via the trailing breakpoint()
+                    // below) leaves permanent skeleton rows on a fast scroll. Only the search-driven load
+                    // (offset 0) gets the debounce and the discard-if-superseded guard.
+                    const isPagination = offset > 0
+
                     if (!values.remoteItems.first) {
-                        await breakpoint(500)
+                        if (!isPagination) {
+                            await breakpoint(500)
+                        }
                     } else {
                         // These connected values below might be read before they are available due to circular logic mounting.
                         // Adding a slight delay (breakpoint) fixes this.
@@ -898,7 +908,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     }
 
                     const start = performance.now()
-                    actions.abortAnyRunningQuery()
+                    if (!isPagination) {
+                        actions.abortAnyRunningQuery()
+                    }
 
                     let response: any
                     let expandedCountResponse: any = null
@@ -952,7 +964,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                         }
                         throw error
                     }
-                    breakpoint()
+                    // A pagination fetch skips this guard: two pages in flight at once are not a race,
+                    // since each writes to its own slice of `results` (see `appendAtIndex` below) — both
+                    // should land regardless of which one a later scroll superseded.
+                    if (!isPagination) {
+                        breakpoint()
+                    }
 
                     const queryChanged = values.remoteItems.searchQuery !== searchQuery
                     const existingResults = values.remoteItems.results
@@ -2081,6 +2098,22 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                     // with the local rows to recover the true remote offset.
                     const offset =
                         (loadFrom || startIndex) - values.localItems.count - (values.items.syntheticSelectedCount ?? 0)
+                    // Pagination fetches were previously invisible in telemetry — this is the only
+                    // signal that lets us measure "scrolled N pages, selected nothing" instead of
+                    // inferring it from dwellMs on the eventual `taxonomic filter closed` event.
+                    // Dedupe on query+offset so re-scrolling the same page of the same search doesn't
+                    // recapture, but a fresh search (or a new tab) can capture its own pages again.
+                    const scrollDedupeKey = `${values.searchQuery}::${offset}`
+                    if (offset > 0 && values.isActiveTab && cache.lastScrolledDedupeKey !== scrollDedupeKey) {
+                        cache.lastScrolledDedupeKey = scrollDedupeKey
+                        posthog.capture('taxonomic filter list scrolled', {
+                            surface: legacyTaxonomicSurface(
+                                posthog.getFeatureFlag(FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN)
+                            ),
+                            groupType: props.listGroupType,
+                            offset,
+                        })
+                    }
                     actions.loadRemoteItems({ offset, limit: values.limit })
                 }
             }

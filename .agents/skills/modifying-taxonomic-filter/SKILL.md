@@ -103,7 +103,11 @@ Legacy-only: `taxonomic_filter_search_query`
 (`searchQuery`, `groupType`, `inputMode`, `pastedFraction`),
 `taxonomic filter empty result` (`groupType`, `searchQuery`),
 `taxonomic filter include stale toggled`,
-`taxonomic filter category dropdown opened` (pill only).
+`taxonomic filter category dropdown opened` (pill only),
+`taxonomic filter list scrolled` (`groupType`, `offset`) — fires once per
+distinct query+offset when scrolling triggers a remote pagination fetch, so
+"scrolled N pages, selected nothing" is queryable instead of inferred from
+`dwellMs`.
 
 Rebuild-only menu events: `taxonomic filter menu opened` / `drilled` /
 `closed` / `option clicked` / `item selected`.
