@@ -231,6 +231,7 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.Scd2DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableHelper")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
@@ -241,6 +242,7 @@ class TestProcessMessageOwnershipGate:
         _s3fs: MagicMock,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
+        mock_scd2_cls: MagicMock,
         _already: MagicMock,
         _read: MagicMock,
         _analytics: MagicMock,
@@ -248,7 +250,6 @@ class TestProcessMessageOwnershipGate:
         helper = mock_helper_cls.return_value
         helper.get_delta_table = AsyncMock(return_value=None)
         helper.write_to_deltalake = AsyncMock()
-        helper.write_scd2_to_deltalake = AsyncMock()
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         def verify_ownership() -> None:
@@ -258,7 +259,7 @@ class TestProcessMessageOwnershipGate:
             process_message(_message(), verify_ownership=verify_ownership)
 
         helper.write_to_deltalake.assert_not_called()
-        helper.write_scd2_to_deltalake.assert_not_called()
+        mock_scd2_cls.return_value.write.assert_not_called()
 
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._mark_job_completed")

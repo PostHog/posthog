@@ -130,6 +130,8 @@ class AccountChannelSummaryView:
     period_end: datetime
     content: str
     message_count: int
+    # [{author, sent_at, permalink}] per covered message — metadata only, never text.
+    messages: list[dict]
     generated_at: datetime
 
 

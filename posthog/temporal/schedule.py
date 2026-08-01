@@ -20,6 +20,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
     should_register_checkpoint_compaction_schedule,
@@ -383,7 +384,16 @@ async def create_sync_events_retention_schedule(client: Client):
     sync_events_retention_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "sync-events-retention",
-            SyncEventsRetentionInput(dry_run=False),
+            SyncEventsRetentionInput(
+                dry_run=False,
+                slo=SloConfig(
+                    operation=SloOperation.SYNC_EVENTS_RETENTION,
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    team_id=0,
+                    resource_id="sync-events-retention",
+                    distinct_id="sync-events-retention",
+                ),
+            ),
             id="sync-events-retention-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
