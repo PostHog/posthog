@@ -393,7 +393,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
+ * Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the report-channel tools. The optional config controls schedule, enablement, dry-run posture, network access, and typed destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; reusing its name for a different definition returns 409.
  * @summary Create a scout
  */
 export const SignalsScoutCreateParams = /* @__PURE__ */ zod.object({
@@ -502,6 +502,13 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+                network_access: zod
+                    .enum(['trusted', 'full'])
+                    .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+                    .optional()
+                    .describe(
+                        "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+                    ),
                 auto_pause_exempt: zod
                     .boolean()
                     .optional()
@@ -537,7 +544,7 @@ export const SignalsScoutConfigListParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
+ * Register the config for a `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it. The same call can optionally set `run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, and output destinations. The skill must already exist on this project. Upsert: if a config already exists for the skill, the provided fields are applied to it.
  * @summary Create a scout config
  */
 export const SignalsScoutConfigCreateParams = /* @__PURE__ */ zod.object({
@@ -600,6 +607,13 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+        network_access: zod
+            .enum(['trusted', 'full'])
+            .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+            .optional()
+            .describe(
+                "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
+            ),
         auto_pause_exempt: zod
             .boolean()
             .optional()
@@ -625,7 +639,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
     )
 
 /**
- * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
+ * Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron `run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) posture, `network_access` (trusted-domain allowlist vs full access for the scout's sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` and is activity-logged since it drives spend.
  * @summary Update a scout config
  */
 export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
@@ -700,6 +714,13 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
+            ),
+        network_access: zod
+            .enum(['trusted', 'full'])
+            .describe('\* `trusted` - Trusted domains only\n\* `full` - Full')
+            .optional()
+            .describe(
+                "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.\n\n\* `trusted` - Trusted domains only\n\* `full` - Full"
             ),
         auto_pause_exempt: zod
             .boolean()

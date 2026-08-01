@@ -1638,6 +1638,20 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         if expected_missing_scope is not None:
             assert expected_missing_scope in response.json()["detail"]
 
+    def test_partial_update_round_trips_network_access(self) -> None:
+        # Wiring guard: DRF silently drops a field missing from the update serializer's
+        # `Meta.fields` (the PATCH would 200 while never changing the sandbox posture), and the
+        # read serializer must surface the stored value back.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"network_access": "full"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["network_access"] == "full"
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
+
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         # 20 is below the 30-minute floor (the tightest cadence the UI offers) but above the old
@@ -1875,7 +1889,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         response = self.client.post(
             self._list_url(),
-            data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 120, "emit": False},
+            data={
+                "skill_name": "signals-scout-fresh",
+                "run_interval_minutes": 120,
+                "emit": False,
+                "network_access": "full",
+            },
             format="json",
         )
 
@@ -1885,9 +1904,11 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert body["run_interval_minutes"] == 120
         assert body["emit"] is False
         assert body["enabled"] is True
+        assert body["network_access"] == "full"
         config = SignalScoutConfig.objects.get(team=self.team, skill_name="signals-scout-fresh")
         assert config.created_by_id == self.user.id
         assert config.enabled_by_id == self.user.id
+        assert config.network_access == SignalScoutConfig.NetworkAccess.FULL
 
     def test_create_stamps_scout_category_on_skill(self) -> None:
         skill = self._make_skill("signals-scout-fresh")
