@@ -1,5 +1,4 @@
 import {
-  CubeIcon,
   HashIcon,
   type IconWeight,
   LockSimpleIcon,
@@ -24,8 +23,13 @@ export function isPrivateChannel(channelName: string | undefined): boolean {
 }
 
 /**
- * A channel's leading glyph: a lock when it's private, otherwise a cube for the
- * Spaces layout or a hash for legacy Channels.
+ * A channel's leading glyph: a lock when it's private, a hash under the legacy
+ * Channels layout, and nothing at all for a space.
+ *
+ * Spaces dropped their cube because it said nothing the name didn't — a column
+ * of identical marks is noise, and the only thing worth calling out in that list
+ * is the one space that isn't shared. The hash stays where it still separates a
+ * channel from the other things in that tree.
  */
 export function channelGlyph(
   channelName: string | undefined,
@@ -36,11 +40,8 @@ export function channelGlyph(
     space?: boolean;
   },
 ): ReactNode {
-  const Icon = isPrivateChannel(channelName)
-    ? LockSimpleIcon
-    : opts?.space
-      ? CubeIcon
-      : HashIcon;
+  if (!isPrivateChannel(channelName) && opts?.space) return null;
+  const Icon = isPrivateChannel(channelName) ? LockSimpleIcon : HashIcon;
   return (
     <Icon
       size={opts?.size ?? 16}

@@ -14,7 +14,7 @@ import {
 } from "@posthog/ui/primitives/PageHeader";
 import { navigateToNewLoop } from "@posthog/ui/router/navigationBridge";
 import { Flex, Heading, Text } from "@radix-ui/themes";
-import { useMemo } from "react";
+import { type ReactNode, useMemo } from "react";
 import { LoopBuilderComposer } from "../../loops/components/LoopBuilderComposer";
 import {
   LoopsEmptyNotice,
@@ -22,6 +22,7 @@ import {
 } from "../../loops/components/LoopFallbacks";
 import { LoopRow } from "../../loops/components/LoopRow";
 import { LoopsEmptyState } from "../../loops/components/LoopsEmptyState";
+import { LoopsListView } from "../../loops/components/LoopsListView";
 import { LoopTemplatesSection } from "../../loops/components/LoopTemplatesSection";
 import { useLoopLimits, useLoops } from "../../loops/hooks/useLoops";
 import { useLoopDraftStore } from "../../loops/loopDraftStore";
@@ -56,6 +57,52 @@ function contextQuickStarts(name: string): { label: string; prompt: string }[] {
  * composer pinned at the bottom), but the build surface is tuned to automations that feed
  * this context. `channelId` is the desktop folder id, matching `context_target.folder_id`. */
 export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
+  const { channels, isLoading } = useChannels();
+  const channel = channels.find((candidate) => candidate.id === channelId);
+  const headerContent = useMemo(
+    () => <ChannelHeader channelId={channelId} page="loops" />,
+    [channelId],
+  );
+
+  // Don't mount the scoped scene while the route's space is unresolved. In
+  // particular, that would flash a raw-id empty state for Personal before the
+  // channel query identifies it as the project-level loops registry.
+  if (isLoading && !channel) {
+    return <ChannelLoopsLoading headerContent={headerContent} />;
+  }
+
+  // The Personal space is the project-level home for loops in the spaces
+  // layout. API-created and other unattached loops have no context_target, so
+  // rendering the space-scoped list here incorrectly produces the global
+  // "Create your first loop" empty state while those loops already exist.
+  if (channel?.name === PERSONAL_CHANNEL_NAME) {
+    return <LoopsListView headerContent={headerContent} />;
+  }
+
+  return (
+    <SpaceAttachedLoops
+      channelId={channelId}
+      contextName={channel?.name ?? channelId}
+    />
+  );
+}
+
+function ChannelLoopsLoading({ headerContent }: { headerContent: ReactNode }) {
+  useSetHeaderContent(headerContent);
+  return (
+    <div className="mx-auto w-full max-w-5xl px-8 py-8">
+      <LoopsSkeleton />
+    </div>
+  );
+}
+
+function SpaceAttachedLoops({
+  channelId,
+  contextName,
+}: {
+  channelId: string;
+  contextName: string;
+}) {
   const { data: loops, isLoading, isError } = useLoops();
   const spacesLayout = useChannelsLayout();
   const limits = useLoopLimits();
@@ -63,10 +110,6 @@ export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
     limits?.atLimit === true
       ? `You've reached the limit of ${limits.max} loops for this project. Delete one to add another.`
       : null;
-  const { channels } = useChannels();
-  const channel = channels.find((c) => c.id === channelId);
-  const contextName = channel?.name ?? channelId;
-  const isPersonal = contextName === PERSONAL_CHANNEL_NAME;
 
   useSetHeaderContent(
     useMemo(
@@ -113,7 +156,7 @@ export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
     navigateToNewLoop();
   };
 
-  const title = isPersonal ? "Loops" : `Automate #${contextName}`;
+  const title = `Automate #${contextName}`;
   const description =
     "Put your work on autopilot. Loops run on a schedule, on an API call, or when something happens on GitHub. You can finally close the laptop!";
   const createButton = (
@@ -214,9 +257,7 @@ export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
               </Flex>
             </Flex>
           ) : (
-            <LoopsEmptyState
-              contextName={isPersonal ? undefined : contextName}
-            />
+            <LoopsEmptyState contextName={contextName} />
           )}
 
           <LoopTemplatesSection onSelect={startFromTemplate} />

@@ -244,7 +244,11 @@ export function TaskDetail({
       <Flex height="100%">
         <Box className={`min-w-0 flex-1 ${isExpanded ? "hidden" : ""}`}>
           {runtime === "pi" && (
-            <PiSessionView taskId={taskId} taskRunId={selectedTaskRunId} />
+            <PiSessionView
+              taskId={taskId}
+              taskRunId={selectedTaskRunId}
+              isCloud={isCloud}
+            />
           )}
           {runtime === "acp" && <PanelLayout taskId={taskId} task={task} />}
         </Box>

@@ -31,6 +31,12 @@ const SSE_RECONNECT_BASE_DELAY_MS = 500;
 const SSE_RECONNECT_FLAT_ATTEMPTS = 3;
 const SSE_RECONNECT_MAX_DELAY_MS = 30_000;
 const SSE_HEALTHY_CONNECTION_MS = 60_000;
+// The backend emits a keepalive at least every ~25-30s (see SSE_KEEPALIVE_INTERVAL_MS in
+// packages/agent). A half-open socket (laptop sleep, unplugged NIC, NAT rebind) neither errors
+// nor EOFs, so `reader.read()` awaits forever with nothing to trigger reconnect. This timeout
+// treats "no bytes at all for a few keepalive intervals" as a disconnect so it flows into the
+// existing reconnect/backoff machinery instead of hanging the watcher indefinitely.
+const SSE_IDLE_TIMEOUT_MS = 90_000;
 const EVENT_BATCH_FLUSH_MS = 16;
 const EVENT_BATCH_MAX_SIZE = 50;
 const SESSION_LOG_PAGE_LIMIT = 5_000;
@@ -1256,12 +1262,75 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     const controller = new AbortController();
     watcher.sseAbortController = controller;
 
+    let connectedAt = 0;
+    let streamWasEstablished = false;
+    let bytesReceived = 0;
+    let eventsReceived = 0;
+    let idleTimedOut = false;
+    let idleTimeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let idlePhase: "target_resolution" | "connection" | "stream" =
+      "target_resolution";
+
+    const clearIdleTimeout = () => {
+      if (idleTimeoutHandle) {
+        clearTimeout(idleTimeoutHandle);
+        idleTimeoutHandle = null;
+      }
+    };
+    const armIdleTimeout = () => {
+      clearIdleTimeout();
+      idleTimeoutHandle = setTimeout(() => {
+        idleTimedOut = true;
+        controller.abort();
+      }, SSE_IDLE_TIMEOUT_MS);
+    };
+    const recordIdleTimeout = (details: Record<string, unknown> = {}) => {
+      const idleWatcher = this.watchers.get(key);
+      this.log.warn("Cloud task stream idle timeout, no bytes received", {
+        key,
+        phase: idlePhase,
+        idleTimeoutMs: SSE_IDLE_TIMEOUT_MS,
+        bytesReceived,
+        eventsReceived,
+        connectionDurationMs: streamWasEstablished
+          ? Date.now() - connectedAt
+          : 0,
+        ...details,
+      });
+      if (idleWatcher) {
+        this.analytics.track(ANALYTICS_EVENTS.CLOUD_STREAM_IDLE_TIMEOUT, {
+          task_id: idleWatcher.taskId,
+          run_id: idleWatcher.runId,
+          team_id: idleWatcher.teamId,
+          idle_timeout_ms: SSE_IDLE_TIMEOUT_MS,
+          bytes_received: bytesReceived,
+          events_received: eventsReceived,
+        });
+      }
+    };
+
     watcher.connStartedAt = 0;
     watcher.connDataEventsReceived = 0;
 
     // Resolve the read target once (proxy URL + token, or Django), reused across reconnects.
     if (!watcher.streamTargetResolved) {
-      await this.resolveStreamTarget(watcher);
+      armIdleTimeout();
+      try {
+        await this.resolveStreamTarget(watcher, controller.signal);
+      } catch (error) {
+        if (!idleTimedOut) {
+          return;
+        }
+        recordIdleTimeout();
+        await this.handleStreamCompletion(key, {
+          reconnectOnDisconnect: true,
+          reconnectError: error,
+          countReconnectAttempt: true,
+        });
+        return;
+      } finally {
+        clearIdleTimeout();
+      }
       const resolvedWatcher = this.watchers.get(key);
       if (
         !resolvedWatcher ||
@@ -1340,12 +1409,11 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
 
     // Track how long the body stayed open so healthy long-lived connections cut by churn
     // aren't penalized as failed reconnects (see SSE_HEALTHY_CONNECTION_MS).
-    let connectedAt = 0;
-    let streamWasEstablished = false;
-    let bytesReceived = 0;
-    let eventsReceived = 0;
-
+    // Re-armed on every read that returns a value (data or keepalive bytes), so it only fires
+    // when the transport has gone completely silent, not merely between infrequent events.
     try {
+      idlePhase = "connection";
+      armIdleTimeout();
       // The proxy authenticates with the run-scoped Bearer token; the Django leg uses the session.
       const response = usingProxy
         ? await this.streamFetch(url.toString(), {
@@ -1401,12 +1469,16 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       });
 
       const reader = response.body.getReader();
+      idlePhase = "stream";
+      armIdleTimeout();
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) {
           break;
         }
+
+        armIdleTimeout();
 
         if (!value) {
           continue;
@@ -1463,8 +1535,18 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     } catch (error) {
       this.flushLogBatch(key);
 
-      if (controller.signal.aborted) {
+      // An idle-timeout abort must fall through to the reconnect machinery below rather than
+      // return here like a deliberate cancel (disconnectSse/stopWatching), since nothing else
+      // will ever notice this connection went silent.
+      if (controller.signal.aborted && !idleTimedOut) {
         return;
+      }
+
+      if (idleTimedOut) {
+        recordIdleTimeout({
+          leg,
+          streamUrl: url.toString(),
+        });
       }
 
       // Proxy-leg 401: the read token expired or its signing key rotated. Re-resolve to mint a
@@ -1506,6 +1588,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       const isBackendError = error instanceof BackendStreamError;
       const wasHealthyStream =
         !isBackendError &&
+        !idleTimedOut &&
         streamWasEstablished &&
         Date.now() - connectedAt >= SSE_HEALTHY_CONNECTION_MS;
 
@@ -1548,6 +1631,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         countReconnectAttempt: !isBackendError && !wasHealthyStream,
       });
     } finally {
+      clearIdleTimeout();
       const currentWatcher = this.watchers.get(key);
       if (currentWatcher?.sseAbortController === controller) {
         currentWatcher.sseAbortController = null;
@@ -2198,11 +2282,15 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     }
   }
 
-  private async resolveStreamTarget(watcher: WatcherState): Promise<void> {
+  private async resolveStreamTarget(
+    watcher: WatcherState,
+    signal: AbortSignal,
+  ): Promise<void> {
     const url = `${watcher.apiHost}/api/projects/${watcher.teamId}/tasks/${watcher.taskId}/runs/${watcher.runId}/stream_token/`;
     try {
       const response = await this.auth.authenticatedFetch(url, {
         method: "GET",
+        signal,
       });
       if (!response.ok) {
         watcher.streamBaseUrl = null;
@@ -2245,6 +2333,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         durableStream: watcher.durableStreamEnabled,
       });
     } catch (error) {
+      if (signal.aborted) {
+        throw error;
+      }
       // Transient failure: leave unresolved so the next reconnect retries and falls back to Django.
       watcher.streamBaseUrl = null;
       watcher.streamReadToken = null;

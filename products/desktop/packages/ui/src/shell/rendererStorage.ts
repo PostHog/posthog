@@ -118,7 +118,7 @@ export function registerRendererStateStorage(
   hostStorageReady.resolve(storage);
 }
 
-const deferredHostStorage: StateStorage = {
+export const stateStorage: StateStorage = {
   getItem: async (key) => {
     // A coalesced write that has not flushed yet is newer than the backend
     // copy; land it first so the read never observes older state. A queued
@@ -170,4 +170,4 @@ const deferredHostStorage: StateStorage = {
   },
 };
 
-export const electronStorage = createJSONStorage(() => deferredHostStorage);
+export const electronStorage = createJSONStorage(() => stateStorage);

@@ -1,3 +1,4 @@
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { ToastProvider } from "@posthog/quill";
 import { EXTERNAL_LINKS, isNotAuthenticatedError } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -24,7 +25,12 @@ import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
 import { track } from "@posthog/ui/shell/analytics";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
+import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import {
+  rememberStartupLocation,
+  resolveStartupLocation,
+} from "@posthog/ui/shell/startupLocation";
 import { useAppVisibilityWatchdog } from "@posthog/ui/shell/useAppVisibilityWatchdog";
 import { RouterProvider } from "@tanstack/react-router";
 import { AnimatePresence, motion } from "framer-motion";
@@ -34,6 +40,8 @@ interface AppProps {
   /** Host-provided dev diagnostics toolbar, docked below the app content. */
   devToolbar?: ReactNode;
 }
+
+const log = logger.scope("app");
 
 function App({ devToolbar }: AppProps) {
   const { isBootstrapped } = useAuthSession();
@@ -88,12 +96,10 @@ function App({ devToolbar }: AppProps) {
     !isCheckingAccess &&
     !needsInviteCode &&
     !needsAiApproval;
+  const startupIdentity = getAuthIdentity(authState);
 
-  // Run the initial route's loaders before the router ever mounts, so the boot
-  // loading screen holds until the route is ready. The router turns loader
-  // errors into route error UI itself; the catch is only unhandled-rejection
-  // hygiene. Resets when the user leaves the main app (logout, gates) so
-  // re-entry loads fresh.
+  // Resolve and load the initial route before mounting the router. Reset when
+  // the user leaves the main app so a later re-entry starts fresh.
   const [initialRouteLoaded, setInitialRouteLoaded] = useState(false);
   useEffect(() => {
     if (!readyForMainApp) {
@@ -101,17 +107,42 @@ function App({ devToolbar }: AppProps) {
       return;
     }
     if (initialRouteLoaded) return;
+    if (!startupIdentity || !authenticatedClient) return;
+
     let cancelled = false;
-    void router
-      .load()
-      .catch(() => undefined)
-      .finally(() => {
+    const loadInitialRoute = async (): Promise<void> => {
+      try {
+        const href = await resolveStartupLocation(
+          startupIdentity,
+          authenticatedClient,
+        );
+        router.history.replace(href);
+        rememberStartupLocation(startupIdentity, href);
+        await router.load();
+      } catch (error) {
+        log.error("Failed to load initial route", { error });
+      } finally {
         if (!cancelled) setInitialRouteLoaded(true);
-      });
+      }
+    };
+    void loadInitialRoute();
+
     return () => {
       cancelled = true;
     };
-  }, [readyForMainApp, initialRouteLoaded]);
+  }, [
+    readyForMainApp,
+    initialRouteLoaded,
+    startupIdentity,
+    authenticatedClient,
+  ]);
+
+  useEffect(() => {
+    if (!initialRouteLoaded || !startupIdentity) return;
+    return router.history.subscribe(({ location }) => {
+      rememberStartupLocation(startupIdentity, location.href);
+    });
+  }, [initialRouteLoaded, startupIdentity]);
 
   const mainRef = useRef<HTMLDivElement>(null);
   // Mirrors the "main" branch of renderContent() below; keep the two in sync.

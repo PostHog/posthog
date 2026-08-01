@@ -75,6 +75,48 @@ export function getLocalDayDiff(
   return Math.round((startOfDay(now) - startOfDay(date)) / 86_400_000);
 }
 
+/**
+ * Local calendar-day identity, for deciding where a day separator goes. Two
+ * timestamps on the same day share a key regardless of time, and the key is
+ * built from local getters (not the UTC ISO) so the split lands on the viewer's
+ * midnight.
+ */
+export function getLocalDayKey(timestamp: number | string | Date): string {
+  const date = new Date(timestamp);
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
+}
+
+function ordinal(n: number): string {
+  const suffix = ["th", "st", "nd", "rd"];
+  const rem = n % 100;
+  return `${n}${suffix[(rem - 20) % 10] ?? suffix[rem] ?? suffix[0]}`;
+}
+
+/**
+ * A day separator's label: "Today" / "Yesterday" for the recent days, then a
+ * weekday + ordinal ("Monday 5th") within the week, adding the month (and the
+ * year when it differs) further back so older separators stay unambiguous.
+ *
+ * Shared by the space feed and the space sidebar's recents, so the same day is
+ * never named two different ways in one window.
+ */
+export function formatDaySeparatorLabel(
+  timestamp: number | string | Date,
+  now: Date = new Date(),
+): string {
+  const date = new Date(timestamp);
+  const days = getLocalDayDiff(date, now);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  const weekday = date.toLocaleDateString(undefined, { weekday: "long" });
+  const day = ordinal(date.getDate());
+  if (days < 7) return `${weekday} ${day}`;
+  const month = date.toLocaleDateString(undefined, { month: "long" });
+  const year =
+    date.getFullYear() === now.getFullYear() ? "" : `, ${date.getFullYear()}`;
+  return `${weekday}, ${month} ${day}${year}`;
+}
+
 export function getRelativeDateGroup(
   timestamp: number | string,
 ): string | null {

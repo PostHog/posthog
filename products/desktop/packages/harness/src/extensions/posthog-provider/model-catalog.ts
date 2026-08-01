@@ -2,20 +2,22 @@ import {
   getSupportedThinkingLevels,
   type ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
+import type { ModelInfo } from "@earendil-works/pi-coding-agent";
+import type { CloudRegion } from "@posthog/shared";
 import {
   fetchPosthogGatewayModels,
   type GatewayModel,
   resolveModelConfigsFromGatewayModels,
-} from "@posthog/harness/extensions/posthog-provider/models";
-import type { CloudRegion } from "@posthog/shared";
+} from "./models";
 
-export interface PiModelCatalogEntry {
+export type PiModelCatalogEntry = Omit<
+  Pick<ModelInfo, "provider" | "id" | "contextWindow">,
+  "provider"
+> & {
   provider: "posthog";
-  id: string;
   name: string;
-  contextWindow: number;
   thinkingLevels: ModelThinkingLevel[];
-}
+};
 
 export function resolvePosthogPiModelCatalog(
   gatewayModels: GatewayModel[],

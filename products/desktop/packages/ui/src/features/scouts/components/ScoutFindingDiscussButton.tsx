@@ -56,7 +56,7 @@ export function ScoutFindingDiscussButton({
 
   const { runTask, isRunning } = useScoutChatTask({
     prompt,
-    taskLabel: "finding discussion",
+    taskLabel: "signal discussion",
     loggerScope: "scout-finding-discuss",
     chatType: "finding_discuss",
     surface: "scout_detail",
@@ -85,7 +85,7 @@ export function ScoutFindingDiscussButton({
         <button
           type="button"
           disabled={isRunning}
-          title="Discuss this finding with your agent"
+          title="Discuss this signal with your agent"
           className="inline-flex shrink-0 items-center gap-1 text-[11px] text-accent-11 no-underline transition-colors hover:text-accent-12 disabled:cursor-default disabled:opacity-60"
         >
           {isRunning ? <Spinner size="1" /> : <ChatCircleIcon size={11} />}
@@ -106,9 +106,9 @@ export function ScoutFindingDiscussButton({
           }}
         >
           <TextArea
-            aria-label="Question to discuss about this finding"
+            aria-label="Question to discuss about this signal"
             autoFocus
-            placeholder="Ask about this finding… (optional)"
+            placeholder="Ask about this signal… (optional)"
             resize="vertical"
             rows={5}
             size="2"

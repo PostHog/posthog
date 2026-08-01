@@ -65,6 +65,21 @@ function claudeModelOption(
   } as unknown as SessionConfigOption;
 }
 
+function effortlessModelOption(): SessionConfigOption {
+  return {
+    type: "select",
+    id: "model",
+    name: "Model",
+    category: "model",
+    currentValue: "moonshotai/kimi-k3",
+    options: [
+      { name: "Claude Sonnet 5", value: "claude-sonnet-5" },
+      { name: "Claude Opus 5", value: "claude-opus-5" },
+      { name: "Kimi K3", value: "moonshotai/kimi-k3" },
+    ],
+  } as unknown as SessionConfigOption;
+}
+
 function contextOption(currentValue = "1m"): SessionConfigOption {
   return {
     type: "select",
@@ -422,5 +437,88 @@ describe("ReasoningLevelSelector", () => {
       />,
     );
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("keeps the model picker when the model has no reasoning levels", async () => {
+    const onModelChange = vi.fn();
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          modelOption={effortlessModelOption()}
+          adapter="claude"
+          onModelChange={onModelChange}
+        />
+      </Theme>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Model: Kimi K3" }));
+    await openSub(user, /^Model/);
+    fireEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Claude Opus 5" }),
+    );
+
+    await pollUntil(() => onModelChange.mock.calls.length > 0);
+    expect(onModelChange).toHaveBeenCalledWith("claude-opus-5");
+  });
+
+  it("hides the reasoning submenu and slider for an effort-less model", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          modelOption={effortlessModelOption()}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Model: Kimi K3" }));
+    expect(
+      await screen.findByRole("menuitem", { name: /^Model/ }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitem", { name: /^Reasoning/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+  });
+
+  it("drops the stale effort label when switching to an effort-less model", () => {
+    const { rerender } = render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          modelOption={claudeModelOption()}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    rerender(
+      <Theme>
+        <ReasoningLevelSelector
+          modelOption={effortlessModelOption()}
+          adapter="claude"
+        />
+      </Theme>,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Model: Kimi K3" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("High")).not.toBeInTheDocument();
+  });
+
+  it("shows a loading placeholder while the first config loads", () => {
+    render(
+      <Theme>
+        <ReasoningLevelSelector isLoading />
+      </Theme>,
+    );
+
+    expect(screen.getByRole("button", { name: /Loading/ })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
   });
 });

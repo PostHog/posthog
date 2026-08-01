@@ -45,10 +45,10 @@ export function FleetFindingsCallout() {
       <SparkleIcon size={20} className="shrink-0 text-(--iris-9)" />
       <Flex direction="column" gap="0" className="min-w-0">
         <Text className="font-medium text-[13px] text-gray-12">
-          Scout findings
+          Scout signals
         </Text>
         <Text className="truncate text-[12px] text-gray-11 leading-snug">
-          {summary.totalCount} finding{summary.totalCount === 1 ? "" : "s"}{" "}
+          {summary.totalCount} signal{summary.totalCount === 1 ? "" : "s"}{" "}
           across {summary.scoutCount} scout
           {summary.scoutCount === 1 ? "" : "s"}
           {summary.latestEmittedAt ? (

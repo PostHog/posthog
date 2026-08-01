@@ -25,7 +25,7 @@ export function ScoutFindingShareButton({
     navigator.clipboard
       .writeText(url)
       .then(() => {
-        toast.success("Finding link copied");
+        toast.success("Signal link copied");
         track(ANALYTICS_EVENTS.SCOUT_ACTION, {
           action_type: "copy_finding_link",
           surface: "scout_detail",
@@ -40,7 +40,7 @@ export function ScoutFindingShareButton({
     <button
       type="button"
       onClick={handleCopyLink}
-      title="Copy a link to this finding"
+      title="Copy a link to this signal"
       className="inline-flex shrink-0 items-center gap-1 text-[11px] text-accent-11 no-underline transition-colors hover:text-accent-12"
     >
       <LinkIcon size={11} />

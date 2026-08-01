@@ -127,9 +127,58 @@ region you pick at login.
 
 ## Troubleshooting
 
+### Feature flags never enabled (flag-gated UI missing)
+
+If flag-gated surfaces (e.g. the MCP gateway behind `mcp-gateway`) never show up
+even though the flag is enabled in your PostHog project, check
+`VITE_POSTHOG_API_HOST` in `.env`: it must include the scheme
+(`http://localhost:8010`, not `localhost:8010`). posthog-js concatenates the
+host into request URLs verbatim, so a scheme-less value produces URLs like
+`localhost:8010/flags/…` that the browser rejects as an invalid protocol —
+every flag fetch fails silently and `isFeatureEnabled` returns `undefined` for
+everything (flags never loaded). Prefer `node scripts/use-local-posthog.mjs`
+over hand-editing; it writes the correct form.
+
+To confirm what the running app sees, run in the renderer console (or via CDP):
+
+```js
+posthog.config.api_host;                  // must start with http:// or https://
+posthog.isFeatureEnabled("mcp-gateway"); // undefined ⇒ flags never loaded
+```
+
+`.env` changes need a dev-server restart (`pnpm dev`) to take effect.
+
 ### "Invalid client_id" error during OAuth
 
 The OAuth application in your local PostHog must have the client ID `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ`. Verify at http://localhost:8010/admin/posthog/oauthapplication/.
+
+### "OAuth error: invalid_scope"
+
+PostHog Code requests the wildcard scope `*` (see `OAUTH_SCOPES` in
+`packages/shared/src/oauth.ts`). PostHog's OAuth server only grants `*` at
+`/authorize` when the OAuth application's **scope ceiling is empty** — this is
+the grandfathering path for the PostHog Code client. If the application has any
+explicit `scopes` or `optional_scopes` configured, the wildcard is rejected with
+`invalid_scope`.
+
+Fix: clear the scope ceiling on your local OAuth application so it matches the
+production app. Either edit it at
+http://localhost:8010/admin/posthog/oauthapplication/ (empty the **Scopes** and
+**Optional scopes** fields), or run in your PostHog repo:
+
+```bash
+python manage.py shell -c "
+from posthog.models.oauth import OAuthApplication
+app = OAuthApplication.objects.get(client_id='DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ')
+app.scopes = []
+app.optional_scopes = []
+app.save()
+print('cleared scope ceiling for', app.client_id)
+"
+```
+
+Then retry login. (Do not add `*` to the ceiling — an explicit ceiling never
+grants the wildcard, even if `*` is listed.)
 
 ### "Redirect URI mismatch"
 

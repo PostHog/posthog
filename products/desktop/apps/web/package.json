@@ -19,6 +19,7 @@
     "@posthog/core": "workspace:*",
     "@posthog/di": "workspace:*",
     "@posthog/host-router": "workspace:*",
+    "@posthog/harness": "workspace:*",
     "@posthog/host-trpc": "workspace:*",
     "@posthog/platform": "workspace:*",
     "@posthog/shared": "workspace:*",

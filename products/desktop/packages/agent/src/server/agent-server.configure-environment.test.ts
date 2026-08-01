@@ -223,6 +223,7 @@ describe("AgentServer.configureEnvironment", () => {
       "x-posthog-property-task_user_id": "42",
       "x-posthog-property-task_title": "Fix the bug",
       "x-posthog-property-team_id": "1",
+      "x-posthog-property-$ai_session_id": "task-abc",
     });
   });
 
@@ -338,6 +339,25 @@ describe("AgentServer.configureEnvironment", () => {
     expect(env.openaiBaseUrl).toBe(
       "https://gateway.us.posthog.com/posthog_ai/v1",
     );
+  });
+
+  it("folds the task id into the codex session header only", () => {
+    const env = buildServer("interactive").configureEnvironment({
+      taskId: "task-123",
+    });
+
+    expect(env.openaiCustomHeaders?.["x-posthog-property-$ai_session_id"]).toBe(
+      "task-123",
+    );
+    expect(env.anthropicCustomHeaders ?? "").not.toContain("$ai_session_id");
+  });
+
+  it("omits the codex session header without a task id", () => {
+    const env = buildServer("interactive").configureEnvironment({});
+
+    expect(
+      env.openaiCustomHeaders?.["x-posthog-property-$ai_session_id"],
+    ).toBeUndefined();
   });
 
   it("appends the resolved product to a LLM_GATEWAY_URL override base", () => {

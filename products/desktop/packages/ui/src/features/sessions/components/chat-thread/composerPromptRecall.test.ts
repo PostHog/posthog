@@ -186,7 +186,7 @@ describe("resolvePromptRecall", () => {
     {
       name: "a custom instructions block",
       content:
-        "fix the bug\n\n<user_custom_instructions>be terse</user_custom_instructions>",
+        "fix the bug\n\n<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nbe terse\n</user_custom_instructions>",
     },
     {
       name: "a trailing attachment summary",
@@ -195,7 +195,7 @@ describe("resolvePromptRecall", () => {
     {
       name: "several injected blocks at once",
       content:
-        '<channel_context channel="growth">CONTEXT.md body</channel_context>\n\nfix the bug\n\n<user_custom_instructions>be terse</user_custom_instructions>',
+        '<channel_context channel="growth">CONTEXT.md body</channel_context>\n\nfix the bug\n\n<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nbe terse\n</user_custom_instructions>',
     },
   ])("strips $name from the recalled text", ({ content }) => {
     expect(resolvePromptRecall([{ id: "m1", content }], null, -1)).toEqual({

@@ -17,6 +17,15 @@ export interface ChannelItemModel {
   authorName: string | null;
   authorUuid: string | null;
   templateId: string | null;
+  /**
+   * The source task record for `kind: "task"` rows, `null` for canvases. Rows
+   * need the whole task, not a projection of it: the status dot is derived from
+   * session/workspace/viewed state that only the renderer holds, and the hooks
+   * that supply it (`useChannelTaskData`, `useTaskPrStatus`) take a `Task`.
+   * Carrying the reference here keeps that a lookup the list already did rather
+   * than a second pass over every row.
+   */
+  task: Task | null;
 }
 
 export interface ChannelItemOwner {
@@ -60,6 +69,7 @@ export function buildChannelItems({
     authorName: d.createdBy ?? null,
     authorUuid: d.createdByUuid ?? null,
     templateId: d.templateId,
+    task: null,
   }));
 
   const taskItems: ChannelItemModel[] = feedTasks.flatMap((task) =>
@@ -78,6 +88,7 @@ export function buildChannelItems({
             authorName: null,
             authorUuid: task.created_by?.uuid ?? null,
             templateId: null,
+            task,
           },
         ],
   );

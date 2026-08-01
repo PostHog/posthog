@@ -12,7 +12,7 @@ To merge, you enqueue the PR with a comment, then watch it until Trunk lands it.
 
 When a developer says "merge this PR", "merge it when it's ready", "land it",
 "ship it", or "babysit this PR", do the full loop below — enqueue **and** watch
-to completion, reporting the outcome. See also [docs/merge-queue.md](../../../docs/merge-queue.md).
+to completion, reporting the outcome.
 
 `<n>` below is the PR number. Resolve the repo slug once if you need it:
 `REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)`.
@@ -29,7 +29,20 @@ gh pr view <n> --json state,isDraft,mergeable,reviewDecision,statusCheckRollup
 - **Failing required checks** (`statusCheckRollup`) → the queue will just reject
   it. Report which checks are red and stop; fix them first. **Pending** checks
   are fine — the queue waits for them.
+- **Not yet approved** (`reviewDecision` empty or `REVIEW_REQUIRED`) → fine,
+  enqueue anyway. See below.
 - **Merge conflicts** (`mergeable == "CONFLICTING"`) → report and stop; rebase first.
+
+Enqueueing before approval is safe, and is the closest thing this repo has to
+auto-merge. A submitted PR sits in Trunk's `Queued` state until GitHub's branch
+protection on `main` is satisfied — one approving review, code-owner review, and
+the required checks (`build`, `quality`, `unit-test`, `integration-test`,
+`typecheck`) — and Trunk merges it once they land. Trunk is not a bypass actor on
+those rules, so it cannot merge an unapproved or red PR.
+
+The catch: **pushing new commits drops the PR from the queue.** If review
+feedback is likely, either wait for approval before enqueueing, or re-enqueue
+with `/trunk merge` after each push.
 
 ## 2. Enqueue
 
@@ -68,7 +81,10 @@ sleep 60
 - Watch the **check run + PR state**, not `gh pr checks --watch`: the queue runs
   CI on Trunk's own draft/`trunk-merge/**` branch, so this PR's own checks don't
   reflect the queue's testing.
-- Stop at the timeout with a status summary rather than looping forever.
+- If it's parked in `Queued` waiting on a human review, say so once and slow the
+  cadence to ~5 minutes. Keep watching — the merge still has to be reported.
+- Stop at the timeout with a status summary rather than looping forever. If it
+  was still waiting on review, say that's why and offer to keep watching.
 
 ## 4. Handle failure
 

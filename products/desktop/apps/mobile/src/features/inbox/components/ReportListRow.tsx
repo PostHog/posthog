@@ -70,7 +70,7 @@ function ReportListRowComponent({ report, onPress }: ReportListRowProps) {
           numberOfLines={2}
           ellipsizeMode="tail"
         >
-          {report.title ?? "Untitled signal"}
+          {report.title ?? "Untitled report"}
         </Text>
 
         <View className="mt-1 flex-row items-center gap-2">

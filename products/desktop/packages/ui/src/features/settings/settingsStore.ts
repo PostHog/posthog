@@ -633,8 +633,12 @@ export const useSettingsStore = create<SettingsStore>()(
         // Onboarding hints
         hints: state.hints,
       }),
-      onRehydrateStorage: () => (state) => {
-        state?.setHasHydrated(true);
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          useSettingsStore.getState().setHasHydrated(true);
+        } else {
+          state?.setHasHydrated(true);
+        }
       },
       merge: (persisted, current) => {
         const merged = {

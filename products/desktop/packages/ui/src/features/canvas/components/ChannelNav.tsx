@@ -39,7 +39,12 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { useAppView } from "@posthog/ui/router/useAppView";
 import { track } from "@posthog/ui/shell/analytics";
-import { type ComponentPropsWithRef, type ReactNode, useState } from "react";
+import {
+  type ComponentPropsWithRef,
+  type ReactElement,
+  type ReactNode,
+  useState,
+} from "react";
 import { ActivityHoverCard } from "./ActivityHoverCard";
 
 const INBOX_REFETCH_INTERVAL_MS = 60_000;
@@ -133,10 +138,51 @@ function NavButton({
   );
 }
 
+function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        openOnHover
+        delay={300}
+        closeDelay={100}
+        onClick={(event) => event.preventBaseUIHandler()}
+        render={trigger}
+      />
+      {open && (
+        <ActivityHoverCard side="bottom" onClose={() => setOpen(false)} />
+      )}
+    </Popover>
+  );
+}
+
+function ActivityNavItem({
+  isActive,
+  unreadCount,
+  onNavigate,
+}: {
+  isActive: boolean;
+  unreadCount: number;
+  onNavigate: () => void;
+}) {
+  const bell = (
+    <NavButton
+      icon={<BellIcon size={16} weight={isActive ? "fill" : "regular"} />}
+      label="Activity"
+      isActive={isActive}
+      onClick={onNavigate}
+      badge={<CountBadge count={unreadCount} className={ICON_BADGE_CLASS} />}
+    />
+  );
+
+  if (isActive) return bell;
+  return <ActivityHoverPopover trigger={bell} />;
+}
+
 export function ChannelNav() {
   const view = useAppView();
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG, import.meta.env.DEV);
-  const [activityOpen, setActivityOpen] = useState(false);
 
   const { counts } = useInboxAllReports({
     ignoreFilters: true,
@@ -165,7 +211,7 @@ export function ChannelNav() {
     // cannot do that — the skip window is provider state, and isolated
     // providers never share it.
     <TooltipProvider delay={400}>
-      <div className="flex shrink-0 gap-2 px-2 pt-2 pb-1">
+      <div className="flex shrink-0 gap-2 p-2">
         <NavIcon
           icon={
             <EnvelopeSimple size={16} weight={isInbox ? "fill" : "regular"} />
@@ -178,44 +224,11 @@ export function ChannelNav() {
             <CountBadge count={counts.pulls} className={ICON_BADGE_CLASS} />
           }
         />
-        <Popover
-          open={!isActivity && activityOpen}
-          onOpenChange={(open) => setActivityOpen(!isActivity && open)}
-        >
-          <PopoverTrigger
-            openOnHover
-            delay={300}
-            closeDelay={100}
-            render={
-              <NavButton
-                icon={
-                  <BellIcon
-                    size={16}
-                    weight={isActivity ? "fill" : "regular"}
-                  />
-                }
-                label="Activity"
-                isActive={isActivity}
-                onClick={() => {
-                  setActivityOpen(false);
-                  withTrack("activity", navigateToActivity)();
-                }}
-                badge={
-                  <CountBadge
-                    count={unseenActivity}
-                    className={ICON_BADGE_CLASS}
-                  />
-                }
-              />
-            }
-          />
-          {!isActivity && activityOpen && (
-            <ActivityHoverCard
-              side="bottom"
-              onClose={() => setActivityOpen(false)}
-            />
-          )}
-        </Popover>
+        <ActivityNavItem
+          isActive={isActivity}
+          unreadCount={unseenActivity}
+          onNavigate={withTrack("activity", navigateToActivity)}
+        />
         <NavIcon
           icon={
             <Lightning

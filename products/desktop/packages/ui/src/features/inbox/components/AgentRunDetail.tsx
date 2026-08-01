@@ -110,7 +110,7 @@ function RunOutputWidget({ report }: { report: SignalReport }) {
           </Text>
           <Text className="text-[12px] text-gray-11 leading-snug">
             Research couldn't complete – check the task log below for the error.
-            The Responder may retry automatically.
+            The agent may retry automatically.
           </Text>
         </Flex>
       </Flex>
@@ -123,7 +123,7 @@ function RunOutputWidget({ report }: { report: SignalReport }) {
         content={report.summary}
         fallback={
           report.status === "in_progress"
-            ? "The Responder is investigating – partial findings will appear here as they land."
+            ? "The agent is investigating – partial signals will appear here as they land."
             : "Queued for research."
         }
         variant="detail"
@@ -325,7 +325,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
               <>
                 <InboxMetaSeparator />
                 <InboxMetaText className="tabular-nums">
-                  {signals.length} finding{signals.length === 1 ? "" : "s"}
+                  {signals.length} signal{signals.length === 1 ? "" : "s"}
                 </InboxMetaText>
               </>
             )}
@@ -412,7 +412,7 @@ function AgentRunDetailContent({ report }: { report: SignalReport }) {
                 title="Evidence so far"
                 rightSlot={
                   <Text className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
-                    {signals.length || report.signal_count} finding
+                    {signals.length || report.signal_count} signal
                     {(signals.length || report.signal_count) === 1 ? "" : "s"}
                   </Text>
                 }

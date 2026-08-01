@@ -379,7 +379,6 @@ function RootLayout() {
                 <LogosLandscape code={false} />
               </Box>
               <Button
-                variant="outline"
                 size="icon-sm"
                 aria-label="Toggle sidebar"
                 onClick={handleToggleSidebar}
@@ -388,9 +387,9 @@ function RootLayout() {
                 }}
               >
                 {sidebarOpen ? (
-                  <SidebarClose size={10} />
+                  <SidebarClose size={10} className="text-muted-foreground" />
                 ) : (
-                  <SidebarOpen size={10} />
+                  <SidebarOpen size={10} className="text-muted-foreground" />
                 )}
               </Button>
             </Flex>

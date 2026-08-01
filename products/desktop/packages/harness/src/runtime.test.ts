@@ -111,7 +111,7 @@ describe("createHarnessRuntime", () => {
       posthogOAuthCredentials: {
         access: "access-token",
         refresh: "refresh-token",
-        expires: Date.now() + 60_000,
+        expires: Date.now() + 10 * 60_000,
         region: "us",
       },
       sessionManager: pi.SessionManager.inMemory(cwd),
@@ -150,7 +150,7 @@ describe("createHarnessRuntime", () => {
       posthogOAuthCredentials: {
         access: "access-token",
         refresh: "refresh-token",
-        expires: Date.now() + 60_000,
+        expires: Date.now() + 10 * 60_000,
         region: "us",
       },
       sessionManager: pi.SessionManager.inMemory(cwd),

@@ -34,6 +34,7 @@ import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTi
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import type { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
+import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
 import { useThreadNavigationStore } from "@posthog/ui/features/sessions/threadNavigationStore";
 import { Fragment, type KeyboardEvent, type ReactNode, useMemo } from "react";
 
@@ -83,7 +84,12 @@ function UserMessageRow({
     () => extractChannelContext(content),
     [content],
   );
-  const displayContent = channelContext?.stripped ?? content;
+  const afterChannelContext = channelContext?.stripped ?? content;
+  const customInstructions = useMemo(
+    () => extractCustomInstructions(afterChannelContext),
+    [afterChannelContext],
+  );
+  const displayContent = customInstructions?.stripped ?? afterChannelContext;
   // The row itself is the hit target. `ThreadItem` renders an <article>, which a
   // <button> may not wrap and which can't become one (quill's primitive takes no
   // `render`), so it carries the button role and its own key handling.

@@ -144,26 +144,39 @@ export function ReasoningLevelSelector({
   const displayModel = useRetainedConfigOption(modelOption);
   const fastModeFlagEnabled = useFeatureFlag(FAST_MODE_FLAG);
 
-  // Genuinely no reasoning levels for this harness/model: hide. While the
-  // preview config reloads (a harness switch) keep showing the last value,
-  // disabled, so the toolbar doesn't collapse mid-switch.
-  if (!thoughtOption && !isLoading) return null;
-  if (!displayThought || displayThought.type !== "select") {
-    return null;
-  }
-
-  const isReloading = !thoughtOption;
-  const isDisabled = disabled || isReloading;
-
-  const effortOptions = toDropdownOptions(displayThought);
-  if (effortOptions.length === 0) return null;
-  const currentEffort = displayThought.currentValue;
-  const effortLabel =
-    effortOptions.find((option) => option.value === currentEffort)?.label ??
-    currentEffort;
+  // An effort-less model has no thought option once the config settles; the
+  // pill is the only model picker, so it must stay rendered to switch away.
+  const effortless = !thoughtOption && !isLoading;
+  const thoughtSelect =
+    !effortless && displayThought?.type === "select"
+      ? displayThought
+      : undefined;
+  const effortOptions = thoughtSelect ? toDropdownOptions(thoughtSelect) : [];
+  const hasEffort = effortOptions.length > 0;
 
   const modelSelect =
     displayModel?.type === "select" ? displayModel : undefined;
+
+  if (!hasEffort && !modelSelect) {
+    if (isLoading) {
+      return (
+        <Button type="button" variant="default" size="sm" disabled>
+          <Spinner size={12} className="animate-spin" />
+          Loading...
+        </Button>
+      );
+    }
+    return null;
+  }
+
+  const isReloading = !effortless && !thoughtOption;
+  const isDisabled = disabled || isReloading;
+
+  const currentEffort = thoughtSelect?.currentValue;
+  const effortLabel = currentEffort
+    ? (effortOptions.find((option) => option.value === currentEffort)?.label ??
+      currentEffort)
+    : undefined;
   const modelEntries = modelSelect
     ? flattenSelectOptions(modelSelect.options)
     : [];
@@ -218,13 +231,14 @@ export function ReasoningLevelSelector({
       }));
   const currentStopKey = useLadder
     ? `${currentModel}${STOP_SEPARATOR}${currentEffort}`
-    : currentEffort;
+    : (currentEffort ?? "");
 
   // A custom Advanced combination (off the preset ladder) hides the slider:
   // the menu opens straight on the Advanced view until Reset to default puts
   // the session back on a notch.
-  const onNotch =
-    !useLadder || ladderStops.some((stop) => stop.key === currentStopKey);
+  const onNotch = useLadder
+    ? ladderStops.some((stop) => stop.key === currentStopKey)
+    : hasEffort;
 
   const handleStopSelect = (key: string) => {
     if (key.includes(STOP_SEPARATOR)) {
@@ -305,18 +319,12 @@ export function ReasoningLevelSelector({
     });
   };
 
-  if (isLoading && !open && !displayThought) {
-    return (
-      <Button type="button" variant="default" size="sm" disabled>
-        <Spinner size={12} className="animate-spin" />
-        Loading...
-      </Button>
-    );
-  }
-
-  const triggerAriaLabel = modelLabel
-    ? `Model and reasoning: ${modelLabel} ${effortLabel}`
-    : `Reasoning: ${effortLabel}`;
+  const triggerAriaLabel =
+    modelLabel && effortLabel
+      ? `Model and reasoning: ${modelLabel} ${effortLabel}`
+      : modelLabel
+        ? `Model: ${modelLabel}`
+        : `Reasoning: ${effortLabel}`;
 
   return (
     <DropdownMenu
@@ -363,13 +371,17 @@ export function ReasoningLevelSelector({
             {modelLabel && (
               <span className="font-medium text-foreground">{modelLabel}</span>
             )}
-            <span
-              className={
-                modelLabel ? "font-normal text-muted-foreground/80" : undefined
-              }
-            >
-              {effortLabel}
-            </span>
+            {effortLabel && (
+              <span
+                className={
+                  modelLabel
+                    ? "font-normal text-muted-foreground/80"
+                    : undefined
+                }
+              >
+                {effortLabel}
+              </span>
+            )}
             <CaretDown
               size={10}
               weight="bold"
@@ -475,26 +487,28 @@ export function ReasoningLevelSelector({
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 )}
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <span>Reasoning</span>
-                    <span className="flex-1 text-right text-muted-foreground">
-                      {effortLabel}
-                    </span>
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
-                    <DropdownMenuRadioGroup
-                      value={currentEffort}
-                      onValueChange={(value) =>
-                        selectAndClose(() => onChange?.(value))
-                      }
-                    >
-                      {effortOptions.map((option) => (
-                        <LevelItem key={option.value} option={option} />
-                      ))}
-                    </DropdownMenuRadioGroup>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                {hasEffort && (
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <span>Reasoning</span>
+                      <span className="flex-1 text-right text-muted-foreground">
+                        {effortLabel}
+                      </span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      <DropdownMenuRadioGroup
+                        value={currentEffort ?? ""}
+                        onValueChange={(value) =>
+                          selectAndClose(() => onChange?.(value))
+                        }
+                      >
+                        {effortOptions.map((option) => (
+                          <LevelItem key={option.value} option={option} />
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                )}
                 {toggleRows.map((row) => (
                   <DropdownMenuSub key={row.id}>
                     <DropdownMenuSubTrigger>
