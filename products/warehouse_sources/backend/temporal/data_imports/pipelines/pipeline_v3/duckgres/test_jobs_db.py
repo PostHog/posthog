@@ -475,45 +475,39 @@ class TestDuckgresTeamFilterAndBacklog:
         batch_id = await _insert_batch(conn, sync_type="incremental")
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
 
-        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert (count, blocked, failing) == (1, 0, 0)
-        assert oldest_age is not None and oldest_age >= 0
-        assert blocked_age is None
+        stats = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (1, 0, 0)
+        assert stats.eligible_oldest_age_seconds is not None and stats.eligible_oldest_age_seconds >= 0
+        assert stats.blocked_oldest_age_seconds is None
 
         # The same batch counts as blocked (not eligible) once its schema is gated.
-        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
-            conn, blocked_schema_ids=["schema-1"]
-        )
-        assert (count, blocked, failing) == (0, 1, 0)
-        assert oldest_age is None and blocked_age is not None
+        stats = await DuckgresBatchQueue.get_backlog_stats(conn, blocked_schema_ids=["schema-1"])
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (0, 1, 0)
+        assert stats.eligible_oldest_age_seconds is None and stats.blocked_oldest_age_seconds is not None
 
         # A hard-blocked schema's batches leave the pageable blocked bucket
         # (count AND oldest-age) for the failing one — a wedged schema must not
         # be able to trigger or mask the blocked-backlog page.
-        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
+        stats = await DuckgresBatchQueue.get_backlog_stats(
             conn, blocked_schema_ids=["schema-1"], failing_schema_ids=["schema-1"]
         )
-        assert (count, blocked, failing) == (0, 0, 1)
-        assert blocked_age is None
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (0, 0, 1)
+        assert stats.blocked_oldest_age_seconds is None
 
         # A failing schema whose batches are NOT blocked (still eligible) never
         # counts in the failing bucket: failing splits the blocked set only.
-        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
-            conn, failing_schema_ids=["schema-1"]
-        )
-        assert (count, blocked, failing) == (1, 0, 0)
+        stats = await DuckgresBatchQueue.get_backlog_stats(conn, failing_schema_ids=["schema-1"])
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (1, 0, 0)
 
         # The v3 allow-list scopes the gauges too: a non-eligible schema drops
         # out of both the eligible and blocked counts.
-        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(
-            conn, eligible_schema_ids=["other-schema"]
-        )
-        assert (count, blocked, failing) == (0, 0, 0)
+        stats = await DuckgresBatchQueue.get_backlog_stats(conn, eligible_schema_ids=["other-schema"])
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (0, 0, 0)
 
         await _mark_applied_raw(conn, batch_id=batch_id, run_uuid="run-1", batch_index=0)
-        count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
-        assert (count, blocked, failing) == (0, 0, 0)
-        assert oldest_age is None and blocked_age is None
+        stats = await DuckgresBatchQueue.get_backlog_stats(conn)
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (0, 0, 0)
+        assert stats.eligible_oldest_age_seconds is None and stats.blocked_oldest_age_seconds is None
 
     @pytest.mark.asyncio
     async def test_backlog_stats_reflects_latest_delta_status_not_first(self, conn):
@@ -530,8 +524,8 @@ class TestDuckgresTeamFilterAndBacklog:
         still_executing_id = await _insert_batch(conn, run_uuid="run-still-executing", batch_index=0)
         await BatchQueue.update_status(conn, batch_id=still_executing_id, job_state="executing", attempt=1)
 
-        count, _, blocked, _, failing = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=[1])
-        assert (count, blocked, failing) == (1, 0, 0)
+        stats = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=[1])
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (1, 0, 0)
 
 
 class TestTeamScopeSargable:
@@ -571,11 +565,19 @@ class TestTeamScopeSargable:
         team999_batch = await _insert_batch(conn, team_id=999, run_uuid="run-team-999", schema_id="schema-1")
         await BatchQueue.update_status(conn, batch_id=team999_batch, job_state="succeeded", attempt=1)
 
-        count, _, blocked, _, failing = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=[1])
-        assert (count, blocked, failing) == (1, 0, 0)  # team 999 excluded
+        stats = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=[1])
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (
+            1,
+            0,
+            0,
+        )  # team 999 excluded
 
-        count, _, blocked, _, failing = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=None)
-        assert (count, blocked, failing) == (2, 0, 0)  # unscoped = all teams
+        stats = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=None)
+        assert (stats.eligible_count, stats.blocked_count, stats.failing_blocked_count) == (
+            2,
+            0,
+            0,
+        )  # unscoped = all teams
 
 
 @pytest.mark.django_db(transaction=True)

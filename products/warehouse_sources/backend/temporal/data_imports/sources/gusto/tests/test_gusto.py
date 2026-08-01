@@ -270,10 +270,10 @@ class TestExtractRows:
 
 class TestWindowBounds:
     def test_defaults_to_full_history_without_a_watermark(self) -> None:
-        start, end = _window_bounds(None)
-        assert start == DEFAULT_WINDOW_START
+        window = _window_bounds(None)
+        assert window.start == DEFAULT_WINDOW_START
         # The window reaches forward because payrolls and pay periods are scheduled ahead of today.
-        assert end > datetime.now(UTC).date().isoformat()
+        assert window.end > datetime.now(UTC).date().isoformat()
 
     @parameterized.expand(
         [
@@ -284,7 +284,7 @@ class TestWindowBounds:
         ]
     )
     def test_watermark_becomes_the_window_start(self, _name: str, watermark: Any, expected: str) -> None:
-        assert _window_bounds(watermark)[0] == expected
+        assert _window_bounds(watermark).start == expected
 
 
 class TestGustoClient:
@@ -597,5 +597,5 @@ class TestValidateCredentials:
 
 class TestWindowReach:
     def test_future_window_covers_scheduled_pay_periods(self) -> None:
-        _, end = _window_bounds(None)
-        assert date.fromisoformat(end) > datetime.now(UTC).date() + timedelta(days=180)
+        window = _window_bounds(None)
+        assert date.fromisoformat(window.end) > datetime.now(UTC).date() + timedelta(days=180)

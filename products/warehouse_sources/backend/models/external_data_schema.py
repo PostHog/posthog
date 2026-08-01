@@ -3,6 +3,7 @@ import sys
 import uuid
 import fnmatch
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -999,6 +1000,12 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
             schema.save(update_fields=["label", "updated_at"])
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class SchemaSyncResult:
+    created: list[str]
+    deleted: list[str]
+
+
 def sync_old_schemas_with_new_schemas(
     new_schemas: dict[str, str | None],
     source_id: str,
@@ -1006,7 +1013,7 @@ def sync_old_schemas_with_new_schemas(
     descriptions: dict[str, str | None] | None = None,
     strict_name_match: bool = False,
     schema_metadata_by_name: dict[str, dict] | None = None,
-) -> tuple[list[str], list[str]]:
+) -> SchemaSyncResult:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
 
@@ -1099,7 +1106,7 @@ def sync_old_schemas_with_new_schemas(
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 
-    return actually_created, deleted_schemas
+    return SchemaSyncResult(created=actually_created, deleted=deleted_schemas)
 
 
 def schema_name_matches_auto_sync_patterns(name: str, patterns: list[str] | None) -> bool:

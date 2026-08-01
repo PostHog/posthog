@@ -19,17 +19,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
 
 DEFAULT_API_VERSION = "v8"
 
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class RegionHosts:
+    accounts_host: str
+    api_domain: str
+
+
 # Zoho accounts are pinned to one data center; the accounts host mints the token and the
 # API host serves the records. The token response also names the account's real API domain,
 # which wins over this mapping when present.
-ZOHO_REGIONS: dict[str, tuple[str, str]] = {
-    "us": ("https://accounts.zoho.com", "https://www.zohoapis.com"),
-    "eu": ("https://accounts.zoho.eu", "https://www.zohoapis.eu"),
-    "in": ("https://accounts.zoho.in", "https://www.zohoapis.in"),
-    "au": ("https://accounts.zoho.com.au", "https://www.zohoapis.com.au"),
-    "jp": ("https://accounts.zoho.jp", "https://www.zohoapis.jp"),
-    "ca": ("https://accounts.zohocloud.ca", "https://www.zohoapis.ca"),
-    "cn": ("https://accounts.zoho.com.cn", "https://www.zohoapis.com.cn"),
+ZOHO_REGIONS: dict[str, RegionHosts] = {
+    "us": RegionHosts(accounts_host="https://accounts.zoho.com", api_domain="https://www.zohoapis.com"),
+    "eu": RegionHosts(accounts_host="https://accounts.zoho.eu", api_domain="https://www.zohoapis.eu"),
+    "in": RegionHosts(accounts_host="https://accounts.zoho.in", api_domain="https://www.zohoapis.in"),
+    "au": RegionHosts(accounts_host="https://accounts.zoho.com.au", api_domain="https://www.zohoapis.com.au"),
+    "jp": RegionHosts(accounts_host="https://accounts.zoho.jp", api_domain="https://www.zohoapis.jp"),
+    "ca": RegionHosts(accounts_host="https://accounts.zohocloud.ca", api_domain="https://www.zohoapis.ca"),
+    "cn": RegionHosts(accounts_host="https://accounts.zoho.com.cn", api_domain="https://www.zohoapis.com.cn"),
 }
 
 # Zoho caps `per_page` at 200.
@@ -62,7 +69,7 @@ class ZohoCRMResumeConfig:
     page_tokens: list[str] = dataclasses.field(default_factory=list)
 
 
-def resolve_hosts(region: str) -> tuple[str, str]:
+def resolve_hosts(region: str) -> RegionHosts:
     hosts = ZOHO_REGIONS.get(region)
     if hosts is None:
         raise ValueError(f"Invalid Zoho CRM region: {region}")
@@ -97,7 +104,11 @@ class ZohoCRMClient:
         client_secret: str,
         refresh_token: str,
     ) -> None:
-        self._accounts_host, self._api_domain = resolve_hosts(region)
+        hosts = resolve_hosts(region)
+        self._accounts_host = hosts.accounts_host
+        # Instance attribute (not the frozen hosts value) because the token response's
+        # `api_domain` overrides it after auth.
+        self._api_domain = hosts.api_domain
         self._client_id = client_id
         self._client_secret = client_secret
         self._refresh_token = refresh_token

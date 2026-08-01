@@ -116,10 +116,10 @@ class TestGetModelsPrefetchesSource(BaseTest):
         # Call the undecorated sync loader directly so the query capture runs on this thread.
         # `.func` is the wrapped sync callable on database_sync_to_async_pool's DatabaseSyncToAsync
         # (asgiref); it isn't on the decorator's static type, hence the cast.
-        loaded_job, _, _, _ = cast(Any, module._get_models).func(str(job.id))
+        models = cast(Any, module._get_models).func(str(job.id))
 
         with self.assertNumQueries(0):
-            loaded_job.folder_path()
+            models.job.folder_path()
 
 
 @pytest.mark.asyncio
