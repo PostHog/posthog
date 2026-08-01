@@ -625,6 +625,29 @@ jobs:
                     --shutdown-after 3s --zombie-after 8s --zombie-duration 6s \
                     --writer-pause-after 4s --writer-pause-duration 6s
 
+            # Broker-enforced epoch fencing, on the scenario it exists for:
+            # a SIGSTOPped leader whose lease is revoked wakes inside its
+            # own window and tries to append. Everything else in this file
+            # runs the flag off, so without this step the entire fenced
+            # arm — warm-time acquisition, the transaction windows, the
+            # write path's error mapping — ships with no end-to-end
+            # coverage at all.
+            #
+            # Guarded on the flag existing so a branch that predates
+            # --leader-env skips it rather than failing before its own
+            # tests run.
+            - name: Run the e2e gate with epoch fencing (zombie + writer lag)
+              run: |
+                  if ! ./target/debug/personhog-test-harness gate --help | grep -q -- --leader-env; then
+                    echo "harness predates --leader-env; skipping the fenced gate"
+                    exit 0
+                  fi
+                  ./target/debug/personhog-test-harness gate \
+                    --leader-env KAFKA_TRANSACTIONAL_FENCING=true \
+                    --leaders 3 --partitions 8 --persons 100 --concurrency 10 --duration 18s \
+                    --zombie-after 6s --zombie-duration 6s \
+                    --writer-pause-after 4s --writer-pause-duration 6s
+
             - name: Run the e2e gate under chaos (TTL-expiry kill + restarts)
               run: |
                   ./target/debug/personhog-test-harness gate \
