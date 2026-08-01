@@ -2,7 +2,7 @@ import type { ChannelItemModel } from "@posthog/core/canvas/channelItems";
 import { Theme } from "@radix-ui/themes";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   items: [] as ChannelItemModel[],
@@ -36,21 +36,21 @@ vi.mock("@posthog/ui/features/canvas/components/ChannelsFab", () => ({
   ChannelsFab: () => null,
 }));
 
-// The row context menu's hooks reach for a QueryClient and the DI container,
-// neither of which a unit test has. Stubbed at the module boundary, as
-// WebsiteLayout.test.tsx does for the same reason.
-vi.mock("@posthog/ui/features/tasks/useTaskContextMenu", () => ({
-  useTaskContextMenu: () => ({
-    showContextMenu: vi.fn(),
-    editingTaskId: null,
-    setEditingTaskId: vi.fn(),
-  }),
+// The row menu's spaces list reaches for a QueryClient the unit test has no
+// stack for. Stubbed at the module boundary, as WebsiteLayout.test.tsx does for
+// the same reason.
+vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
+  useChannels: () => ({ channels: [] }),
 }));
 vi.mock("@posthog/ui/features/tasks/useTaskMutations", () => ({
   useRenameTask: () => ({ renameTask: vi.fn() }),
 }));
 vi.mock("@posthog/ui/features/tasks/useTasks", () => ({
   useTasks: () => ({ data: [] }),
+}));
+// A row's status dot reaches for live session state and a per-task PR query.
+vi.mock("@posthog/ui/features/canvas/hooks/useChannelTaskStatus", () => ({
+  useChannelTaskStatus: () => null,
 }));
 
 import { ChannelSidebar } from "./ChannelSidebar";
@@ -69,6 +69,7 @@ function item(overrides: Partial<ChannelItemModel> = {}): ChannelItemModel {
     // Not the viewer, so filtering to "Me" leaves nothing.
     authorUuid: "someone-else-uuid",
     templateId: null,
+    task: null,
     ...overrides,
   };
 }
@@ -98,18 +99,18 @@ describe("ChannelSidebar", () => {
       what: "nothing has arrived yet",
       state: { items: [], isLoading: true },
       shown: [] as string[],
-      hidden: ["Recent", "No matches", "Nothing here yet"],
+      hidden: ["Sessions", "No matches", "Nothing here yet"],
     },
     {
       what: "the space is settled and genuinely empty",
       state: { items: [], isLoading: false },
       shown: ["Nothing here yet"],
-      hidden: ["Recent", "No matches"],
+      hidden: ["Sessions", "No matches"],
     },
     {
       what: "the space is settled with items",
       state: { items: [item()], isLoading: false },
-      shown: ["Recent", "Investigate signup drop-off"],
+      shown: ["Sessions", "Investigate signup drop-off"],
       hidden: ["No matches", "Nothing here yet"],
     },
   ])("shows one state when $what", ({ state, shown, hidden }) => {
@@ -160,5 +161,102 @@ describe("ChannelSidebar", () => {
 
     expect(screen.getByText("No matches")).toBeInTheDocument();
     expect(screen.queryByText("Nothing here yet")).not.toBeInTheDocument();
+  });
+});
+
+describe("ChannelSidebar recents list", () => {
+  const NOW = new Date(2026, 6, 29, 12);
+
+  beforeEach(() => {
+    mocks.isLoading = false;
+    mocks.channelMissing = false;
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("lists recents newest first without day separators", () => {
+    mocks.items = [
+      item({
+        key: "task:a",
+        id: "a",
+        title: "Today's work",
+        ts: new Date(2026, 6, 29, 9).getTime(),
+      }),
+      item({
+        key: "task:b",
+        id: "b",
+        title: "Also today",
+        ts: new Date(2026, 6, 29, 8).getTime(),
+      }),
+      item({
+        key: "task:c",
+        id: "c",
+        title: "Yesterday's work",
+        ts: new Date(2026, 6, 28, 17).getTime(),
+      }),
+      item({
+        key: "task:d",
+        id: "d",
+        title: "Older work",
+        ts: new Date(2026, 6, 20, 17).getTime(),
+      }),
+    ];
+
+    renderSidebar();
+
+    expect(screen.getByText("Today's work")).not.toBeNull();
+    expect(screen.getByText("Also today")).not.toBeNull();
+    expect(screen.getByText("Yesterday's work")).not.toBeNull();
+    expect(screen.getByText("Older work")).not.toBeNull();
+    expect(screen.queryByText("Today")).toBeNull();
+    expect(screen.queryByText("Yesterday")).toBeNull();
+    expect(screen.queryByText("Monday, July 20th")).toBeNull();
+  });
+
+  it("keeps items from the same day as plain rows", () => {
+    mocks.items = [
+      item({ key: "task:a", id: "a", ts: new Date(2026, 6, 29, 9).getTime() }),
+      item({ key: "task:b", id: "b", ts: new Date(2026, 6, 29, 8).getTime() }),
+      item({ key: "task:c", id: "c", ts: new Date(2026, 6, 29, 1).getTime() }),
+    ];
+
+    renderSidebar();
+
+    expect(screen.getAllByText("Investigate signup drop-off")).toHaveLength(3);
+    expect(screen.queryByText("Today")).toBeNull();
+  });
+
+  it("lists pins in the one session list, ahead of newer items", () => {
+    mocks.items = [
+      item({
+        key: "task:newer",
+        id: "newer",
+        title: "Filed this morning",
+        ts: new Date(2026, 6, 30, 9).getTime(),
+      }),
+      item({
+        key: "task:pinned",
+        id: "pinned",
+        title: "Kept at hand",
+        pinned: true,
+        ts: new Date(2026, 6, 20, 9).getTime(),
+      }),
+    ];
+
+    renderSidebar();
+
+    // No section of its own — a pin is a mark on a session, and the row's badge
+    // is what says so.
+    expect(screen.queryByText("Pinned")).toBeNull();
+    const titles = screen
+      .getAllByText(/Kept at hand|Filed this morning/)
+      .map((el) => el.textContent);
+    // Older, but pinned: it sorts above the newer row rather than risking the
+    // recents cap.
+    expect(titles).toEqual(["Kept at hand", "Filed this morning"]);
   });
 });

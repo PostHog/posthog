@@ -1,5 +1,6 @@
 import { CaretLeftIcon, StarIcon } from "@phosphor-icons/react";
 import {
+  Button,
   Skeleton,
   Tooltip,
   TooltipContent,
@@ -22,8 +23,9 @@ import { track } from "@posthog/ui/shell/analytics";
 function RowStar({ channel }: { channel: Channel }) {
   const { isStarred, toggleStar } = useChannelStarToggle(channel);
   return (
-    <button
-      type="button"
+    <Button
+      variant="default"
+      size="icon-sm"
       aria-label={isStarred ? "Unstar space" : "Star space"}
       onClick={() => {
         track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -35,10 +37,10 @@ function RowStar({ channel }: { channel: Channel }) {
       }}
       // Parks in the row's reserved well: 8px padding + 6px gap = 14px from the
       // right edge.
-      className="-translate-y-1/2 absolute top-1/2 right-[6px] flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground"
+      className="-translate-y-1/2 absolute top-1/2 right-[6px] text-muted-foreground"
     >
       <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
-    </button>
+    </Button>
   );
 }
 
@@ -54,14 +56,20 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
   const { channels, isLoading } = useChannels();
   const current = channels.find((c) => c.id === channelId);
   const showStar = current != null && current.name !== PERSONAL_CHANNEL_NAME;
+  const glyph = channelGlyph(current?.name, {
+    size: 14,
+    space: spacesLayout,
+    className: "text-muted-foreground",
+  });
 
   return (
     <div className="relative mx-2 mt-1">
       <Tooltip>
         <TooltipTrigger
           render={
-            <button
-              type="button"
+            <Button
+              variant="default"
+              left
               aria-label="Back to spaces"
               onClick={() => {
                 track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -71,25 +79,26 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                 });
                 showChannelList();
               }}
-              // Fixed height with an unconditional star well: sized off its
-              // contents, a starrable channel ran 4px taller than #me and
-              // everything below shifted on switch. No border — it's a row in
-              // the sidebar like the ones under it, not a control sitting on
-              // top.
-              className="flex h-8 w-full items-center gap-1.5 rounded-md px-2 text-left transition-colors hover:bg-fill-hover"
+              // Quill's own height and radius, so this reads as one of the rows
+              // under it rather than a control sitting on top. The star well is
+              // unconditional (see the reserved span below): sized off its
+              // contents, a starrable channel ran taller than #me and everything
+              // below shifted on switch.
+              className="w-full gap-1.5 text-left"
             >
               <CaretLeftIcon
                 size={12}
                 className="shrink-0 text-muted-foreground"
-                weight="bold"
               />
-              <span className="flex w-4 shrink-0 items-center justify-center">
-                {channelGlyph(current?.name, {
-                  size: 14,
-                  space: spacesLayout,
-                  className: "text-muted-foreground",
-                })}
-              </span>
+              {/* Only #me still has a glyph under the layout, and its well is
+                  drawn only when there's something in it — an empty 16px column
+                  in front of every other space's name is worse than the name
+                  starting where the caret leaves off. */}
+              {glyph && (
+                <span className="flex w-4 shrink-0 items-center justify-center text-foreground">
+                  {glyph}
+                </span>
+              )}
               <span className="min-w-0 flex-1 truncate font-semibold text-[13px] text-foreground">
                 {current ? (
                   current.name
@@ -102,7 +111,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                 )}
               </span>
               <span aria-hidden className="size-6 shrink-0" />
-            </button>
+            </Button>
           }
         />
         <TooltipContent side="bottom">Back to spaces</TooltipContent>

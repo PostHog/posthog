@@ -359,9 +359,11 @@ export type {
 } from "./task-creation-domain";
 export {
   formatClockTime,
+  formatDaySeparatorLabel,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
   getLocalDayDiff,
+  getLocalDayKey,
   getRelativeDateGroup,
 } from "./time";
 export {

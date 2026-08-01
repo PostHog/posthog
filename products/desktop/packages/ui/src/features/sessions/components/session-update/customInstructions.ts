@@ -7,8 +7,12 @@
 //
 // The body shown is exactly what was sent in the prompt — parsed from the stored
 // event, never re-read from the (possibly newer) live setting.
+// The tag alone is not enough to identify injected metadata: users may include
+// the same XML in examples they want displayed verbatim. Match the fixed
+// preamble emitted by buildCustomInstructionsText so only system-generated
+// blocks are hidden.
 const CUSTOM_INSTRUCTIONS_REGEX =
-  /<user_custom_instructions\b[^>]*>([\s\S]*?)<\/user_custom_instructions>/;
+  /<user_custom_instructions\b[^>]*>(\r?\nThe user has saved custom instructions that apply to all of their tasks\. Follow them\.\r?\n\r?\n[\s\S]*?)<\/user_custom_instructions>/;
 
 export function hasCustomInstructions(content: string): boolean {
   return CUSTOM_INSTRUCTIONS_REGEX.test(content);

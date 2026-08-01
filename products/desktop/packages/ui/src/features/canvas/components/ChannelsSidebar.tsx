@@ -234,6 +234,13 @@ export function ChannelsSidebar() {
 
         {channelsLayout ? (
           <>
+            {/* Which project you're in is the outermost thing about this window,
+                so under the layout it sits above the nav row rather than in the
+                footer. Its menu opens downward, which is the right direction
+                from the top of a sidebar. */}
+            <Box className="shrink-0 px-2 pb-1">
+              <ProjectSwitcher />
+            </Box>
             <ChannelNav />
             <ChannelPanes channelId={currentChannelId} showList={showList} />
           </>
@@ -270,9 +277,13 @@ export function ChannelsSidebar() {
 
         <LoopsPromoCard />
 
-        <Box className="shrink-0 px-2 pb-2">
-          <ProjectSwitcher />
-        </Box>
+        {/* The code layout keeps it in the footer: that sidebar's top is the nav
+            section and task header, and there's no nav row to sit above. */}
+        {!channelsLayout && (
+          <Box className="shrink-0 px-2 pb-2">
+            <ProjectSwitcher />
+          </Box>
+        )}
       </Flex>
     </ResizableSidebar>
   );

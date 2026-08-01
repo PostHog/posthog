@@ -137,7 +137,7 @@ export function InboxDetailFrame({
             {evidenceCount > 0 && (
               <>
                 <InboxMetaText className="tabular-nums">
-                  {evidenceCount} finding{evidenceCount === 1 ? "" : "s"}
+                  {evidenceCount} signal{evidenceCount === 1 ? "" : "s"}
                 </InboxMetaText>
                 <InboxMetaSeparator />
               </>
@@ -151,7 +151,7 @@ export function InboxDetailFrame({
                 <InboxMetaSeparator />
                 <InboxMetaSourceStack
                   sourceProducts={report.source_products}
-                  labelPrefix="Responder · "
+                  labelPrefix="Agent · "
                 />
               </>
             )}
@@ -181,7 +181,7 @@ export function InboxDetailFrame({
             <DetailSection Icon={SummaryIcon} title={summarySection.title}>
               <SignalReportSummaryMarkdown
                 content={report.summary}
-                fallback="No summary yet – the Responder is still investigating."
+                fallback="No summary yet – the agent is still investigating."
                 variant="detail"
                 pending={report.status === "in_progress"}
               />
@@ -196,7 +196,7 @@ export function InboxDetailFrame({
                 title={evidenceSection.title}
                 rightSlot={
                   <Text className="cursor-default select-none text-[11px] text-gray-10 tabular-nums">
-                    {evidenceCount} finding
+                    {evidenceCount} signal
                     {evidenceCount === 1 ? "" : "s"}
                   </Text>
                 }

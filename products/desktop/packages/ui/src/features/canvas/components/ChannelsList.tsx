@@ -143,7 +143,7 @@ function SpaceRowSurface({
     <AutocompleteItem
       value={optionValue}
       className={cn(
-        "w-full min-w-0 data-selected:bg-fill-selected data-selected:text-foreground",
+        "w-full min-w-0 pr-1 data-selected:bg-fill-selected data-selected:text-foreground",
         // quill wraps an option's children in its own flex row; widening it is
         // what keeps the shortcut hint at the row's right edge and lets the
         // name truncate, exactly as they do in the button above.
@@ -393,7 +393,7 @@ function ChannelMenu({
   );
 }
 
-// One channel in the list: a "# name" row that navigates to the channel home.
+// One channel in the list: a "# name" row that opens its sidebar.
 // No expansion — the channel's surfaces live in the in-channel top nav.
 function ChannelSection({
   channel,
@@ -434,8 +434,8 @@ function ChannelSection({
 
   return (
     <Box className="group/chan relative" {...hoverProps}>
-      {/* A single, non-expandable row: the "# name" navigates straight to the
-          channel home. Right-clicking opens the same actions as the "..." menu. */}
+      {/* A single, non-expandable row: the "# name" opens the channel sidebar.
+          Right-clicking opens the same actions as the "..." menu. */}
       <ContextMenu>
         <ContextMenuTrigger
           render={
@@ -475,8 +475,13 @@ function ChannelSection({
               >
                 {channel.name}
               </OverflowTickerText>
+              {/* `!mr-0` undoes quill's `.quill-button kbd { margin-right: -4px }`,
+                  which is meant to let a shortcut hang into a button's own
+                  padding. Here the row's inner span is `truncate` (overflow
+                  hidden) and `ml-auto` eats every pixel of slack, so the hang
+                  had nowhere to go and the last 4px of the hint was cut off. */}
               {hotkeySlot != null && (
-                <Kbd className="ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
+                <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
                   {formatHotkey(`mod+${hotkeySlot}`)}
                 </Kbd>
               )}
@@ -630,6 +635,7 @@ function useOpenPersonalChannel(): {
   openPersonalChannel: () => Promise<void>;
   isCreating: boolean;
 } {
+  const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
   const { channels } = useChannels();
@@ -651,18 +657,20 @@ function useOpenPersonalChannel(): {
     if (!channelId) return;
     showChannelPane();
     setCurrentChannel(channelId);
-    void navigate({ to: "/website/$channelId", params: { channelId } });
+    if (!spacesLayout) {
+      void navigate({ to: "/website/$channelId", params: { channelId } });
+    }
   };
 
   return { ensureFolderId, openPersonalChannel, isCreating };
 }
 
 /**
- * Navigating into a channel, shared by the tree rows and the search results.
- * Slides before navigating: the route effect would get there too, but not until
- * the navigation resolves.
+ * Opening a channel, shared by the tree rows and the search results. In the
+ * Spaces layout this scopes the sidebar without moving the main window.
  */
 function useOpenChannel(): (channel: Channel) => void {
+  const spacesLayout = useChannelsLayout();
   const navigate = useNavigate();
   const setCurrentChannel = useCurrentChannelStore((s) => s.setCurrentChannel);
 
@@ -674,10 +682,12 @@ function useOpenChannel(): (channel: Channel) => void {
     });
     showChannelPane();
     setCurrentChannel(channel.id);
-    void navigate({
-      to: "/website/$channelId",
-      params: { channelId: channel.id },
-    });
+    if (!spacesLayout) {
+      void navigate({
+        to: "/website/$channelId",
+        params: { channelId: channel.id },
+      });
+    }
   };
 }
 
@@ -757,7 +767,7 @@ function PersonalChannelRow({ hotkeySlot }: { hotkeySlot?: number }) {
           {PERSONAL_CHANNEL_NAME}
         </span>
         {hotkeySlot != null && (
-          <Kbd className="ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
+          <Kbd className="!mr-0 ml-auto shrink-0 opacity-50 group-hover/chan:opacity-0">
             {formatHotkey(`mod+${hotkeySlot}`)}
           </Kbd>
         )}

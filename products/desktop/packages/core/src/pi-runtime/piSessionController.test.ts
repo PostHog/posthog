@@ -819,6 +819,43 @@ describe("PiSessionController", () => {
     expect(resumedSession.client.prompt).toHaveBeenCalledWith("continue");
   });
 
+  it("applies deferred Pi config before the first resumed prompt", async () => {
+    const terminalSession = {
+      ...createSession(),
+      resumeRequired: true,
+      taskRunId: "run-1",
+    };
+    const resumedSession = createSession();
+    const provider = {
+      get: vi
+        .fn()
+        .mockResolvedValueOnce(terminalSession)
+        .mockResolvedValue(resumedSession),
+    } as PiSessionProvider;
+    const resumeCloudPiRun = vi.fn(async () => ({ id: "run-1" }));
+    const controller = new PiSessionController(provider, {
+      resumeCloudPiRun,
+    } as unknown as TaskService);
+
+    await controller.connect("task-1");
+    await controller.submit("task-1", "continue", false, "steer", {
+      model: { provider: "posthog", id: "gpt-5.6-terra" },
+      thinkingLevel: "high",
+    });
+
+    expect(resumedSession.client.setModel).toHaveBeenCalledWith(
+      "posthog",
+      "gpt-5.6-terra",
+    );
+    expect(resumedSession.client.setThinkingLevel).toHaveBeenCalledWith("high");
+    expect(resumedSession.client.prompt).toHaveBeenCalledWith("continue");
+    expect(
+      vi.mocked(resumedSession.client.setModel).mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      vi.mocked(resumedSession.client.prompt).mock.invocationCallOrder[0],
+    );
+  });
+
   it("resumes and retries a message when the prior sandbox is gone", async () => {
     const staleSession = {
       ...createSession(),

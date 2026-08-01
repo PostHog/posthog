@@ -1,9 +1,7 @@
-import { Menu as BaseMenu } from "@base-ui/react/menu";
 import {
   Archive,
   ArrowSquareOut,
   Buildings,
-  Check,
   DiscordLogo,
   FolderSimple,
   Gear,
@@ -15,13 +13,6 @@ import {
   SignOut,
 } from "@phosphor-icons/react";
 import {
-  Autocomplete,
-  AutocompleteCollection,
-  AutocompleteGroup,
-  AutocompleteInput,
-  AutocompleteItem,
-  AutocompleteList,
-  AutocompleteStatus,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuGroup,
@@ -34,7 +25,6 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
   Item,
-  ItemActions,
   ItemContent,
   ItemDescription,
   ItemTitle,
@@ -54,13 +44,17 @@ import { useProjects } from "@posthog/ui/features/projects/useProjects";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import { useWhatsNewStore } from "@posthog/ui/features/updates/whatsNewStore";
+import {
+  type MenuFlyoutItem,
+  MenuSubFlyout,
+  SearchableMenuFlyout,
+} from "@posthog/ui/primitives/SearchableMenuFlyout";
 import { navigateToArchived } from "@posthog/ui/router/navigationBridge";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { isMac } from "@posthog/ui/utils/platform";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
 import { Avatar, Box } from "@radix-ui/themes";
-import { ChevronRightIcon } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 /** The account / project / org menu at the bottom of the sidebar. */
 export function ProjectSwitcher() {
@@ -101,7 +95,7 @@ export function ProjectSwitcher() {
           minute: "2-digit",
         })
       : null;
-  const projectItems = useMemo<FlyoutItem[]>(
+  const projectItems = useMemo<MenuFlyoutItem[]>(
     () =>
       (currentOrgGroup?.projects ?? []).map((project) => ({
         id: String(project.id),
@@ -112,7 +106,7 @@ export function ProjectSwitcher() {
   );
 
   // Logos aren't in orgProjectsMap, so cross-reference the user's org list.
-  const orgItems = useMemo<FlyoutItem[]>(
+  const orgItems = useMemo<MenuFlyoutItem[]>(
     () =>
       groupedProjects.map((group) => {
         const logoMediaId = currentUser?.organizations?.find(
@@ -204,21 +198,17 @@ export function ProjectSwitcher() {
         render={
           <Item
             size="xs"
-            className="border-border hover:bg-fill-hover aria-expanded:bg-fill-active"
+            className="border-transparent bg-fill-hover py-1.5 hover:bg-fill-selected aria-expanded:bg-fill-active"
           >
             <ItemContent className="select-none gap-0">
               <ItemTitle>
                 {currentProject?.name ?? "No project selected"}
               </ItemTitle>
               <ItemDescription className="text-[11px]">
-                {impersonationExpiry
-                  ? `Impersonating until ${impersonationExpiry}`
-                  : (currentUser?.email ?? "No email")}
+                {impersonationExpiry &&
+                  `Impersonating until ${impersonationExpiry}`}
               </ItemDescription>
             </ItemContent>
-            <ItemActions>
-              <ChevronRightIcon className="size-4 rotate-270 group-aria-expanded/item:rotate-90" />
-            </ItemActions>
           </Item>
         }
       />
@@ -269,14 +259,14 @@ export function ProjectSwitcher() {
                   <FolderSimple size={14} className="text-gray-11" />
                   {currentProject?.name ?? "No project selected"}
                 </DropdownMenuSubTrigger>
-                <PinnedSubContent className="w-64 p-0">
-                  <SearchableFlyout
+                <MenuSubFlyout className="w-64 p-0">
+                  <SearchableMenuFlyout
                     items={projectItems}
                     placeholder="Search projects…"
                     emptyLabel="No projects"
                     onSelect={(id) => handleProjectSelect(Number(id))}
                   />
-                </PinnedSubContent>
+                </MenuSubFlyout>
               </DropdownMenuSub>
 
               <DropdownMenuItem onClick={handleCreateProject}>
@@ -294,14 +284,14 @@ export function ProjectSwitcher() {
                   <Buildings size={14} className="text-gray-11" />
                   {currentOrgName}
                 </DropdownMenuSubTrigger>
-                <PinnedSubContent className="w-64 p-0">
-                  <SearchableFlyout
+                <MenuSubFlyout className="w-64 p-0">
+                  <SearchableMenuFlyout
                     items={orgItems}
                     placeholder="Search organizations…"
                     emptyLabel="No organizations"
                     onSelect={(id) => handleOrgSelect(id)}
                   />
-                </PinnedSubContent>
+                </MenuSubFlyout>
               </DropdownMenuSub>
 
               <DropdownMenuItem onClick={handleCreateOrg}>
@@ -382,14 +372,6 @@ export function ProjectSwitcher() {
   );
 }
 
-type FlyoutItem = {
-  id: string;
-  label: string;
-  current: boolean;
-  icon?: ReactNode;
-};
-type FlyoutSection = { items: FlyoutItem[] };
-
 // Deterministic palette so an org keeps the same fallback color across renders.
 const ORG_AVATAR_COLORS = [
   "tomato",
@@ -452,144 +434,3 @@ function OrgAvatar({ orgId, name, logoSrc }: OrgAvatarProps) {
 // compiled internals, not public API — a quill upgrade that renames them would
 // silently strip this flyout's styling. Drop this component in favor of
 // DropdownMenuSubContent once quill exposes a collisionAvoidance prop.
-function PinnedSubContent({
-  className,
-  children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <BaseMenu.Portal>
-      <BaseMenu.Positioner
-        data-quill
-        data-quill-portal="popover"
-        className="isolate outline-none"
-        align="start"
-        alignOffset={-3}
-        side="inline-end"
-        sideOffset={4}
-        collisionAvoidance={{ align: "none" }}
-      >
-        <BaseMenu.Popup
-          data-slot="dropdown-menu-sub-content"
-          className={`quill-menu__content quill-menu__sub-content w-auto ${className ?? ""}`}
-        >
-          <div className="quill-menu__scroller scroll-mask-y-4 scroll-py-4">
-            {children}
-          </div>
-        </BaseMenu.Popup>
-      </BaseMenu.Positioner>
-    </BaseMenu.Portal>
-  );
-}
-
-interface SearchableFlyoutProps {
-  items: FlyoutItem[];
-  placeholder: string;
-  emptyLabel: string;
-  onSelect: (id: string) => void;
-}
-
-function SearchableFlyout({
-  items,
-  placeholder,
-  emptyLabel,
-  onSelect,
-}: SearchableFlyoutProps) {
-  const [query, setQuery] = useState("");
-  // Active item first as the anchor when switching; the rest sorted the same
-  // way the web app orders them (locale-aware, which floats emoji-prefixed
-  // names above plain ones).
-  const sections = useMemo<FlyoutSection[]>(
-    () => [
-      {
-        items: [
-          ...items.filter((item) => item.current),
-          ...items
-            .filter((item) => !item.current)
-            .sort((a, b) => a.label.localeCompare(b.label)),
-        ],
-      },
-    ],
-    [items],
-  );
-
-  return (
-    // Keep keystrokes away from the surrounding menu: its typeahead handler
-    // sits on the submenu popup and would swallow typing meant for the search
-    // input. Escape still bubbles so the menu can close.
-    // biome-ignore lint/a11y/noStaticElementInteractions: keyboard fencing only
-    <div
-      onKeyDown={(event) => {
-        if (event.key !== "Escape") event.stopPropagation();
-      }}
-    >
-      <Autocomplete<FlyoutItem>
-        inline
-        defaultOpen
-        items={sections}
-        value={query}
-        autoHighlight="always"
-        onValueChange={(val, eventDetails) => {
-          if (eventDetails.reason !== "input-change") return;
-          if (typeof val === "string") setQuery(val);
-        }}
-        filter={(item, q) => {
-          if (!q) return true;
-          return item.label.toLowerCase().includes(q.toLowerCase());
-        }}
-      >
-        <AutocompleteInput placeholder={placeholder} autoFocus showClear />
-        {/* Suppress the default "{count} results" line; only show empty states. */}
-        <AutocompleteStatus>
-          {(count: number) =>
-            count === 0 ? (
-              query ? (
-                <span>
-                  No matches for <strong>"{query}"</strong>
-                </span>
-              ) : (
-                <span>{emptyLabel}</span>
-              )
-            ) : null
-          }
-        </AutocompleteStatus>
-        {/* Long lists get a FIXED height so the popup doesn't resize (and
-            jump) while filtering. Kept short enough that the whole flyout
-            fits below either trigger row, so the popup itself never grows
-            a second scrollbar. */}
-        <AutocompleteList
-          className={`${items.length > 5 ? "h-40" : "max-h-40"} p-0 pb-0`}
-        >
-          {(section: FlyoutSection) => (
-            <AutocompleteGroup items={section.items} className="p-0">
-              <AutocompleteCollection>
-                {(item: FlyoutItem) => (
-                  <AutocompleteItem
-                    key={item.id}
-                    value={item.id}
-                    onClick={() => onSelect(item.id)}
-                    className="flex items-center gap-2 ring-offset-0 data-highlighted:border-transparent data-highlighted:bg-fill-hover data-highlighted:ring-0"
-                  >
-                    <span className="flex w-4 shrink-0 items-center justify-center">
-                      {item.current && (
-                        <Check size={14} className="text-accent-11" />
-                      )}
-                    </span>
-                    {item.icon && (
-                      <span className="flex shrink-0 items-center">
-                        {item.icon}
-                      </span>
-                    )}
-                    <span className="truncate text-[13px]">{item.label}</span>
-                  </AutocompleteItem>
-                )}
-              </AutocompleteCollection>
-            </AutocompleteGroup>
-          )}
-        </AutocompleteList>
-      </Autocomplete>
-    </div>
-  );
-}

@@ -453,8 +453,8 @@ describe("TaskCreationSaga", () => {
         branch: "main",
         adapter: undefined,
         piRuntime: true,
-        model: undefined,
-        reasoningLevel: undefined,
+        model: "gpt-5.4",
+        reasoningLevel: "high",
         initialPermissionMode: undefined,
       }),
     );

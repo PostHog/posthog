@@ -35,6 +35,11 @@ export type {
 
 export type PiModelSelection = Pick<PiNativeModelInfo, "provider" | "id">;
 
+export interface PiDeferredConfig {
+  model?: PiModelSelection;
+  thinkingLevel?: PiThinkingLevel;
+}
+
 export const PI_SESSION_PROVIDER = Symbol.for("posthog.pi.sessionProvider");
 export const LOCAL_PI_SESSION_FACTORY = Symbol.for(
   "posthog.pi.localSessionFactory",
@@ -301,6 +306,7 @@ export class PiSessionController {
     text: string,
     isStreaming: boolean,
     messagingMode: PiMessagingMode,
+    deferredConfig?: PiDeferredConfig,
   ): Promise<PiSubmitResult> {
     const message = text.trim();
     const action = this.getSubmitAction(message, isStreaming, messagingMode);
@@ -382,6 +388,7 @@ export class PiSessionController {
 
       try {
         const session = await this.getWritablePiSession(taskId);
+        await this.applyDeferredConfig(session, deferredConfig);
         this.markTurnPending(taskId);
         if (session.sendUserMessage && messageId) {
           const taskRunId = this.taskRunIds.get(taskId);
@@ -1086,6 +1093,22 @@ export class PiSessionController {
         (event) => event.type !== "user_message" || event.id !== messageId,
       ),
     });
+  }
+
+  private async applyDeferredConfig(
+    session: PiSession,
+    config: PiDeferredConfig | undefined,
+  ): Promise<void> {
+    if (!config) {
+      return;
+    }
+
+    if (config.model) {
+      await session.client.setModel(config.model.provider, config.model.id);
+    }
+    if (config.thinkingLevel) {
+      await session.client.setThinkingLevel(config.thinkingLevel);
+    }
   }
 
   private async refreshStatus(taskId: string): Promise<void> {

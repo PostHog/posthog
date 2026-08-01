@@ -22,9 +22,17 @@ describe("extractCustomInstructions", () => {
 
   it("strips the element even when it is the only content", () => {
     const result = extractCustomInstructions(
-      "<user_custom_instructions>\nbody\n</user_custom_instructions>",
+      "<user_custom_instructions>\nThe user has saved custom instructions that apply to all of their tasks. Follow them.\n\nbody\n</user_custom_instructions>",
     );
-    expect(result?.body).toBe("body");
+    expect(result?.body).toContain("body");
     expect(result?.stripped).toBe("");
+  });
+
+  it("preserves user-authored custom-instruction tags", () => {
+    const content =
+      "Render this example: <user_custom_instructions>be terse</user_custom_instructions>";
+
+    expect(extractCustomInstructions(content)).toBeNull();
+    expect(hasCustomInstructions(content)).toBe(false);
   });
 });

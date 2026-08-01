@@ -8,6 +8,7 @@ import { useArchiveTask } from "@posthog/ui/features/archive/useArchiveTask";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import type { ChannelItemActions } from "@posthog/ui/features/canvas/components/ChannelItemRow";
+import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useChannelFeed } from "@posthog/ui/features/canvas/hooks/useChannelFeed";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelTasks } from "@posthog/ui/features/canvas/hooks/useChannelTasks";
@@ -68,7 +69,8 @@ export function useChannelItems(channelId: string): {
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
-  const { setPinned: setCanvasPinned } = useDashboardMutations();
+  const { setPinned: setCanvasPinned, invalidateDashboards } =
+    useDashboardMutations();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -143,8 +145,28 @@ export function useChannelItems(channelId: string): {
       archive: (item) => {
         void archiveTask({ taskId: item.id });
       },
+      // Canvases only, and through the shared undo window: the row disappears at
+      // once and the host isn't told until the toast expires, so an accidental
+      // delete costs nothing.
+      remove: (item) => {
+        if (item.kind !== "canvas") return;
+        deleteCanvasWithUndo({
+          dashboardId: item.id,
+          channelId,
+          name: item.title,
+          surface: "sidebar",
+          invalidate: invalidateDashboards,
+        });
+      },
     }),
-    [channelId, navigate, setCanvasPinned, togglePin, archiveTask],
+    [
+      channelId,
+      navigate,
+      setCanvasPinned,
+      togglePin,
+      archiveTask,
+      invalidateDashboards,
+    ],
   );
 
   // A channel that isn't in the list will never resolve, so stop reporting

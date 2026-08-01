@@ -55,7 +55,7 @@ const ArchivedRow = memo(function ArchivedRow({
           numberOfLines={2}
           ellipsizeMode="tail"
         >
-          {report.title ?? "Untitled signal"}
+          {report.title ?? "Untitled report"}
         </Text>
 
         <View className="mt-1 flex-row flex-wrap items-center gap-2">

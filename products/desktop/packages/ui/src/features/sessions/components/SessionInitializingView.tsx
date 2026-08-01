@@ -4,18 +4,26 @@ import { Flex, Text } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
 import zenHedgehog from "../../../assets/images/zen.png";
 
-interface CloudInitializingViewProps {
-  cloudStatus: TaskRunStatus | null;
+interface SessionInitializingViewProps {
+  executionTarget: "cloud" | "local";
+  cloudStatus?: TaskRunStatus | null;
   heading?: string;
   subtitle?: string;
 }
 
 const REVEAL_DELAY_MS = 2000;
 
-function copyFor(cloudStatus: TaskRunStatus | null): {
-  heading: string;
-  subtitle: string;
-} {
+function copyFor(
+  executionTarget: "cloud" | "local",
+  cloudStatus: TaskRunStatus | null | undefined,
+): { heading: string; subtitle: string } {
+  if (executionTarget === "local") {
+    return {
+      heading: "Starting Pi…",
+      subtitle: "Connecting to Pi on this device.",
+    };
+  }
+
   switch (cloudStatus) {
     case "queued":
       return {
@@ -35,12 +43,13 @@ function copyFor(cloudStatus: TaskRunStatus | null): {
   }
 }
 
-export function CloudInitializingView({
+export function SessionInitializingView({
+  executionTarget,
   cloudStatus,
   heading,
   subtitle,
-}: CloudInitializingViewProps) {
-  const copy = copyFor(cloudStatus);
+}: SessionInitializingViewProps) {
+  const copy = copyFor(executionTarget, cloudStatus);
   const visibleHeading = heading ?? copy.heading;
   const visibleSubtitle = subtitle ?? copy.subtitle;
 

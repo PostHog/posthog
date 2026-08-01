@@ -464,7 +464,7 @@ export default function ReportDetailScreen() {
 
         {/* Title */}
         <Text className="mb-2 font-semibold text-[18px] text-gray-12">
-          {report.title ?? "Untitled signal"}
+          {report.title ?? "Untitled report"}
         </Text>
 
         {/* Meta row */}
@@ -642,7 +642,7 @@ export default function ReportDetailScreen() {
       <DismissReportSheet
         visible={dismissOpen}
         reportId={report.id}
-        reportTitle={report.title?.trim() ? report.title : "Untitled signal"}
+        reportTitle={report.title?.trim() ? report.title : "Untitled report"}
         onClose={() => setDismissOpen(false)}
         onDismissed={handleDismissed}
       />

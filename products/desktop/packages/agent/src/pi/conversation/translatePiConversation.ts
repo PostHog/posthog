@@ -115,7 +115,25 @@ export function createPiConversationTranslator(): PiConversationTranslator {
   let latestRuntimeTimestamp = 0;
   let latestConversationTimestamp = 0;
   let pendingRuntimeError: AgentConversationEvent | undefined;
+  let retrying = false;
   let directBashSequence = 0;
+
+  function completeRetry(timestamp: number): AgentConversationEvent[] {
+    if (!retrying) {
+      return [];
+    }
+
+    retrying = false;
+    return [
+      {
+        type: "runtime_status",
+        timestamp,
+        status: "retrying",
+        isComplete: true,
+      },
+    ];
+  }
+
   let activeDirectBash:
     | {
         nextOutputBytes: number;
@@ -257,6 +275,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       if (update.type === "text_delta" && update.delta) {
         streamedAssistantTimestamps.add(event.message.timestamp);
         return [
+          ...completeRetry(event.message.timestamp),
           {
             type: "assistant_message_chunk",
             timestamp: event.message.timestamp,
@@ -268,6 +287,7 @@ export function createPiConversationTranslator(): PiConversationTranslator {
       if (update.type === "thinking_delta" && update.delta) {
         streamedAssistantTimestamps.add(event.message.timestamp);
         return [
+          ...completeRetry(event.message.timestamp),
           {
             type: "assistant_thought_chunk",
             timestamp: event.message.timestamp,
@@ -407,7 +427,11 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     }
 
     if (event.type === "auto_retry_start") {
+      const completedEvents = completeRetry(latestConversationTimestamp);
+      retrying = true;
+
       return [
+        ...completedEvents,
         {
           type: "runtime_status",
           timestamp: latestConversationTimestamp,
@@ -421,14 +445,9 @@ export function createPiConversationTranslator(): PiConversationTranslator {
     }
 
     if (event.type === "auto_retry_end") {
-      const events: AgentConversationEvent[] = [
-        {
-          type: "runtime_status",
-          timestamp: latestConversationTimestamp,
-          status: "retrying",
-          isComplete: true,
-        },
-      ];
+      const events: AgentConversationEvent[] = completeRetry(
+        latestConversationTimestamp,
+      );
 
       if (!event.success && event.finalError) {
         events.push({

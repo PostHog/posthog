@@ -575,3 +575,27 @@ describe("feature settingsStore terminal font", () => {
     );
   });
 });
+
+describe("feature settingsStore hydration", () => {
+  beforeEach(async () => {
+    await resetPersistenceMocks();
+  });
+
+  it("marks the store hydrated after a successful rehydration", async () => {
+    getItem.mockResolvedValue(JSON.stringify({ state: {}, version: 1 }));
+    useSettingsStore.setState({ _hasHydrated: false });
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState()._hasHydrated).toBe(true);
+  });
+
+  it("marks the store hydrated when rehydration fails", async () => {
+    getItem.mockRejectedValue(new Error("storage unavailable"));
+    useSettingsStore.setState({ _hasHydrated: false });
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState()._hasHydrated).toBe(true);
+  });
+});

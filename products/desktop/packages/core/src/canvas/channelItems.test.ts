@@ -157,6 +157,7 @@ function model(over: Partial<ChannelItemModel> = {}): ChannelItemModel {
     authorName: null,
     authorUuid: ME.uuid,
     templateId: null,
+    task: null,
     ...over,
   };
 }

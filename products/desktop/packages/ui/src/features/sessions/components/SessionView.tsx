@@ -23,7 +23,6 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
-import { CloudInitializingView } from "@posthog/ui/features/sessions/components/CloudInitializingView";
 import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
@@ -34,11 +33,13 @@ import {
   getGithubRefUrlFromEventTarget,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
+import { focusComposerOnPaneClick } from "@posthog/ui/features/sessions/components/focusComposerOnPaneClick";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
+import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
 import { SessionResourcesBar } from "@posthog/ui/features/sessions/components/SessionResourcesBar";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
@@ -122,7 +123,7 @@ function ComposerWidth({
 }) {
   return (
     <Box
-      className={compact ? "p-1" : "mx-auto pb-3"}
+      className={compact ? "p-1" : "mx-auto pb-2"}
       style={compact ? undefined : { maxWidth: CHAT_CONTENT_MAX_WIDTH }}
     >
       {children}
@@ -502,21 +503,8 @@ export function SessionView({
       .catch(() => toast.error("Failed to attach files"));
   }, []);
 
-  const handlePaneClick = useCallback((e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-
-    const interactiveSelector =
-      'button, a, input, textarea, select, [role="button"], [role="link"], [contenteditable="true"], [data-interactive]';
-    if (target.closest(interactiveSelector)) {
-      return;
-    }
-
-    const selection = window.getSelection();
-    if (selection && selection.toString().length > 0) {
-      return;
-    }
-
-    editorRef.current?.focus();
+  const handlePaneClick = useCallback((event: React.MouseEvent) => {
+    focusComposerOnPaneClick(event, () => editorRef.current?.focus());
   }, []);
 
   useAutoFocusOnTyping(editorRef, !isActiveSession);
@@ -620,7 +608,10 @@ export function SessionView({
               </>
             ) : isInitializing ? (
               isCloud ? (
-                <CloudInitializingView cloudStatus={cloudStatus} />
+                <SessionInitializingView
+                  executionTarget="cloud"
+                  cloudStatus={cloudStatus}
+                />
               ) : pendingTaskPrompt?.promptText ? (
                 <PendingChatView
                   promptText={pendingTaskPrompt.promptText}
@@ -767,7 +758,7 @@ export function SessionView({
                           enableBashMode={!isCloudRun}
                           modelSelector={null}
                           reasoningSelector={
-                            thoughtOption ? (
+                            thoughtOption || sessionModelOption ? (
                               <ReasoningLevelSelector
                                 thoughtOption={thoughtOption}
                                 modelOption={sessionModelOption}

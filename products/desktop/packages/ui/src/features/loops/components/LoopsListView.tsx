@@ -26,7 +26,7 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex, Text } from "@radix-ui/themes";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useLoopBuilderSessions } from "../hooks/useLoopBuilderSessions";
 import { useLoopLimits, useLoops } from "../hooks/useLoops";
 import {
@@ -72,7 +72,11 @@ function startLoopFromTemplate(template: LoopTemplate): void {
   navigateToNewLoop();
 }
 
-export function LoopsListView() {
+export function LoopsListView({
+  headerContent = null,
+}: {
+  headerContent?: ReactNode;
+}) {
   const { data: loops, isLoading, isError, error } = useLoops();
   const authenticatedClient = useOptionalAuthenticatedClient();
   const {
@@ -91,9 +95,10 @@ export function LoopsListView() {
     listError = currentUserQueryError;
   }
 
-  // The page names itself (in-page header / title block), so it pushes no
-  // breadcrumb row — only a space-attached loop scene has a parent to show.
-  useSetHeaderContent(null);
+  // The standalone page names itself in-page and has no breadcrumb. When the
+  // registry is hosted inside a space, its caller supplies that navigation
+  // context instead.
+  useSetHeaderContent(headerContent);
 
   const { sessions: builderSessions, isSettled: builderSessionsSettled } =
     useLoopBuilderSessions();

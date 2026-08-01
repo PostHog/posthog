@@ -120,11 +120,31 @@ import {
   requestErrorStatus,
 } from "./fetcher";
 import { createApiClient, type Schemas } from "./generated";
+import type {
+  McpAuditCounts,
+  McpAuditEvent,
+  McpAuditPage,
+  McpAuditQuickFilter,
+  McpGatewayInstallSharingOptions,
+  McpGatewayMemberSummary,
+  McpGatewayPolicyScope,
+  McpGatewayServer,
+  McpGatewayServerUpdate,
+  McpResolvedToolPolicy,
+  McpServiceAccount,
+  McpServiceAccountStatus,
+  McpServiceAccountWithToken,
+  McpToolPolicyEntry,
+  TeamMcpGatewayConfig,
+  TeamMcpGatewayConfigUpdate,
+} from "./mcp-gateway";
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import {
   normalizeTaskResponse,
   normalizeTaskRunResponse,
 } from "./task-normalization";
+
+export type * from "./mcp-gateway";
 export interface ApiClientLogger {
   warn(...args: unknown[]): void;
 }
@@ -4604,17 +4624,19 @@ export class PostHogAPIClient {
     return data.results ?? [];
   }
 
-  async installCustomMcpServer(options: {
-    name: string;
-    url: string;
-    auth_type: McpAuthType;
-    api_key?: string;
-    description?: string;
-    client_id?: string;
-    client_secret?: string;
-    install_source?: "posthog" | "posthog-code";
-    posthog_code_callback_url?: string;
-  }): Promise<McpServerInstallation | Schemas.OAuthRedirectResponse> {
+  async installCustomMcpServer(
+    options: {
+      name: string;
+      url: string;
+      auth_type: McpAuthType;
+      api_key?: string;
+      description?: string;
+      client_id?: string;
+      client_secret?: string;
+      install_source?: "posthog" | "posthog-code";
+      posthog_code_callback_url?: string;
+    } & McpGatewayInstallSharingOptions,
+  ): Promise<McpServerInstallation | Schemas.OAuthRedirectResponse> {
     const teamId = await this.getTeamId();
     const apiUrl = new URL(
       `${this.api.baseUrl}/api/environments/${teamId}/mcp_server_installations/install_custom/`,
@@ -4689,12 +4711,14 @@ export class PostHogAPIClient {
     }
   }
 
-  async installMcpTemplate(options: {
-    template_id: string;
-    api_key?: string;
-    install_source?: "posthog" | "posthog-code";
-    posthog_code_callback_url?: string;
-  }): Promise<McpServerInstallation | Schemas.OAuthRedirectResponse> {
+  async installMcpTemplate(
+    options: {
+      template_id: string;
+      api_key?: string;
+      install_source?: "posthog" | "posthog-code";
+      posthog_code_callback_url?: string;
+    } & McpGatewayInstallSharingOptions,
+  ): Promise<McpServerInstallation | Schemas.OAuthRedirectResponse> {
     const teamId = await this.getTeamId();
     const path = `/api/environments/${teamId}/mcp_server_installations/install_template/`;
     const response = await this.api.fetcher.fetch({
@@ -4828,6 +4852,303 @@ export class PostHogAPIClient {
       results?: McpInstallationTool[];
     };
     return data.results ?? [];
+  }
+
+  // ---- MCP gateway (team control plane, behind the `mcp-gateway` flag) ----
+
+  /**
+   * JSON request against the team-scoped MCP gateway API. `path` is relative
+   * to `/api/projects/{teamId}/` and must keep its trailing slash.
+   */
+  private async mcpGatewayFetch<T>(args: {
+    method: "get" | "post" | "patch" | "delete";
+    path: string;
+    search?: Record<string, string | number | undefined>;
+    body?: unknown;
+    errorLabel: string;
+  }): Promise<T> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/${args.path}`;
+    const url = new URL(`${this.api.baseUrl}${path}`);
+    for (const [key, value] of Object.entries(args.search ?? {})) {
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    }
+    const response = await this.api.fetcher.fetch({
+      method: args.method,
+      url,
+      path,
+      ...(args.body !== undefined
+        ? { overrides: { body: JSON.stringify(args.body) } }
+        : {}),
+    });
+    if (!response.ok && response.status !== 204) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(
+        (errorData as { detail?: string }).detail ??
+          `${args.errorLabel}: ${response.statusText}`,
+      );
+    }
+    if (response.status === 204) return undefined as T;
+    return (await response.json().catch(() => undefined)) as T;
+  }
+
+  async getMcpGatewayConfig(): Promise<TeamMcpGatewayConfig> {
+    return this.mcpGatewayFetch({
+      method: "get",
+      path: "mcp_gateway/config/",
+      errorLabel: "Failed to fetch gateway settings",
+    });
+  }
+
+  async updateMcpGatewaySettings(
+    update: TeamMcpGatewayConfigUpdate,
+  ): Promise<TeamMcpGatewayConfig> {
+    return this.mcpGatewayFetch({
+      method: "post",
+      path: "mcp_gateway/config/update_settings/",
+      body: update,
+      errorLabel: "Failed to update gateway settings",
+    });
+  }
+
+  /**
+   * Admin: set the team posture for untouched catalog servers and bulk-apply
+   * the same state to every existing gateway row.
+   */
+  async setAllMcpGatewayServersEnabled(
+    enabled: boolean,
+  ): Promise<TeamMcpGatewayConfig> {
+    return this.mcpGatewayFetch({
+      method: "post",
+      path: "mcp_gateway/config/set_all_servers_enabled/",
+      body: { enabled },
+      errorLabel: "Failed to update servers",
+    });
+  }
+
+  async getMcpGatewayServers(): Promise<McpGatewayServer[]> {
+    const data = await this.mcpGatewayFetch<{ results?: McpGatewayServer[] }>({
+      method: "get",
+      path: "mcp_gateway/servers/",
+      search: { limit: 500 },
+      errorLabel: "Failed to fetch gateway servers",
+    });
+    return data.results ?? [];
+  }
+
+  async getMcpGatewayServer(serverId: string): Promise<McpGatewayServer> {
+    return this.mcpGatewayFetch({
+      method: "get",
+      path: `mcp_gateway/servers/${serverId}/`,
+      errorLabel: "Failed to fetch gateway server",
+    });
+  }
+
+  async updateMcpGatewayServer(
+    serverId: string,
+    updates: McpGatewayServerUpdate,
+  ): Promise<McpGatewayServer> {
+    return this.mcpGatewayFetch({
+      method: "patch",
+      path: `mcp_gateway/servers/${serverId}/`,
+      body: updates,
+      errorLabel: "Failed to update gateway server",
+    });
+  }
+
+  /**
+   * Admin: enable or disable a catalog template the team never touched,
+   * materializing a gateway row for it (or updating the existing one).
+   */
+  async setMcpGatewayTemplateEnabled(options: {
+    templateId: string;
+    enabled: boolean;
+  }): Promise<McpGatewayServer> {
+    return this.mcpGatewayFetch({
+      method: "post",
+      path: "mcp_gateway/servers/set_template_enabled/",
+      body: { template_id: options.templateId, enabled: options.enabled },
+      errorLabel: "Failed to update catalog server",
+    });
+  }
+
+  /**
+   * Disconnect every member and delete the row. The registry is sparse, so a
+   * deleted catalog server simply follows the team default again.
+   */
+  async deleteMcpGatewayServer(serverId: string): Promise<void> {
+    await this.mcpGatewayFetch<void>({
+      method: "delete",
+      path: `mcp_gateway/servers/${serverId}/`,
+      errorLabel: "Failed to remove gateway server",
+    });
+  }
+
+  /** Tool catalog with the effective policy resolved for one scope. */
+  async getMcpGatewayToolPolicies(
+    serverId: string,
+    scope: McpGatewayPolicyScope = {},
+  ): Promise<McpResolvedToolPolicy[]> {
+    const data = await this.mcpGatewayFetch<{
+      results?: McpResolvedToolPolicy[];
+    }>({
+      method: "get",
+      path: `mcp_gateway/servers/${serverId}/tools/`,
+      search: {
+        scope_type: scope.scope_type,
+        scope_user_id: scope.scope_user_id,
+        scope_service_account_id: scope.scope_service_account_id,
+      },
+      errorLabel: "Failed to fetch tool policies",
+    });
+    return data.results ?? [];
+  }
+
+  /** Upsert per-tool states for a scope; returns the re-resolved catalog. */
+  async upsertMcpGatewayToolPolicies(
+    serverId: string,
+    options: McpGatewayPolicyScope & { policies: McpToolPolicyEntry[] },
+  ): Promise<McpResolvedToolPolicy[]> {
+    const data = await this.mcpGatewayFetch<{
+      results?: McpResolvedToolPolicy[];
+    }>({
+      method: "post",
+      path: `mcp_gateway/servers/${serverId}/policies/`,
+      body: options,
+      errorLabel: "Failed to update tool policies",
+    });
+    return data.results ?? [];
+  }
+
+  async getMcpServiceAccounts(): Promise<McpServiceAccount[]> {
+    const data = await this.mcpGatewayFetch<{ results?: McpServiceAccount[] }>({
+      method: "get",
+      path: "mcp_gateway/service_accounts/",
+      search: { limit: 500 },
+      errorLabel: "Failed to fetch service accounts",
+    });
+    return data.results ?? [];
+  }
+
+  async getMcpServiceAccount(accountId: string): Promise<McpServiceAccount> {
+    return this.mcpGatewayFetch({
+      method: "get",
+      path: `mcp_gateway/service_accounts/${accountId}/`,
+      errorLabel: "Failed to fetch service account",
+    });
+  }
+
+  /** Returns the full bearer token exactly once. */
+  async createMcpServiceAccount(options: {
+    name: string;
+    description?: string;
+  }): Promise<McpServiceAccountWithToken> {
+    return this.mcpGatewayFetch({
+      method: "post",
+      path: "mcp_gateway/service_accounts/",
+      body: options,
+      errorLabel: "Failed to create service account",
+    });
+  }
+
+  async updateMcpServiceAccount(
+    accountId: string,
+    updates: {
+      name?: string;
+      description?: string;
+      status?: McpServiceAccountStatus;
+    },
+  ): Promise<McpServiceAccount> {
+    return this.mcpGatewayFetch({
+      method: "patch",
+      path: `mcp_gateway/service_accounts/${accountId}/`,
+      body: updates,
+      errorLabel: "Failed to update service account",
+    });
+  }
+
+  async deleteMcpServiceAccount(accountId: string): Promise<void> {
+    await this.mcpGatewayFetch<void>({
+      method: "delete",
+      path: `mcp_gateway/service_accounts/${accountId}/`,
+      errorLabel: "Failed to delete service account",
+    });
+  }
+
+  /** Grant or revoke one agent's access to one gateway server. */
+  async setMcpServiceAccountAccess(
+    accountId: string,
+    options: {
+      gateway_server_id: string;
+      enabled: boolean;
+      /** Agent-scope tool policies to set alongside the grant. */
+      policies?: McpToolPolicyEntry[];
+    },
+  ): Promise<McpServiceAccount> {
+    return this.mcpGatewayFetch({
+      method: "post",
+      path: `mcp_gateway/service_accounts/${accountId}/access/`,
+      body: options,
+      errorLabel: "Failed to update agent access",
+    });
+  }
+
+  async getMcpGatewayMembers(): Promise<McpGatewayMemberSummary[]> {
+    const data = await this.mcpGatewayFetch<{
+      results?: McpGatewayMemberSummary[];
+    }>({
+      method: "get",
+      path: "mcp_gateway/members/",
+      search: { limit: 500 },
+      errorLabel: "Failed to fetch gateway members",
+    });
+    return data.results ?? [];
+  }
+
+  /** Turn one gateway server off (or back on) for one member. */
+  async setMcpGatewayMemberAccess(
+    userId: number,
+    options: { gateway_server_id: string; enabled: boolean },
+  ): Promise<void> {
+    await this.mcpGatewayFetch<void>({
+      method: "post",
+      path: `mcp_gateway/members/${userId}/set_access/`,
+      body: options,
+      errorLabel: "Failed to update member access",
+    });
+  }
+
+  async getMcpGatewayAuditEvents(
+    options: {
+      quickFilter?: McpAuditQuickFilter;
+      actorServiceAccountId?: string;
+      limit?: number;
+      offset?: number;
+    } = {},
+  ): Promise<McpAuditPage> {
+    const data = await this.mcpGatewayFetch<{
+      count?: number;
+      results?: McpAuditEvent[];
+    }>({
+      method: "get",
+      path: "mcp_gateway/audit/",
+      search: {
+        quick_filter: options.quickFilter,
+        actor_service_account_id: options.actorServiceAccountId,
+        limit: options.limit,
+        offset: options.offset,
+      },
+      errorLabel: "Failed to fetch audit log",
+    });
+    return { count: data.count ?? 0, results: data.results ?? [] };
+  }
+
+  async getMcpGatewayAuditCounts(): Promise<McpAuditCounts> {
+    return this.mcpGatewayFetch({
+      method: "get",
+      path: "mcp_gateway/audit/counts/",
+      errorLabel: "Failed to fetch audit counts",
+    });
   }
 
   private parseFetcherError(error: unknown): {

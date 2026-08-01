@@ -91,6 +91,7 @@ import {
   MentionChip,
   parseFileMentions,
 } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
+import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
@@ -361,9 +362,9 @@ function UserBubble({
     () => extractCustomInstructions(afterCanvasInstructions),
     [afterCanvasInstructions],
   );
-  const displayContent = customInstructions
-    ? customInstructions.stripped
-    : afterCanvasInstructions;
+  const displayContent = collapsePiSkillInvocation(
+    customInstructions ? customInstructions.stripped : afterCanvasInstructions,
+  );
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
   const showHeaderChips = showChannelContextTag || showCanvasInstructionsTag;
