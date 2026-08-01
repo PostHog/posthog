@@ -1,9 +1,9 @@
 ---
-name: posthog:desktop
+name: posthog-desktop
 description: >
   Scopes work to the desktop app at products/desktop — a nested standalone pnpm/turbo/Biome
   workspace imported from PostHog/code, not part of the root frontend or Django build. Use when
-  the user says /posthog:desktop, or works on the Electron desktop app, apps/code, apps/web,
+  the user says /posthog-desktop, or works on the Electron desktop app, apps/code, apps/web,
   apps/mobile, packages/core, packages/ui, packages/workspace-server, @posthog/api-client,
   @posthog/agent, or the agent framework. Pins the working directory to products/desktop, swaps
   in that tree's toolchain and conventions in place of the monorepo's, and defines the few paths
