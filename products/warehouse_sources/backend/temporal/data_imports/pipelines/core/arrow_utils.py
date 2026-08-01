@@ -340,8 +340,8 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
             incoming_column = incoming_table.column(delta_field.name)
 
         # Delta column is non-nullable: backfill nulls before write. Checked against the column's
-        # actual null count, not its field's own `nullable` flag — that flag is just metadata and
-        # can say non-nullable while the batch still carries a real null (e.g. a batch scanned
+        # actual null count, not its field's own `nullable` flag, because that flag is just metadata
+        # and can say non-nullable while the batch still carries a real null (e.g. a batch scanned
         # from a table whose column is otherwise declared non-nullable), which would otherwise
         # skip the backfill and let the null reach the write.
         incoming_field = incoming_table.field(delta_field.name)

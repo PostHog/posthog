@@ -374,18 +374,18 @@ class TestRewriteIntoTemp:
         # null for it (the constraint was later relaxed upstream). Writing that batch straight to
         # `write_deltalake` without aligning it to the live schema first raises "declared as
         # non-nullable but contains null values" and aborts the rewrite.
-        delta_schema_field = pa.schema(
-            [
+        live_pa_schema = pa.schema(
+            [  # type: ignore[arg-type]
                 pa.field("id", pa.int64(), nullable=False),
                 pa.field("real_model", pa.string(), nullable=False),
             ]
         )
         # Bypasses delta-rs's own write-time validation (which would reject this) to stand in for
-        # a batch scanned off a live table whose data no longer matches its declared schema — the
+        # a batch scanned off a live table whose data no longer matches its declared schema. The
         # scanned batch's own field still says non-nullable too, matching the live table's.
         batch_table = pa.Table.from_arrays(
             [pa.array([1, 2], type=pa.int64()), pa.array(["gpt-4", None], type=pa.string())],
-            schema=delta_schema_field,
+            schema=live_pa_schema,
         )
 
         class _FakeReader:
@@ -401,12 +401,12 @@ class TestRewriteIntoTemp:
             to_pyarrow_dataset=lambda: SimpleNamespace(
                 scanner=lambda batch_size: SimpleNamespace(to_reader=lambda: _FakeReader(batch_table))
             ),
-            schema=lambda: deltalake.Schema.from_arrow(delta_schema_field),
+            schema=lambda: deltalake.Schema.from_arrow(live_pa_schema),
         )
 
         rows_written, _ = asyncio.run(
             _rewrite_into_temp(
-                old_delta=old_delta,
+                old_delta=old_delta,  # type: ignore[arg-type]
                 temp_uri=str(tmp_path / "tmp"),
                 storage_options={},
                 target=RepartitionTarget(

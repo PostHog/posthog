@@ -387,6 +387,7 @@ async def _rewrite_into_temp(
     """
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
+    live_schema = await asyncio.to_thread(old_delta.schema)
 
     resolved: RepartitionTarget | None = None
     rows_written = 0
@@ -430,12 +431,12 @@ async def _rewrite_into_temp(
 
         # Align each batch against the live table's own declared schema before writing. Without
         # this, whichever batch happens to build temp's schema on the first write fixes its
-        # nullability from what that one batch's data looked like — if a column the live schema
+        # nullability from what that one batch's data looked like. So if a column the live schema
         # already declares non-nullable slips through with a real null (e.g. a source NOT NULL
         # constraint later relaxed upstream), the write aborts with "declared as non-nullable but
         # contains null values" partway through the rewrite. Every other Delta write path in this
-        # pipeline runs incoming data through this same alignment first; the rewrite must too.
-        partitioned_table = evolve_pyarrow_schema(partitioned_table, old_delta.schema())
+        # pipeline runs incoming data through this same alignment first, so the rewrite must too.
+        partitioned_table = evolve_pyarrow_schema(partitioned_table, live_schema)
         partitioned_table = realign_decimal_buffers(partitioned_table)
 
         await asyncio.to_thread(
