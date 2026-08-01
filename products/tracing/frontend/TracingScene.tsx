@@ -98,6 +98,7 @@ function TracingSceneContents(): JSX.Element {
         showHeatmap,
         activeTracingTab,
         compareActive,
+        hasUnrootedMatches,
     } = useValues(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
     const {
@@ -114,6 +115,7 @@ function TracingSceneContents(): JSX.Element {
         setSort,
         setChartType,
         applyHeatmapBrush,
+        setViewMode,
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed } = useValues(tracingConfigLogic)
@@ -258,12 +260,28 @@ function TracingSceneContents(): JSX.Element {
                                     )
                                 }
                                 emptyState={
-                                    <div className="flex flex-col items-center gap-1">
-                                        <span>No spans found</span>
-                                        <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
-                                            Learn how to send traces
-                                        </Link>
-                                    </div>
+                                    hasUnrootedMatches ? (
+                                        <div className="flex flex-col items-center gap-1">
+                                            <span>
+                                                No traces found, but spans matching these filters exist — their root
+                                                span just isn't in this list
+                                            </span>
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                onClick={() => setViewMode('spans')}
+                                            >
+                                                Switch to Spans view
+                                            </LemonButton>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col items-center gap-1">
+                                            <span>No spans found</span>
+                                            <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
+                                                Learn how to send traces
+                                            </Link>
+                                        </div>
+                                    )
                                 }
                                 onRowClick={(span: Span) => {
                                     // Clicking a row leaves the scrollable <main tabIndex="0"> as the active

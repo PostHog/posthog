@@ -9,6 +9,8 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -258,6 +260,18 @@ describe('projectNoticeLogic', () => {
             expect(logic.values.projectNoticeVariant).toEqual('missing_reverse_proxy')
 
             logic.unmount()
+        })
+
+        it('suppresses the nudge on the Tracing scene, whose spans arrive server-side over OTLP', async () => {
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Tracing, undefined, {})
+
+            const logic = await mountWithDetectedProxy(false)
+
+            expect(logic.values.projectNoticeVariant).not.toEqual('missing_reverse_proxy')
+
+            logic.unmount()
+            sceneLogic.unmount()
         })
     })
 

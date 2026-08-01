@@ -445,7 +445,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     // ...and only once the checker has confirmed there's no self-managed proxy
                     // routing events. While it's still null (not yet checked) we hold the nudge
                     // back to avoid flashing it at DIY-proxy users before detection resolves.
-                    hasReverseProxy === false
+                    hasReverseProxy === false &&
+                    // Tracing spans arrive over OTLP from server-side services, not through the
+                    // browser SDK, so ad blockers dropping client-side events don't apply here.
+                    activeSceneId !== Scene.Tracing
                 ) {
                     return 'missing_reverse_proxy'
                 } else if (!isNoticeDismissed('invite_teammates') && memberCount === 1) {

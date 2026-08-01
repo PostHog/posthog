@@ -58,6 +58,7 @@ export interface tracingSceneLogicValues {
     durationHistogramLoading: boolean // tracingDataLogic
     hasMoreToLoad: boolean // tracingDataLogic
     hasRunQuery: boolean // tracingDataLogic
+    hasUnrootedMatches: boolean // tracingDataLogic
     isDurationMode: boolean // tracingDataLogic
     latencyHeatmapData: TracingLatencyHeatmapData // tracingDataLogic
     latencyHeatmapLoading: boolean // tracingDataLogic
@@ -264,6 +265,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'sparklineLoading',
                 'hasMoreToLoad',
                 'hasRunQuery',
+                'hasUnrootedMatches',
                 'totalMatchingFilters',
                 'traceSpans',
                 'traceSpansLoading',

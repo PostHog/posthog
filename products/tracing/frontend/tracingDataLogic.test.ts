@@ -9,6 +9,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { AggregatedSpanRow } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { tracingIngestionLogic } from './components/SetupPrompt/tracingIngestionLogic'
 import { NEW_QUERY_STARTED_ERROR_MESSAGE, tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import type { Span } from './types'
@@ -290,6 +291,73 @@ describe('tracingDataLogic', () => {
             await logic.asyncActions.fetchMatchingCounts().catch(() => {})
             expect(toastSpy).toHaveBeenCalled()
             toastSpy.mockRestore()
+        })
+    })
+
+    describe('empty traces with matching spans', () => {
+        // Traces mode only lists a trace if its root span matches the filters — a filter that
+        // only hits a child span (or a root outside the selected window) legitimately empties the
+        // list even though matching spans exist. hasUnrootedMatches drives the empty state that
+        // tells the user to check the Spans view instead of implying there's no data at all.
+        it('is true only when traces mode is empty but spans matched the filters', () => {
+            logic = mountWithSpans([])
+            logic.actions.fetchMatchingCountsSuccess({ count: 5000, traceCount: 0 })
+            expect(logic.values.hasUnrootedMatches).toBe(true)
+
+            tracingFiltersLogic().actions.setViewMode('spans')
+            expect(logic.values.hasUnrootedMatches).toBe(false)
+        })
+
+        it('is false once a root-matching trace is loaded', () => {
+            logic = mountWithSpans([createMockSpan('root-1', '2024-01-01T00:00:00Z')])
+            logic.actions.fetchMatchingCountsSuccess({ count: 5000, traceCount: 1 })
+            expect(logic.values.hasUnrootedMatches).toBe(false)
+        })
+
+        it('is false while spans are still loading', () => {
+            logic = mountWithSpans([])
+            logic.actions.fetchMatchingCountsSuccess({ count: 5000, traceCount: 0 })
+            logic.actions.fetchSpans()
+            expect(logic.values.hasUnrootedMatches).toBe(false)
+        })
+    })
+
+    describe('gating on hasSpans', () => {
+        // runQuery fires five ClickHouse-backed fetches; once the project is confirmed to have no
+        // spans, the setup prompt replaces the whole scene, so those fetches are unrenderable.
+        // loadTeamHasSpansSuccess sets the reducer directly (no network), matching how the other
+        // tests here inject fetch results via fetchMatchingCountsSuccess / fetchSpansSuccess.
+        afterEach(() => {
+            tracingIngestionLogic().unmount()
+        })
+
+        it('skips the query fan-out once the project is confirmed to have no spans', () => {
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            tracingIngestionLogic().mount()
+            tracingIngestionLogic().actions.loadTeamHasSpansSuccess(false)
+
+            logic = mountWithSpans([])
+            logic.actions.runQuery()
+
+            expect(listSpansSpy).not.toHaveBeenCalled()
+            expect(sparklineSpy).not.toHaveBeenCalled()
+            listSpansSpy.mockRestore()
+            sparklineSpy.mockRestore()
+        })
+
+        it('still queries while the hasSpans check is pending or found spans', () => {
+            const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
+            tracingIngestionLogic().mount()
+
+            logic = mountWithSpans([])
+            logic.actions.runQuery()
+            expect(listSpansSpy).toHaveBeenCalledTimes(1)
+
+            tracingIngestionLogic().actions.loadTeamHasSpansSuccess(true)
+            logic.actions.runQuery()
+            expect(listSpansSpy).toHaveBeenCalledTimes(2)
+            listSpansSpy.mockRestore()
         })
     })
 
