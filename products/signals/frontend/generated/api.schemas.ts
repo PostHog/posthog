@@ -1826,6 +1826,8 @@ export interface SignalScoutConfigOptionsApi {
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+    auto_pause_exempt?: boolean
     /**
      * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
      * @maxLength 100
@@ -1952,6 +1954,13 @@ export interface SignalScoutConfigApi {
     readonly last_run_at: string | null
     /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
     readonly consecutive_failure_count: number
+    /**
+     * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone acts on the scout's reports; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
+     * @nullable
+     */
+    readonly status_changed_at: string | null
+    /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+    readonly auto_pause_exempt: boolean
     readonly created_at: string
 }
 
@@ -1981,6 +1990,8 @@ export interface SignalScoutConfigCreateApi {
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+    auto_pause_exempt?: boolean
     /**
      * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
      * @maxLength 100
@@ -2016,6 +2027,8 @@ export interface PatchedSignalScoutConfigUpdateApi {
     run_cron_schedule?: string | null
     /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
+    auto_pause_exempt?: boolean
 }
 
 /**

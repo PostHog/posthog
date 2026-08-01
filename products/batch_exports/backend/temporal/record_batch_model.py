@@ -12,6 +12,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
+from posthog.credentials import AWSKeyPair
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
@@ -133,13 +134,12 @@ class RecordBatchModel(abc.ABC):
         data_interval_start: dt.datetime | None,
         data_interval_end: dt.datetime,
         s3_folder: str,
-        s3_key: str | None,
-        s3_secret: str | None,
+        credentials: AWSKeyPair | None,
         num_partitions: int,
     ) -> tuple[Query, QueryParameters]:
         """Produce an `INSERT INTO FUNCTION s3(...)` query and its ClickHouse parameters."""
         printed, parameters = await self._print_query(data_interval_start, data_interval_end, output_format=None)
-        s3_function = sql.get_s3_function_call(s3_folder, s3_key, s3_secret, num_partitions)
+        s3_function = sql.get_s3_function_call(s3_folder, credentials, num_partitions)
         insert_query = f"""
 INSERT INTO FUNCTION {s3_function}
 {printed}
