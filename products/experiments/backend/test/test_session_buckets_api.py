@@ -446,7 +446,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert fired.json()["used_exposure_fallback"] is True
         assert inactive.json()["session_ids"] == [quiet]
 
-    def test_custom_exposure_criteria_get_no_fallback(self) -> None:
+    def test_server_side_custom_exposure_is_refused_rather_than_silently_empty(self) -> None:
         experiment = self._create_experiment(
             metrics=[PURCHASE_METRIC],
             exposure_criteria={
@@ -457,10 +457,7 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
                 }
             },
         )
-        # The stamped flag property is present, but custom exposure criteria carry semantics a
-        # flag-value filter can't stand in for — the population must stay empty rather than
-        # silently widening to "the flag was active".
-        self._session(
+        purchased = self._session(
             variant=None,
             events=[("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))],
             properties={"$feature/checkout-cta": "test"},
@@ -469,8 +466,45 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
 
         response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
 
+        # An exposure event no session can carry matches nothing, and an empty list reads as "no
+        # session did this" instead of "this experiment can't be answered from recordings".
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "captured server-side" in response.json()["detail"]
+        # The stamped flag property is on that session, so a fallback would have returned it.
+        # Custom criteria carry semantics a flag-value filter can't stand in for: the population
+        # must not widen to "the flag was active".
+        assert purchased not in str(response.json())
+
+    @parameterized.expand([("custom_event",), ("action",)])
+    def test_session_linkable_custom_exposure_defines_the_population(self, exposure_kind: str) -> None:
+        if exposure_kind == "action":
+            action = Action.objects.create(team=self.team, name="Checkout", steps_json=[{"event": "checkout started"}])
+            exposure_config: dict[str, Any] = {"kind": "ActionsNode", "id": action.pk}
+        else:
+            exposure_config = {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "checkout started",
+                "properties": [],
+            }
+        experiment = self._create_experiment(
+            metrics=[PURCHASE_METRIC], exposure_criteria={"exposure_config": exposure_config}
+        )
+        exposed = self._session(
+            variant=None,
+            events=[
+                ("checkout started", datetime(2026, 1, 9, 10, 4, tzinfo=UTC)),
+                ("purchase", datetime(2026, 1, 9, 10, 5, tzinfo=UTC)),
+            ],
+            properties={"$feature/checkout-cta": "test"},
+        )
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="fired_any", metric_uuids=[PURCHASE_METRIC["uuid"]])
+
+        # The refusal above must stay narrow. A custom event that sessions do carry is the normal
+        # case, and an action has no single event name to look up at all, so it fails open.
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["session_ids"] == []
+        assert response.json()["session_ids"] == [exposed]
         assert response.json()["used_exposure_fallback"] is False
 
     def test_action_metrics_are_not_excluded_by_the_linkability_check(self) -> None:

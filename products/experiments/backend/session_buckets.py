@@ -24,11 +24,14 @@ the taxonomy `seen_together` endpoint serves the tab: an event never ingested wi
 `$session_id` (backend-fired exposure, server-side metrics) can only ever match zero sessions.
 For the default exposure event the population falls back to the stamped `$feature/<flag_key>`
 property — the same fallback the tab's list uses — flagged in the response as
-`used_exposure_fallback`. Metrics whose every source is such an event are excluded with a
-reason instead of silently matching nothing, which for `no_metric_activity` would otherwise
-inflate the bucket to the whole exposed population. Drop-off narrows that rule to the two steps
-it reads: a funnel stays matchable overall while its first or last step can't be seen in a
-recording, and counting an unobservable completion as zero would return everyone who entered.
+`used_exposure_fallback`. Custom criteria get no such stand-in: they assert that something
+specific happened, which the stamped property doesn't imply, so a custom exposure event that
+can't be matched is refused with a reason rather than answered over a wider population.
+Metrics whose every source is such an event are excluded with a reason instead of silently
+matching nothing, which for `no_metric_activity` would otherwise inflate the bucket to the whole
+exposed population. Drop-off narrows that rule to the two steps it reads: a funnel stays
+matchable overall while its first or last step can't be seen in a recording, and counting an
+unobservable completion as zero would return everyone who entered.
 """
 
 import json
@@ -105,6 +108,10 @@ DATA_WAREHOUSE_EXCLUSION_REASON = (
 SERVER_SIDE_EXCLUSION_REASON = (
     "This metric's events have only ever been captured server-side, where there is no session to record, "
     "so they can never be matched to a recording."
+)
+CUSTOM_EXPOSURE_UNLINKABLE_REASON = (
+    "This experiment's exposure event has only ever been captured server-side, where there is no session to "
+    "record, so no session can match it."
 )
 # Drop-off reads two of a funnel's steps, so its own boundary check is narrower than the
 # whole-metric one above: a funnel stays matchable on the steps between them.
@@ -206,11 +213,18 @@ def get_experiment_session_bucket(
     # match sessions at all, and which metrics can. The verdict must be the endpoint's own:
     # callers other than the tab (the API, MCP tools) have no reason to know the lookup exists,
     # and an empty bucket that's really an unlinkable event would read as "no sessions did this".
-    lookup_names: set[str] = {exposure_event} if exposure_event == DEFAULT_EXPOSURE_EVENT else set()
+    # An action-based exposure has no single event name to look up, so it fails open, the same
+    # posture action metric sources get.
+    lookup_names: set[str] = {exposure_event} if exposure_event is not None else set()
     for metric in requested:
         lookup_names |= _source_event_names(metric) or set()
     never_linked = _never_session_linked_events(team, lookup_names)
     use_exposure_fallback = exposure_event == DEFAULT_EXPOSURE_EVENT and exposure_event in never_linked
+    if exposure_event in never_linked and not use_exposure_fallback:
+        # Only the default event has a stand-in. Custom criteria assert that something specific
+        # happened, which the stamped flag property doesn't imply, so falling back would answer
+        # over "the flag was active in this session" — a wider population than the criteria name.
+        raise SessionBucketUnavailable(CUSTOM_EXPOSURE_UNLINKABLE_REASON)
 
     considered, excluded = _partition_metrics(requested, bucket, never_linked)
 
