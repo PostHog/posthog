@@ -1,4 +1,5 @@
 import json
+import time
 import dataclasses
 from datetime import timedelta
 from pathlib import Path
@@ -7,6 +8,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 from asgiref.sync import async_to_sync
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.team import Team
 from posthog.temporal.common.client import async_connect
@@ -26,6 +28,9 @@ from products.data_modeling.backend.models.dag import DAG
 logger = structlog.get_logger(__name__)
 
 REPORT_MARKER = "=== BATCH RECONCILE REPORT JSON ==="
+
+RATE_LIMIT_RETRIES = 3
+RATE_LIMIT_BASE_WAIT_SECONDS = 10
 
 
 class Anomaly(Exception):
@@ -82,7 +87,7 @@ class Command(BaseCommand):
             record: dict = {"team_id": team_id, "status": "planned", "dags": [], "anomalies": []}
             report["teams"].append(record)
             try:
-                self._process_team(team_id, record, apply=apply)
+                self._process_team_with_retry(team_id, record, apply=apply)
                 if apply:
                     record["status"] = "applied"
                 self.stdout.write(f"team {team_id}: {record['status']}")
@@ -107,6 +112,23 @@ class Command(BaseCommand):
             Path(options["output"]).write_text(payload)
         self.stdout.write(REPORT_MARKER)
         self.stdout.write(payload)
+
+    def _process_team_with_retry(self, team_id: int, record: dict, *, apply: bool) -> None:
+        """Retry a rate-limited team instead of halting the batch: both phases are
+        idempotent per team (plan is read-only; re-applying converges on the same
+        tier set), so on RESOURCE_EXHAUSTED the whole team is safely re-run after
+        a backoff. Any other error propagates to the per-team handler."""
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            try:
+                self._process_team(team_id, record, apply=apply)
+                return
+            except RPCError as err:
+                if err.status != RPCStatusCode.RESOURCE_EXHAUSTED or attempt == RATE_LIMIT_RETRIES:
+                    raise
+                wait = RATE_LIMIT_BASE_WAIT_SECONDS * (2**attempt)
+                self.stderr.write(f"team {team_id}: temporal rate limited, retrying in {wait}s")
+                record["dags"].clear()
+                time.sleep(wait)
 
     def _process_team(self, team_id: int, record: dict, *, apply: bool) -> None:
         team = Team.objects.filter(id=team_id).first()

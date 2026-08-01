@@ -11,18 +11,32 @@ import {
     useState,
 } from 'react'
 
-import { IconDatabase, IconEye, IconGraph, IconHide, IconList, IconPencil, IconPeople, IconTrash } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import {
+    IconCollapse,
+    IconDatabase,
+    IconEllipsis,
+    IconExpand,
+    IconEye,
+    IconPencil,
+    IconGraph,
+    IconHide,
+    IconList,
+    IconPeople,
+    IconTrash,
+} from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 import { PostHogErrorBoundary } from '@posthog/react'
 
 import { ComponentPanelContext } from './componentPanelContext'
 import {
+    CANVAS_COMPONENT_PANEL_VISIBILITY,
     ComponentPanel,
     ComponentPanelVisibility,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
     withPersistedComponentPanelProps,
 } from './componentPanels'
 import { useNotebookComponentRunStatus } from './componentRunStatus'
+import { NotebookComponentToolbarExtras, NotebookComponentToolbarExtrasContext } from './componentToolbarExtras'
 import { getNotebookObjectProp, getNotebookStringProp } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { getMarkdownNotebookComponentDefinition } from './registry'
@@ -50,6 +64,8 @@ export type NotebookComponentShellProps = {
     componentPanels: ComponentPanelVisibility
     rememberedComponentPanels?: ComponentPanelVisibility
     persistComponentPanelVisibility: boolean
+    /** Surface-level opt-in for definitions with `viewModeFilters` (read-only canvases). */
+    allowViewModeFilters?: boolean
     isSelected: boolean
     registry: NotebookComponentRegistry
     toggleComponentPanel: (panel: ComponentPanel) => void
@@ -69,6 +85,7 @@ export function NotebookComponentShell({
     componentPanels,
     rememberedComponentPanels,
     persistComponentPanelVisibility,
+    allowViewModeFilters,
     isSelected,
     registry,
     toggleComponentPanel,
@@ -86,10 +103,19 @@ export function NotebookComponentShell({
     const errors = [...(node.errors ?? []), ...(definition?.validateProps?.(node.props) ?? [])]
     const ViewComponent = definition?.ViewComponent
     const EditComponent = definition?.EditComponent ?? definition?.ViewComponent
-    const showEditPanel = mode === 'edit' && componentPanels.filters
+    // Read-only canvases (e.g. customer profiles) keep the filters toggle: it's the only way to
+    // configure nodes there, matching the legacy notebook's canvas behavior.
+    const isViewModeCanvas = mode === 'view' && !!allowViewModeFilters
+    const showViewModeFilters = isViewModeCanvas && !!definition?.viewModeFilters && !definition.hideModeActions
+    const showEditPanel = (mode === 'edit' || showViewModeFilters) && componentPanels.filters
+    // Plain view mode (shared/read-only notebooks) always shows results; canvases can collapse them.
     const showViewPanel =
-        (mode === 'view' || componentPanels.results) && !(showEditPanel && definition?.exclusiveEditPanel)
+        ((mode === 'view' && !isViewModeCanvas) || componentPanels.results) &&
+        !(showEditPanel && definition?.exclusiveEditPanel)
     const showModeActions = mode === 'edit' && !!definition && !definition.hideModeActions
+    // Edit mode already covers folding via the eye/title, so collapse only shows where those
+    // controls don't render: read-only canvases.
+    const showCollapseToggle = isViewModeCanvas && !!definition && !definition.hideModeActions
     const canToggleComponentPanels = mode === 'edit'
     const hasOpenComponentPanel = componentPanels.filters || componentPanels.results
     const titleDisplay = getComponentTitleDisplay(node, definition)
@@ -115,6 +141,9 @@ export function NotebookComponentShell({
         }),
         [componentPanels, showEditPanel, showViewPanel]
     )
+    const [toolbarExtras, setToolbarExtras] = useState<NotebookComponentToolbarExtras | null>(null)
+    const toolbarMenuItems = toolbarExtras?.menuItems?.some(Boolean) ? toolbarExtras.menuItems : null
+    const toolbarActions = mode === 'edit' && toolbarExtras?.actions.length ? toolbarExtras.actions : null
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
     const [isEditingTitle, setIsEditingTitle] = useState(false)
     // A browser fires two `click`s before `dblclick`. Defer the title's collapse so a rename
@@ -160,7 +189,9 @@ export function NotebookComponentShell({
         const restoredPanelVisibility =
             rememberedComponentPanels && (rememberedComponentPanels.filters || rememberedComponentPanels.results)
                 ? rememberedComponentPanels
-                : DEFAULT_COMPONENT_PANEL_VISIBILITY
+                : isViewModeCanvas
+                  ? CANVAS_COMPONENT_PANEL_VISIBILITY
+                  : DEFAULT_COMPONENT_PANEL_VISIBILITY
         const nextPanelVisibility = hasOpenComponentPanel ? { filters: false, results: false } : restoredPanelVisibility
 
         if (hasOpenComponentPanel) {
@@ -305,7 +336,7 @@ export function NotebookComponentShell({
                     ) : (
                         <div className={titleClassName}>{titleContent}</div>
                     )}
-                    {showModeActions ? (
+                    {showModeActions || showViewModeFilters ? (
                         <div className="MarkdownNotebook__component-mode-actions">
                             <LemonButton
                                 aria-label={filtersLabel}
@@ -313,16 +344,19 @@ export function NotebookComponentShell({
                                 icon={<IconPencil />}
                                 active={componentPanels.filters}
                                 tooltip={filtersLabel}
+                                disabledReason={toolbarExtras?.filtersDisabledReason ?? undefined}
                                 onClick={() => toggleComponentPanel('filters')}
                             />
-                            <LemonButton
-                                aria-label={resultsLabel}
-                                size="xsmall"
-                                icon={componentPanels.results ? <IconEye /> : <IconHide />}
-                                active={componentPanels.results}
-                                tooltip={resultsLabel}
-                                onClick={() => toggleComponentPanel('results')}
-                            />
+                            {showModeActions ? (
+                                <LemonButton
+                                    aria-label={resultsLabel}
+                                    size="xsmall"
+                                    icon={componentPanels.results ? <IconEye /> : <IconHide />}
+                                    active={componentPanels.results}
+                                    tooltip={resultsLabel}
+                                    onClick={() => toggleComponentPanel('results')}
+                                />
+                            ) : null}
                         </div>
                     ) : null}
                 </div>
@@ -382,58 +416,96 @@ export function NotebookComponentShell({
                         {resolvedTitle}
                     </div>
                 ) : null}
-                {mode === 'edit' ? (
+                {mode === 'edit' || toolbarMenuItems || showCollapseToggle ? (
                     <div className="MarkdownNotebook__component-actions">
-                        <LemonButton
-                            aria-label="Delete component"
-                            size="xsmall"
-                            icon={<IconTrash />}
-                            tooltip="Delete"
-                            status="danger"
-                            onClick={deleteNode}
-                        />
+                        {showCollapseToggle ? (
+                            <LemonButton
+                                aria-label={hasOpenComponentPanel ? 'Collapse' : 'Expand'}
+                                size="xsmall"
+                                icon={hasOpenComponentPanel ? <IconCollapse /> : <IconExpand />}
+                                tooltip={hasOpenComponentPanel ? 'Collapse' : 'Expand'}
+                                onClick={toggleAllComponentPanels}
+                            />
+                        ) : null}
+                        {toolbarMenuItems ? (
+                            <LemonMenu items={toolbarMenuItems} placement="bottom-end">
+                                <LemonButton
+                                    aria-label="More actions"
+                                    size="xsmall"
+                                    icon={<IconEllipsis />}
+                                    tooltip="More actions"
+                                />
+                            </LemonMenu>
+                        ) : null}
+                        {mode === 'edit' ? (
+                            <LemonButton
+                                aria-label="Delete component"
+                                size="xsmall"
+                                icon={<IconTrash />}
+                                tooltip="Delete"
+                                status="danger"
+                                onClick={deleteNode}
+                            />
+                        ) : null}
                     </div>
                 ) : null}
             </div>
-            <ComponentPanelContext.Provider value={componentPanelState}>
-                {errors.length ? (
-                    <div className="MarkdownNotebook__component-errors">
-                        {errors.map((error) => (
-                            <div key={error}>{error}</div>
-                        ))}
-                    </div>
-                ) : null}
-                {showEditPanel && EditComponent ? (
-                    <div className="MarkdownNotebook__component-panel">
-                        <NotebookComponentPanelErrorBoundary node={node} panel="filters">
-                            <EditComponent
-                                node={node}
-                                mode="edit"
-                                notebookMode={mode}
-                                updateProps={updateProps}
-                                deleteNode={deleteNode}
-                            />
-                        </NotebookComponentPanelErrorBoundary>
-                    </div>
-                ) : null}
-                {showViewPanel ? (
-                    <div className="MarkdownNotebook__component-panel">
-                        {ViewComponent ? (
-                            <NotebookComponentPanelErrorBoundary node={node} panel="results">
-                                <ViewComponent
+            <NotebookComponentToolbarExtrasContext.Provider value={setToolbarExtras}>
+                <ComponentPanelContext.Provider value={componentPanelState}>
+                    {errors.length ? (
+                        <div className="MarkdownNotebook__component-errors">
+                            {errors.map((error) => (
+                                <div key={error}>{error}</div>
+                            ))}
+                        </div>
+                    ) : null}
+                    {showEditPanel && EditComponent ? (
+                        <div className="MarkdownNotebook__component-panel">
+                            <NotebookComponentPanelErrorBoundary node={node} panel="filters">
+                                <EditComponent
                                     node={node}
-                                    mode="view"
+                                    mode="edit"
                                     notebookMode={mode}
                                     updateProps={updateProps}
                                     deleteNode={deleteNode}
                                 />
                             </NotebookComponentPanelErrorBoundary>
-                        ) : (
-                            <UnknownComponentView node={node} />
-                        )}
+                        </div>
+                    ) : null}
+                    {showViewPanel ? (
+                        <div className="MarkdownNotebook__component-panel">
+                            {ViewComponent ? (
+                                <NotebookComponentPanelErrorBoundary node={node} panel="results">
+                                    <ViewComponent
+                                        node={node}
+                                        mode="view"
+                                        notebookMode={mode}
+                                        updateProps={updateProps}
+                                        deleteNode={deleteNode}
+                                    />
+                                </NotebookComponentPanelErrorBoundary>
+                            ) : (
+                                <UnknownComponentView node={node} />
+                            )}
+                        </div>
+                    ) : null}
+                </ComponentPanelContext.Provider>
+                {toolbarActions ? (
+                    <div className="MarkdownNotebook__component-custom-actions">
+                        {toolbarActions.map((action, index) => (
+                            <LemonButton
+                                key={index}
+                                size="xsmall"
+                                type="secondary"
+                                icon={action.icon}
+                                onClick={action.onClick}
+                            >
+                                {action.text}
+                            </LemonButton>
+                        ))}
                     </div>
                 ) : null}
-            </ComponentPanelContext.Provider>
+            </NotebookComponentToolbarExtrasContext.Provider>
         </div>
     )
 }
@@ -533,6 +605,7 @@ export function areNotebookComponentShellPropsEqual(
 
     return (
         previousProps.mode === nextProps.mode &&
+        previousProps.allowViewModeFilters === nextProps.allowViewModeFilters &&
         previousProps.updateNode === nextProps.updateNode &&
         previousProps.deleteSelectedNotebookBlocks === nextProps.deleteSelectedNotebookBlocks &&
         previousProps.moveFocusToAdjacentNode === nextProps.moveFocusToAdjacentNode &&

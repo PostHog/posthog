@@ -3,13 +3,28 @@ import { Tooltip } from '@posthog/lemon-ui'
 
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
+// Kept in sync with SERVER_ONLY_PROPERTIES and CLIENT_EVALUABLE_OPERATORS in
+// products/error_tracking/backend/logic/__init__.py, which decides what actually reaches the SDK.
+// Showing a rule as client-evaluated when the backend withholds it tells the user the wrong thing
+// about where their rule runs.
 const SERVER_ONLY_PROPERTIES = new Set(['$exception_sources', '$exception_functions'])
+const CLIENT_EVALUABLE_OPERATORS = new Set([
+    'exact',
+    'is_not',
+    'regex',
+    'not_regex',
+    'icontains',
+    'not_icontains',
+    'gt',
+    'lt',
+])
 
 function isFilterClientSafe(f: AnyPropertyFilter): boolean {
     if ('key' in f && f.key && SERVER_ONLY_PROPERTIES.has(f.key)) {
         return false
     }
-    return true
+    const operator = 'operator' in f ? f.operator : undefined
+    return !!operator && CLIENT_EVALUABLE_OPERATORS.has(operator)
 }
 
 export type EvalMode = 'client' | 'partial' | 'server'

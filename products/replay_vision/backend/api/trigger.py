@@ -86,17 +86,16 @@ def _admission_still_within_caps(scanner: ReplayScanner) -> bool:
     return scanner_rows + pending_enqueue_claims_for_scanner(scanner.id) <= MAX_IN_FLIGHT_APPLIES_PER_SCANNER
 
 
-def start_apply_scanner_workflow(
+def claim_apply_scanner_slot(
     scanner: ReplayScanner,
     session_id: str,
     *,
-    triggered_by_user_id: int,
-    trigger: ObservationTrigger,
     team_in_flight_rows: int | None = None,
     scanner_in_flight_rows: int | None = None,
-) -> tuple[str, WorkflowStartOutcome]:
-    """Start the deterministic apply-scanner workflow for one (scanner, session); never raises.
-    An atomic enqueue-slot claim guards the in-flight caps; pass row counts to save two queries."""
+) -> tuple[str, bool]:
+    """Claim the enqueue slot for one (scanner, session) ahead of the workflow start; on success the
+    caller owns the claim and must either pass `slot_already_claimed=True` to
+    `start_apply_scanner_workflow` or release it."""
     workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
     if team_in_flight_rows is None:
         team_in_flight_rows = ReplayObservation.in_flight_for_team(scanner.team_id).count()
@@ -111,10 +110,36 @@ def start_apply_scanner_workflow(
         team_in_flight_rows=team_in_flight_rows,
         scanner_in_flight_rows=scanner_in_flight_rows,
     ):
-        return workflow_id, WorkflowStartOutcome.CAPPED
+        return workflow_id, False
     if not _admission_still_within_caps(scanner):
         release_enqueue_claim(team_id=scanner.team_id, scanner_id=scanner.id, workflow_id=workflow_id)
-        return workflow_id, WorkflowStartOutcome.CAPPED
+        return workflow_id, False
+    return workflow_id, True
+
+
+def start_apply_scanner_workflow(
+    scanner: ReplayScanner,
+    session_id: str,
+    *,
+    triggered_by_user_id: int,
+    trigger: ObservationTrigger,
+    team_in_flight_rows: int | None = None,
+    scanner_in_flight_rows: int | None = None,
+    slot_already_claimed: bool = False,
+) -> tuple[str, WorkflowStartOutcome]:
+    """Start the deterministic apply-scanner workflow for one (scanner, session); never raises.
+    An atomic enqueue-slot claim guards the in-flight caps; pass row counts to save two queries."""
+    if slot_already_claimed:
+        workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
+    else:
+        workflow_id, claimed = claim_apply_scanner_slot(
+            scanner,
+            session_id,
+            team_in_flight_rows=team_in_flight_rows,
+            scanner_in_flight_rows=scanner_in_flight_rows,
+        )
+        if not claimed:
+            return workflow_id, WorkflowStartOutcome.CAPPED
     try:
         client = sync_connect()
         async_to_sync(client.start_workflow)(  # type: ignore[misc]

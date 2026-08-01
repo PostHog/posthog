@@ -135,6 +135,19 @@ class TestValidateCredentials:
         assert ok is False
         assert error == "boom"
 
+    def test_unexpected_status_does_not_leak_raw_status_code(self) -> None:
+        response = requests.Response()
+        response.status_code = 404
+        session = MagicMock()
+        session.get.return_value = response
+        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+            ok, error = validate_credentials("token")
+
+        assert ok is False
+        assert error is not None
+        assert "Vercel API error" not in error
+        assert "404" not in error
+
 
 class TestGetRows:
     def test_full_refresh_follows_until_cursor_across_pages(self, monkeypatch: Any) -> None:

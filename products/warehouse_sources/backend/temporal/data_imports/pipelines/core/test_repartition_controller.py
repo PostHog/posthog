@@ -652,6 +652,54 @@ class TestRepartitionActivity:
         # The activity minted a fencing claim before starting the rewrite.
         assert schema.repartition_claim is not None
 
+    def test_schema_fetch_retries_once_on_transient_db_connection_drop(self, team):
+        # The schema fetch runs on a long-lived Temporal worker thread, so a pooler-dropped
+        # connection can raise OperationalError on first use. Unlike every DB read past this point,
+        # this one sits outside the activity's transient-error handling (only ExternalDataSchema.
+        # DoesNotExist is caught here), so without a retry it escaped uncaught as an activity
+        # failure instead of resolving on a fresh connection.
+        schema = _make_schema(team, {})
+        mock_queryset = MagicMock()
+        mock_queryset.get.side_effect = [OperationalError("server closed the connection unexpectedly"), schema]
+        with (
+            patch.object(ExternalDataSchema.objects, "select_related", return_value=mock_queryset),
+            patch.object(repartition_table, "is_auto_repartition_enabled", return_value=False),
+            patch.object(repartition_table, "capture_repartition_event"),
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+        assert mock_queryset.get.call_count == 2
+
+    def test_job_fetch_retries_once_on_transient_db_connection_drop(self, team):
+        # Same failure mode as the schema fetch above, for the job fetch a few lines later: a
+        # pooler-dropped connection must resolve on retry rather than escape as an activity failure.
+        schema = _make_schema(team, {})
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": "test",
+                "attempts": 0,
+            }
+        )
+        job = _make_job(team, schema)
+        mock_get = MagicMock(side_effect=[OperationalError("server closed the connection unexpectedly"), job])
+        mocked = AsyncMock(return_value={"outcome": "completed"})
+        with (
+            patch.object(ExternalDataJob.objects, "get", mock_get),
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event"),
+        ):
+            ActivityEnvironment().run(
+                maybe_repartition_table_activity,
+                RepartitionActivityInputs(
+                    team_id=team.id, schema_id=str(schema.id), job_id=str(job.id), source_id=str(schema.source_id)
+                ),
+            )
+        assert mock_get.call_count == 2
+        mocked.assert_awaited_once()
+
     def test_superseded_after_claim_check_blip_is_not_recorded_as_failure(self, team):
         # _still_claimant is conservative and reports True on a transient DB read, so a zombie can reach
         # the failure handler even after a newer attempt took the claim. _handle_failure's authoritative

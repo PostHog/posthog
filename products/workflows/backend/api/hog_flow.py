@@ -7,7 +7,6 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
-from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
@@ -1297,6 +1296,9 @@ def _email_sending_rates(sent: int, bounced: int, complained: int) -> dict[str, 
 
 
 AWS_TENANT_REPUTATION_CACHE_SECONDS = 5 * 60
+# Failures cache too, but far shorter than successes: long enough that an unreachable SES isn't
+# re-dialled on every request, short enough that a just-fixed config recovers within a minute.
+AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS = 60
 
 
 def _aws_tenant_health(sending_status: str, reputation_impact: str | None) -> str:
@@ -1314,10 +1316,12 @@ def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
     AWS-side tenant state for the reputation endpoint, cached briefly: the endpoint reloads on every
     search keystroke and three SES API round-trips per keystroke would be slow and rate-limited.
     Failures return None (the response field is nullable) so AWS being unreachable never breaks the
-    rates display; errors aren't cached, so the next request retries.
+    rates display; failures cache under a shorter TTL so a broken SES isn't re-dialled per request.
+
+    Deliberately no SES_ACCESS_KEY_ID gate: cloud pods authenticate via their IAM role and leave
+    the key env vars unset, so a key check reads as "SES not configured" exactly where SES IS
+    configured. Environments truly without SES fail the call and land in the error path below.
     """
-    if not settings.SES_ACCESS_KEY_ID:
-        return None
     cache_key = f"workflows_ses_tenant_reputation_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
@@ -1326,6 +1330,7 @@ def _fetch_aws_tenant_reputation(team_id: int) -> dict[str, Any] | None:
         raw = SESProvider().get_tenant_reputation(team_id)
     except Exception:
         logger.exception("Failed to fetch SES tenant reputation", team_id=team_id)
+        cache.set(cache_key, {"value": None}, AWS_TENANT_REPUTATION_ERROR_CACHE_SECONDS)
         return None
     value = (
         {
