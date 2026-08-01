@@ -231,17 +231,17 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
 
     return (
         <div className="space-y-2">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
-                <span className="text-muted text-sm whitespace-nowrap">
+                <span className="text-muted text-sm lg:whitespace-nowrap">
                     {observationStats.total.toLocaleString()} total ·{' '}
                     <span className={observationStats.failed > 0 ? 'text-danger' : undefined}>
                         {observationStats.failed.toLocaleString()} failed
                     </span>{' '}
                     · {observationStats.inFlight.toLocaleString()} in flight
                 </span>
-                <div className="ml-auto flex items-center gap-3">
-                    <div className="flex items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
                                 <LemonInput
@@ -250,7 +250,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                     placeholder="Person email"
                                     value={observationSubjectFilter}
                                     onChange={setObservationSubjectFilter}
-                                    className="w-56"
+                                    className="w-full sm:w-56"
                                 />
                                 <DateFilter
                                     size="small"

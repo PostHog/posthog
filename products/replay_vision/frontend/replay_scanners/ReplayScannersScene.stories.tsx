@@ -6,7 +6,13 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { ObservationStatsApi, ReplayScannerApi, UserBasicApi, VisionQuotaApi } from '../generated/api.schemas'
+import type {
+    ObservationStatsApi,
+    ReplayScannerApi,
+    ScannerStatsResponseApi,
+    UserBasicApi,
+    VisionQuotaApi,
+} from '../generated/api.schemas'
 
 const alice: UserBasicApi = {
     id: 1,
@@ -90,6 +96,17 @@ const scanners = {
             created_by: null,
         }),
     ],
+}
+
+const scannerStats: ScannerStatsResponseApi = {
+    total: 4,
+    enabled: 3,
+    by_type: {
+        monitor: { enabled: 1, total: 1 },
+        classifier: { enabled: 0, total: 1 },
+        scorer: { enabled: 1, total: 1 },
+        summarizer: { enabled: 1, total: 1 },
+    },
 }
 
 const quota: VisionQuotaApi = {
@@ -176,7 +193,12 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/vision/scanners/': scanners,
+                '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
+                '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
                 '/api/projects/:team_id/vision/quota/': quota,
+            },
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': observationsTrend,
             },
         }),
     ],

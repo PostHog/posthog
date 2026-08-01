@@ -88,7 +88,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 )}
             </div>
 
-            <div className="flex items-baseline justify-between gap-3">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-3">
                 {projectedCredits !== null ? (
                     <div className="text-base font-semibold tabular-nums flex items-center gap-2">
                         <span>
@@ -130,7 +130,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                             }`}
                         />
                     </Tooltip>
-                    <div className="flex items-center gap-3 text-xs text-muted">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                         <QuotaMeterLegendItem>Spent</QuotaMeterLegendItem>
                         <QuotaMeterLegendItem barClass="bg-accent">Projected (other scanners)</QuotaMeterLegendItem>
                         <QuotaMeterLegendItem barClass={styles.bar} striped>

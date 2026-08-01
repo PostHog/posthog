@@ -61,9 +61,9 @@ export function VisionMetrics(): JSX.Element {
     )
 
     return (
-        <div className="flex flex-col lg:flex-row gap-4 h-96">
-            <div className="flex-1 bg-bg-light rounded p-4 flex flex-col InsightCard h-full">
-                <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="flex flex-col lg:flex-row gap-4 lg:h-96">
+            <div className="flex-1 bg-bg-light rounded p-4 flex flex-col InsightCard h-full min-h-80 lg:min-h-0">
+                <div className="flex flex-wrap items-start justify-between gap-2 mb-1">
                     <h3 className="text-base font-semibold m-0">Observations over time</h3>
                     <DateFilter
                         dateFrom={chartDateFrom}
@@ -165,7 +165,7 @@ export function VisionMetrics(): JSX.Element {
                                             label={`Projected ${percentLabel}% of the monthly spend limit`}
                                         />
                                     </Tooltip>
-                                    <div className="flex items-center gap-3 text-xs text-muted mt-1.5">
+                                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted mt-1.5">
                                         <QuotaMeterLegendItem>Spent</QuotaMeterLegendItem>
                                         <QuotaMeterLegendItem barClass={styles.bar} striped>
                                             Projected
