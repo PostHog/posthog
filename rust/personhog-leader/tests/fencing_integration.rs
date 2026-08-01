@@ -282,3 +282,26 @@ async fn a_completed_warm_keeps_its_fence() {
         .await
         .expect("a completed warm keeps a usable fence");
 }
+
+/// A commit whose outcome is unknown must not be reported as a failure.
+///
+/// "Aborted" invites a retry, and a retry against a cache still holding
+/// the pre-write version produces a second record carrying the same
+/// version as the one that may already have committed — which the
+/// writer's strict guard resolves in favour of whichever arrived first,
+/// discarding the acked one. The doubt has to survive as doubt.
+#[test]
+fn an_unknown_commit_outcome_is_not_reported_as_a_failure() {
+    let indeterminate = FencedProduceError::Indeterminate("timed out".to_string());
+    let aborted = FencedProduceError::Failed("aborted: send failed".to_string());
+
+    assert!(
+        !matches!(indeterminate, FencedProduceError::Failed(_)),
+        "an unknown outcome must be distinguishable from a known abort"
+    );
+    assert!(matches!(aborted, FencedProduceError::Failed(_)));
+    assert!(
+        indeterminate.to_string().contains("unknown"),
+        "the message must say what is actually known: {indeterminate}"
+    );
+}

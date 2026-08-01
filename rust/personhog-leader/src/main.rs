@@ -574,6 +574,7 @@ async fn discover_own_controller(
 /// already inside it, and no rate function can recover a delta that
 /// precedes a series' first sample.
 fn preregister_metrics() {
+    counter!("personhog_leader_indeterminate_evictions_total").increment(0);
     counter!("personhog_leader_warmed_messages_total").increment(0);
     counter!("personhog_leader_warm_retries_exhausted_total", "stage" => "committed_offset")
         .increment(0);

@@ -750,6 +750,31 @@ impl PersonHogLeader for PersonHogLeaderService {
                         "partition fence not held: {e}"
                     )));
                 }
+                // The commit's outcome is unknown, so this pod cannot
+                // say whether the record became visible — and its cached
+                // version is exactly what makes a retry dangerous. A
+                // caller retrying against a cache still holding the
+                // pre-write version would produce a second record at the
+                // same version as the one that may already have
+                // committed, and the writer's strict guard keeps
+                // whichever arrived first. Dropping the entry forces the
+                // retry to re-derive its version from the changelog,
+                // where the doubt is resolved.
+                Err(e @ FencedProduceError::Indeterminate(_)) => {
+                    self.cache.remove(partition, &cache_key);
+                    counter!("personhog_leader_indeterminate_evictions_total").increment(1);
+                    tracing::error!(
+                        team_id = cache_key.team_id,
+                        person_id = cache_key.person_id,
+                        partition,
+                        error = %e,
+                        "changelog commit outcome unknown; evicting the cached person so a \
+                         retry cannot reuse its version"
+                    );
+                    return Err(Status::unknown(format!(
+                        "person state may or may not have been stored: {e}"
+                    )));
+                }
                 // The window aborted, so no record became visible: the
                 // write is safe to retry, and ABORTED is the code the
                 // clients actually retry on.

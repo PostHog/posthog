@@ -61,6 +61,16 @@ pub enum FencedProduceError {
     /// Send or commit failed for an ordinary, retryable reason; the
     /// window was aborted and no record became visible.
     Failed(String),
+    /// The commit neither succeeded nor demonstrably aborted, so whether
+    /// the records became visible is unknown.
+    ///
+    /// This is not the same as failure and must not be reported as one.
+    /// A caller told "aborted" retries against a cache still holding the
+    /// pre-write version, and produces a second record carrying the same
+    /// version as the one that may already have committed — which the
+    /// writer's strict version guard resolves in favour of whichever
+    /// arrived first, discarding the acked one.
+    Indeterminate(String),
 }
 
 impl fmt::Display for FencedProduceError {
@@ -71,6 +81,9 @@ impl fmt::Display for FencedProduceError {
                 write!(f, "producer fenced by a newer owner of the partition")
             }
             FencedProduceError::Failed(e) => write!(f, "fenced produce failed: {e}"),
+            FencedProduceError::Indeterminate(e) => {
+                write!(f, "changelog commit outcome unknown: {e}")
+            }
         }
     }
 }
@@ -512,6 +525,19 @@ impl FencedChangelogProducers {
 /// is declared unusable.
 const ABORT_RETRIES: usize = 3;
 
+/// How many times a retriable commit is re-attempted before its outcome
+/// is declared unknown.
+const COMMIT_RETRIES: usize = 3;
+
+/// What is known about a window's records after a failed commit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommitOutcome {
+    /// The transaction is definitely aborted; nothing became visible.
+    Aborted,
+    /// Whether the records committed is not known.
+    Unknown,
+}
+
 /// Transaction errors librdkafka documents as safe to re-attempt.
 fn retriable_txn_error(code: RDKafkaErrorCode) -> bool {
     matches!(
@@ -614,14 +640,39 @@ async fn commit_window_after(
                 counter!("personhog_leader_fence_abort_exhausted_total").increment(1);
                 error!(error = %e, "abort of a poisoned window failed; producer left unusable");
             }
-            Err((
-                KafkaError::Canceled,
-                "aborted: a send in this window failed",
-            ))
+            Err((KafkaError::Canceled, CommitOutcome::Aborted))
         } else {
-            producer
-                .commit_transaction(timeout)
-                .map_err(|e| (e, "commit failed"))
+            // A commit that fails is not the same as a commit that did
+            // not happen. librdkafka distinguishes three cases and the
+            // caller's correct behaviour differs for each: a retriable
+            // failure leaves the outcome unknown and must be re-attempted
+            // (commit is idempotent within the transaction); an
+            // abort-requiring failure is a definite abort once the abort
+            // is issued; anything else leaves the fate of the records in
+            // doubt, which is a distinct answer from "failed".
+            let mut attempt = producer.commit_transaction(timeout);
+            for _ in 0..COMMIT_RETRIES {
+                match &attempt {
+                    Err(KafkaError::Transaction(e)) if e.is_retriable() => {
+                        counter!("personhog_leader_fence_commit_retries_total").increment(1);
+                        warn!(error = %e, "changelog commit failed; retrying");
+                        attempt = producer.commit_transaction(timeout);
+                    }
+                    _ => break,
+                }
+            }
+            match attempt {
+                Ok(()) => Ok(()),
+                Err(KafkaError::Transaction(e)) if e.txn_requires_abort() => {
+                    if let Err(abort_err) = producer.abort_transaction(timeout) {
+                        // The abort itself is now in doubt, so the
+                        // records are too.
+                        return Err((abort_err, CommitOutcome::Unknown));
+                    }
+                    Err((KafkaError::Transaction(e), CommitOutcome::Aborted))
+                }
+                Err(e) => Err((e, CommitOutcome::Unknown)),
+            }
         }
     })
     .await;
@@ -632,7 +683,7 @@ async fn commit_window_after(
                 .record(commit_start.elapsed().as_secs_f64() * 1000.0);
             Ok(())
         }
-        Ok(Err((e, context))) => {
+        Ok(Err((e, outcome))) => {
             histogram!("personhog_leader_fence_commit_ms", "outcome" => "failed")
                 .record(commit_start.elapsed().as_secs_f64() * 1000.0);
             if is_fenced(&e) || producer_fenced(fence.producer.inner()) {
@@ -653,17 +704,38 @@ async fn commit_window_after(
                     "changelog window fenced by a newer owner — this pod's claim is stale"
                 );
                 Err(FencedProduceError::Fenced)
-            } else {
+            } else if outcome == CommitOutcome::Aborted {
                 counter!(
                     "personhog_leader_fence_aborts_total",
                     "partition" => partition.to_string()
                 )
                 .increment(1);
-                error!(partition, topic, error = %e, context, "changelog window failed");
-                Err(FencedProduceError::Failed(format!("{context}: {e}")))
+                error!(partition, topic, error = %e, "changelog window aborted");
+                Err(FencedProduceError::Failed(format!("aborted: {e}")))
+            } else {
+                // Retries are exhausted and the transaction's fate is
+                // unknown. Saying "aborted" here would invite a retry
+                // that collides with a record that may already be
+                // committed, so the doubt is reported as doubt.
+                counter!(
+                    "personhog_leader_fence_commit_indeterminate_total",
+                    "partition" => partition.to_string()
+                )
+                .increment(1);
+                error!(
+                    partition,
+                    topic,
+                    error = %e,
+                    "changelog commit outcome unknown; the window may or may not have committed"
+                );
+                Err(FencedProduceError::Indeterminate(e.to_string()))
             }
         }
-        Err(join) => Err(FencedProduceError::Failed(format!("commit join: {join}"))),
+        // The commit task itself vanished, so nothing observed the
+        // transaction's fate.
+        Err(join) => Err(FencedProduceError::Indeterminate(format!(
+            "commit join: {join}"
+        ))),
     };
 
     for waiter in waiters {
@@ -687,12 +759,18 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_exhausted_total").increment(0);
+    counter!("personhog_leader_fence_commit_retries_total").increment(0);
     counter!("personhog_leader_fence_quiesce_timeouts_total").increment(0);
     counter!("personhog_leader_fenced_partition_drops_total").increment(0);
     counter!("personhog_leader_kafka_produce_errors_total").increment(0);
     for partition in 0..partitions {
         let p = partition.to_string();
         counter!("personhog_leader_fence_aborts_total", "partition" => p.clone()).increment(0);
+        counter!(
+            "personhog_leader_fence_commit_indeterminate_total",
+            "partition" => p.clone()
+        )
+        .increment(0);
         counter!("personhog_leader_produce_fenced_total", "partition" => p).increment(0);
     }
     // Histograms are deliberately absent: the Prometheus exporter
@@ -708,5 +786,8 @@ fn clone_outcome(outcome: &Result<(), FencedProduceError>) -> Result<(), FencedP
         Err(FencedProduceError::NotAcquired) => Err(FencedProduceError::NotAcquired),
         Err(FencedProduceError::Fenced) => Err(FencedProduceError::Fenced),
         Err(FencedProduceError::Failed(e)) => Err(FencedProduceError::Failed(e.clone())),
+        Err(FencedProduceError::Indeterminate(e)) => {
+            Err(FencedProduceError::Indeterminate(e.clone()))
+        }
     }
 }
