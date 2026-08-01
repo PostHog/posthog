@@ -665,10 +665,13 @@ export function createExecTool(
                                 params: useJson ? { ...input, output_format: 'json' } : input,
                                 // Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork)
                                 // surface `structuredContent` to the model in preference to the
-                                // text content, which would bury the compact formatted table
-                                // under the raw JSON. Always re-home the UI app's data onto
-                                // `_meta` (see APP_DATA_META_KEY) so the model reads the optimized
-                                // table (or the TOON text when unformatted) and the chart still renders.
+                                // text content, which would bury a compact formatted table under
+                                // the raw JSON. When such a table exists, re-home the UI app's data
+                                // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact
+                                // table and the chart still renders. When there is no formatted table,
+                                // the model reads the full data as text either way — so the payload
+                                // stays in the standard `structuredContent` field instead of being
+                                // duplicated under `_meta`, and the app still hydrates from it.
                                 forceUiDataToMeta: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
