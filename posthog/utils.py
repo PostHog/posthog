@@ -2250,7 +2250,13 @@ def is_relative_url(url: str | None) -> bool:
     if url is None:
         return False
 
-    parsed = urlparse(url)
+    # URL-encoded characters like %2f%2f could bypass the netloc check
+    # since urlparse treats them as part of the path. Decode first so
+    # the parser sees the actual characters.
+    from urllib.parse import unquote
+
+    decoded = unquote(url)
+    parsed = urlparse(decoded)
 
     return (
         parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
