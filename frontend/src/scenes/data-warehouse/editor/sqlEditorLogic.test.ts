@@ -1091,6 +1091,38 @@ describe('sqlEditorLogic', () => {
 
             expect(logic.values.suggestionPayload).toBe(null)
         })
+
+        it.each([
+            [false, 'Update view'],
+            [true, 'Update and re-materialize view'],
+        ])(
+            'reviewViewUpdate gates the save behind the inline diff (shouldRematerialize=%s)',
+            async (shouldRematerialize, acceptText) => {
+                logic = sqlEditorLogic({
+                    tabId: TAB_ID,
+                    monaco: createMockMonaco(),
+                    editor: createMockEditor(),
+                })
+                logic.mount()
+
+                logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+                await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+
+                logic.actions.setQueryInput('SELECT 2')
+                logic.actions.reviewViewUpdate({
+                    id: MOCK_VIEW.id,
+                    query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                    shouldRematerialize,
+                    types: [],
+                })
+                await expectLogic(logic).toDispatchActions(['reviewViewUpdate']).toFinishAllListeners()
+
+                // The edit is shown as an accept/reject diff (saved query vs edits), not saved
+                // immediately, and the accept label reflects whether it re-materializes.
+                expect(logic.values.suggestionPayload?.originalValue).toBe(MOCK_VIEW.query.query)
+                expect(logic.values.suggestionPayload?.acceptText).toBe(acceptText)
+            }
+        )
     })
 
     describe('inline insight metadata editing', () => {

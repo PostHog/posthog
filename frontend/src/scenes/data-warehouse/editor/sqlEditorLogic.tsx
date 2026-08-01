@@ -523,7 +523,6 @@ export interface sqlEditorLogicValues {
     isEmbeddedMode: boolean
     isMultiQuery: boolean
     isSourceQueryLastRun: boolean
-    isUpdateViewModalOpen: boolean
     lastRunQuery: DataVisualizationNode | null
     materializationModalOpen: boolean
     materializationModalView: DataWarehouseSavedQuery | null
@@ -531,10 +530,6 @@ export interface sqlEditorLogicValues {
     metadataLoading: boolean
     metricUpdating: boolean
     originalQueryInput: string | null | undefined
-    pendingViewUpdate: {
-        draftId?: string
-        view: UpdateViewPayload
-    } | null
     queryInput: string | null
     rejectText: string
     selectedConnectionId: string | undefined
@@ -752,9 +747,6 @@ export interface sqlEditorLogicActions {
     closeMaterializationModal: () => {
         value: true
     }
-    closeUpdateViewModal: () => {
-        value: true
-    }
     createTab: (
         query?: string,
         view?: DataWarehouseSavedQuery,
@@ -836,7 +828,7 @@ export interface sqlEditorLogicActions {
     openMaterializationModal: (view?: DataWarehouseSavedQuery) => {
         view: DataWarehouseSavedQuery | undefined
     }
-    openUpdateViewModal: (
+    reviewViewUpdate: (
         view: UpdateViewPayload,
         draftId?: string
     ) => {
@@ -1325,11 +1317,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
-        openUpdateViewModal: (view: UpdateViewPayload, draftId?: string) => ({
+        reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
         }),
-        closeUpdateViewModal: true,
         updateView: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -1504,22 +1495,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             {
                 setMaterializationModalOpen: (_, { open }) => open,
                 closeMaterializationModal: () => false,
-            },
-        ],
-        isUpdateViewModalOpen: [
-            false,
-            {
-                openUpdateViewModal: () => true,
-                closeUpdateViewModal: () => false,
-                updateViewSuccess: () => false,
-            },
-        ],
-        pendingViewUpdate: [
-            null as { view: UpdateViewPayload; draftId?: string } | null,
-            {
-                openUpdateViewModal: (_, { view, draftId }) => ({ view, draftId }),
-                closeUpdateViewModal: () => null,
-                updateViewSuccess: () => null,
             },
         ],
         materializationModalView: [
@@ -2807,6 +2782,28 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                     }
                 }
+            },
+            reviewViewUpdate: ({ view, draftId }) => {
+                // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate
+                // modal: show the saved query alongside the user's edits, and only run the update
+                // once they accept. Mirrors the conflict-review diff in updateView below.
+                const savedQuery = values.activeTab?.view?.query?.query ?? ''
+                const editedQuery = values.queryInput ?? ''
+                if (savedQuery === editedQuery) {
+                    actions.updateView(view, draftId)
+                    return
+                }
+                actions._setSuggestionPayload({
+                    suggestedValue: editedQuery,
+                    originalValue: savedQuery,
+                    acceptText: view.shouldRematerialize ? 'Update and re-materialize view' : 'Update view',
+                    rejectText: 'Cancel',
+                    diffShowRunButton: false,
+                    onAccept: () => {
+                        actions.updateView(view, draftId)
+                    },
+                    onReject: () => {},
+                })
             },
             updateView: async ({ view, draftId }) => {
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
