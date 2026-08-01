@@ -292,6 +292,7 @@ class TestFileSystemAPI(APIBaseTest):
         FileSystem.objects.create(
             team=self.team, path="Unfiled/Feature Flags", depth=2, type="folder", created_by=self.user
         )
+        self.client.get(list_url)  # warm up session-dependent queries (see the access-level query-count test above)
 
         FeatureFlag.objects.create(team=self.team, key="Flag A", created_by=self.user)
         with CaptureQueriesContext(connection) as small_ctx:
