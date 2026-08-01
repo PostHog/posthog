@@ -115,6 +115,12 @@ export const productAnalyticsOnboarding: ProductOnboardingProvider = {
         ]
         const filteredOptions = options.filter((option) => option.teamProperty !== 'session_recording_opt_in')
 
+        // Only pitch session replay as its own step when the user actually picked it and hasn't
+        // already turned it on — otherwise someone who just deselected it in the product picker
+        // gets re-pitched the thing they turned down seconds earlier.
+        const shouldShowSessionReplayStep =
+            selectedProducts.includes(ProductKey.SESSION_REPLAY) && !ctx.currentTeam?.session_recording_opt_in
+
         return [
             {
                 id: `${OnboardingStepKey.INSTALL}:${ProductKey.PRODUCT_ANALYTICS}`,
@@ -141,13 +147,17 @@ export const productAnalyticsOnboarding: ProductOnboardingProvider = {
                 role: ctx.role,
                 render: () => <ProductAnalyticsConfigStep options={filteredOptions} />,
             },
-            {
-                id: `${OnboardingStepKey.SESSION_REPLAY}:${ProductKey.PRODUCT_ANALYTICS}`,
-                productKey: ProductKey.PRODUCT_ANALYTICS,
-                stepKey: OnboardingStepKey.SESSION_REPLAY,
-                role: ctx.role,
-                render: () => <OnboardingSessionReplayConfiguration />,
-            },
+            ...(shouldShowSessionReplayStep
+                ? [
+                      {
+                          id: `${OnboardingStepKey.SESSION_REPLAY}:${ProductKey.PRODUCT_ANALYTICS}`,
+                          productKey: ProductKey.PRODUCT_ANALYTICS,
+                          stepKey: OnboardingStepKey.SESSION_REPLAY,
+                          role: ctx.role,
+                          render: () => <OnboardingSessionReplayConfiguration />,
+                      },
+                  ]
+                : []),
         ]
     },
     completeRedirectUrl: () => urls.insightQuickStart(),
