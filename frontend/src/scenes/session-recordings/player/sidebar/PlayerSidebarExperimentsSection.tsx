@@ -253,11 +253,12 @@ function ExposureTime({
     )
 }
 
-// The experiment's recordings tab lists a session only when it carries an exposure event, so an
-// enrolled-only item is context that list can't return. This box has the enrollment from the flag
-// properties posthog-js stamps on every event, which is why the two surfaces can disagree.
+// The experiment analysis counts exposure events, and this session has none: that is the one claim
+// that holds wherever the viewer came from. The copy must not reference the recordings tab's list,
+// because when the exposure event is server-side that tab falls back to listing flag-active sessions
+// (see applySessionLinkability), and enrolled-only sessions are then exactly what its list shows.
 const NOT_EXPOSED_CAVEAT =
-    "The flag was active in this session, but no exposure event was captured here, so this recording won't appear in the experiment's recordings list."
+    "The flag was active in this session, but no exposure event was captured here, so this session isn't where the experiment analysis counted this person's exposure."
 
 // The caveat hangs off an info icon, like the section header's: it's far too long to sit inline in a
 // sidebar this narrow.
