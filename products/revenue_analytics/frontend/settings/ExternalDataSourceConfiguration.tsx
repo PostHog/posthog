@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -57,19 +57,15 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
             return false
         }
 
-        try {
-            updateSourceRevenueAnalyticsConfig({
-                source: sourceToBeDisabled,
-                config: { enabled: false },
-            })
-            setSourceToBeDisabled(null)
-
-            lemonToast.success(`Revenue analytics disabled for ${sourceToBeDisabled.source_type}`)
-            return true
-        } catch (error: any) {
-            lemonToast.error(`Failed to disable source: ${error.message || 'Unknown error'}`)
-            return false
-        }
+        // updateSourceRevenueAnalyticsConfig dispatches a kea action synchronously - the actual
+        // PATCH is async. The switch itself flips back to reflect the resolved state, and the
+        // global loader failure handler already toasts if the request fails, so no toast here.
+        updateSourceRevenueAnalyticsConfig({
+            source: sourceToBeDisabled,
+            config: { enabled: false },
+        })
+        setSourceToBeDisabled(null)
+        return true
     }
 
     return (

@@ -2,8 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -402,13 +400,15 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
         return {
             save: () => {
                 if (values.revenueAnalyticsConfig) {
+                    // teamLogic's updateCurrentTeam already shows a success/failure toast once the
+                    // PATCH actually resolves - showing one here too would be a second, optimistic
+                    // toast that appears even if the request goes on to fail.
                     actions.updateCurrentTeam({
                         revenue_analytics_config: {
                             ...values.revenueAnalyticsConfig,
                             events: values.revenueAnalyticsConfig.events,
                         },
                     })
-                    lemonToast.success('Revenue analytics config saved')
                 }
             },
             updateFilterTestAccounts: ({ filterTestAccounts }) => {
@@ -419,7 +419,6 @@ export const revenueAnalyticsSettingsLogic = kea<revenueAnalyticsSettingsLogicTy
                             filter_test_accounts: filterTestAccounts,
                         },
                     })
-                    lemonToast.success('Revenue analytics config saved')
                     actions.reportRevenueAnalyticsTestAccountFilterUpdated(filterTestAccounts)
                 }
             },

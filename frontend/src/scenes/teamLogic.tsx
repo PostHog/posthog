@@ -393,7 +393,7 @@ export const teamLogic = kea<teamLogicType>([
                     const updatedAttribute =
                         Object.keys(payload).length === 1 ? (Object.keys(payload)[0] as keyof TeamType) : null
 
-                    let message: string
+                    let message: string | null
                     if (updatedAttribute === 'feature_flag_confirmation_enabled') {
                         message = payload.feature_flag_confirmation_enabled
                             ? 'Feature flag confirmation enabled'
@@ -411,6 +411,20 @@ export const teamLogic = kea<teamLogicType>([
                         updatedAttribute === 'has_completed_onboarding_for'
                     ) {
                         message = "Congrats! You're now ready to use PostHog."
+                    } else if (
+                        updatedAttribute &&
+                        (typeof payload[updatedAttribute] === 'boolean' ||
+                            (updatedAttribute === 'session_replay_config' &&
+                                Object.values(payload.session_replay_config ?? {}).every(
+                                    (value) => typeof value === 'boolean'
+                                )))
+                    ) {
+                        // A toggle visibly flipping is its own confirmation. The generic fallback below
+                        // builds copy from the snake_case field name (e.g. "Heatmaps opt in" or "Session
+                        // replay config" for the nested canvas capture toggle), which reads like a raw
+                        // database column and can go stale if another toggle is flipped before this
+                        // request resolves.
+                        message = null
                     } else {
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
                     }
@@ -423,7 +437,11 @@ export const teamLogic = kea<teamLogicType>([
 
                     const isUpdatingOnboardingTasks = Object.keys(payload).every((key) => key === 'onboarding_tasks')
 
-                    if (!window.location.pathname.match(/\/(onboarding|products)/) && !isUpdatingOnboardingTasks) {
+                    if (
+                        message &&
+                        !window.location.pathname.match(/\/(onboarding|products)/) &&
+                        !isUpdatingOnboardingTasks
+                    ) {
                         lemonToast.success(message)
                     }
 

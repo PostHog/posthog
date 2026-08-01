@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -48,17 +48,12 @@ export function EventConfiguration({
             return false
         }
 
-        try {
-            deleteEvent(eventToBeDeleted)
-            save()
-            setEventToBeDeleted(null)
-            lemonToast.success(`Revenue event "${eventToBeDeleted}" removed successfully`)
-            return true
-        } catch (error: any) {
-            lemonToast.error(`Failed to remove event: ${error.message || 'Unknown error'}`)
-        }
-
-        return false
+        // deleteEvent/save dispatch kea actions synchronously - the actual PATCH is async, so
+        // teamLogic's updateCurrentTeam already shows the success/failure toast once it resolves.
+        deleteEvent(eventToBeDeleted)
+        save()
+        setEventToBeDeleted(null)
+        return true
     }
 
     return (
