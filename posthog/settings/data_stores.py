@@ -282,7 +282,7 @@ try:
     if PYTEST_XDIST_WORKER is not None:
         XDIST_SUFFIX = f"_{PYTEST_XDIST_WORKER}"
         PYTEST_XDIST_WORKER_NUM = int("".join([x for x in PYTEST_XDIST_WORKER if x.isdigit()]))
-except:
+except Exception:
     pass
 
 if IN_EVAL_TESTING:

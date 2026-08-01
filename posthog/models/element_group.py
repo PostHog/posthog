@@ -31,7 +31,7 @@ class ElementGroupManager(models.Manager):
             try:
                 with transaction.atomic():
                     group = super().create(*args, **kwargs)
-            except:
+            except Exception:
                 return ElementGroup.objects.get(
                     hash=kwargs["hash"],
                     team_id=kwargs["team"].pk if kwargs.get("team") else kwargs["team_id"],
