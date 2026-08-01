@@ -239,6 +239,43 @@ impl Drop for WindowSlot {
     }
 }
 
+/// Marks a window as committing, and clears the mark on drop.
+///
+/// Between closing a window and finishing its commit the gate reads as
+/// idle — `in_flight` is zero and the waiters have been taken — so only
+/// this mark keeps the next writer from beginning a transaction the
+/// producer is not free for. If the committer unwinds while it is set,
+/// nothing else ever clears it: every later write parks on
+/// `window_closed` until its own deadline expires, forever, and no
+/// repair path looks at a gate.
+struct CommittingMark {
+    fence: Arc<PartitionFence>,
+}
+
+impl CommittingMark {
+    fn take(fence: Arc<PartitionFence>) -> Self {
+        {
+            let mut gate = fence.gate.lock().unwrap();
+            gate.open = false;
+            gate.committing = true;
+        }
+        Self { fence }
+    }
+}
+
+impl Drop for CommittingMark {
+    fn drop(&mut self) {
+        // Deliberately tolerant of a poisoned gate: the mark existing is
+        // what wedges the partition, so it has to come off even when the
+        // lock's last holder panicked.
+        match self.fence.gate.lock() {
+            Ok(mut gate) => gate.committing = false,
+            Err(poisoned) => poisoned.into_inner().committing = false,
+        }
+        self.fence.window_closed.notify_waiters();
+    }
+}
+
 /// Holds a freshly acquired fence until the work that justified taking
 /// it succeeds, and gives it back otherwise.
 ///
@@ -252,14 +289,21 @@ impl Drop for WindowSlot {
 pub struct FenceGuard {
     fenced: Arc<FencedChangelogProducers>,
     partition: u32,
+    /// The fence this guard is answerable for. Releasing by partition
+    /// alone would drop whatever happens to be installed at drop time,
+    /// which after a release and a re-acquire is somebody else's
+    /// producer — the same hazard `forget_fence` checks for.
+    taken: Option<Arc<PartitionFence>>,
     armed: bool,
 }
 
 impl FenceGuard {
     pub fn new(fenced: Arc<FencedChangelogProducers>, partition: u32) -> Self {
+        let taken = fenced.installed(partition);
         Self {
             fenced,
             partition,
+            taken,
             armed: true,
         }
     }
@@ -278,7 +322,10 @@ impl Drop for FenceGuard {
                 partition = self.partition,
                 "releasing a fence taken for a warm that did not finish"
             );
-            self.fenced.release(self.partition);
+            match &self.taken {
+                Some(fence) => self.fenced.forget_fence(self.partition, fence),
+                None => self.fenced.release(self.partition),
+            }
         }
     }
 }
@@ -361,6 +408,11 @@ impl FencedChangelogProducers {
         Ok(())
     }
 
+    /// The fence currently installed for a partition, if any.
+    fn installed(&self, partition: u32) -> Option<Arc<PartitionFence>> {
+        self.partitions.get(&partition).map(|f| Arc::clone(&f))
+    }
+
     /// Drop the partition's fence with ownership. The broker-side epoch
     /// survives; only a future owner's init advances it.
     pub fn release(&self, partition: u32) {
@@ -418,7 +470,12 @@ impl FencedChangelogProducers {
             let closed = fence.window_closed.notified();
             tokio::pin!(closed);
             closed.as_mut().enable();
-            {
+            // Only the gate's own fields are touched under its lock.
+            // Classifying a failure consults the producer's fatal state
+            // and can evict the fence, so it happens after the guard is
+            // gone: the gate is a std mutex, and a panic while it is held
+            // poisons it for every writer on the partition.
+            let begin_failed = {
                 let mut gate = fence.gate.lock().unwrap();
                 if gate.open {
                     gate.in_flight += 1;
@@ -427,15 +484,22 @@ impl FencedChangelogProducers {
                 if !gate.committing && gate.in_flight == 0 && gate.waiters.is_empty() {
                     // Idle: open a new window. BeginTxn is a local
                     // librdkafka state transition, safe inline.
-                    fence.producer.inner().begin_transaction().map_err(|e| {
-                        counter!("personhog_leader_kafka_produce_errors_total").increment(1);
-                        self.classify(&fence, partition, e)
-                    })?;
-                    gate.open = true;
-                    gate.in_flight = 1;
-                    gate.poisoned = false;
-                    break true;
+                    match fence.producer.inner().begin_transaction() {
+                        Ok(()) => {
+                            gate.open = true;
+                            gate.in_flight = 1;
+                            gate.poisoned = false;
+                            break true;
+                        }
+                        Err(e) => Some(e),
+                    }
+                } else {
+                    None
                 }
+            };
+            if let Some(e) = begin_failed {
+                counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+                return Err(self.classify(&fence, partition, e));
             }
             closed.await;
         };
@@ -678,14 +742,11 @@ async fn commit_window_after(
 ) {
     sleep(window).await;
 
-    // Stop admitting joiners, then wait for outstanding sends. The
-    // committing flag holds until the commit finishes so no writer can
-    // begin the next transaction while this one is still resolving.
-    {
-        let mut gate = fence.gate.lock().unwrap();
-        gate.open = false;
-        gate.committing = true;
-    }
+    // Stop admitting joiners, then wait for outstanding sends. The mark
+    // holds until this function returns — by any path — so no writer can
+    // begin the next transaction while this one is still resolving, and
+    // none is stranded if it unwinds.
+    let _committing = CommittingMark::take(Arc::clone(&fence));
     loop {
         // Register interest before inspecting the gate: a settle that
         // fires between the check and the await must not be lost.
@@ -871,8 +932,6 @@ async fn commit_window_after(
         // nothing to deliver.
         waiter.send(clone_outcome(&outcome)).ok();
     }
-    fence.gate.lock().unwrap().committing = false;
-    fence.window_closed.notify_waiters();
 }
 
 /// Materialize every fencing series at startup so deploy-window bursts

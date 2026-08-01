@@ -349,3 +349,30 @@ async fn a_condemned_producer_stops_claiming_the_partition() {
         .await
         .expect("a re-acquired fence writes again");
 }
+
+/// A guard outlives the fence it was taken for when a warm is abandoned
+/// and the partition is re-acquired before the guard drops. Releasing by
+/// partition alone would then evict the *replacement* — a live fence, on
+/// a partition this pod legitimately owns — and every write would fail as
+/// unowned until something re-acquired again.
+#[tokio::test]
+async fn an_abandoned_guard_does_not_evict_its_replacement() {
+    let topic = format!("fence_guard_id_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    producers.acquire(0).await.expect("first acquire");
+
+    // A warm takes the fence, then never finishes.
+    let stale = FenceGuard::new(Arc::clone(&producers), 0);
+
+    // Meanwhile the partition is released and taken again, so what is
+    // installed is no longer what the guard is answerable for.
+    producers.release(0);
+    producers.acquire(0).await.expect("re-acquire");
+
+    drop(stale);
+
+    producers
+        .produce(0, &test_person(1))
+        .await
+        .expect("the replacement fence must survive the stale guard");
+}
