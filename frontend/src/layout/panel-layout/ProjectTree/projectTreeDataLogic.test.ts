@@ -112,6 +112,33 @@ describe('projectTreeDataLogic', () => {
         eventUsage.unmount()
     })
 
+    it('degrades to an empty list instead of failing when the shortcuts endpoint errors', async () => {
+        jest.spyOn(api.fileSystemShortcuts, 'list').mockRejectedValueOnce(
+            new Error(
+                'Non-OK response [GET /api/environments/1/file_system_shortcut/] (status 500: Internal Server Error)'
+            )
+        )
+        const consoleError = jest.spyOn(console, 'error').mockImplementation()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadShortcuts()
+        })
+            .toDispatchActions(['loadShortcuts', 'loadShortcutsSuccess'])
+            .toMatchValues({ shortcutData: [] })
+
+        expect(consoleError).toHaveBeenCalled()
+    })
+
+    it('treats a null shortcuts response as an empty list rather than throwing', async () => {
+        jest.spyOn(api.fileSystemShortcuts, 'list').mockResolvedValueOnce(null as any)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadShortcuts()
+        })
+            .toDispatchActions(['loadShortcuts', 'loadShortcutsSuccess'])
+            .toMatchValues({ shortcutData: [] })
+    })
+
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {
         // Folders load lazily; deleting an item whose parent folder was never loaded must not throw on
         // state[folder].filter (previously "Cannot read properties of undefined (reading 'filter')").

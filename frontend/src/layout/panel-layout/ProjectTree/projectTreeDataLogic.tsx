@@ -862,16 +862,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
 
                     // A stalled fetch that never settles would leave `shortcutDataHasLoaded` false
-                    // forever and freeze the search page on a loading skeleton. The timeout makes
-                    // the loader settle: on timeout it rejects, firing loadShortcutsFailure (which
-                    // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
-                    // initKea captures the exception so the previously-silent hang is surfaced.
-                    const response = await withTimeout(
-                        (signal) => api.fileSystemShortcuts.list({ signal }),
-                        SHORTCUTS_LOADER_TIMEOUT_MS,
-                        'loadShortcuts timed out'
-                    )
-                    return response.results
+                    // forever and freeze the search page on a loading skeleton, so `withTimeout`
+                    // makes it settle either way.
+                    try {
+                        const response = await withTimeout(
+                            (signal) => api.fileSystemShortcuts.list({ signal }),
+                            SHORTCUTS_LOADER_TIMEOUT_MS,
+                            'loadShortcuts timed out'
+                        )
+                        return response?.results ?? []
+                    } catch (error) {
+                        if (error instanceof DOMException && error.name === 'AbortError') {
+                            throw error
+                        }
+                        // Starred shortcuts are a non-critical sidebar list: a timeout or a
+                        // transient backend error shouldn't flood error tracking or toast the
+                        // user. Degrade to an empty list instead and let the next load retry.
+                        console.error('Error loading shortcuts:', error)
+                        return []
+                    }
                 },
                 addShortcutItem: async ({ item }) => {
                     const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
