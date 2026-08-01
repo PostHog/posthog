@@ -251,7 +251,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Arc::new(FencedChangelogProducers::new(
             fencing_kafka,
             config.kafka_person_state_topic.clone(),
-            config.fencing_txn_timeout(),
+            config.fencing_init_timeout(),
             config.fencing_txn_timeout(),
             config.fencing_broker_txn_timeout(),
             Duration::from_millis(config.fencing_window_ms),

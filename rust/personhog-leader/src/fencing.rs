@@ -43,7 +43,7 @@ use tracing::{debug, error, warn};
 
 use personhog_proto::personhog::types::v1::Person;
 
-use crate::config::FENCING_COMMIT_ATTEMPTS;
+use crate::config::{FENCING_ABORT_ATTEMPTS, FENCING_COMMIT_ATTEMPTS};
 use crate::kafka::changelog_message_key;
 
 /// The fencing scope is the partition: every owner of partition `p`
@@ -122,8 +122,8 @@ struct PartitionFence {
     /// writers open the next one.
     window_closed: Notify,
     /// Set when the producer is left in a transaction state no later
-    /// `begin_transaction` can recover from — an abort that exhausted its
-    /// retries, or a commit whose outcome stayed unknown.
+    /// `begin_transaction` can recover from — an abort that did not land,
+    /// or a commit whose outcome stayed unknown.
     ///
     /// Such a producer is still installed, so presence alone cannot tell
     /// a working fence from a dead one. Without this flag the repair pass
@@ -694,6 +694,33 @@ enum CommitOutcome {
     Unknown,
 }
 
+/// What a failed window means for its writers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowVerdict {
+    /// A newer owner holds the partition; the records never landed.
+    Fenced,
+    /// The window aborted for an ordinary reason; safe to retry.
+    Aborted,
+    /// Whether the records landed is unknown.
+    Indeterminate,
+}
+
+/// A fence only settles the records when the window is *also* known to
+/// have aborted.
+///
+/// The two facts are independent: a commit can time out, be re-issued,
+/// and only then discover the fence — by which point the first attempt
+/// may already have landed. Reporting that as a plain fence tells the
+/// caller the record does not exist, which frees its version and puts a
+/// second record at the same number behind one that may be committed.
+fn window_verdict(outcome: CommitOutcome, fenced: bool) -> WindowVerdict {
+    match (outcome.is_aborted(), fenced) {
+        (true, true) => WindowVerdict::Fenced,
+        (true, false) => WindowVerdict::Aborted,
+        (false, _) => WindowVerdict::Indeterminate,
+    }
+}
+
 impl CommitOutcome {
     /// Whether the records are known not to have become visible.
     fn is_aborted(self) -> bool {
@@ -729,6 +756,26 @@ fn producer_fenced<C: ClientContext>(producer: &FutureProducer<C>) -> bool {
             )
         })
         .unwrap_or(false)
+}
+
+/// Abort the window, up to the number of attempts the lease runway was
+/// sized for.
+///
+/// Derived from the constant rather than written out, so that raising the
+/// budget raises the attempts and vice versa. The two drifted apart once
+/// already: the loop spent four transaction timeouts while the bound that
+/// had to contain them counted one.
+fn abort_window<C: ClientContext>(
+    producer: &FutureProducer<C>,
+    timeout: Duration,
+) -> Result<(), KafkaError> {
+    let mut last = producer.abort_transaction(timeout);
+    let mut spent = 1;
+    while last.is_err() && spent < FENCING_ABORT_ATTEMPTS {
+        last = producer.abort_transaction(timeout);
+        spent += 1;
+    }
+    last
 }
 
 /// Close the window after its admission interval: stop admitting, wait
@@ -776,11 +823,12 @@ async fn commit_window_after(
     let commit_start = Instant::now();
     let result = spawn_blocking(move || {
         if poisoned {
-            // Retry a retriable abort: a producer left in its abortable
-            // state fails every later `begin_transaction`, so exhausting
-            // the retries costs the producer itself, not just this
-            // window.
-            match producer.abort_transaction(timeout) {
+            // One attempt. A producer left in its abortable state fails
+            // every later `begin_transaction`, so a failed abort costs
+            // the producer itself rather than just this window — and the
+            // recovery for that is re-acquisition, whose init aborts the
+            // pending transaction at the broker anyway.
+            match abort_window(&producer, timeout) {
                 Ok(()) => Err((KafkaError::Canceled, CommitOutcome::Aborted)),
                 // The records are still definitely not visible — an abort
                 // that did not land leaves the transaction open, and open
@@ -788,7 +836,7 @@ async fn commit_window_after(
                 // in its abortable state, where every later
                 // `begin_transaction` fails.
                 Err(e) => {
-                    counter!("personhog_leader_fence_abort_exhausted_total").increment(1);
+                    counter!("personhog_leader_fence_abort_failed_total").increment(1);
                     Err((e, CommitOutcome::AbortedProducerDead))
                 }
             }
@@ -802,9 +850,16 @@ async fn commit_window_after(
             // is issued; anything else leaves the fate of the records in
             // doubt, which is a distinct answer from "failed".
             let mut attempt = producer.commit_transaction(timeout);
+            // Whether an attempt was ever re-issued decides what a later
+            // failure means. Only a re-issue creates the possibility that
+            // an earlier attempt landed while this pod stopped waiting
+            // for it; without one, whatever the broker says about this
+            // commit is the whole story.
+            let mut retried = false;
             for _ in 0..COMMIT_RETRIES {
                 match &attempt {
                     Err(KafkaError::Transaction(e)) if e.is_retriable() => {
+                        retried = true;
                         counter!("personhog_leader_fence_commit_retries_total").increment(1);
                         warn!(error = %e, "changelog commit failed; retrying");
                         attempt = producer.commit_transaction(timeout);
@@ -815,16 +870,27 @@ async fn commit_window_after(
             match attempt {
                 Ok(()) => Ok(()),
                 Err(KafkaError::Transaction(e)) if e.txn_requires_abort() => {
-                    match producer.abort_transaction(timeout) {
+                    match abort_window(&producer, timeout) {
                         Ok(()) => Err((KafkaError::Transaction(e), CommitOutcome::Aborted)),
                         // The abort itself is now in doubt, so the
                         // records are too.
                         Err(abort_err) => Err((abort_err, CommitOutcome::Unknown)),
                     }
                 }
-                // Neither retriable nor abort-requiring: the transaction
-                // is left open with its fate unknown, and this producer
-                // has no way back to a state where it can begin another.
+                // A fence on the very first attempt settles the records
+                // as well as the producer: the successor's
+                // `init_transactions` is what fenced us, and it aborts
+                // the transaction it takes the epoch from, so nothing
+                // this window held became visible. Reporting that as
+                // merely unknown would give up the ownership answer the
+                // router bounces on and hand the client an error for a
+                // partition that simply moved.
+                Err(e) if !retried && (is_fenced(&e) || producer_fenced(&producer)) => {
+                    Err((e, CommitOutcome::AbortedProducerDead))
+                }
+                // Otherwise the transaction is left open with its fate
+                // unknown, and this producer has no way back to a state
+                // where it can begin another.
                 Err(e) => Err((e, CommitOutcome::Unknown)),
             }
         }
@@ -844,20 +910,14 @@ async fn commit_window_after(
                 fence.condemn(
                     partition,
                     if outcome.is_aborted() {
-                        "abort_exhausted"
+                        "abort_failed"
                     } else {
                         "commit_indeterminate"
                     },
                 );
             }
-            // A fence only settles the records' fate when the window is
-            // also known to have aborted. A commit that timed out and was
-            // re-attempted may already have landed, and the pod can
-            // discover the fence afterwards — reporting that as `Fenced`
-            // tells the caller the record does not exist, which frees its
-            // version for reuse and puts a second record at the same
-            // number behind one that may already be committed.
-            if outcome.is_aborted() && (is_fenced(&e) || producer_fenced(fence.producer.inner())) {
+            let fenced_now = is_fenced(&e) || producer_fenced(fence.producer.inner());
+            if window_verdict(outcome, fenced_now) == WindowVerdict::Fenced {
                 // A poisoned window's fence was already classified and
                 // counted where the send failed; counting again here
                 // would report two fences for one event.
@@ -875,7 +935,7 @@ async fn commit_window_after(
                     "changelog window fenced by a newer owner — this pod's claim is stale"
                 );
                 Err(FencedProduceError::Fenced)
-            } else if outcome.is_aborted() {
+            } else if window_verdict(outcome, fenced_now) == WindowVerdict::Aborted {
                 counter!(
                     "personhog_leader_fence_aborts_total",
                     "partition" => partition.to_string()
@@ -927,8 +987,8 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     }
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
-    counter!("personhog_leader_fence_abort_exhausted_total").increment(0);
-    for reason in ["abort_exhausted", "commit_indeterminate"] {
+    counter!("personhog_leader_fence_abort_failed_total").increment(0);
+    for reason in ["abort_failed", "commit_indeterminate"] {
         counter!("personhog_leader_fence_condemned_total", "reason" => reason).increment(0);
     }
     counter!("personhog_leader_fence_commit_retries_total").increment(0);
@@ -997,18 +1057,39 @@ mod tests {
         }
     }
 
-    /// An unknown outcome must never be reported as a definite abort, in
-    /// either direction. The caller frees the write's version on a
-    /// definite answer, and freeing it for a record that may exist puts a
-    /// second record at the same version behind one that may already be
-    /// committed — which the writer's strict guard resolves by discarding
-    /// whichever arrived second.
+    /// The verdict the caller acts on, as a truth table over the two
+    /// independent facts it combines.
+    ///
+    /// The cell that matters is (unknown, fenced): a commit that timed
+    /// out, was re-issued, and only then discovered the fence may already
+    /// have landed on its first attempt. Calling that a fence tells the
+    /// caller the record does not exist, which frees its version — and a
+    /// later write then puts a second record at that number behind one
+    /// that may be committed, which the writer's strict guard resolves by
+    /// discarding whichever arrived second.
     #[test]
-    fn an_unknown_outcome_is_never_a_definite_abort() {
-        assert!(!CommitOutcome::Unknown.is_aborted());
-        assert!(
-            CommitOutcome::Unknown.producer_dead(),
-            "an unknown commit leaves a transaction open that nothing can close"
-        );
+    fn a_fence_only_settles_the_records_when_the_window_also_aborted() {
+        for (outcome, fenced, expected) in [
+            (CommitOutcome::Aborted, true, WindowVerdict::Fenced),
+            (
+                CommitOutcome::AbortedProducerDead,
+                true,
+                WindowVerdict::Fenced,
+            ),
+            (CommitOutcome::Aborted, false, WindowVerdict::Aborted),
+            (
+                CommitOutcome::AbortedProducerDead,
+                false,
+                WindowVerdict::Aborted,
+            ),
+            (CommitOutcome::Unknown, true, WindowVerdict::Indeterminate),
+            (CommitOutcome::Unknown, false, WindowVerdict::Indeterminate),
+        ] {
+            assert_eq!(
+                window_verdict(outcome, fenced),
+                expected,
+                "outcome={outcome:?} fenced={fenced}"
+            );
+        }
     }
 }

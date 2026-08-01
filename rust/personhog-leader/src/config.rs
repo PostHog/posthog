@@ -338,6 +338,10 @@ const MIN_TXN_TIMEOUT: Duration = Duration::from_millis(1000);
 /// the opposite of what this bound exists to express.
 const MIN_MESSAGE_TIMEOUT: Duration = Duration::from_millis(250);
 
+/// Apache Kafka's default `transaction.max.timeout.ms`. A producer that
+/// asks for longer is refused at `init_transactions` rather than trimmed.
+const MAX_BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(900);
+
 impl Config {
     /// The runway the keepalive reserves for the local fence: it
     /// declares lease loss after two thirds of the TTL, leaving the
@@ -388,16 +392,55 @@ impl Config {
     /// below a workable depth; it trades the guarantee for a bound that
     /// is still far under the un-divided figure.
     pub fn fencing_queue_mib(&self, partitions: u32) -> u32 {
+        // The floor cannot be unconditional: above roughly fifty
+        // partitions it would start multiplying again, and the aggregate
+        // this exists to bound would scale with partition count exactly
+        // as it did before. So it applies only while it stays inside the
+        // aggregate, and past that point the division wins and each
+        // producer gets a shallow queue — which is the honest answer for
+        // a deployment with more partitions than a producer's worth of
+        // memory to give them.
         const MIN_FENCED_QUEUE_MIB: u32 = 8;
-        (self.kafka.kafka_producer_queue_mib / partitions.max(1)).max(MIN_FENCED_QUEUE_MIB)
+        let aggregate = self.kafka.kafka_producer_queue_mib;
+        let divided = aggregate / partitions.max(1);
+        if MIN_FENCED_QUEUE_MIB.saturating_mul(partitions.max(1)) <= aggregate {
+            divided.max(MIN_FENCED_QUEUE_MIB)
+        } else {
+            divided.max(1)
+        }
     }
 
     /// The same division for the message-count limit, which bounds the
     /// queue independently of record size.
     pub fn fencing_queue_messages(&self, partitions: u32) -> u32 {
         const MIN_FENCED_QUEUE_MESSAGES: u32 = 10_000;
-        (self.kafka.kafka_producer_queue_messages / partitions.max(1))
-            .max(MIN_FENCED_QUEUE_MESSAGES)
+        let aggregate = self.kafka.kafka_producer_queue_messages;
+        let divided = aggregate / partitions.max(1);
+        if MIN_FENCED_QUEUE_MESSAGES.saturating_mul(partitions.max(1)) <= aggregate {
+            divided.max(MIN_FENCED_QUEUE_MESSAGES)
+        } else {
+            divided.max(1)
+        }
+    }
+
+    /// How long fence acquisition may take.
+    ///
+    /// Deliberately not the transaction timeout. That one is sized so
+    /// that a *queued write* still resolves inside the lease runway, and
+    /// acquisition is neither queued nor a write — it is two broker round
+    /// trips, one of which makes the coordinator abort a predecessor's
+    /// open transaction. Tying it to the runway meant re-budgeting the
+    /// write path silently tightened acquisition, and acquisition happens
+    /// fleet-wide during a deploy, which is the worst moment to have
+    /// shortened it.
+    ///
+    /// It still has to fit inside the runway as a whole: a warm that
+    /// outlives the lease it is warming for has nothing to serve.
+    pub fn fencing_init_timeout(&self) -> Duration {
+        const MIN_INIT_TIMEOUT: Duration = Duration::from_secs(2);
+        self.fencing_txn_timeout()
+            .max(MIN_INIT_TIMEOUT)
+            .min(self.lease_fence_runway())
     }
 
     /// How long the broker may hold one of this pod's transactions open
@@ -441,6 +484,19 @@ impl Config {
             self.lease_fence_runway(),
             Duration::from_millis(self.fencing_window_ms),
         );
+        // librdkafka fails `init_transactions` outright when this
+        // exceeds the broker's `transaction.max.timeout.ms`, and it does
+        // so on every partition, forever, with nothing but a heal-failure
+        // counter to say why. The default broker ceiling is fifteen
+        // minutes; a lease TTL of an hour or more derives past it.
+        let broker_txn = self.fencing_broker_txn_timeout();
+        if broker_txn > MAX_BROKER_TXN_TIMEOUT {
+            return Err(format!(
+                "the derived broker transaction timeout ({broker_txn:?}) exceeds the usual \
+                 broker ceiling ({MAX_BROKER_TXN_TIMEOUT:?} = transaction.max.timeout.ms): \
+                 init_transactions would fail on every partition; lower LEASE_TTL"
+            ));
+        }
         if txn < MIN_TXN_TIMEOUT {
             return Err(format!(
                 "fencing transaction timeout ({txn:?}) is below librdkafka's minimum \
@@ -591,7 +647,10 @@ mod fencing_timescale_tests {
     /// then violates the runway, and never one librdkafka refuses.
     #[test]
     fn derived_timeouts_are_either_valid_or_rejected() {
-        for lease_ttl in [0, 1, 5, 10, 30, 60, 300] {
+        // 16 and 20 are the band where the bound's attempt count is the
+        // only thing that decides acceptance — without them the sweep
+        // cannot tell a two-call model from a three-call one.
+        for lease_ttl in [0, 1, 5, 10, 16, 20, 21, 30, 60, 300] {
             let config = fenced(lease_ttl);
             if config.validate_fencing_timescales().is_ok() {
                 let (message, txn) = (
@@ -605,7 +664,7 @@ mod fencing_timescale_tests {
                 // check that models fewer attempts than the code makes
                 // would accept exactly the configurations that break it.
                 let queued = Duration::from_millis(config.fencing_window_ms)
-                    + (message + txn * FENCING_COMMIT_ATTEMPTS) * 2;
+                    + (message + txn * FENCING_TXN_CALLS) * 2;
                 assert!(
                     queued <= config.lease_fence_runway(),
                     "LEASE_TTL={lease_ttl}: queued worst case {queued:?} exceeds runway"
@@ -682,7 +741,7 @@ mod fencing_timescale_tests {
         let shared_mib = config.kafka.kafka_producer_queue_mib;
         let shared_messages = config.kafka.kafka_producer_queue_messages;
 
-        for partitions in [1, 8, 16, 64, 256] {
+        for partitions in [1, 8, 16, 50, 64, 256, 1024, 4096] {
             let per_partition_mib = config.fencing_queue_mib(partitions);
             let per_partition_messages = config.fencing_queue_messages(partitions);
             assert!(
@@ -690,18 +749,23 @@ mod fencing_timescale_tests {
                 "partitions={partitions}: a single fenced producer must never be entitled \
                  to more than the shared producer's whole queue"
             );
-            // The floor means the aggregate is not exactly the shared
-            // budget at high partition counts, but it must stay within a
-            // small multiple of it rather than growing without bound.
+            // The aggregate is the invariant: every individual value
+            // looked reasonable while the total scaled with the partition
+            // count, which is how the original defect hid.
+            // Either the whole fleet of producers fits the aggregate, or
+            // every one of them is already at the smallest queue
+            // librdkafka will take — past that point the budget cannot be
+            // honoured at all, and the honest answer is the floor rather
+            // than a number that quietly multiplies.
             let aggregate_mib = per_partition_mib * partitions;
             assert!(
-                aggregate_mib <= shared_mib * 8,
+                aggregate_mib <= shared_mib || per_partition_mib == 1,
                 "partitions={partitions}: fenced producers together claim {aggregate_mib} MiB \
-                 against a shared budget of {shared_mib} MiB"
+                 against a shared budget of {shared_mib} MiB, with room to divide further"
             );
             let aggregate_messages = per_partition_messages as u64 * partitions as u64;
             assert!(
-                aggregate_messages <= shared_messages as u64 * 8,
+                aggregate_messages <= shared_messages as u64 || per_partition_messages == 1,
                 "partitions={partitions}: fenced producers together claim \
                  {aggregate_messages} queued messages against {shared_messages}"
             );
@@ -713,8 +777,32 @@ mod fencing_timescale_tests {
     #[test]
     fn a_high_partition_count_still_leaves_a_workable_queue() {
         let config = fenced(30);
-        assert!(config.fencing_queue_mib(1024) >= 8);
-        assert!(config.fencing_queue_messages(1024) >= 10_000);
+        // Below the point where the floor would breach the aggregate it
+        // applies, so no producer is rounded to nothing.
+        assert!(config.fencing_queue_mib(16) >= 8);
+        assert!(config.fencing_queue_messages(16) >= 10_000);
+        // Past it the division wins, but a producer still gets a
+        // non-zero queue rather than one librdkafka would reject.
+        assert!(config.fencing_queue_mib(1024) >= 1);
+        assert!(config.fencing_queue_messages(1024) >= 1);
+    }
+
+    /// A lease TTL long enough to derive past the broker's own ceiling
+    /// must be refused at startup, not discovered as an acquisition that
+    /// fails on every partition with only a counter to explain it.
+    #[test]
+    fn a_lease_ttl_that_outruns_the_broker_ceiling_is_refused() {
+        let err = fenced(3600)
+            .validate_fencing_timescales()
+            .expect_err("an hour-long lease derives a transaction timeout no broker accepts");
+        assert!(
+            err.contains("transaction.max.timeout.ms"),
+            "the refusal must name the broker setting it would trip, got: {err}"
+        );
+        // And the production value must stay comfortably inside it.
+        fenced(30)
+            .validate_fencing_timescales()
+            .expect("LEASE_TTL=30 must remain usable");
     }
 
     /// The production lease TTL must actually be usable with fencing on,
