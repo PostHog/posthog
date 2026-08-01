@@ -42,6 +42,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, uuidv7_session_lower_bound
@@ -405,6 +406,13 @@ def _compute_session_experiment_contexts(
     # built for; no scan may pass its own modifiers. Postgres foreign-key lazy joins are
     # skipped — the single most expensive build step, and these queries only ever read the
     # events table.
+    # Tagged here, not at the entry points: the recording-metadata lookup above is replay's own
+    # query and tags itself as such, so an earlier tag would be overwritten and these scans would
+    # bill to replay. The scans are experiments' own — exposure criteria and metric definitions
+    # over the events table — and follow the convention of tagging the product whose logic and
+    # cost they are, not the surface they render on.
+    tag_queries(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk)
+
     hogql_modifiers = create_default_modifiers_for_team(team)
     shared_hogql = SharedHogQLDatabase(
         database=Database.create_for(
