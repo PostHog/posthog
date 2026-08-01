@@ -573,6 +573,24 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertFalse(user_env.internal)
         self.assertEqual(user_env.environment_variables, {"EXFIL_TARGET": "https://attacker.example"})
 
+    def test_upsert_internal_sandbox_env_dedupes_only_internal_duplicates(self):
+        # Concurrent upserts can double-insert (no unique constraint on (team, name)). The
+        # dedupe must keep the oldest INTERNAL row, reassert policy on it, and never treat a
+        # same-named user-created row as a duplicate to delete.
+        user_env = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=False)
+        first = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+        second = SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+        # Pin an unambiguous creation order so keeper selection is deterministic.
+        SandboxEnvironment.objects.filter(id=first.id).update(created_at=django_timezone.now() - timedelta(minutes=1))
+
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.FULL)
+
+        self.assertEqual(str(env_id), str(first.id))
+        self.assertFalse(SandboxEnvironment.objects.filter(id=second.id).exists())
+        self.assertTrue(SandboxEnvironment.objects.filter(id=user_env.id).exists())
+        first.refresh_from_db()
+        self.assertEqual(first.network_access_level, SandboxEnvironment.NetworkAccessLevel.FULL.value)
+
     def test_upsert_internal_sandbox_env_scrubs_execution_fields(self):
         # Reasserting policy must cover the whole execution surface: env vars / repositories
         # set on the internal row between calls (however they got there) are cleared, so they
