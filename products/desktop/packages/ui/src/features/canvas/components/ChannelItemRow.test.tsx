@@ -85,7 +85,16 @@ describe("ChannelItemRow", () => {
       "Pending — no work in flight",
     ],
     [
+      // Launching: a sandbox is being claimed and the backend leaves this state
+      // on its own, so the motion is honest.
       "a queued cloud run",
+      { taskRunStatus: "queued" as const, workspaceMode: "cloud" as const },
+      "Starting",
+    ],
+    [
+      // A local run's status is never advanced, so queued here means "was
+      // launched at some point", not "is starting". Seen parked for hours.
+      "a local run parked at queued",
       { taskRunStatus: "queued" as const },
       "Pending — no work in flight",
     ],
