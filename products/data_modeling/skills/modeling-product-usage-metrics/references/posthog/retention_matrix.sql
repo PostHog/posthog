@@ -1,5 +1,7 @@
--- Weekly retention matrix: cohort by week of first event, % active in each subsequent week.
+-- Weekly retention matrix: % active in each subsequent week, by acquisition cohort.
 -- Recurring definition (active IN week N, independent per week). Replace 'core_action' with the value event.
+-- Cohort = the person's first active week WITHIN the analysis window (the standard retention convention),
+-- not their first-ever week. Widen the window, or anchor on a true first-seen week, if you need lifetime cohorts.
 WITH activity AS (
     SELECT
         person_id,
