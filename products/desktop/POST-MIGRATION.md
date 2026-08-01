@@ -27,10 +27,34 @@ scope. Add them before step 2, or the first tag produces a failed release:
 | Group | Names |
 | --- | --- |
 | Apple signing | `APPLE_*`, `CSC_*` |
-| App telemetry | `VITE_POSTHOG_API_KEY`, `VITE_POSTHOG_API_HOST`, `POSTHOG_SOURCEMAP_API_KEY`, `POSTHOG_ENV_ID`, `POSTHOG_HOST` |
+| App telemetry | `DESKTOP_VITE_POSTHOG_API_KEY`, `DESKTOP_VITE_POSTHOG_API_HOST`, `DESKTOP_POSTHOG_SOURCEMAP_API_KEY`, `DESKTOP_POSTHOG_ENV_ID`, `DESKTOP_POSTHOG_HOST` |
 | Release plumbing | `GH_APP_ARRAY_RELEASER_*`, `AWS_TWIG_APP_ASSETS_*`, `AWS_DESKTOP_APP_RELEASES_ROLE_ARN` |
 | E2E | `POSTHOG_CODE_E2E_*` (secret + vars) |
 | Other | Discord webhook, App Store Connect (mobile) |
+
+The `DESKTOP_*` names are monorepo-only. The code repo's equivalents are unprefixed
+(`POSTHOG_HOST` and so on), which would collide with the monorepo's own secrets, so the
+ported workflows read the prefixed name and pass it to the build under the original env var
+the app expects:
+
+```yaml
+POSTHOG_ENV_ID: ${{ secrets.DESKTOP_POSTHOG_ENV_ID }}
+```
+
+Copy the values across unchanged; only the secret name differs. Two of them are worth a
+second look rather than a straight copy:
+
+- `DESKTOP_POSTHOG_ENV_ID` is a numeric **project** id despite the name. It feeds the
+  `projectId` option of `@posthog/rollup-plugin` (the plugin deprecated `envId` in favour of
+  `projectId`). Read it from the project URL, `us.posthog.com/project/<N>/`.
+- `DESKTOP_POSTHOG_HOST` is optional. The plugin defaults to `https://us.i.posthog.com`
+  when it is unset, and the guard in `apps/code/vite.shared.mts` only requires the API key
+  and project id. Note the failure mode: if either of those two is missing the plugin
+  returns `null` and the build silently skips sourcemap upload instead of failing, so
+  confirm sourcemaps actually landed after the first release.
+- `DESKTOP_POSTHOG_SOURCEMAP_API_KEY` is a **personal** API key tied to whoever minted it.
+  Mint a fresh one owned by a bot or shared account so it does not break on that person's
+  key rotation.
 
 ## 2. Create the base version tag
 
