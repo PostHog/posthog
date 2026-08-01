@@ -258,6 +258,10 @@ pub struct FencedChangelogProducers {
     topic: String,
     init_timeout: Duration,
     commit_timeout: Duration,
+    /// How long the broker keeps one of our windows open before
+    /// abandoning it; distinct from `commit_timeout`, which bounds only
+    /// this process's wait on the commit call.
+    broker_txn_timeout: Duration,
     /// How long an open window admits joiners before committing.
     window: Duration,
     partitions: DashMap<u32, Arc<PartitionFence>>,
@@ -269,6 +273,7 @@ impl FencedChangelogProducers {
         topic: String,
         init_timeout: Duration,
         commit_timeout: Duration,
+        broker_txn_timeout: Duration,
         window: Duration,
     ) -> Self {
         Self {
@@ -276,6 +281,7 @@ impl FencedChangelogProducers {
             topic,
             init_timeout,
             commit_timeout,
+            broker_txn_timeout,
             window,
             partitions: DashMap::new(),
         }
@@ -289,16 +295,17 @@ impl FencedChangelogProducers {
         let kafka = self.kafka.clone();
         let tid = transactional_id(&self.topic, partition);
         let timeout = self.init_timeout;
+        let broker_txn_timeout = self.broker_txn_timeout;
         let start = Instant::now();
-        let producer =
-            spawn_blocking(move || TransactionalProducer::from_config(&kafka, &tid, timeout))
-                .await
-                .map_err(|e| format!("fence init join: {e}"))?
-                .map_err(|e| {
-                    counter!("personhog_leader_fence_init_total", "outcome" => "error")
-                        .increment(1);
-                    format!("fence init: {e}")
-                })?;
+        let producer = spawn_blocking(move || {
+            TransactionalProducer::from_config_bounded(&kafka, &tid, timeout, broker_txn_timeout)
+        })
+        .await
+        .map_err(|e| format!("fence init join: {e}"))?
+        .map_err(|e| {
+            counter!("personhog_leader_fence_init_total", "outcome" => "error").increment(1);
+            format!("fence init: {e}")
+        })?;
         counter!("personhog_leader_fence_init_total", "outcome" => "ok").increment(1);
         histogram!("personhog_leader_fence_init_ms").record(start.elapsed().as_secs_f64() * 1000.0);
         self.partitions.insert(

@@ -343,6 +343,21 @@ impl Config {
         (self.fencing_budget() * FENCING_TXN_SHARE / FENCING_SHARE_BASE).max(MIN_TXN_TIMEOUT)
     }
 
+    /// How long the broker may hold one of this pod's transactions open
+    /// before abandoning it.
+    ///
+    /// A window lives from `begin_transaction` through its admission
+    /// interval, its sends, and its commit, so the broker's patience has
+    /// to cover all three — bounding it by the commit alone would let the
+    /// broker abort a window this pod is still legitimately filling, and
+    /// the resulting epoch bump reads exactly like a fence from a real
+    /// successor.
+    pub fn fencing_broker_txn_timeout(&self) -> Duration {
+        Duration::from_millis(self.fencing_window_ms)
+            + self.fencing_message_timeout()
+            + self.fencing_txn_timeout()
+    }
+
     /// Every relation the fenced produce path depends on, checked at
     /// startup: the derivation satisfies them wherever the lease TTL
     /// leaves room, and an operator can override either knob.

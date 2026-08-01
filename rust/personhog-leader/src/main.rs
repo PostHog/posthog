@@ -222,8 +222,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.ingestion_warnings_topic.clone(),
     );
     let fenced = if config.kafka_transactional_fencing {
+        // Every one of these is derived from LEASE_TTL rather than set
+        // directly, so an operator debugging a fenced-write timeout has
+        // no way to recover them without re-running the derivation by
+        // hand.
         tracing::info!(
             window_ms = config.fencing_window_ms,
+            message_timeout_ms = config.fencing_message_timeout().as_millis(),
+            txn_timeout_ms = config.fencing_txn_timeout().as_millis(),
+            broker_txn_timeout_ms = config.fencing_broker_txn_timeout().as_millis(),
+            lease_runway_ms = config.lease_fence_runway().as_millis(),
             "broker-enforced epoch fencing enabled for the changelog"
         );
         preregister_fencing_metrics(num_partitions);
@@ -238,6 +246,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.kafka_person_state_topic.clone(),
             config.fencing_txn_timeout(),
             config.fencing_txn_timeout(),
+            config.fencing_broker_txn_timeout(),
             Duration::from_millis(config.fencing_window_ms),
         )))
     } else {

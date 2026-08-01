@@ -61,6 +61,10 @@ async fn read_committed_count(topic: &str) -> usize {
     seen
 }
 
+/// Comfortably above the test config's 5s `message.timeout.ms`, which
+/// librdkafka requires the broker bound to cover.
+const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
+
 fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelogProducers {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
@@ -69,6 +73,7 @@ fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelo
         topic.to_string(),
         Duration::from_secs(10),
         Duration::from_secs(10),
+        BROKER_TXN_TIMEOUT,
         window,
     )
 }
@@ -81,6 +86,7 @@ fn fenced_producers(topic: &str) -> FencedChangelogProducers {
         topic.to_string(),
         Duration::from_secs(10),
         Duration::from_secs(10),
+        BROKER_TXN_TIMEOUT,
         Duration::from_millis(5),
     )
 }

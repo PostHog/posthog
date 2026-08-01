@@ -37,6 +37,36 @@ impl TransactionalProducer<DefaultClientContext> {
     ) -> Result<Self, KafkaError> {
         Self::with_context(config, transactional_id, timeout, DefaultClientContext)
     }
+
+    /// A producer whose open transactions the broker abandons after
+    /// `broker_txn_timeout`, rather than after librdkafka's default
+    /// minute.
+    ///
+    /// This is a different quantity from `timeout`, which bounds how long
+    /// *this process* waits on a blocking transactional call. The broker
+    /// bound matters to everyone else: until an abandoned transaction
+    /// expires, the partition's last-stable-offset does not advance and
+    /// every `read_committed` consumer stalls behind it.
+    ///
+    /// Only a caller that also controls `message.timeout.ms` can set it,
+    /// because librdkafka requires `message.timeout.ms <=
+    /// transaction.timeout.ms` and refuses to build the producer at all
+    /// otherwise — which is why this is opt-in rather than derived from
+    /// the operation timeout.
+    pub fn from_config_bounded(
+        config: &KafkaConfig,
+        transactional_id: &str,
+        timeout: Duration,
+        broker_txn_timeout: Duration,
+    ) -> Result<Self, KafkaError> {
+        Self::build(
+            config,
+            transactional_id,
+            timeout,
+            Some(broker_txn_timeout),
+            DefaultClientContext,
+        )
+    }
 }
 
 impl<C: ClientContext> TransactionalProducer<C> {
@@ -44,6 +74,16 @@ impl<C: ClientContext> TransactionalProducer<C> {
         config: &KafkaConfig,
         transactional_id: &str,
         timeout: Duration,
+        context: C,
+    ) -> Result<Self, KafkaError> {
+        Self::build(config, transactional_id, timeout, None, context)
+    }
+
+    fn build(
+        config: &KafkaConfig,
+        transactional_id: &str,
+        timeout: Duration,
+        broker_txn_timeout: Option<Duration>,
         context: C,
     ) -> Result<Self, KafkaError> {
         let mut client_config = ClientConfig::new();
@@ -67,13 +107,24 @@ impl<C: ClientContext> TransactionalProducer<C> {
                 "queue.buffering.max.messages",
                 config.kafka_producer_queue_messages.to_string(),
             )
-            .set("transactional.id", transactional_id)
-            // Bound how long a broker holds an abandoned transaction
-            // open. Until it expires, the partition's last-stable-offset
-            // does not advance and every read_committed consumer of that
-            // partition stalls behind it, so the default (60s) is far
-            // longer than any owner should be able to strand a reader.
-            .set("transaction.timeout.ms", timeout.as_millis().to_string());
+            .set("transactional.id", transactional_id);
+
+        if let Some(broker_txn_timeout) = broker_txn_timeout {
+            let message_timeout_ms = u128::from(config.kafka_message_timeout_ms);
+            if message_timeout_ms > broker_txn_timeout.as_millis() {
+                // librdkafka reports this as a bare string from
+                // `rd_kafka_new`; say which two knobs disagree instead.
+                return Err(KafkaError::ClientCreation(format!(
+                    "message.timeout.ms ({message_timeout_ms}) exceeds the requested \
+                     transaction.timeout.ms ({}) for transactional id {transactional_id}",
+                    broker_txn_timeout.as_millis(),
+                )));
+            }
+            client_config.set(
+                "transaction.timeout.ms",
+                broker_txn_timeout.as_millis().to_string(),
+            );
+        }
 
         if config.kafka_tls {
             client_config
@@ -230,4 +281,70 @@ fn to_topic_partition_list(offsets: Vec<Offset>) -> Result<TopicPartitionList, K
         .collect();
 
     TopicPartitionList::from_topic_map(&topic_map)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// librdkafka refuses to build a transactional producer whose
+    /// `message.timeout.ms` exceeds its `transaction.timeout.ms`, and the
+    /// two are set from different places: the message timeout comes from
+    /// the shared `KafkaConfig`, the transaction timeout from whoever asks
+    /// for a bounded producer. A caller that sets only the latter gets a
+    /// producer that cannot be constructed at all — which is a startup
+    /// crash loop, not a degraded mode.
+    ///
+    /// `Duration::from_secs(10)` against the default 20s message timeout
+    /// is the combination that shape belongs to; the bounded constructor
+    /// has to reject it by name rather than let librdkafka reject it by
+    /// string.
+    #[test]
+    fn a_broker_bound_under_the_message_timeout_is_refused_by_name() {
+        let config = KafkaConfig {
+            kafka_message_timeout_ms: 20_000,
+            ..KafkaConfig::default()
+        };
+        let Err(err) = TransactionalProducer::from_config_bounded(
+            &config,
+            "test-txn-id",
+            Duration::from_secs(10),
+            Duration::from_secs(10),
+        ) else {
+            panic!("a broker bound below the message timeout must not build a producer");
+        };
+        // Deliberately asserting on the values, not the knob names:
+        // librdkafka's own rejection string names both knobs too, so a
+        // name-only assertion would pass just as well with this check
+        // removed and the failure left to the C library.
+        let message = err.to_string();
+        assert!(
+            message.contains("20000") && message.contains("10000"),
+            "the error should report the two timeouts that disagree, got: {message}"
+        );
+    }
+
+    /// The unbounded constructors must not set `transaction.timeout.ms` at
+    /// all, so a caller whose message timeout exceeds its operation
+    /// timeout keeps librdkafka's default rather than inheriting a bound
+    /// it never asked for.
+    #[test]
+    fn an_unbounded_producer_does_not_inherit_the_operation_timeout() {
+        let config = KafkaConfig {
+            kafka_message_timeout_ms: 20_000,
+            kafka_hosts: "127.0.0.1:9".to_string(),
+            ..KafkaConfig::default()
+        };
+        // No broker is listening, so this fails at the metadata ping —
+        // but it must get that far, i.e. past client construction.
+        let Err(err) =
+            TransactionalProducer::from_config(&config, "test-txn-id", Duration::from_secs(1))
+        else {
+            panic!("no broker is listening on this port");
+        };
+        assert!(
+            !err.to_string().contains("must be set"),
+            "the producer was rejected at construction rather than reaching the broker: {err}"
+        );
+    }
 }
