@@ -181,7 +181,7 @@ def sync_team_earliest_event_date(team_id: int) -> None:
     if row.earliest_event_date is not None:
         return
     resolved = resolve_team_earliest_event_date(team_id)
-    if resolved == NO_HISTORY_SENTINEL:
+    if resolved is None or resolved == NO_HISTORY_SENTINEL:
         logger.info("No events for team yet; leaving earliest event date unresolved", team_id=team_id)
         return
     update_team_earliest_event_date(organization_id, team_id, resolved)
