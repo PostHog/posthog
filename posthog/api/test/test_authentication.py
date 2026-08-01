@@ -233,7 +233,7 @@ class TestLoginAPI(APIBaseTest):
     )
     @patch("posthoganalytics.capture")
     def test_failed_login_is_captured_with_whether_the_account_exists(self, _name, account_exists, mock_capture):
-        email = self.CONFIG_EMAIL if account_exists else "typo" + self.CONFIG_EMAIL
+        email = self.user.email if account_exists else "typo" + self.user.email
         response = self.client.post("/api/login", {"email": email, "password": "wrong_password"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
