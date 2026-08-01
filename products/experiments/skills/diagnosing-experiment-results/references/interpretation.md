@@ -147,9 +147,11 @@ PostHog has Frequentist support (rolled out June 2025). Set in `stats_config`. Q
 
 A frequent source of confusion:
 
-- **Overlapping confidence intervals do not imply non-significance in Bayesian.** Overlapping intervals
-  are a _frequentist_ heuristic. In Bayesian, significance is determined by win probability, so
-  overlapping credible intervals can still indicate a clear winner.
+- **Bayesian `significant` matches credible-interval exclusion of 0.** The flag is still computed from
+  chance to win, but the threshold is the two-sided equivalent of `ci_level` (`1 - (1 - ci_level) / 2`,
+  so 0.975 at the default 95% level). That makes `significant` equivalent to "credible interval does
+  not contain 0," matching the in-app "How to read" tooltip and Frequentist CI semantics. A high CTW
+  alone (e.g. 96%) with an interval that still crosses 0 is **not** significant.
 - **p-values don't apply in Bayesian.** A question about "p < 0.05" is a frequentist frame. If the
   experiment is on Bayesian (default), redirect to win probability + credible interval.
 - **Frequentist is opt-in.** Most experiments are Bayesian unless `stats_config` explicitly selects

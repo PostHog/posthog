@@ -63,8 +63,17 @@ class BayesianResult:
 
     @property
     def is_decisive(self) -> bool:
-        """Whether result shows clear preference (chance to win > ci_level or < 1 - ci_level)."""
-        return self.chance_to_win > self.ci_level or self.chance_to_win < 1 - self.ci_level
+        """
+        Whether the result is significant, i.e. the credible interval excludes zero.
+
+        ``chance_to_win`` is a one-sided posterior tail, while ``credible_interval`` is
+        two-sided and equal-tailed. To keep "decisive" coherent with the interval, we
+        threshold the one-sided probability at ``1 - (1 - ci_level) / 2`` (0.975 for a 95%
+        level) rather than ``ci_level`` — otherwise an effect in the 0.95–0.975 band would
+        be flagged significant while its interval still contains zero.
+        """
+        upper_threshold = 1 - (1 - self.ci_level) / 2
+        return self.chance_to_win > upper_threshold or self.chance_to_win < 1 - upper_threshold
 
     @property
     def preferred_variation(self) -> str:
