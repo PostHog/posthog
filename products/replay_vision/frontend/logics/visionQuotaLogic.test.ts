@@ -64,6 +64,23 @@ describe('visionQuotaLogic', () => {
         expect(logic.values.quota?.credit_limit).toBeNull()
     })
 
+    it('shows the cap line only when it differs from the displayed monthly limit', async () => {
+        await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
+        billingLogic.actions.loadBillingSuccess({ startup_program_label: StartupProgramLabel.YC } as BillingType)
+
+        // The fixture's own 1,000 limit sits below the cap, so the cap line adds information.
+        expect(logic.values.showStartupCap).toBe(true)
+        expect(logic.values.showStartupCapLine).toBe(true)
+
+        // With no limit of its own, the displayed limit is the cap itself.
+        logic.actions.loadQuotaSuccess(makeQuota({ credit_limit: null, remaining: null }))
+        expect(logic.values.showStartupCapLine).toBe(false)
+
+        // A limit above the cap is displayed clamped to the cap, so the line would repeat it.
+        logic.actions.loadQuotaSuccess(makeQuota({ credit_limit: STARTUP_CAP_CREDITS + 100_000 }))
+        expect(logic.values.showStartupCapLine).toBe(false)
+    })
+
     it('loadQuota overwrites any optimistic adjustment with the server value', async () => {
         await expectLogic(logic).toDispatchActions(['loadQuotaSuccess'])
         logic.actions.adjustProjectedMonthly(250)

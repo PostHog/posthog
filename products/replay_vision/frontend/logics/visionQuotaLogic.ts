@@ -16,6 +16,8 @@ export interface visionQuotaLogicValues {
     displayQuota: VisionQuotaApi | null
     quota: VisionQuotaApi | null
     quotaLoading: boolean
+    showStartupCap: boolean
+    showStartupCapLine: boolean
     startupCapCredits: number | null
 }
 
@@ -53,6 +55,8 @@ export interface visionQuotaLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         startupCapCredits: (billing: BillingType | null) => number | null
         displayQuota: (quota: VisionQuotaApi | null, startupCapCredits: number | null) => VisionQuotaApi | null
+        showStartupCap: (startupCapCredits: number | null) => boolean
+        showStartupCapLine: (startupCapCredits: number | null, displayQuota: VisionQuotaApi | null) => boolean
     }
 }
 
@@ -118,6 +122,14 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         displayQuota: [
             (s) => [s.quota, s.startupCapCredits],
             (quota: VisionQuotaApi | null, capCredits: number | null) => applyStartupCap(quota, capCredits),
+        ],
+        // Single gate for the cap copy so the spend surfaces can't drift on when it shows.
+        showStartupCap: [(s) => [s.startupCapCredits], (capCredits: number | null) => capCredits !== null],
+        // Cost breakdowns already show "Monthly limit"; a cap line only adds information when the two differ.
+        showStartupCapLine: [
+            (s) => [s.startupCapCredits, s.displayQuota],
+            (capCredits: number | null, quota: VisionQuotaApi | null) =>
+                capCredits !== null && quota?.credit_limit !== capCredits,
         ],
     }),
 

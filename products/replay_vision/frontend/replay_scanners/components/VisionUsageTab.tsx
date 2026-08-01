@@ -53,7 +53,7 @@ const SPEND_CHART_FORMULA = `(${SPEND_CHART_MODEL_PRICES.map(
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
     const { setSpendChartInterval } = useActions(visionUsageLogic)
-    const { displayQuota: quota, startupCapCredits } = useValues(visionQuotaLogic)
+    const { displayQuota: quota, showStartupCap } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
@@ -172,7 +172,7 @@ export function VisionUsageTab(): JSX.Element {
                             <Tooltip
                                 title={`≈ ${creditsToUsd(quota.credits_used)}${
                                     hasCap ? ` of ${creditsToUsd(quota.credit_limit ?? 0)}` : ''
-                                }${startupCapCredits !== null ? `. ${STARTUP_CAP_EXPLANATION}` : ''}`}
+                                }${showStartupCap ? `. ${STARTUP_CAP_EXPLANATION}` : ''}`}
                             >
                                 <span className="text-xs text-muted tabular-nums">
                                     {hasCap

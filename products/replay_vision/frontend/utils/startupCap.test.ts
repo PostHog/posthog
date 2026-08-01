@@ -14,21 +14,37 @@ describe('applyStartupCap', () => {
     })
 
     it.each([
-        ['no cap applies', makeQuota({ credit_limit: null }), null],
-        ['there is no quota yet', null, STARTUP_CAP_CREDITS],
-    ])('passes the quota through untouched when %s', (_name, quota, cap) => {
+        { name: 'no cap applies', quota: makeQuota(), cap: null },
+        { name: 'there is no quota yet', quota: null, cap: STARTUP_CAP_CREDITS },
+    ])('passes the quota through untouched when $name', ({ quota, cap }) => {
         expect(applyStartupCap(quota, cap)).toBe(quota)
     })
 
     it.each([
-        ['under the cap', 1_000, STARTUP_CAP_CREDITS - 1_000, false],
-        ['past the cap', STARTUP_CAP_CREDITS + 5_000, 0, true],
-    ])(
-        'recomputes remaining and exhausted against the capped limit when spend is %s',
-        (_name, creditsUsed: number, remaining: number, exhausted: boolean) => {
-            const quota = makeQuota({ credit_limit: null, credits_used: creditsUsed, remaining: null })
+        {
+            name: 'recomputes remaining against the cap when spend is under it',
+            creditLimit: null,
+            creditsUsed: 1_000,
+            remaining: STARTUP_CAP_CREDITS - 1_000,
+            exhausted: false,
+        },
+        {
+            name: 'never exhausts past the cap when billing has no real limit',
+            creditLimit: null,
+            creditsUsed: STARTUP_CAP_CREDITS + 5_000,
+            remaining: 0,
+            exhausted: false,
+        },
+        {
+            name: 'exhausts past the cap when billing has a real limit',
+            creditLimit: STARTUP_CAP_CREDITS + 100_000,
+            creditsUsed: STARTUP_CAP_CREDITS + 5_000,
+            remaining: 0,
+            exhausted: true,
+        },
+    ])('$name', ({ creditLimit, creditsUsed, remaining, exhausted }) => {
+        const quota = makeQuota({ credit_limit: creditLimit, credits_used: creditsUsed, remaining: null })
 
-            expect(applyStartupCap(quota, STARTUP_CAP_CREDITS)).toMatchObject({ remaining, exhausted })
-        }
-    )
+        expect(applyStartupCap(quota, STARTUP_CAP_CREDITS)).toMatchObject({ remaining, exhausted })
+    })
 })

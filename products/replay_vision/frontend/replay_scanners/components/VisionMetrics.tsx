@@ -26,7 +26,13 @@ const COLLECTION_ID = 'replay-vision-list-observations'
 export function VisionMetrics(): JSX.Element {
     const { scannerStats, chartDateFrom, chartDateTo } = useValues(replayScannersLogic)
     const { setChartDateRange } = useActions(replayScannersLogic)
-    const { displayQuota: quota, quotaLoading, startupCapCredits } = useValues(visionQuotaLogic)
+    const {
+        displayQuota: quota,
+        quotaLoading,
+        startupCapCredits,
+        showStartupCap,
+        showStartupCapLine,
+    } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, projectedPct } = projection
@@ -154,10 +160,12 @@ export function VisionMetrics(): JSX.Element {
                                                     Monthly limit:{' '}
                                                     <strong>{formatCreditCount(quota.credit_limit ?? 0)}</strong>
                                                 </div>
-                                                {startupCapCredits !== null && (
+                                                {showStartupCapLine && (
                                                     <div>
                                                         Startup program cap:{' '}
-                                                        <strong>{formatCreditCount(startupCapCredits)}/month</strong>
+                                                        <strong>
+                                                            {formatCreditCount(startupCapCredits ?? 0)}/month
+                                                        </strong>
                                                     </div>
                                                 )}
                                                 {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
@@ -189,7 +197,7 @@ export function VisionMetrics(): JSX.Element {
                                     spend.
                                 </div>
                             )}
-                            {startupCapCredits !== null && (
+                            {showStartupCap && (
                                 <div className="text-xs text-muted mt-1.5">{STARTUP_CAP_EXPLANATION}</div>
                             )}
                             <div className="mt-2">
