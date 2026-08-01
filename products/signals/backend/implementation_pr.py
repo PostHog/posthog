@@ -9,7 +9,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import SignalReport
-from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -17,21 +17,28 @@ logger = structlog.get_logger(__name__)
 
 @dataclass(frozen=True)
 class ImplementationPr:
-    """The one implementation PR surfaced for a report, and whether the webhook saw it merge."""
+    """The one PR surfaced for a report, and whether the webhook saw it merge."""
 
     url: str
     merged: bool
 
 
 def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str, ImplementationPr]:
-    """The implementation PR surfaced for each report, with its merge state, when one exists.
+    """The PR surfaced for each report, with its merge state, when one exists.
 
     The task↔report association comes from `SignalReport.associated_task_runs_for_reports` (the
     unified view of the `task_run` artefact log + legacy gate rows, batched over the whole page);
     the facade then resolves the latest PR-bearing run for each task, so multiple runs of a task
     collapse to the newest PR.
 
-    A report can be associated with several implementation tasks (retries), but only one PR is
+    Deliberately unfiltered by task-run `type`, matching `SignalReport.associated_task_runs_filter`
+    and `_implementation_pr_report_filter`: a PR can come from an implementation task or a Discuss
+    task (its `output.pr_url` is populated the same way, task-type-agnostically), so narrowing to
+    `type=implementation` here would let this lookup disagree with the other two paths that decide
+    whether a report "has a PR". The non-empty `pr_url` filter inside the facade already supplies
+    the specificity — only PR-bearing runs match.
+
+    A report can be associated with several PR-bearing tasks (retries), but only one PR is
     surfaced — the first associated task that has one. The merge flag is read from *that* task, so
     the URL and its state always describe the same PR. Reading them independently would let a
     retry's merged PR vouch for a different PR's URL.
@@ -39,12 +46,11 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
     if not report_ids:
         return {}
 
-    # (report_id, task_id) for each report's implementation task(s); signals owns this mapping.
+    # (report_id, task_id) for each report's associated task(s); signals owns this mapping.
     # Batched across the whole page so association costs two queries, not two per report (N+1).
     runs_by_report = SignalReport.associated_task_runs_for_reports(
         report_ids=[str(report_id) for report_id in report_ids],
         product=SIGNALS_PRODUCT,
-        type=TASK_RUN_TYPE_IMPLEMENTATION,
     )
     pairs: list[tuple[str, str]] = [
         (report_id, run.task_id) for report_id, runs in runs_by_report.items() for run in runs
@@ -65,7 +71,7 @@ def fetch_implementation_pr_state_for_reports(report_ids: list[str]) -> dict[str
 
 
 def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
-    """PR URL from the latest implementation task run for each report, when available."""
+    """PR URL from the latest PR-bearing task run for each report, when available."""
     return {report_id: pr.url for report_id, pr in fetch_implementation_pr_state_for_reports(report_ids).items()}
 
 

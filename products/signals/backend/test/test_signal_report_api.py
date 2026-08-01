@@ -645,6 +645,36 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/o/r/pull/7"
 
+    def test_implementation_pr_url_resolves_from_discussion_only_association(self):
+        # A PR opened by a Discuss task (type="discussion", no implementation task ever ran) must
+        # still surface here — otherwise the report matches the "has a PR" tab filter while the
+        # detail response serializes a null URL.
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        report = self._create_report()
+        task = Task.objects.create(
+            team=self.team, title="t", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type="discussion",
+            task_id=str(task.id),
+        )
+        TaskRun.objects.create(
+            team=self.team,
+            task=task,
+            status=TaskRun.Status.COMPLETED,
+            output={"pr_url": "https://github.com/o/r/pull/9"},
+        )
+
+        list_row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+
+        assert list_row["implementation_pr_url"] == "https://github.com/o/r/pull/9"
+        assert detail["implementation_pr_url"] == "https://github.com/o/r/pull/9"
+
     @parameterized.expand(
         [
             # The badge reads this flag, so it must track the webhook's merge record rather than the
