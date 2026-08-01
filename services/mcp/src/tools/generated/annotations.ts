@@ -103,6 +103,8 @@ const annotationsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/`,
             query: {
+                date_from: params.date_from,
+                date_to: params.date_to,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,

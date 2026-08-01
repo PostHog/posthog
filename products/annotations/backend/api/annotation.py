@@ -1,8 +1,10 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from django.db.models import Q, QuerySet
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, pagination, serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -132,6 +134,40 @@ class AnnotationsLimitOffsetPagination(pagination.LimitOffsetPagination):
     default_limit = 1000
 
 
+@extend_schema_field(OpenApiTypes.STR)
+class AnnotationDateTimeField(serializers.DateTimeField):
+    pass
+
+
+class AnnotationListQuerySerializer(serializers.Serializer):
+    date_from = AnnotationDateTimeField(
+        required=False,
+        default_timezone=UTC,
+        help_text=(
+            "Inclusive start of the annotation date range in ISO 8601 format. "
+            "Values without a time or timezone are interpreted as UTC."
+        ),
+        error_messages={"invalid": "Invalid date range: date_from must be a valid ISO 8601 date"},
+    )
+    date_to = AnnotationDateTimeField(
+        required=False,
+        default_timezone=UTC,
+        help_text=(
+            "Inclusive end of the annotation date range in ISO 8601 format. "
+            "Values without a time or timezone are interpreted as UTC."
+        ),
+        error_messages={"invalid": "Invalid date range: date_to must be a valid ISO 8601 date"},
+    )
+
+    def validate(self, attrs: dict[str, datetime]) -> dict[str, datetime]:
+        date_from = attrs.get("date_from")
+        date_to = attrs.get("date_to")
+        if date_from is not None and date_to is not None and date_from > date_to:
+            raise serializers.ValidationError("Invalid date range: date_from must be before date_to")
+        return attrs
+
+
+@extend_schema_view(list=extend_schema(parameters=[AnnotationListQuerySerializer]))
 class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
@@ -171,28 +207,15 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
             queryset = queryset.filter(scope=scope)
 
         # Add date range filtering
-        date_from = self.request.query_params.get("date_from")
-        date_to = self.request.query_params.get("date_to")
+        query_serializer = AnnotationListQuerySerializer(data=self.request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        date_from = query_serializer.validated_data.get("date_from")
+        date_to = query_serializer.validated_data.get("date_to")
 
-        date_from_parsed = None
-        date_to_parsed = None
-
-        if date_from:
-            try:
-                date_from_parsed = datetime.fromisoformat(date_from.replace("Z", "+00:00"))
-                queryset = queryset.filter(date_marker__gte=date_from_parsed)
-            except ValueError:
-                raise serializers.ValidationError("Invalid date range: date_from must be a valid ISO 8601 date")
-
-        if date_to:
-            try:
-                date_to_parsed = datetime.fromisoformat(date_to.replace("Z", "+00:00"))
-                queryset = queryset.filter(date_marker__lte=date_to_parsed)
-            except ValueError:
-                raise serializers.ValidationError("Invalid date range: date_to must be a valid ISO 8601 date")
-
-        if date_from_parsed and date_to_parsed and date_from_parsed > date_to_parsed:
-            raise serializers.ValidationError("Invalid date range: date_from must be before date_to")
+        if date_from is not None:
+            queryset = queryset.filter(date_marker__gte=date_from)
+        if date_to is not None:
+            queryset = queryset.filter(date_marker__lte=date_to)
 
         # Add is_emoji filtering
         is_emoji = self.request.query_params.get("is_emoji")

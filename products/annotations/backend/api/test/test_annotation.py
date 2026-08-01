@@ -428,6 +428,33 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         else:
             assert len(results) == 0
 
+    def test_filter_annotations_by_mixed_timezone_date_range(self) -> None:
+        included_annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Included annotation",
+            date_marker=datetime(2026, 1, 1, 12, tzinfo=ZoneInfo("UTC")),
+        )
+        Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Excluded annotation",
+            date_marker=datetime(2025, 12, 31, 12, tzinfo=ZoneInfo("UTC")),
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "date_from": "2026-01-01",
+                "date_to": "2026-01-02T00:00:00Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [result["id"] for result in response.json()["results"]] == [included_annotation.id]
+
     def test_filter_annotations_400_for_invalid_scope(self) -> None:
         response = self.client.get(
             f"/api/projects/{self.team.id}/annotations/",

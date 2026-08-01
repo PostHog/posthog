@@ -20,6 +20,18 @@ export const AnnotationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const AnnotationsListQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod
+        .string()
+        .optional()
+        .describe(
+            'Inclusive start of the annotation date range in ISO 8601 format. Values without a time or timezone are interpreted as UTC.'
+        ),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Inclusive end of the annotation date range in ISO 8601 format. Values without a time or timezone are interpreted as UTC.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),

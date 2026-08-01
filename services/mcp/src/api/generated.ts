@@ -75154,6 +75154,14 @@ export namespace Schemas {
 
     export type AnnotationsListParams = {
     /**
+     * Inclusive start of the annotation date range in ISO 8601 format. Values without a time or timezone are interpreted as UTC.
+     */
+    date_from?: string;
+    /**
+     * Inclusive end of the annotation date range in ISO 8601 format. Values without a time or timezone are interpreted as UTC.
+     */
+    date_to?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
