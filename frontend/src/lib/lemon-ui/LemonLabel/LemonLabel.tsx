@@ -35,10 +35,12 @@ export function LemonLabel({
     ...props
 }: LemonLabelProps): JSX.Element {
     return (
-        <label className={clsx('LemonLabel', className)} htmlFor={htmlFor} {...props}>
-            {children}
+        <span className={clsx('LemonLabel', className)}>
+            <label htmlFor={htmlFor} {...props}>
+                {children}
 
-            {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}
+                {showOptional ? <span className="LemonLabel__extra">(optional)</span> : null}
+            </label>
 
             {onExplanationClick ? (
                 <Link onClick={onExplanationClick}>
@@ -59,6 +61,6 @@ export function LemonLabel({
             ) : null}
 
             {premiumFeature && <PayGateIcon feature={premiumFeature} />}
-        </label>
+        </span>
     )
 }
