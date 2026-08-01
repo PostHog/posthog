@@ -1332,6 +1332,51 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         for result in results:
             assert "timestamp" in result
 
+    def test_get_matching_events_with_two_anded_event_filters(self) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        session_id = str(uuid7())
+        self.produce_replay_summary("user", session_id, base_time)
+        exposure_event_id = _create_event(
+            event="$feature_flag_called",
+            properties={"$session_id": session_id},
+            team=self.team,
+            distinct_id=uuid7(),
+            timestamp=base_time + timedelta(seconds=1),
+        )
+        metric_event_id = _create_event(
+            event="alert creation completed",
+            properties={"$session_id": session_id},
+            team=self.team,
+            distinct_id=uuid7(),
+            timestamp=base_time + timedelta(seconds=10),
+        )
+        _create_event(
+            event="an event neither filter asks for",
+            properties={"$session_id": session_id},
+            team=self.team,
+            distinct_id=uuid7(),
+            timestamp=base_time + timedelta(seconds=5),
+        )
+
+        # The shape the experiment recordings tab sends once a metric is picked: the exposure
+        # event ANDed with the metric's event. No single event carries both names, so matching
+        # them against each other rather than against the session finds nothing.
+        query_params = [
+            f'session_ids=["{session_id}"]',
+            'events=[{"id": "$feature_flag_called", "type": "events", "order": 0, "name": "$feature_flag_called"},'
+            ' {"id": "alert creation completed", "type": "events", "order": 1, "name": "alert creation completed"}]',
+            "operand=AND",
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        result_uuids = sorted([r["uuid"] for r in response.json()["results"]])
+        assert result_uuids == sorted([exposure_event_id, metric_event_id])
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:
         query_params = "&".join(
