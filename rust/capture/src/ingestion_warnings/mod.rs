@@ -23,6 +23,7 @@
 //! This module itself holds only what more than one pipeline genuinely shares.
 
 pub mod legacy;
+pub mod otel;
 
 use std::collections::HashSet;
 
