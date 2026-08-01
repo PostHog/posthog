@@ -1,0 +1,49 @@
+{
+  "name": "@posthog/web",
+  "version": "0.0.0-dev",
+  "private": true,
+  "description": "PostHog",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config=tests/e2e/playwright.config.ts --ui"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "0.22.1",
+    "@inversifyjs/strongly-typed": "2.2.0",
+    "@pierre/diffs": "^1.2.10",
+    "@posthog/agent": "workspace:*",
+    "@posthog/core": "workspace:*",
+    "@posthog/di": "workspace:*",
+    "@posthog/host-router": "workspace:*",
+    "@posthog/host-trpc": "workspace:*",
+    "@posthog/platform": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "@posthog/ui": "workspace:*",
+    "@posthog/workspace-client": "workspace:*",
+    "@tanstack/react-query": "^5.100.14",
+    "@trpc/client": "^11.17.0",
+    "@trpc/server": "^11.17.0",
+    "@trpc/tanstack-react-query": "^11.17.0",
+    "inversify": "^7.10.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6",
+    "reflect-metadata": "^0.2.2",
+    "superjson": "catalog:",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@tailwindcss/vite": "^4.2.2",
+    "@tanstack/router-plugin": "catalog:",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.0.7"
+  }
+}
