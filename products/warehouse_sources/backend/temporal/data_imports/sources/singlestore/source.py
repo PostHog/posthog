@@ -25,6 +25,7 @@ class SinglestoreSource(SimpleSource[SinglestoreSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.SINGLESTORE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             label="SingleStore, Inc.",
             iconPath="/static/services/singlestore.png",
             fields=cast(list[FieldType], []),

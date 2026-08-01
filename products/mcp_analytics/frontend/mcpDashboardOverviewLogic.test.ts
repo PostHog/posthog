@@ -19,12 +19,12 @@ import {
     buildKpiWindow,
     buildToolDailySeries,
     deltaPct,
-    lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
     type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
+import { BUCKET_FORMAT } from './timeBuckets'
 
 jest.mock('lib/api')
 jest.mock('./generated/api', () => ({
@@ -219,27 +219,6 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
-    describe('lastBucketIsInProgress', () => {
-        const tz = 'UTC'
-        const keys = ['2026-06-27 00:00:00', '2026-06-28 00:00:00', '2026-06-29 00:00:00']
-
-        it('flags the tail when the last bucket is the interval containing now', () => {
-            const now = dayjs.tz('2026-06-29 09:15:00', tz)
-            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
-        })
-
-        it('leaves the tail solid when the window ends in the past', () => {
-            const now = dayjs.tz('2026-07-05 09:15:00', tz)
-            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(false)
-        })
-
-        it('does not dash when there is no segment to dash', () => {
-            const now = dayjs.tz('2026-06-29 09:15:00', tz)
-            expect(lastBucketIsInProgress(['2026-06-29 00:00:00'], tz, 'day', now)).toBe(false)
-            expect(lastBucketIsInProgress([], tz, 'day', now)).toBe(false)
-        })
-    })
-
     describe('buildKpiWindow', () => {
         it.each([
             ['2024-01-08', '2024-01-15', 'day', '2024-01-08 00:00:00', '2023-12-31'],
@@ -413,6 +392,39 @@ describe('mcpDashboardOverviewLogic', () => {
         })
     })
 
+    describe('kpiIncompleteTail', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+            jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] })
+        })
+
+        // Reads the sparkline's own labels rather than the zero-filled axis: on a day with no calls
+        // yet the KPI series stops at yesterday, which is settled, so dashing its last point would
+        // mark a complete bucket as in progress.
+        it('tracks the KPI sparkline labels, not the chart axis', async () => {
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const bucket = (daysAgo: number): string =>
+                dayjs().tz(logic.values.timezone).subtract(daysAgo, 'day').startOf('day').format(BUCKET_FORMAT)
+            const row = (daysAgo: number): BucketRow => ({
+                bucket: bucket(daysAgo),
+                sessions: 3,
+                tool_calls: 30,
+                errors: 1,
+                p95: 100,
+            })
+
+            logic.actions.loadKPIsSuccess(buildKPIs([row(1), row(0)], bucket(1)))
+            expect(logic.values.kpiIncompleteTail).toBe(true)
+
+            logic.actions.loadKPIsSuccess(buildKPIs([row(3), row(2)], bucket(3)))
+            expect(logic.values.kpiIncompleteTail).toBe(false)
+        })
+    })
+
     describe('filter wiring', () => {
         beforeEach(() => {
             jest.clearAllMocks()
@@ -465,7 +477,7 @@ describe('mcpDashboardOverviewLogic', () => {
             const bucketed = mockApi.query.mock.calls
                 .map((call) => (call[0] as any).query)
                 .filter((query: string | undefined): query is string => !!query?.includes('dateTrunc('))
-            expect(bucketed).toHaveLength(3)
+            expect(bucketed).toHaveLength(1)
             expect(bucketed.filter((query) => !query.includes('toString(dateTrunc('))).toEqual([])
         })
 

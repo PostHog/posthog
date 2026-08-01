@@ -651,7 +651,7 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
 
     body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
-    signature, ts = sign_slack_request(body, signing_secret)
+    signed = sign_slack_request(body, signing_secret)
 
     try:
         response = requests.post(
@@ -659,8 +659,8 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "X-Slack-Signature": signature,
-                "X-Slack-Request-Timestamp": ts,
+                "X-Slack-Signature": signed.signature,
+                "X-Slack-Request-Timestamp": signed.timestamp,
                 REGION_PROXY_HEADER: "1",
             },
             timeout=WORKSPACE_CLAIMS_TIMEOUT_SECONDS,

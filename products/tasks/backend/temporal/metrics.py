@@ -200,14 +200,25 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
-def increment_sandbox_created(runtime: str) -> None:
-    """Record a sandbox creation, labeled by runtime ("vm" or "gvisor")."""
+def record_sandbox_created(runtime: str, image_kind: str, image_fallback: bool, latency_ms: int | None) -> None:
     try:
-        meter = _metric_meter({"runtime": runtime})
+        meter = _metric_meter(
+            {
+                "runtime": runtime,
+                "image_kind": image_kind,
+                "image_fallback": _bool_label(image_fallback),
+            }
+        )
         meter.create_counter(
             "tasks_process_sandbox_created",
-            "Sandboxes created for process-task runs by runtime",
+            "Sandboxes created for process-task runs by runtime and image kind",
         ).add(1)
+        if latency_ms is not None:
+            meter.create_histogram_timedelta(
+                "tasks_process_sandbox_creation_latency",
+                "Sandbox creation latency by runtime and image kind",
+                unit="ms",
+            ).record(dt.timedelta(milliseconds=latency_ms))
     except Exception:
         pass
 

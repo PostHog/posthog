@@ -251,6 +251,17 @@ class TestSyncInstallationTools(ClickhouseTestMixin, APIBaseTest):
         assert tool.removed_at is None
 
     @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
+    def test_sync_persists_upstream_annotations(self, mock_fetch):
+        installation = self._installation()
+        mock_fetch.return_value = [{"name": "search", "annotations": {"destructiveHint": True}}]
+        sync_installation_tools(installation)
+        assert installation.tools.get(tool_name="search").annotations == {"destructiveHint": True}
+
+        mock_fetch.return_value = [{"name": "search", "annotations": {"destructiveHint": False}}]
+        sync_installation_tools(installation)
+        assert installation.tools.get(tool_name="search").annotations == {"destructiveHint": False}
+
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools")
     def test_disappeared_tool_marked_removed_state_preserved(self, mock_fetch):
         installation = self._installation()
         mock_fetch.return_value = [{"name": "search"}]
