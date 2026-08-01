@@ -2125,7 +2125,7 @@ export const ExperimentSessionBucketEnumApi = {
  * Request body for the session-bucket endpoint.
  */
 export interface ExperimentSessionBucketRequestApi {
-    /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free — they say what happened in the session, not whether it helped or hurt the metric.
+    /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
      *
      * * `fired_any` - fired_any
      * * `no_metric_activity` - no_metric_activity
@@ -2184,9 +2184,9 @@ export interface ExperimentSessionBucketResponseApi {
     date_from: string
     /** End of the window scanned: the experiment's end date, or now while it runs. */
     date_to: string
-    /** Whether the project's test-account filters were applied, following the experiment's exposure criteria — the same rule the experiment's recordings list uses. */
+    /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
     filter_test_accounts: boolean
-    /** True when the exposed population was matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', not 'the exposure moment was captured' - the flag's value on each event, so a returning user can appear under a variant they were re-bucketed into later. */
+    /** True when the exposed population was matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', not 'the exposure moment was captured'. The variant comes from the flag's value on each event, so a returning user can appear under a variant they were re-bucketed into later. */
     used_exposure_fallback: boolean
 }
 

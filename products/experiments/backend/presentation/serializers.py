@@ -1698,7 +1698,7 @@ class ExperimentSessionBucketRequestSerializer(serializers.Serializer):
             "Which question the returned session set answers. 'fired_any': the session fired at least one event "
             "of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the "
             "session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and "
-            "never reached its last one. All three are session-scoped and goal-free — they say what happened in "
+            "never reached its last one. All three are session-scoped and goal-free: they say what happened in "
             "the session, not whether it helped or hurt the metric."
         ),
     )
@@ -1801,7 +1801,7 @@ class ExperimentSessionBucketResponseSerializer(serializers.Serializer):
     filter_test_accounts = serializers.BooleanField(
         help_text=(
             "Whether the project's test-account filters were applied, following the experiment's exposure "
-            "criteria — the same rule the experiment's recordings list uses."
+            "criteria, the same rule the experiment's recordings list uses."
         )
     )
     used_exposure_fallback = serializers.BooleanField(
@@ -1809,7 +1809,7 @@ class ExperimentSessionBucketResponseSerializer(serializers.Serializer):
             "True when the exposed population was matched on the stamped $feature/<flag key> event property "
             "instead of the exposure event, because the default exposure event has only ever been captured "
             "server-side and can never match a session. The sessions then mean 'the flag was active in this "
-            "session', not 'the exposure moment was captured' - the flag's value on each event, so a returning "
-            "user can appear under a variant they were re-bucketed into later."
+            "session', not 'the exposure moment was captured'. The variant comes from the flag's value on each "
+            "event, so a returning user can appear under a variant they were re-bucketed into later."
         )
     )

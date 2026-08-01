@@ -1079,7 +1079,7 @@ export const ExperimentsSessionBucketsCreateBody = /* @__PURE__ */ zod
                 '\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff'
             )
             .describe(
-                "Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free — they say what happened in the session, not whether it helped or hurt the metric.\n\n\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff"
+                "Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.\n\n\* `fired_any` - fired_any\n\* `no_metric_activity` - no_metric_activity\n\* `funnel_dropoff` - funnel_dropoff"
             ),
         metric_uuids: zod
             .array(zod.string().describe("UUID of one of the experiment's metrics."))
