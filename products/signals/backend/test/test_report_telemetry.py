@@ -70,6 +70,36 @@ async def test_started_and_ready_fire_expected_captures(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_in_progress_fires_rerun_event_on_second_run(ateam):
+    """A report re-entering in_progress after its first run must not count as a new
+    "signal_report_started" — that's what made the started-reports alert fire on pipeline
+    backlog drains instead of genuine new-report volume."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.CANDIDATE,
+        signal_count=2,
+        total_weight=1.2,
+        run_count=1,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture") as capture:
+        await mark_report_in_progress_activity(
+            MarkReportInProgressInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                signal_count=2,
+                source_products=["zendesk"],
+            )
+        )
+
+    events = [call.kwargs for call in capture.call_args_list if call.kwargs["event"] != "signal_report_status_changed"]
+    assert [e["event"] for e in events] == ["signal_report_rerun"]
+    assert events[0]["properties"]["run_count"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_failed_fires_completed_with_failure_reason(ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,

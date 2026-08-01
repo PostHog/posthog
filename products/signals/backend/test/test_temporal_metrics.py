@@ -40,6 +40,7 @@ class TestCounterHelpers:
             metrics.increment_funnel(metrics.FUNNEL_STAGE_GROUPED, "error_tracking")
             metrics.increment_dropped("grouping_parallel", "ValueError")
             metrics.increment_report_completed("ready")
+            metrics.increment_report_started(is_rerun=False)
             metrics.increment_llm_call("match", metrics.LLM_STATUS_OK)
             metrics.increment_ch_wait_timeout()
             metrics.increment_scout_run("completed")
@@ -65,6 +66,16 @@ class TestCounterHelpers:
             metrics.increment_report_completed("not_actionable")
 
         assert get_meter.call_args[0][0] == {"result": "not_actionable"}
+
+    def test_report_started_label_splits_by_rerun(self):
+        meter = _mock_meter()
+        with (
+            patch.object(metrics, "_in_temporal_context", return_value=True),
+            patch.object(metrics, "get_metric_meter", return_value=meter) as get_meter,
+        ):
+            metrics.increment_report_started(is_rerun=True)
+
+        assert get_meter.call_args[0][0] == {"is_rerun": "true"}
 
     def test_dropped_labels(self):
         meter = _mock_meter()

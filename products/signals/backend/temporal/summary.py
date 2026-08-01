@@ -50,6 +50,7 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.types import (
     RERESEARCH_MAX_SIGNALS,
+    RUNAWAY_RERUN_THRESHOLD,
     SignalData,
     SignalReportSummaryWorkflowInputs,
 )
@@ -449,9 +450,14 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
         )
         return
 
+    is_rerun = run_count > 1
+    metrics.increment_report_started(is_rerun=is_rerun)
+
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
     _capture_report_event(
-        event="signal_report_started",
+        # A report re-enters in_progress on every re-research or reset, not just on its first run.
+        # Keep those series apart so an alert on "new reports" isn't drowned by retry volume.
+        event="signal_report_rerun" if is_rerun else "signal_report_started",
         team=team,
         organization=team.organization,
         report_id=input.report_id,
@@ -464,6 +470,12 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
         report_id=input.report_id,
         signal_count=input.signal_count,
     )
+    if run_count >= RUNAWAY_RERUN_THRESHOLD:
+        logger.warning(
+            f"Report {input.report_id} has re-run {run_count} times, exceeding the runaway rerun threshold",
+            report_id=input.report_id,
+            run_count=run_count,
+        )
 
 
 @dataclass

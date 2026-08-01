@@ -56,6 +56,21 @@ def increment_report_completed(result: str) -> None:
     ).add(1)
 
 
+def increment_report_started(is_rerun: bool) -> None:
+    """Count a report entering in_progress, split by genuine first run vs re-run.
+
+    A single report can transition into in_progress many times over its lifetime
+    (re-research, resets), so this splits the series to keep "new report" volume
+    distinguishable from "pipeline is retrying" volume.
+    """
+    if not _in_temporal_context():
+        return
+    get_metric_meter({"is_rerun": str(is_rerun).lower()}).create_counter(
+        "signals_reports_started_total",
+        "Signal reports entering in_progress, split by first run vs re-run",
+    ).add(1)
+
+
 def increment_llm_call(stage: str, status: str) -> None:
     """Count an LLM call on the grouping/summary hot path by stage and outcome."""
     if not _in_temporal_context():

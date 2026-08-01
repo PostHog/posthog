@@ -7,6 +7,10 @@ from typing import Any, Optional
 # re-researching on new signals; signals are still assigned. See assign_and_emit_signal_activity.
 RERESEARCH_MAX_SIGNALS = int(os.getenv("SIGNAL_RERESEARCH_MAX_SIGNALS", "10"))
 
+# Above this many runs, a report re-entering in_progress logs a warning so a runaway
+# re-research loop is visible on its own instead of blending into overall run volume.
+RUNAWAY_RERUN_THRESHOLD = int(os.getenv("SIGNAL_RUNAWAY_RERUN_THRESHOLD", "20"))
+
 
 @dataclass
 class EmitSignalInputs:
