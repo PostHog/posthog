@@ -264,9 +264,12 @@ def get_experiment_session_bucket(
     # and an empty bucket that's really an unlinkable event would read as "no sessions did this".
     # An action-based exposure has no single event name to look up, so it fails open, the same
     # posture action metric sources get.
+    # Collected per source, not per metric: `_source_event_names` is all-or-nothing, so a funnel
+    # with an action step among its named ones would contribute none of its event names and the
+    # boundary check below would pass on a name the lookup never asked about.
     lookup_names: set[str] = {exposure_event} if exposure_event is not None else set()
     for metric in requested:
-        lookup_names |= _source_event_names(metric) or set()
+        lookup_names |= _concrete_event_names(metric)
     never_linked = _never_session_linked_events(team, lookup_names)
     use_exposure_fallback = exposure_event == DEFAULT_EXPOSURE_EVENT and exposure_event in never_linked
     if exposure_event in never_linked and not use_exposure_fallback:
@@ -419,6 +422,16 @@ def _exclusion_reason(metric: MetricEventSource, never_linked: set[str]) -> Opti
     if source_events is not None and source_events <= never_linked:
         return SERVER_SIDE_EXCLUSION_REASON
     return None
+
+
+def _concrete_event_names(metric: MetricEventSource) -> set[str]:
+    """Every named event this metric counts, skipping the sources that have no single name.
+
+    What the linkability lookup reads. Deliberately not `_source_event_names`: that one answers a
+    question about the metric as a whole and gives up entirely on an action source, which would
+    leave a funnel's named boundary steps unchecked.
+    """
+    return {source.node.event for source in metric.sources if isinstance(source.node, EventsNode) and source.node.event}
 
 
 def _source_event_names(metric: MetricEventSource) -> Optional[set[str]]:

@@ -346,6 +346,26 @@ class TestExperimentSessionBuckets(ClickhouseTestMixin, APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert expected_reason in response.json()["detail"]
 
+    def test_funnel_dropoff_boundary_check_survives_an_action_step(self) -> None:
+        action = Action.objects.create(team=self.team, name="Viewed cart", steps_json=[{"event": "cart viewed"}])
+        metric = _funnel(
+            "a7777777-7777-7777-7777-777777777777",
+            "Checkout via action",
+            [CART, {"kind": "ActionsNode", "id": action.pk}, SERVER_CHARGE],
+        )
+        experiment = self._create_experiment(metrics=[metric])
+        self._session(events=[("cart viewed", datetime(2026, 1, 9, 10, 5, tzinfo=UTC))])
+        flush_persons_and_events()
+
+        response = self._post_bucket(experiment, bucket="funnel_dropoff", metric_uuids=[metric["uuid"]])
+
+        # An action among the steps makes the metric's event names unresolvable as a whole, but the
+        # boundary steps are still concrete events. Looking names up per metric rather than per
+        # source would leave the completion event out of the linkability read, and the boundary
+        # check would pass on a name it never asked about.
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "captured server-side" in response.json()["detail"]
+
     def test_funnel_dropoff_allows_an_unmatchable_step_between_the_boundaries(self) -> None:
         metric = _funnel("a5555555-5555-5555-5555-555555555555", "Checkout", [CART, SERVER_CHARGE, PURCHASE])
         experiment = self._create_experiment(metrics=[metric])
