@@ -2,9 +2,9 @@
 
 This document summarizes the automated checks executed after every DuckLake copy workflow. Both workflows (data modeling and data imports) run verification activities that issue direct DuckDB comparisons between the Delta source and the freshly created DuckLake table. YAML config files add configurable SQL checks (for example, a row-count delta), while the workflow code enforces structural comparisons (schema and partitions). Together they catch schema drift or data loss before the workflow completes.
 
-| Workflow      | Verification activity                                                                                                             | Config file          |
-| ------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| Data modeling | `verify_ducklake_copy_activity` in `products/managed_warehouse/backend/temporal/ducklake_copy_data_modeling_workflow.py`           | `data_modeling.yaml` |
+| Workflow      | Verification activity                                                                                                                | Config file          |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------- |
+| Data modeling | `verify_ducklake_copy_activity` in `products/managed_warehouse/backend/temporal/ducklake_copy_data_modeling_workflow.py`             | `data_modeling.yaml` |
 | Data imports  | `verify_data_imports_ducklake_copy_activity` in `products/managed_warehouse/backend/temporal/ducklake_copy_data_imports_workflow.py` | `data_imports.yaml`  |
 
 ## How verification works
