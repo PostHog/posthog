@@ -87,10 +87,18 @@ class TestMigrateSESTenants(BaseTest):
 
         migrate_ses_tenants(team_ids=[self.team.id], domains=[], dry_run=False)
 
-        # Deduped: only one tenant and one association for (team, example.com)
+        # Deduped: one tenant, and one association per resource (identity + the configuration
+        # sets sends reference) for (team, example.com)
         assert sesv2.created_tenants == [f"team-{self.team.id}"]
-        expected_arn = f"arn:aws:ses:us-east-1:123456789012:identity/example.com"
-        assert sesv2.associations == [(f"team-{self.team.id}", expected_arn)]
+        expected = [
+            (f"team-{self.team.id}", f"arn:aws:ses:us-east-1:123456789012:identity/example.com"),
+            (f"team-{self.team.id}", "arn:aws:ses:us-east-1:123456789012:configuration-set/posthog-messaging"),
+            (
+                f"team-{self.team.id}",
+                "arn:aws:ses:us-east-1:123456789012:configuration-set/posthog-messaging-untracked",
+            ),
+        ]
+        assert sesv2.associations == expected
 
     @override_settings(SES_ACCESS_KEY_ID="test", SES_SECRET_ACCESS_KEY="test", SES_REGION="eu-west-1", SES_ENDPOINT="")
     @patch("posthog.management.commands.migrate_ses_tenants.boto3.client")
@@ -102,8 +110,15 @@ class TestMigrateSESTenants(BaseTest):
         migrate_ses_tenants(team_ids=[], domains=["example.com"], dry_run=False)
 
         assert sesv2.created_tenants == [f"team-{self.team.id}"]
-        expected_arn = f"arn:aws:ses:eu-west-1:123456789012:identity/example.com"
-        assert sesv2.associations == [(f"team-{self.team.id}", expected_arn)]
+        expected = [
+            (f"team-{self.team.id}", f"arn:aws:ses:eu-west-1:123456789012:identity/example.com"),
+            (f"team-{self.team.id}", "arn:aws:ses:eu-west-1:123456789012:configuration-set/posthog-messaging"),
+            (
+                f"team-{self.team.id}",
+                "arn:aws:ses:eu-west-1:123456789012:configuration-set/posthog-messaging-untracked",
+            ),
+        ]
+        assert sesv2.associations == expected
 
     @override_settings(SES_ACCESS_KEY_ID="test", SES_SECRET_ACCESS_KEY="test", SES_REGION="us-east-1", SES_ENDPOINT="")
     @patch("posthog.management.commands.migrate_ses_tenants.boto3.client")
@@ -116,7 +131,34 @@ class TestMigrateSESTenants(BaseTest):
         # Second run should hit AlreadyExistsException internally and not error
         migrate_ses_tenants(team_ids=[self.team.id], domains=[], dry_run=False)
 
-        # Still only one tenant and association recorded
+        # Still only one tenant and one association per resource recorded
         assert sesv2.created_tenants == [f"team-{self.team.id}"]
-        expected_arn = f"arn:aws:ses:us-east-1:123456789012:identity/example.com"
-        assert sesv2.associations == [(f"team-{self.team.id}", expected_arn)]
+        expected = [
+            (f"team-{self.team.id}", f"arn:aws:ses:us-east-1:123456789012:identity/example.com"),
+            (f"team-{self.team.id}", "arn:aws:ses:us-east-1:123456789012:configuration-set/posthog-messaging"),
+            (
+                f"team-{self.team.id}",
+                "arn:aws:ses:us-east-1:123456789012:configuration-set/posthog-messaging-untracked",
+            ),
+        ]
+        assert sesv2.associations == expected
+
+    @override_settings(SES_ACCESS_KEY_ID="test", SES_SECRET_ACCESS_KEY="test", SES_REGION="us-east-1", SES_ENDPOINT="")
+    @patch("posthog.management.commands.migrate_ses_tenants.boto3.client")
+    def test_returns_counts_including_association_failures(self, mock_boto_client):
+        class _ConfigSetFailingClient(_FakeSESv2Client):
+            def create_tenant_resource_association(self, TenantName: str, ResourceArn: str):  # noqa: N803
+                if "configuration-set" in ResourceArn:
+                    from botocore.exceptions import ClientError
+
+                    raise ClientError({"Error": {"Code": "NotFoundException"}}, "CreateTenantResourceAssociation")
+                return super().create_tenant_resource_association(TenantName=TenantName, ResourceArn=ResourceArn)
+
+        sesv2 = _ConfigSetFailingClient()
+        mock_boto_client.side_effect = lambda service, **kwargs: sesv2
+
+        counts = migrate_ses_tenants(team_ids=[self.team.id], domains=[], dry_run=False)
+
+        # The identity succeeded; both config-set associations failed and must be reported so the
+        # rollout can't mistake a partial pass for a complete one
+        assert counts == {"tenants": 1, "associations_ok": 1, "tenant_failures": 0, "association_failures": 2}

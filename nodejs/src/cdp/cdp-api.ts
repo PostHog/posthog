@@ -4,6 +4,13 @@ import express from 'ultimate-express'
 import { ModifiedRequest } from '~/common/api/router'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
+import { LogRecord } from '~/logs/log-record-avro'
+import {
+    DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS,
+    buildLogRecordGlobals,
+    executeLogTransformation,
+    resolveLogTransformationInputs,
+} from '~/logs/transformations/hog-log-exec'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -404,7 +411,15 @@ export class CdpApi {
                 ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.config.SITE_URL)
                 : globals
 
-            if (!globals || !globals.event) {
+            const functionType: string | undefined = configuration?.type ?? hogFunction?.type
+
+            if (functionType === 'transformation_log') {
+                // Log transformations run against a log record, not an event
+                if (!globals?.record || typeof globals.record !== 'object' || Array.isArray(globals.record)) {
+                    res.status(400).json({ error: 'Missing record' })
+                    return
+                }
+            } else if (!globals || !globals.event) {
                 res.status(400).json({ error: 'Missing event' })
                 return
             }
@@ -527,6 +542,101 @@ export class CdpApi {
                 res.json({
                     result: result,
                     status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
+            } else if (compoundConfiguration.type === 'transformation_log') {
+                const mock = globals.record as Record<string, unknown>
+
+                const toStringMap = (value: unknown): Record<string, string> => {
+                    const map: Record<string, string> = {}
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+                            if (entry !== null && entry !== undefined) {
+                                map[key] = typeof entry === 'string' ? entry : JSON.stringify(entry)
+                            }
+                        }
+                    }
+                    return map
+                }
+
+                // Mock log record from the request; trace/span ids stay null (they are
+                // read-only in transformations and not meaningful for a test run).
+                const record: LogRecord = {
+                    uuid: invocationID,
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: typeof mock.timestamp === 'number' ? mock.timestamp : DateTime.now().toMillis() * 1e6,
+                    observed_timestamp: typeof mock.observed_timestamp === 'number' ? mock.observed_timestamp : null,
+                    body: typeof mock.body === 'string' ? mock.body : null,
+                    severity_text: typeof mock.severity_text === 'string' ? mock.severity_text : null,
+                    severity_number: typeof mock.severity_number === 'number' ? mock.severity_number : null,
+                    service_name: typeof mock.service_name === 'string' ? mock.service_name : null,
+                    resource_attributes: toStringMap(mock.resource_attributes),
+                    instrumentation_scope:
+                        typeof mock.instrumentation_scope === 'string' ? mock.instrumentation_scope : null,
+                    event_name: typeof mock.event_name === 'string' ? mock.event_name : null,
+                    attributes: toStringMap(mock.attributes),
+                    bytes_uncompressed: null,
+                }
+
+                const hogGlobals = buildLogRecordGlobals(record, triggerGlobals.project, {})
+
+                try {
+                    hogGlobals.inputs = resolveLogTransformationInputs(
+                        compoundConfiguration,
+                        hogGlobals,
+                        DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS
+                    ).inputs
+                } catch (e) {
+                    return res.json({
+                        result: null,
+                        status: 'error',
+                        errors: [String(e)],
+                        logs,
+                    })
+                }
+
+                // Derive from the resolved inputs (which merge inputs + encrypted_inputs) like the
+                // destination test path does — Django resolves stored secrets into `inputs`, so
+                // collecting from `encrypted_inputs` alone would leave them unredacted in test logs.
+                const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                    compoundConfiguration,
+                    (hogGlobals.inputs ?? {}) as Record<string, any>
+                )
+
+                const outcome = executeLogTransformation(compoundConfiguration.bytecode, record, hogGlobals, {
+                    sensitiveValues,
+                })
+
+                logs = logs.concat(
+                    outcome.logs.map((message) => ({
+                        level: 'info' as const,
+                        timestamp: DateTime.now(),
+                        message,
+                    }))
+                )
+
+                if (outcome.status === 'failed') {
+                    errors.push(outcome.error)
+                } else if (outcome.status === 'dropped') {
+                    logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: 'Record dropped by transformation.',
+                    })
+                }
+
+                // Same record shape the function saw (hex ids, string maps) — null when dropped
+                result =
+                    outcome.status === 'dropped'
+                        ? null
+                        : buildLogRecordGlobals(record, triggerGlobals.project, {}).record
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
                 })

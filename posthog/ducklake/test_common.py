@@ -8,8 +8,6 @@ from parameterized import parameterized
 
 from posthog.ducklake.common import (
     default_bucket_region,
-    duckgres_data_imports_table_name,
-    duckgres_data_modeling_table_name,
     initialize_ducklake,
     is_version_mismatch,
     reset_ducklake_catalog,
@@ -53,44 +51,6 @@ class TestDefaultBucketRegion:
     def test_region_follows_cloud_deployment(self, _name, deployment, expected):
         with override_settings(CLOUD_DEPLOYMENT=deployment):
             assert default_bucket_region() == expected
-
-
-class TestDuckgresTableNames:
-    @parameterized.expand(
-        [
-            ("mysql_with_prefix", "MySQL", "SalesEU", "customer_orders", "my_sql_sales_eu_customer_orders"),
-            ("bigquery_without_prefix", "BigQuery", None, "daily_stats", "big_query_daily_stats"),
-            (
-                "long_name",
-                "MySQL",
-                "SalesEU",
-                "customer_order_history_" * 5,
-                "my_sql_sales_eu_customer_ordezbh0hqtory_customer_order_historyx",
-            ),
-        ]
-    )
-    def test_data_import_name_matches_sink_convention(
-        self, _name: str, source_type: str, prefix: str | None, normalized_name: str, expected: str
-    ) -> None:
-        schema = MagicMock()
-        schema.source.source_type = source_type
-        schema.source.prefix = prefix
-        schema.normalized_name = normalized_name
-
-        assert duckgres_data_imports_table_name(schema) == expected
-
-    @parameterized.expand(
-        [
-            ("short_name", "RevenueByAccount", "revenue_by_account"),
-            (
-                "long_name_keeps_postgres_prefix_truncation",
-                "RevenueByAccount" * 7,
-                "revenue_by_account_revenue_by_account_revenue_by_account_revenu",
-            ),
-        ]
-    )
-    def test_data_model_name_uses_cluster_convention(self, _name: str, model_name: str, expected: str) -> None:
-        assert duckgres_data_modeling_table_name(model_name) == expected
 
 
 TEST_CONFIG = {

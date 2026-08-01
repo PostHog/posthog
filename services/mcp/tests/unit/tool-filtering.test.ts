@@ -840,6 +840,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
                 'replay-vision',
+                'replay-vision-actions',
                 'tasks',
                 'dashboard-widgets',
                 'heatmaps-mcp',
@@ -859,7 +860,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'streamlit-apps',
             ])
         )
-        expect(flags).toHaveLength(26)
+        expect(flags).toHaveLength(27)
     })
 
     it('every loops tool is gated on the loops flag', () => {

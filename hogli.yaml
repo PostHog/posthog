@@ -238,6 +238,9 @@ devenv:
     dev:intents:
         click: hogli_commands.devenv.cli:dev_intents
         description: List available intents
+    dev:regenerate-mprocs:
+        click: hogli_commands.devenv.cli:dev_regenerate_mprocs
+        description: Sync bin/mprocs.yaml and bin/mprocs-e2e.yaml's docker-compose shells with generator.py
     dev:list-units:
         click: hogli_commands.devenv.cli:dev_list_units
         description: List autostart units for given intents (used by phrocs)

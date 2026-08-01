@@ -31,6 +31,7 @@ from dlt.common.configuration.specs.aws_credentials import AwsCredentials
 from dlt.sources.helpers.rest_client.client import RESTClient
 from stripe import ListObject
 from temporalio.common import RetryPolicy
+from temporalio.service import RPCError, RPCStatusCode
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -70,6 +71,7 @@ from products.warehouse_sources.backend.models.external_table_definitions import
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
@@ -79,6 +81,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     PendingBatch,
+)
+from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+    PostImportWorkflow,
+    build_post_import_workflow_id,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import get_rows
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
@@ -384,7 +390,7 @@ async def _run(
     )
 
     with (
-        mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -648,6 +654,7 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                     CDPProducerJobWorkflow,
                     DuckLakeCopyDataImportsWorkflow,
                     DuckLakeRegisterDataImportsWorkflow,
+                    PostImportWorkflow,
                 ],
                 activities=ACTIVITIES + DUCKLAKE_ACTIVITIES,  # type: ignore
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -662,6 +669,23 @@ async def _execute_run(workflow_id: str, inputs: ExternalDataWorkflowInputs, moc
                     task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
                 )
+
+                # The load-dependent post-import steps run in an abandoned child, so
+                # assertions on its side effects (e.g. storage_delta_mib) would race
+                # worker shutdown — await it before leaving the worker context. Absent
+                # on paths that never start it (V3 consumer-owned, non-completed jobs).
+                job = await sync_to_async(
+                    ExternalDataJob.objects.filter(team_id=inputs.team_id, schema_id=inputs.external_data_schema_id)
+                    .order_by("-created_at")
+                    .first
+                )()
+                if job is not None:
+                    handle = activity_environment.client.get_workflow_handle(build_post_import_workflow_id(str(job.id)))
+                    try:
+                        await handle.result()
+                    except RPCError as e:
+                        if e.status != RPCStatusCode.NOT_FOUND:
+                            raise
 
 
 _STRIPE_JOB_INPUTS: dict[str, str | dict[str, str]] = {
@@ -2764,7 +2788,7 @@ async def test_append_only_table(team, mock_stripe_client):
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         await _execute_run(str(uuid.uuid4()), inputs, [])
 
     run_for_replay = await sync_to_async(
@@ -3844,7 +3868,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     assert len(files.get("Contents", [])) == 1
 
     # Run the pipeline again to ingest the webhook parquet
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4035,7 +4059,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
     # 6. Run the import pipeline to ingest the parquet
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
