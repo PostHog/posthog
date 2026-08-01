@@ -230,12 +230,7 @@ export interface alertWizardLogicValues {
     extraDestinations: WizardDestination[]
     inputValues: Record<string, CyclotronJobInputType>
     primaryDestinations: WizardDestination[]
-    redirectSnapshot: {
-        timestamp: number
-        step: WizardStep
-        destinationKey: string | null
-        inputValues: Record<string, CyclotronJobInputType>
-    } | null
+    redirectSnapshot: WizardRedirectSnapshot | null
     requiredInputsSchema: CyclotronJobInputSchemaType[]
     selectedDestinationKey: string | null
     selectedKinds: string[] | null
@@ -292,7 +287,16 @@ export interface alertWizardLogicActions {
         value: true
     }
     restoreInputValues: (values: Record<string, CyclotronJobInputType>) => {
-        values: Record<string, CyclotronJobInputType>
+        values: Record<
+            string,
+            {
+                bytecode?: any
+                order?: number | undefined
+                secret?: boolean | undefined
+                templating?: 'hog' | 'liquid' | undefined
+                value: any
+            }
+        >
     }
     restoreWizardState: (state: {
         destinationKey: string | null
@@ -324,20 +328,8 @@ export interface alertWizardLogicActions {
             value: any
         }
     }
-    setRedirectSnapshot: (
-        snapshot: {
-            destinationKey: string | null
-            inputValues: Record<string, CyclotronJobInputType>
-            step: WizardStep
-            timestamp: number
-        } | null
-    ) => {
-        snapshot: {
-            destinationKey: string | null
-            inputValues: Record<string, CyclotronJobInputType>
-            step: WizardStep
-            timestamp: number
-        } | null
+    setRedirectSnapshot: (snapshot: WizardRedirectSnapshot | null) => {
+        snapshot: WizardRedirectSnapshot | null
     }
     setStep: (step: WizardStep) => {
         step: WizardStep
