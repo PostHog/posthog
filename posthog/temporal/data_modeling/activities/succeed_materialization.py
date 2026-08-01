@@ -72,7 +72,7 @@ def _view_enrichment_needed(node: Node | None) -> tuple[bool, str | None]:
         return False, str(node.saved_query_id)
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class SucceedNodeAndJobOutcome:
     node: Node | None
     job: DataModelingJob

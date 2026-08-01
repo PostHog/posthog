@@ -445,7 +445,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger, view
             yield (empty_batch, ch_typings_pairs)
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class MatviewInputObjects:
     team: Team
     node: Node
