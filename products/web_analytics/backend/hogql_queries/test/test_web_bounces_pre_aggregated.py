@@ -292,3 +292,28 @@ class TestWebBouncesPreAggregated(WebAnalyticsPreAggregatedTestBase):
         assert sessions == expected_metrics["unique_sessions"]
         assert bounce_rate == expected_metrics["bounce_rate"]
         assert duration == expected_metrics["avg_session_duration"]
+
+    def test_weboverview_falls_back_to_raw_when_bounces_table_has_no_data(self):
+        # Regression: `web_pre_aggregated_bounces` has no rows for this team/window
+        # (nothing was ever inserted here, unlike the other tests in this file).
+        # The query has no GROUP BY, so `uniqMergeIf`/`sumMergeIf` over zero matching
+        # rows still returns one row of 0s — indistinguishable from a team with
+        # genuinely zero traffic. Before the fix, `get_pre_aggregated_response`
+        # served that fabricated all-zero row instead of falling back to the raw
+        # events query, even though real events exist for this window.
+        expected_metrics = self._get_expected_metrics()
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            properties=[],
+            compareFilter=None,
+            modifiers=HogQLQueryModifiers(
+                useWebAnalyticsPreAggregatedTables=True, sessionTableVersion=SessionTableVersion.V2
+            ),
+        )
+        runner = WebOverviewQueryRunner(query=query, team=self.team)
+        weboverview_results = {item.key: item.value for item in runner.calculate().results}
+
+        assert weboverview_results.get("visitors") == expected_metrics["unique_persons"]
+        assert weboverview_results.get("views") == expected_metrics["total_pageviews"]
+        assert weboverview_results.get("sessions") == expected_metrics["unique_sessions"]

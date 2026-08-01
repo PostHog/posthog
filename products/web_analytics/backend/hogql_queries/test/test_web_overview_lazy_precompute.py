@@ -575,6 +575,32 @@ class TestWebOverviewLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
 
         assert result is None, f"expected fall-back to raw when current precompute not ready, got {result!r}"
 
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_falls_back_when_ready_job_has_no_precomputed_rows(self):
+        # Regression: a job can reach READY without ever inserting a row for the
+        # requested window (e.g. the no-join insert's UUIDv7 filter excludes every
+        # session for a team whose SDK emits non-v7 session ids). The read query has
+        # no GROUP BY, so `uniqMergeIf`/`sumMergeIf` over zero matching rows still
+        # returns a single row of 0s/NaNs — indistinguishable from a genuinely quiet
+        # team. Before the fix this fabricated an all-zero response instead of
+        # falling back to the raw query.
+        from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
+            execute_lazy_precomputed_read,
+        )
+
+        self._seed_two_sessions()
+        with (
+            self._enable_lazy(),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute.ensure_web_overview_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[uuid.uuid4()]),
+            ),
+        ):
+            runner = WebOverviewQueryRunner(team=self.team, query=self._build_query())
+            result = execute_lazy_precomputed_read(runner)
+
+        assert result is None, f"expected fall-back to raw when the ready job has no precomputed rows, got {result!r}"
+
     # --- Group D: enrolled teams (arbitrary filters) ----------------------------------------
 
     @freeze_time("2024-01-15T12:00:00Z")

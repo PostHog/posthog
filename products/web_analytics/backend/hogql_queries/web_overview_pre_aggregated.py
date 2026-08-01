@@ -44,7 +44,9 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
                 {bounce_rate_previous} AS previous_bounce_rate,
 
                 NULL AS revenue,
-                NULL AS previous_revenue
+                NULL AS previous_revenue,
+
+                {current_bucket_count} AS current_bucket_count
         FROM {table_name}
         """,
             placeholders={
@@ -67,6 +69,12 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
                 "bounce_rate_previous": self._safe_avg_sessions(
                     "bounces_count_state", "sessions_uniq_state", previous_period_filter
                 ),
+                # `*MergeIf` aggregates over an empty/mismatched table default to 0/NaN with
+                # no GROUP BY, so `response.results` is never empty even when no bucket
+                # actually covers the current window — this count is what lets the caller
+                # (`WebOverviewQueryRunner.get_pre_aggregated_response`) tell "no data" from
+                # "genuinely zero" and fall back to the live query instead of serving zeros.
+                "current_bucket_count": self._count_if(current_period_filter),
             },
         )
 
@@ -239,6 +247,15 @@ class WebOverviewPreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder
             name="sumMergeIf",
             args=[
                 ast.Field(chain=[state_field]),
+                period_filter,
+            ],
+        )
+
+    def _count_if(self, period_filter: ast.Expr) -> ast.Call:
+        return ast.Call(
+            name="countIf",
+            args=[
+                ast.Constant(value=1),
                 period_filter,
             ],
         )

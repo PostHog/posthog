@@ -227,7 +227,8 @@ SELECT
     avgMergeIf(avg_duration_state, time_window_start >= %(cur_start)s AND time_window_start < %(cur_end)s) AS avg_duration,
     avgMergeIf(avg_duration_state, time_window_start >= %(prev_start)s AND time_window_start < %(prev_end)s) AS previous_avg_duration,
     avgMergeIf(avg_bounce_state, time_window_start >= %(cur_start)s AND time_window_start < %(cur_end)s) AS bounce_rate,
-    avgMergeIf(avg_bounce_state, time_window_start >= %(prev_start)s AND time_window_start < %(prev_end)s) AS previous_bounce_rate
+    avgMergeIf(avg_bounce_state, time_window_start >= %(prev_start)s AND time_window_start < %(prev_end)s) AS previous_bounce_rate,
+    countIf(time_window_start >= %(cur_start)s AND time_window_start < %(cur_end)s) AS current_bucket_count
 FROM {DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE()}
 WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
 """
@@ -283,14 +284,6 @@ def execute_read_query(
         settings=_READ_SETTINGS,
         team_id=team_id,
     )
-
-
-def _empty_response_row() -> list:
-    # 5 metric pairs (current, previous) — previous slots are None and discarded
-    # downstream when compareFilter.compare is False. When compare is True, the
-    # response gets fully populated from the read query, so this default is only
-    # used for genuinely empty windows.
-    return [0, None, 0, None, 0, None, 0, None, 0, None]
 
 
 def execute_lazy_precomputed_read(
@@ -424,6 +417,28 @@ def execute_lazy_precomputed_read(
         read_duration_ms = int((time.perf_counter() - read_started) * 1000)
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
 
+        # `_READ_SQL` has no GROUP BY, so it always returns exactly one row, with
+        # `*MergeIf` aggregates defaulting to 0/NaN when no state rows match — that
+        # shape is indistinguishable from a team with genuinely zero traffic. The
+        # trailing `current_bucket_count` disambiguates: it counts physical rows in
+        # the precompute table for the current window, so 0 means "we have no data
+        # here" (job ready but insert produced nothing — e.g. a session id format
+        # the no-join template's UUIDv7 filter excludes), not "we counted and got
+        # zero". Fall through to the live query rather than serve fabricated zeros.
+        row = list(rows[0]) if rows else None
+        current_bucket_count = row.pop() if row is not None else 0
+        if row is None or current_bucket_count == 0:
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_precompute_window").inc()
+            logger.info(
+                "web_overview_lazy_precompute_empty_window",
+                team_id=team_id,
+                job_count=len(result.job_ids),
+                ensure_duration_ms=ensure_duration_ms,
+                read_duration_ms=read_duration_ms,
+                total_duration_ms=total_duration_ms,
+            )
+            return None
+
         WEB_ANALYTICS_LAZY_PRECOMPUTE_SUCCESS.labels(family=_FAMILY).inc()
         logger.info(
             "web_overview_lazy_precompute_completed",
@@ -434,9 +449,7 @@ def execute_lazy_precomputed_read(
             read_duration_ms=read_duration_ms,
             total_duration_ms=total_duration_ms,
         )
-        if not rows:
-            return _empty_response_row()
-        return list(rows[0])
+        return row
     except Exception as exc:
         WEB_OVERVIEW_LAZY_FAILED.labels(error_type=type(exc).__name__).inc()
         logger.exception(

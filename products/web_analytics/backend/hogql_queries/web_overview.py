@@ -286,6 +286,17 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             if not response.results:
                 return None
 
+            # The query has no GROUP BY, so `response.results` always has exactly one row —
+            # `*MergeIf` aggregates default to 0/NaN when no bucket matches the current window,
+            # which looks identical to a team with genuinely zero traffic. `current_bucket_count`
+            # (appended by the query builder) disambiguates: 0 means the pre-aggregated tables
+            # don't cover this window, so fall through to the live query rather than serve zeros.
+            row = list(response.results[0])
+            current_bucket_count = row.pop()
+            if current_bucket_count == 0:
+                return None
+            response.results = [row]
+
             return response
         except Exception as e:
             logger.exception("Error getting pre-aggregated web_overview", error=e)
