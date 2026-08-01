@@ -1,4 +1,5 @@
--- Weekly retention matrix (recurring). Warehouse-agnostic; adjust date_trunc/date_diff to your warehouse.
+-- Weekly retention matrix (recurring). Uses dbt's cross-database datediff macro for the interval count;
+-- date_trunc still varies by warehouse, so adjust it if yours differs.
 {{ config(materialized='table') }}
 
 with activity as (
@@ -17,7 +18,7 @@ joined as (
     select
         c.cohort_week,
         a.person_id,
-        ({{ 'datediff' }}('week', c.cohort_week, a.week)) as weeks_later
+        {{ dbt.datediff('c.cohort_week', 'a.week', 'week') }} as weeks_later
     from cohort c
     join activity a using (person_id)
     where a.week >= c.cohort_week
