@@ -10,6 +10,7 @@ import stripe as stripe_lib
 from parameterized import parameterized
 from stripe import ListObject
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
@@ -253,9 +254,11 @@ class TestStripeSource:
     )
     def test_retryable_errors_match_self_recovering_errors(self, observed_error):
         # These must be classified as retryable so they're logged as a warning rather than tracked
-        # as an exception, since they're retried by Temporal at the activity level regardless.
+        # as an exception, since they're retried by Temporal at the activity level regardless. Match
+        # via the same case-insensitive helper the production path uses (`_handle_import_error`),
+        # not a case-sensitive substring check.
         retryable_errors = self.source.get_retryable_errors()
-        assert any(key in observed_error for key in retryable_errors)
+        assert error_message_matches(observed_error, retryable_errors)
 
     @pytest.mark.parametrize(
         "config,expected_message",
