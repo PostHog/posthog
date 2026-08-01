@@ -120,6 +120,7 @@ import {
     computeAutoBreakdownColors,
     extractBreakdownValues,
     findBreakdownColorConfig,
+    getPersistedBreakdownColors,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
@@ -1435,9 +1436,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         const persistedFilters = currentDashboard.persisted_filters || {}
                         const persistedVariables = currentDashboard.persisted_variables || {}
-                        const persistedBreakdownColors = Array.isArray(currentDashboard.breakdown_colors)
-                            ? currentDashboard.breakdown_colors
-                            : []
+                        const persistedBreakdownColors = getPersistedBreakdownColors(currentDashboard)
                         const persistedThemeId = currentDashboard.data_color_theme_id ?? null
 
                         const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
@@ -2939,7 +2938,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             ): BreakdownColorConfig[] => {
                 const merged = mergeBreakdownColorConfigs(
                     temporaryBreakdownColors,
-                    Array.isArray(dashboard?.breakdown_colors) ? dashboard.breakdown_colors : []
+                    getPersistedBreakdownColors(dashboard)
                 ).filter((config) => !!config.colorToken)
 
                 if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]) {
@@ -2974,7 +2973,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 temporaryDataColorThemeId: { themeId: number | null } | null,
                 dashboard: DashboardType<QueryBasedInsightModel> | null
             ): boolean => {
-                const persisted = Array.isArray(dashboard?.breakdown_colors) ? dashboard.breakdown_colors : []
+                const persisted = getPersistedBreakdownColors(dashboard)
                 const colorsChanged = temporaryBreakdownColors.some((config) => {
                     const persistedConfig = findBreakdownColorConfig(
                         persisted,

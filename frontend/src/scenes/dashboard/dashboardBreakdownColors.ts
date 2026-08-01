@@ -59,6 +59,14 @@ export function breakdownConfigMatches(
     )
 }
 
+/** Persisted `breakdown_colors` is an unvalidated JSONField, so a non-list value can reach the
+ * frontend; treat it as having no saved colors rather than passing it on to array-only callers. */
+export function getPersistedBreakdownColors(
+    dashboard: { breakdown_colors?: BreakdownColorConfig[] } | null | undefined
+): BreakdownColorConfig[] {
+    return Array.isArray(dashboard?.breakdown_colors) ? dashboard.breakdown_colors : []
+}
+
 export function findBreakdownColorConfig(
     configs: BreakdownColorConfig[] | undefined | null,
     breakdownValue: unknown,

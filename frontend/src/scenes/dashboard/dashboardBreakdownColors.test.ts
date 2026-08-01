@@ -7,6 +7,7 @@ import {
     computeAutoBreakdownColors,
     extractBreakdownValues,
     findBreakdownColorConfig,
+    getPersistedBreakdownColors,
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 
@@ -350,6 +351,23 @@ describe('dashboardBreakdownColors', () => {
             expect(assigned[14].colorToken).toBe('preset-15')
             expect(assigned[15].colorToken).toBe('preset-1')
             expect(assigned[16].colorToken).toBe('preset-2')
+        })
+    })
+
+    describe('getPersistedBreakdownColors', () => {
+        it('returns the persisted list unchanged', () => {
+            const breakdown_colors: BreakdownColorConfig[] = [
+                { breakdownValue: 'Chrome', breakdownType: 'event', colorToken: 'preset-1' },
+            ]
+            expect(getPersistedBreakdownColors({ breakdown_colors })).toEqual(breakdown_colors)
+        })
+
+        it.each([
+            ['a missing dashboard', null],
+            ['a dashboard with no breakdown_colors', {}],
+            ['a non-array persisted value', { breakdown_colors: { foo: 'bar' } as any }],
+        ])('returns an empty array for %s instead of throwing', (_, dashboard) => {
+            expect(getPersistedBreakdownColors(dashboard)).toEqual([])
         })
     })
 
