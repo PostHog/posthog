@@ -926,7 +926,12 @@ def _capture_run_started(
         "task_run_id": task_run_id,
     }
     _attach_run_shape_props(
-        properties, skill=skill, github_guidance=github_guidance, model=model, runtime_adapter=runtime_adapter
+        properties,
+        config=config,
+        skill=skill,
+        github_guidance=github_guidance,
+        model=model,
+        runtime_adapter=runtime_adapter,
     )
     try:
         posthoganalytics.capture(
@@ -1022,6 +1027,7 @@ def _capture_config_auto_paused(
 def _attach_run_shape_props(
     properties: dict[str, Any],
     *,
+    config: SignalScoutConfig,
     skill: LoadedSkill,
     github_guidance: bool,
     model: str | None,
@@ -1034,13 +1040,17 @@ def _attach_run_shape_props(
     which is the dimension a prompt A/B has to hold constant, and until it existed nothing recorded
     which build a run used. Model and runtime adapter are attached only when the
     `scouts-model-selection` gate (or a runtime pin) routed the run, so their absence means the
-    agent-server default served it. All three make run outcomes (timeout rate, runtime, emit volume)
-    sliceable without joining through $ai_generation.
+    agent-server default served it. `network_access` follows the same absent-means-default
+    convention (attached only for `full`), so an event-based readout never pools runs with
+    different egress capabilities under one model or prompt. All of these make run outcomes
+    (timeout rate, runtime, emit volume) sliceable without joining through $ai_generation.
     """
     properties["harness_prompt_version"] = HARNESS_PROMPT_VERSION
     properties["report_channel"] = resolve_report_channel_variant(skill.allowed_tools)
     properties["skill_origin"] = skill.origin
     properties["github_guidance"] = github_guidance
+    if config.network_access == SignalScoutConfig.NetworkAccess.FULL:
+        properties["network_access"] = config.network_access
     if model is not None:
         properties["model"] = model
     if runtime_adapter is not None:
@@ -1092,7 +1102,12 @@ def _capture_run_finished(
         "emitted_count": emitted_count,
     }
     _attach_run_shape_props(
-        properties, skill=skill, github_guidance=github_guidance, model=model, runtime_adapter=runtime_adapter
+        properties,
+        config=config,
+        skill=skill,
+        github_guidance=github_guidance,
+        model=model,
+        runtime_adapter=runtime_adapter,
     )
     # Only attach failure context on failed runs — keeps successful / cancelled events clean
     # rather than carrying explicit-null error fields on every event.

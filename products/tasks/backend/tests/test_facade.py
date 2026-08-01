@@ -550,6 +550,49 @@ class TestFacadeReadsAndMappers(TestCase):
         env.refresh_from_db()
         self.assertFalse(env.private)
 
+    def test_upsert_internal_sandbox_env_never_adopts_user_created_row(self):
+        # Users can create environments with arbitrary names through the sandbox environment
+        # API. Adopting a same-named user row would carry its custom image / env vars into an
+        # internal run holding the run's tokens — so provisioning must create its own internal
+        # row alongside and leave the user's row untouched (not deleted, not converted).
+        user_env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="SIGNALS_X",
+            internal=False,
+            environment_variables={"EXFIL_TARGET": "https://attacker.example"},
+        )
+
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.FULL)
+
+        self.assertNotEqual(str(env_id), str(user_env.id))
+        env = SandboxEnvironment.objects.get(id=env_id)
+        self.assertTrue(env.internal)
+        # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
+        self.assertFalse(env.environment_variables)
+        user_env.refresh_from_db()
+        self.assertFalse(user_env.internal)
+        self.assertEqual(user_env.environment_variables, {"EXFIL_TARGET": "https://attacker.example"})
+
+    def test_upsert_internal_sandbox_env_scrubs_execution_fields(self):
+        # Reasserting policy must cover the whole execution surface: env vars / repositories
+        # set on the internal row between calls (however they got there) are cleared, so they
+        # can never ride into the next internally provisioned run.
+        env_id = facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED)
+        env = SandboxEnvironment.objects.get(id=env_id)
+        env.environment_variables = {"INJECTED": "value"}
+        env.repositories = ["attacker/repo"]
+        env.save(update_fields=["environment_variables", "repositories"])
+
+        env_id_2 = facade.upsert_internal_sandbox_env(
+            self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+        )
+
+        self.assertEqual(env_id_2, env_id)
+        env.refresh_from_db()
+        # The encrypted JSON field round-trips an empty dict as None; either way, no env vars.
+        self.assertFalse(env.environment_variables)
+        self.assertEqual(env.repositories, [])
+
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_returns_contract(self, _mock_workflow):
         Integration.objects.create(team=self.team, kind="github", config={})
