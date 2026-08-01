@@ -18,6 +18,8 @@ export type SidebarItemKey = keyof SidebarItemsConfiguration
 /** Version stamped onto the configuration whenever this client persists it. */
 export const UI_CONFIGURATION_VERSION = 1
 
+const UI_CONFIGURATION_UPDATE_DEBOUNCE_MS = 500
+
 export function withSidebarSectionVisibility(
     configuration: UserUIConfiguration | null,
     section: SidebarSectionKey,
@@ -97,6 +99,9 @@ export interface uiCustomizationLogicActions {
         }
         user: UserType
     } // userLogic
+    scheduleUiConfigurationUpdate: (configuration: UserUIConfiguration) => {
+        configuration: UserUIConfiguration
+    }
     setPendingUiConfiguration: (configuration: UserUIConfiguration | null) => {
         configuration: UserUIConfiguration | null
     }
@@ -156,6 +161,7 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
     actions({
         setSidebarSectionShown: (section: SidebarSectionKey, shown: boolean) => ({ section, shown }),
         setSidebarItemShown: (item: SidebarItemKey, shown: boolean) => ({ item, shown }),
+        scheduleUiConfigurationUpdate: (configuration: UserUIConfiguration) => ({ configuration }),
         setPendingUiConfiguration: (configuration: UserUIConfiguration | null) => ({ configuration }),
     }),
     reducers({
@@ -195,7 +201,7 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
         setSidebarSectionShown: ({ section, shown }) => {
             const configuration = withSidebarSectionVisibility(values.uiConfiguration, section, shown)
             actions.setPendingUiConfiguration(configuration)
-            actions.updateUser({ ui_configuration: configuration })
+            actions.scheduleUiConfigurationUpdate(configuration)
             posthog.capture('sidebar customization changed', {
                 element_kind: 'section',
                 element_key: section,
@@ -205,12 +211,16 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
         setSidebarItemShown: ({ item, shown }) => {
             const configuration = withSidebarItemVisibility(values.uiConfiguration, item, shown)
             actions.setPendingUiConfiguration(configuration)
-            actions.updateUser({ ui_configuration: configuration })
+            actions.scheduleUiConfigurationUpdate(configuration)
             posthog.capture('sidebar customization changed', {
                 element_kind: 'item',
                 element_key: item,
                 shown,
             })
+        },
+        scheduleUiConfigurationUpdate: async ({ configuration }, breakpoint) => {
+            await breakpoint(UI_CONFIGURATION_UPDATE_DEBOUNCE_MS)
+            actions.updateUser({ ui_configuration: configuration })
         },
         updateUserSuccess: () => {
             actions.setPendingUiConfiguration(null)

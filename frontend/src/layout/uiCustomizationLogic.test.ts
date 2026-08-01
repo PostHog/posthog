@@ -15,6 +15,7 @@ import { uiCustomizationLogic, withSidebarItemVisibility, withSidebarSectionVisi
 
 describe('uiCustomizationLogic', () => {
     let logic: ReturnType<typeof uiCustomizationLogic.build>
+    let patchCount: number
     let patchedUser: Partial<UserType> | null
 
     function seedUser(uiConfiguration: UserUIConfiguration | null): void {
@@ -22,10 +23,12 @@ describe('uiCustomizationLogic', () => {
     }
 
     beforeEach(() => {
+        patchCount = 0
         patchedUser = null
         useMocks({
             patch: {
                 '/api/users/@me/': async ({ request }) => {
+                    patchCount += 1
                     patchedUser = (await request.json()) as Partial<UserType>
                     return [200, { ...MOCK_DEFAULT_USER, ...patchedUser }]
                 },
@@ -38,6 +41,10 @@ describe('uiCustomizationLogic', () => {
         })
         logic = uiCustomizationLogic()
         logic.mount()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
     })
 
     it('ignores stored configuration while the customization flag is off', () => {
@@ -77,18 +84,28 @@ describe('uiCustomizationLogic', () => {
         expect(logic.values.isSidebarSectionShown('project')).toBe(true)
     })
 
-    it('applies a toggle optimistically and persists the complete configuration', async () => {
+    it('applies toggles optimistically and batches them into one update', async () => {
+        jest.useFakeTimers()
         seedUser({ version: 1, sidebar: { items: { starred: { visible: false } } } })
 
-        await expectLogic(logic, () => {
-            logic.actions.setSidebarItemShown('data', false)
-        }).toFinishAllListeners()
+        logic.actions.setSidebarItemShown('data', false)
+        logic.actions.setSidebarSectionShown('recents', false)
 
         expect(logic.values.isSidebarItemShown('data')).toBe(false)
         expect(logic.values.isSidebarItemShown('starred')).toBe(false)
+        expect(logic.values.isSidebarSectionShown('recents')).toBe(false)
+        expect(patchCount).toBe(0)
+
+        await jest.advanceTimersByTimeAsync(500)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(patchCount).toBe(1)
         expect(patchedUser?.ui_configuration).toEqual({
             version: 1,
-            sidebar: { items: { starred: { visible: false }, data: { visible: false } } },
+            sidebar: {
+                sections: { recents: { visible: false } },
+                items: { starred: { visible: false }, data: { visible: false } },
+            },
         })
     })
 
