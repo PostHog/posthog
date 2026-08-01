@@ -35,7 +35,7 @@ describe('availableSourcesLogic', () => {
         // Regression test: the logic used to only special-case 403, so a 500 (the sources-page
         // outage) and a permissions denial were indistinguishable to the banner that reads this.
         'sets availableSourcesError to %s for %s, without surfacing loader failure',
-        async (_label, error, expectedErrorType) => {
+        async (_label: string, error: { status?: number }, expectedErrorType: 'forbidden' | 'unknown') => {
             jest.spyOn(api.externalDataSources, 'wizard').mockRejectedValue(error)
 
             // Mounting triggers the logic's own afterMount load — set the mock before mounting so
