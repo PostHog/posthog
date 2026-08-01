@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -53,9 +54,10 @@ describe('onboardingLogic — flow composition', () => {
             [
                 ProductKey.PRODUCT_ANALYTICS,
                 [
+                    // No session_replay step: it only shows when the user selects session
+                    // replay too (or already has it enabled), neither of which is true here.
                     'install:product_analytics',
                     'configure:product_analytics',
-                    'session_replay:product_analytics',
                     'link_data:product_analytics',
                     'invite_teammates:product_analytics',
                 ],
@@ -235,7 +237,7 @@ describe('onboardingLogic — flow composition', () => {
     describe('step ordering (bucket sort)', () => {
         it('puts the posthog-js install first (bucket 0) for a multi-step PA primary flow', () => {
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
-            // PA emits: install, product_configuration, session_replay (configure)
+            // PA emits: install, product_configuration
             // sharedSteps appends: link_data, invite_teammates
             // After bucket sort: install (bucket 0) MUST be first.
             expect(logic.values.flow[0].id).toBe('install:product_analytics')
@@ -254,7 +256,14 @@ describe('onboardingLogic — flow composition', () => {
         })
 
         it('non-install steps preserve their relative order after bucket sort (stable)', () => {
+            // Select session replay too and start from opted-out so its step actually renders
+            // (the step is gated on selection + not already enabled).
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                session_recording_opt_in: false,
+            })
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.SESSION_REPLAY])
             // PA's intra-product order is: install → product_configuration → session_replay.
             // sharedSteps appends link_data, invite_teammates AFTER. Bucket sort moves
             // install to position 0; the rest must keep their relative order.
@@ -397,7 +406,14 @@ describe('onboardingLogic — flow composition', () => {
 
     describe('visited-step tracking', () => {
         it('forward jump via setStepId marks every traversed step as visited', () => {
+            // Select session replay too and start from opted-out so its step actually renders
+            // (the step is gated on selection + not already enabled).
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                session_recording_opt_in: false,
+            })
             logic.actions.setProductKey(ProductKey.PRODUCT_ANALYTICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.SESSION_REPLAY])
             logic.actions.setStepId('install:product_analytics')
             logic.actions.setStepId('link_data:product_analytics')
             // PA flow after bucket sort: install, product_configuration, session_replay,
