@@ -10,6 +10,7 @@ use common_ingestion_warnings::{
 };
 use serde_json::{json, Map};
 
+use super::bounded_detail;
 use crate::ai_rejection::{AiFailure, AiRejection};
 use crate::api::CaptureError;
 
@@ -134,11 +135,16 @@ fn warning_for_ai_failure(
 /// name, the offending part name, and sizes. The rejection's own message is
 /// deliberately excluded — several embed a library error string, and this lands
 /// in a customer-visible column.
+///
+/// Every value copied out of the request goes through
+/// [`bounded_detail`](super::bounded_detail): all three are client-controlled and
+/// nothing downstream length-limits details, so an oversized one would inflate
+/// the warning message and its stored row.
 fn details_for(rejection: &AiRejection) -> Map<String, serde_json::Value> {
     let mut details = Map::new();
     match rejection {
         AiRejection::EventNameNotAllowed(event_name) => {
-            details.insert("eventName".to_string(), json!(event_name));
+            details.insert("eventName".to_string(), json!(bounded_detail(event_name)));
             details.insert(
                 "allowed".to_string(),
                 json!(crate::ai_rejection::ALLOWED_AI_EVENTS),
@@ -150,14 +156,17 @@ fn details_for(rejection: &AiRejection) -> Map<String, serde_json::Value> {
         | AiRejection::BlobEmpty(field)
         | AiRejection::BlobPropertyNested(field)
         | AiRejection::BlobPropertyDuplicate(field) => {
-            details.insert("part".to_string(), json!(field));
+            details.insert("part".to_string(), json!(bounded_detail(field)));
         }
         AiRejection::BlobContentTypeUnsupported {
             field,
             content_type,
         } => {
-            details.insert("part".to_string(), json!(field));
-            details.insert("contentType".to_string(), json!(content_type));
+            details.insert("part".to_string(), json!(bounded_detail(field)));
+            details.insert(
+                "contentType".to_string(),
+                json!(bounded_detail(content_type)),
+            );
         }
         AiRejection::EventPartTooBig { size, max }
         | AiRejection::EventAndPropertiesTooBig { size, max }
@@ -373,6 +382,57 @@ mod tests {
         let emitter = CollectingEmitter::default();
         emit_ai_failure_warning(Some(&emitter), &request(), &AiFailure::Other(err));
         assert!(emitter.emitted().is_empty());
+    }
+
+    // Details are client-controlled and nothing downstream length-limits them,
+    // so an oversized event name or part name must not inflate the warning
+    // message or its stored row. Truncation is marked and char-safe.
+    #[rstest]
+    #[case::event_name(
+        AiRejection::EventNameNotAllowed("$".to_string() + &"n".repeat(500)),
+        "eventName"
+    )]
+    #[case::part_name(
+        AiRejection::UnknownField("f".repeat(500)),
+        "part"
+    )]
+    fn oversized_client_values_are_bounded(#[case] rejection: AiRejection, #[case] key: &str) {
+        let emitter = CollectingEmitter::default();
+        emit_ai_failure_warning(Some(&emitter), &request(), &AiFailure::Rejected(rejection));
+
+        let emitted = emitter.emitted();
+        let value = emitted[0].extra_details[key]
+            .as_str()
+            .expect("string detail");
+        assert!(
+            value.chars().count() <= crate::ingestion_warnings::MAX_SDK_ATTRIBUTION_LEN + 1,
+            "{key} was not bounded: {} chars",
+            value.chars().count()
+        );
+        assert!(value.ends_with('\u{2026}'), "{key} should mark truncation");
+    }
+
+    // A multi-byte name must not be cut mid-character, which would produce
+    // invalid UTF-8 in the warning payload.
+    #[test]
+    fn bounding_respects_char_boundaries() {
+        let emitter = CollectingEmitter::default();
+        emit_ai_failure_warning(
+            Some(&emitter),
+            &request(),
+            &AiFailure::Rejected(AiRejection::UnknownField("\u{4f60}\u{597d}".repeat(200))),
+        );
+
+        let emitted = emitter.emitted();
+        let value = emitted[0].extra_details["part"]
+            .as_str()
+            .expect("string detail");
+        assert!(value.ends_with('\u{2026}'));
+        // Round-trips as valid UTF-8 with whole characters only.
+        assert!(value
+            .trim_end_matches('\u{2026}')
+            .chars()
+            .all(|c| c == '\u{4f60}' || c == '\u{597d}'));
     }
 
     #[test]
