@@ -27,7 +27,7 @@ def frozen(
 
 
 @dataclass_transform(frozen_default=True, kw_only_default=True)
-def frozen(cls: type[_T] | None = None, /, **kwargs: Any) -> type[_T] | Callable[[type[_T]], type[_T]]:
+def frozen(cls: Any = None, /, **kwargs: Any) -> Any:
     """House-default dataclass: frozen, keyword-only construction, slotted.
 
     Use instead of a bare @dataclass for internal value/result objects. Any dataclass

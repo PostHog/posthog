@@ -31,7 +31,7 @@ class TestFrozenDefaults:
     def test_instances_are_immutable_and_hashable(self):
         point = Point(x=1, y=2)
         with pytest.raises(dataclasses.FrozenInstanceError):
-            point.x = 3  # type: ignore[misc]
+            point.x = 3  # type: ignore[misc]  # ty: ignore[invalid-assignment]
         assert point == Point(x=1, y=2)
         assert hash(point) == hash(Point(x=1, y=2))
         assert dataclasses.replace(point, x=3) == Point(x=3, y=2)
