@@ -1152,8 +1152,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # The body serializers document dateRange as optional, so an absent range must
             # default rather than 400 (get_model rejects None).
             dateRange=self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h"),
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
+            severityLevels=query_data.get("severityLevels") or [],
+            serviceNames=query_data.get("serviceNames") or [],
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
@@ -1206,8 +1206,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         requested_limit = min(query_data.get("limit", 1000), 2000)
         logs_query_params = {
             "dateRange": date_range,
-            "severityLevels": query_data.get("severityLevels", []),
-            "serviceNames": query_data.get("serviceNames", []),
+            "severityLevels": query_data.get("severityLevels") or [],
+            "serviceNames": query_data.get("serviceNames") or [],
             "orderBy": order_by,
             "searchTerm": query_data.get("searchTerm", None),
             "filterGroup": self._normalize_filter_group(query_data.get("filterGroup", None)),
@@ -1270,8 +1270,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                     "has_more": has_more,
                     "has_search_term": bool(query_data.get("searchTerm")),
                     "has_filter_group": bool(query_data.get("filterGroup")),
-                    "severity_levels_count": len(query_data.get("severityLevels", [])),
-                    "service_names_count": len(query_data.get("serviceNames", [])),
+                    "severity_levels_count": len(query_data.get("severityLevels") or []),
+                    "service_names_count": len(query_data.get("serviceNames") or []),
                     "is_paginated": bool(after_cursor),
                 },
                 team=self.team,
@@ -1301,8 +1301,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = LogsQuery(
             dateRange=date_range,
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
+            severityLevels=query_data.get("severityLevels") or [],
+            serviceNames=query_data.get("serviceNames") or [],
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             resourceFingerprint=query_data.get("resourceFingerprint", None),
@@ -1323,8 +1323,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             {
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
                 "breakdown_by": query_data.get("sparklineBreakdownBy"),
             },
             team=self.team,
@@ -1351,8 +1351,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = LogsQuery(
             dateRange=date_range,
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
+            severityLevels=query_data.get("severityLevels") or [],
+            serviceNames=query_data.get("serviceNames") or [],
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
             personId=query_data.get("personId", None),
@@ -1383,8 +1383,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = LogsQuery(
             dateRange=date_range,
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
+            severityLevels=query_data.get("severityLevels") or [],
+            serviceNames=query_data.get("serviceNames") or [],
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
@@ -1402,8 +1402,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             {
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1427,8 +1427,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = LogsQuery(
             dateRange=date_range,
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
+            severityLevels=query_data.get("severityLevels") or [],
+            serviceNames=query_data.get("serviceNames") or [],
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
         )
@@ -1447,8 +1447,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "target_buckets": target_buckets,
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "has_filter_group": bool(query_data.get("filterGroup")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1468,8 +1468,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         query = LogsQuery(
             dateRange=self.get_model(query_data.get("dateRange"), DateRange),
-            severityLevels=query_data.get("severityLevels", []),
-            serviceNames=query_data.get("serviceNames", []),
+            severityLevels=query_data.get("severityLevels") or [],
+            serviceNames=query_data.get("serviceNames") or [],
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=filter_group,
         )
@@ -1489,8 +1489,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 if isinstance(response.results, dict)
                 else 0,
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1522,8 +1522,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 else 0,
                 "sampled": response.results.get("sampled") if isinstance(response.results, dict) else None,
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1554,8 +1554,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "changed_count": sum(1 for e in results["entries"] if e["classification"] != "unchanged"),
                 "auto_baseline": baseline_date_range is None,
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1609,8 +1609,8 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "groups_count": len(results.get("groups", [])),
                 "truncated": results.get("truncated"),
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "severity_levels_count": len(query_data.get("severityLevels", [])),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,
@@ -1808,7 +1808,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "export_id": asset.id,
                 "columns_count": len(columns),
                 "has_search_term": bool(query_data.get("searchTerm")),
-                "service_names_count": len(query_data.get("serviceNames", [])),
+                "service_names_count": len(query_data.get("serviceNames") or []),
             },
             team=self.team,
             request=request,

@@ -84,6 +84,15 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
         response = self._count({})
         self.assertEqual(response["count"], 0)
 
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_count_accepts_explicit_null_severity_and_service_filters(self):
+        # A client sending `severityLevels`/`serviceNames` as explicit JSON null (rather than
+        # omitting the key) used to 500: `query_data.get(key, [])` only applies its default when
+        # the key is absent, so an explicit null passed straight through to LogsQuery's list-typed
+        # fields and failed pydantic validation.
+        response = self._count({"dateRange": _FIXTURE_WINDOW, "severityLevels": None, "serviceNames": None})
+        self.assertEqual(response["count"], 1011)
+
     @parameterized.expand(
         [
             # Multi-day window — exercises full WHERE clause

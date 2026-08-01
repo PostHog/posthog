@@ -78,3 +78,31 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert body["scanned_count"] == 1
         assert body["total_count"] == 1
+
+    @freeze_time("2026-06-23T13:00:00Z")
+    def test_patterns_endpoint_accepts_explicit_null_severity_and_service_filters(self) -> None:
+        # A client sending `severityLevels`/`serviceNames` as explicit JSON null (rather than
+        # omitting the key) used to 500: `query_data.get(key, [])` only applies its default when
+        # the key is absent, so an explicit null passed straight through to LogsQuery's list-typed
+        # fields and failed pydantic validation.
+        self._insert(
+            [
+                {
+                    "timestamp": "2026-06-23 12:00:00.000000",
+                    "body": "db connection failed",
+                    "severity_text": "error",
+                    "service_name": "api",
+                }
+            ]
+        )
+
+        body = self._request(
+            {
+                "dateRange": {"date_from": "2026-06-23T00:00:00Z", "date_to": "2026-06-23T13:00:00Z"},
+                "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+                "severityLevels": None,
+                "serviceNames": None,
+            }
+        )
+
+        assert body["scanned_count"] == 1
