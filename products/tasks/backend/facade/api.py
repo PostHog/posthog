@@ -48,6 +48,7 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services import channel_documents
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -66,6 +67,7 @@ from products.tasks.backend.models import (
     SandboxSnapshot,
     Task,
     TaskActivity,
+    TaskArtifact,
     TaskAutomation,
     TaskPin,
     TaskRun,
@@ -5543,6 +5545,145 @@ def create_channel_feed_message(
     message = ChannelFeedMessage.objects.create(**fields)
     # Fresh row: author lazy-loads once for the DTO.
     return _channel_feed_message_to_dto(message)
+
+
+def _channel_document_to_dto(document: TaskArtifact) -> contracts.ChannelDocumentDTO:
+    metadata = document.metadata or {}
+    if document.channel_id is None:
+        # channel_documents queries filter on channel, so a row without one can't reach here.
+        raise ValueError("Channel document row is missing its channel")
+    return contracts.ChannelDocumentDTO(
+        id=document.id,
+        channel=document.channel_id,
+        name=document.name,
+        doc_kind=str(metadata.get("doc_kind") or "todo"),
+        content=str(metadata.get("content") or ""),
+        current_version=document.current_version,
+        created_at=document.created_at,
+        updated_at=document.updated_at,
+        created_by=_user_basic_info(document.created_by if document.created_by_id else None),
+    )
+
+
+def _writable_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
+    """A channel the requester may write documents in. Deliberately the same predicate
+    as reading: public channels are team-writable (documents are the first multiplayer
+    write surface — unlike tasks, where read ≠ control), personal channels are
+    creator-only via ``_visible_channel``."""
+    return _visible_channel(channel_id, team_id, user_id)
+
+
+def list_channel_documents(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.ChannelDocumentDTO] | None:
+    """A channel's documents, most recently updated first. ``None`` when the channel
+    isn't visible to the requester."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    return [_channel_document_to_dto(document) for document in channel_documents.list_documents(channel)]
+
+
+def get_channel_document(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, document_id: str | UUID
+) -> contracts.ChannelDocumentDTO | None:
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    document = channel_documents.get_document(channel, document_id)
+    if document is None:
+        return None
+    return _channel_document_to_dto(document)
+
+
+def create_channel_document(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    name: str,
+    doc_kind: str,
+    content: str,
+) -> contracts.ChannelDocumentDTO | None | str:
+    """Resolve-or-create a document by (name, kind) in a channel. ``None`` when the
+    channel isn't visible; ``"full"`` at the per-channel document cap; ``"too_large"``
+    over the content size cap."""
+    channel = _writable_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    try:
+        document = channel_documents.create_document(channel, user_id, name=name, doc_kind=doc_kind, content=content)
+    except channel_documents.ChannelDocumentLimitExceeded:
+        return "full"
+    except channel_documents.ChannelDocumentTooLarge:
+        return "too_large"
+    return _channel_document_to_dto(document)
+
+
+def append_channel_document(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    document_id: str | UUID,
+    text: str,
+) -> contracts.ChannelDocumentDTO | None | str:
+    """Append lines to a document. ``None`` when the channel isn't visible;
+    ``"not_found"`` for a missing document; ``"too_large"`` when the append would
+    push the document over the size cap. Concurrent appends serialize server-side,
+    so captures from two clients both land."""
+    channel = _writable_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    try:
+        document = channel_documents.append_to_document(channel, document_id, user_id, text=text)
+    except channel_documents.ChannelDocumentTooLarge:
+        return "too_large"
+    if document is None:
+        return "not_found"
+    return _channel_document_to_dto(document)
+
+
+def update_channel_document(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    document_id: str | UUID,
+    content: str,
+    expected_version: int,
+    name: str | None = None,
+) -> contracts.ChannelDocumentDTO | None | str:
+    """Replace a document's content (and optionally name). ``None`` when the channel
+    isn't visible; ``"not_found"`` / ``"too_large"`` as elsewhere; ``"conflict"`` when
+    ``expected_version`` is stale — refetch and retry."""
+    channel = _writable_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    try:
+        result = channel_documents.update_document(
+            channel,
+            document_id,
+            user_id,
+            channel_documents.DocumentUpdate(content=content, expected_version=expected_version, name=name),
+        )
+    except channel_documents.ChannelDocumentTooLarge:
+        return "too_large"
+    if result is None:
+        return "not_found"
+    if result == "conflict":
+        return "conflict"
+    return _channel_document_to_dto(result)
+
+
+def delete_channel_document(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, document_id: str | UUID
+) -> str:
+    """Delete a document. Returns ``ok`` / ``not_found`` (covers invisible channels)."""
+    channel = _writable_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return "not_found"
+    return "ok" if channel_documents.delete_document(channel, document_id) else "not_found"
 
 
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:

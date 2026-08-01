@@ -24,6 +24,7 @@ from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ip
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
+    ChannelDocumentDTO,
     ChannelDTO,
     ChannelFeedMessageDTO,
     SandboxCustomImageDTO,
@@ -1451,6 +1452,93 @@ class TaskThreadMessageWriteSerializer(serializers.Serializer):
     """Request body for posting a thread message."""
 
     content = serializers.CharField(help_text="Message text.")
+
+
+CHANNEL_DOCUMENT_KINDS = ["todo", "plan"]
+CHANNEL_DOCUMENT_MAX_CONTENT_BYTES = 256 * 1024
+
+
+class ChannelDocumentSerializer(DataclassSerializer):
+    """Response shape for a channel document — a shared markdown doc (todo list or plan)
+    living in a task channel."""
+
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = ChannelDocumentDTO
+        fields = [
+            "id",
+            "channel",
+            "name",
+            "doc_kind",
+            "content",
+            "current_version",
+            "created_at",
+            "updated_at",
+            "created_by",
+        ]
+
+
+def _validate_document_content_size(value: str) -> str:
+    if len(value.encode("utf-8")) > CHANNEL_DOCUMENT_MAX_CONTENT_BYTES:
+        raise serializers.ValidationError(
+            f"Document content can be at most {CHANNEL_DOCUMENT_MAX_CONTENT_BYTES // 1024} KB."
+        )
+    return value
+
+
+class ChannelDocumentCreateSerializer(serializers.Serializer):
+    """Request body for resolve-or-creating a channel document."""
+
+    name = serializers.CharField(
+        max_length=255,
+        help_text='Document title, e.g. "Todos". Together with doc_kind this is the resolve-or-create key: creating an existing (name, doc_kind) pair returns the existing document.',
+    )
+    doc_kind = serializers.ChoiceField(
+        choices=CHANNEL_DOCUMENT_KINDS,
+        help_text="Document flavor: 'todo' renders as a checklist, 'plan' as prose. Both store plain markdown.",
+    )
+    content = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Initial markdown content. At most 256 KB.",
+    )
+
+    def validate_content(self, value: str) -> str:
+        return _validate_document_content_size(value)
+
+
+class ChannelDocumentAppendSerializer(serializers.Serializer):
+    """Request body for appending lines to a channel document."""
+
+    text = serializers.CharField(
+        help_text='Markdown line(s) to append, e.g. "- [ ] Follow up on retries". The server adds surrounding newlines; concurrent appends from different clients all land.',
+    )
+
+    def validate_text(self, value: str) -> str:
+        return _validate_document_content_size(value)
+
+
+class ChannelDocumentUpdateSerializer(serializers.Serializer):
+    """Request body for replacing a channel document's content."""
+
+    content = serializers.CharField(
+        allow_blank=True,
+        help_text="Full replacement markdown content. At most 256 KB.",
+    )
+    expected_version = serializers.IntegerField(
+        min_value=1,
+        help_text="The current_version this edit was based on. A mismatch returns 409: refetch the document, reapply the edit, and retry.",
+    )
+    name = serializers.CharField(
+        required=False,
+        max_length=255,
+        help_text="New document title, if renaming.",
+    )
+
+    def validate_content(self, value: str) -> str:
+        return _validate_document_content_size(value)
 
 
 # The lifecycle events a client may post into a channel's feed. Kept narrow so the

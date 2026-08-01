@@ -17,6 +17,10 @@ from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
+    ChannelDocumentAppendSerializer,
+    ChannelDocumentCreateSerializer,
+    ChannelDocumentSerializer,
+    ChannelDocumentUpdateSerializer,
     ChannelFeedMessageSerializer,
     ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
@@ -170,6 +174,148 @@ class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         if message == "full":
             raise ValidationError("This channel's feed is full.")
         return Response(ChannelFeedMessageSerializer(message).data, status=status.HTTP_201_CREATED)
+
+
+class ChannelDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for a channel's documents — shared markdown docs (todo lists, plans) captured
+    from agent conversations and edited collaboratively. Public channels are
+    team-writable; personal (#me) channels stay creator-only.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    serializer_class = ChannelDocumentSerializer
+
+    def _channel_id(self) -> str:
+        channel_id = self.kwargs.get("parent_lookup_channel_id")
+        if not channel_id:
+            raise NotFound("Channel ID is required")
+        try:
+            UUID(channel_id)
+        except (ValueError, TypeError):
+            raise NotFound("Channel not found")
+        return channel_id
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ChannelDocumentSerializer(many=True), description="Documents, most recently updated first"
+            )
+        },
+        summary="List channel documents",
+        description="A channel's shared markdown documents, most recently updated first.",
+    )
+    def list(self, request, *args, **kwargs):
+        documents = tasks_facade.list_channel_documents(self._channel_id(), self.team_id, self._user_id())
+        if documents is None:
+            raise NotFound("Channel not found")
+        return Response(ChannelDocumentSerializer(documents, many=True).data)
+
+    @extend_schema(
+        responses={200: ChannelDocumentSerializer},
+        summary="Get a channel document",
+    )
+    def retrieve(self, request, pk=None, **kwargs):
+        document = tasks_facade.get_channel_document(self._channel_id(), self.team_id, self._user_id(), document_id=pk)
+        if document is None:
+            raise NotFound("Document not found")
+        return Response(ChannelDocumentSerializer(document).data)
+
+    @extend_schema(
+        request=ChannelDocumentCreateSerializer,
+        responses={201: ChannelDocumentSerializer},
+        summary="Resolve or create a channel document",
+        description="Returns the channel's existing document with the same name and kind, creating it if needed.",
+    )
+    def create(self, request, **kwargs):
+        serializer = ChannelDocumentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        document = tasks_facade.create_channel_document(
+            self._channel_id(),
+            self.team_id,
+            self._user_id(),
+            name=serializer.validated_data["name"],
+            doc_kind=serializer.validated_data["doc_kind"],
+            content=serializer.validated_data["content"],
+        )
+        if document is None:
+            raise NotFound("Channel not found")
+        if document == "full":
+            raise ValidationError("This channel is at its document limit. Delete a document to add another.")
+        if document == "too_large":
+            raise ValidationError("Document content can be at most 256 KB.")
+        return Response(ChannelDocumentSerializer(document).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=ChannelDocumentUpdateSerializer,
+        responses={
+            200: ChannelDocumentSerializer,
+            409: OpenApiResponse(description="expected_version is stale; refetch the document and retry"),
+        },
+        summary="Replace a channel document's content",
+    )
+    def partial_update(self, request, pk=None, **kwargs):
+        serializer = ChannelDocumentUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        document = tasks_facade.update_channel_document(
+            self._channel_id(),
+            self.team_id,
+            self._user_id(),
+            document_id=pk,
+            content=serializer.validated_data["content"],
+            expected_version=serializer.validated_data["expected_version"],
+            name=serializer.validated_data.get("name"),
+        )
+        if document is None or document == "not_found":
+            raise NotFound("Document not found")
+        if document == "conflict":
+            return Response(
+                {"detail": "The document changed since you loaded it. Refetch it and retry the edit."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if document == "too_large":
+            raise ValidationError("Document content can be at most 256 KB.")
+        return Response(ChannelDocumentSerializer(document).data)
+
+    @extend_schema(responses={204: None}, summary="Delete a channel document")
+    def destroy(self, request, pk=None, **kwargs):
+        result = tasks_facade.delete_channel_document(self._channel_id(), self.team_id, self._user_id(), document_id=pk)
+        if result == "not_found":
+            raise NotFound("Document not found")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=ChannelDocumentAppendSerializer,
+        responses={200: ChannelDocumentSerializer},
+        summary="Append to a channel document",
+        description="Appends markdown lines to the document. Appends serialize server-side, so concurrent captures from different clients all land.",
+    )
+    @action(detail=True, methods=["post"], url_path="append", required_scopes=["task:write"])
+    def append(self, request, pk=None, **kwargs):
+        serializer = ChannelDocumentAppendSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        document = tasks_facade.append_channel_document(
+            self._channel_id(),
+            self.team_id,
+            self._user_id(),
+            document_id=pk,
+            text=serializer.validated_data["text"],
+        )
+        if document is None or document == "not_found":
+            raise NotFound("Document not found")
+        if document == "too_large":
+            raise ValidationError("This append would push the document over its 256 KB limit.")
+        return Response(ChannelDocumentSerializer(document).data)
 
 
 class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

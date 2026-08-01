@@ -4614,6 +4614,7 @@ export namespace Schemas {
      * * `slack_file` - slack_file
      * * `document_connector` - document_connector
      * * `github_pr` - github_pr
+     * * `native` - native
      */
     export type AdapterEnum = typeof AdapterEnum[keyof typeof AdapterEnum];
 
@@ -4624,6 +4625,7 @@ export namespace Schemas {
       SlackFile: 'slack_file',
       DocumentConnector: 'document_connector',
       GithubPr: 'github_pr',
+      Native: 'native',
     } as const;
 
     export type ErrorTrackingListWidgetAddRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetAddRequestOpenApiWidgetType];
@@ -13545,6 +13547,60 @@ export namespace Schemas {
       WidgetApi: 'widget_api',
       GithubIssue: 'github_issue',
     } as const;
+
+    /**
+     * Request body for appending lines to a channel document.
+     */
+    export interface ChannelDocumentAppend {
+      /** Markdown line(s) to append, e.g. "- [ ] Follow up on retries". The server adds surrounding newlines; concurrent appends from different clients all land. */
+      text: string;
+    }
+
+    /**
+     * * `todo` - todo
+     * * `plan` - plan
+     */
+    export type DocKindEnum = typeof DocKindEnum[keyof typeof DocKindEnum];
+
+
+    export const DocKindEnum = {
+      Todo: 'todo',
+      Plan: 'plan',
+    } as const;
+
+    /**
+     * Request body for resolve-or-creating a channel document.
+     */
+    export interface ChannelDocumentCreate {
+      /**
+         * Document title, e.g. "Todos". Together with doc_kind this is the resolve-or-create key: creating an existing (name, doc_kind) pair returns the existing document.
+         * @maxLength 255
+         */
+      name: string;
+      /** Document flavor: 'todo' renders as a checklist, 'plan' as prose. Both store plain markdown.
+       *
+       * * `todo` - todo
+       * * `plan` - plan */
+      doc_kind: DocKindEnum;
+      /** Initial markdown content. At most 256 KB. */
+      content?: string;
+    }
+
+    /**
+     * Response shape for a channel document — a shared markdown doc (todo list or plan)
+     * living in a task channel.
+     */
+    export interface ChannelDocumentDTO {
+      id: string;
+      channel: string;
+      name: string;
+      doc_kind: string;
+      content: string;
+      current_version: number;
+      created_at: string;
+      updated_at: string;
+      created_by?: TaskUserBasicInfo | null;
+    }
 
     export type ChannelFeedMessageDTOPayload = { [key: string]: unknown };
 
@@ -43402,6 +43458,15 @@ export namespace Schemas {
       results: ChannelDTO[];
     }
 
+    export interface PaginatedChannelDocumentDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ChannelDocumentDTO[];
+    }
+
     export interface PaginatedChannelFeedMessageDTOList {
       count: number;
       /** @nullable */
@@ -49339,6 +49404,24 @@ export namespace Schemas {
          * @nullable
          */
       expected_current_version_id?: string | null;
+    }
+
+    /**
+     * Request body for replacing a channel document's content.
+     */
+    export interface PatchedChannelDocumentUpdate {
+      /** Full replacement markdown content. At most 256 KB. */
+      content?: string;
+      /**
+         * The current_version this edit was based on. A mismatch returns 409: refetch the document, reapply the edit, and retry.
+         * @minimum 1
+         */
+      expected_version?: number;
+      /**
+         * New document title, if renaming.
+         * @maxLength 255
+         */
+      name?: string;
     }
 
     /**
@@ -71068,7 +71151,8 @@ export namespace Schemas {
        * * `slack_canvas` - slack_canvas
        * * `slack_file` - slack_file
        * * `document_connector` - document_connector
-       * * `github_pr` - github_pr */
+       * * `github_pr` - github_pr
+       * * `native` - native */
       adapter: AdapterEnum;
       /** Current registry status for the artifact.
        *
@@ -71134,7 +71218,8 @@ export namespace Schemas {
        * * `slack_canvas` - slack_canvas
        * * `slack_file` - slack_file
        * * `document_connector` - document_connector
-       * * `github_pr` - github_pr */
+       * * `github_pr` - github_pr
+       * * `native` - native */
       adapter?: AdapterEnum;
       /**
          * Markdown or text content for the initial artifact version.
@@ -71216,7 +71301,8 @@ export namespace Schemas {
        * * `slack_canvas` - slack_canvas
        * * `slack_file` - slack_file
        * * `document_connector` - document_connector
-       * * `github_pr` - github_pr */
+       * * `github_pr` - github_pr
+       * * `native` - native */
       adapter: AdapterEnum;
       /** Current registry status for the artifact.
        *
@@ -83333,6 +83419,17 @@ export namespace Schemas {
     };
 
     export type TaskChannelsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type TaskChannelsDocumentsListParams = {
     /**
      * Number of results to return per page.
      */

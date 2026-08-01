@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ChannelDTOApi,
+    ChannelDocumentAppendApi,
+    ChannelDocumentCreateApi,
+    ChannelDocumentDTOApi,
     ChannelFeedMessageDTOApi,
     ChannelFeedMessageWriteApi,
     ChannelWriteApi,
@@ -28,6 +31,7 @@ import type {
     LoopsTriggerCreateBodyThree,
     LoopsTriggerCreateBodyTwo,
     PaginatedChannelDTOListApi,
+    PaginatedChannelDocumentDTOListApi,
     PaginatedChannelFeedMessageDTOListApi,
     PaginatedLoopDTOListApi,
     PaginatedSandboxCustomImageDTOListApi,
@@ -38,6 +42,7 @@ import type {
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
+    PatchedChannelDocumentUpdateApi,
     PatchedChannelWriteApi,
     PatchedLoopWriteApi,
     PatchedSandboxCustomImageUpdateApi,
@@ -64,6 +69,7 @@ import type {
     TaskAutomationDTOApi,
     TaskAutomationWriteApi,
     TaskAutomationsListParams,
+    TaskChannelsDocumentsListParams,
     TaskChannelsFeedListParams,
     TaskChannelsListParams,
     TaskCreateApi,
@@ -858,6 +864,159 @@ export const taskChannelsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(channelWriteApi),
+    })
+}
+
+export const getTaskChannelsDocumentsListUrl = (
+    projectId: string,
+    channelId: string,
+    params?: TaskChannelsDocumentsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/task_channels/${channelId}/documents/?${stringifiedParams}`
+        : `/api/projects/${projectId}/task_channels/${channelId}/documents/`
+}
+
+/**
+ * A channel's shared markdown documents, most recently updated first.
+ * @summary List channel documents
+ */
+export const taskChannelsDocumentsList = async (
+    projectId: string,
+    channelId: string,
+    params?: TaskChannelsDocumentsListParams,
+    options?: RequestInit
+): Promise<PaginatedChannelDocumentDTOListApi> => {
+    return apiMutator<PaginatedChannelDocumentDTOListApi>(
+        getTaskChannelsDocumentsListUrl(projectId, channelId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getTaskChannelsDocumentsCreateUrl = (projectId: string, channelId: string) => {
+    return `/api/projects/${projectId}/task_channels/${channelId}/documents/`
+}
+
+/**
+ * Returns the channel's existing document with the same name and kind, creating it if needed.
+ * @summary Resolve or create a channel document
+ */
+export const taskChannelsDocumentsCreate = async (
+    projectId: string,
+    channelId: string,
+    channelDocumentCreateApi: ChannelDocumentCreateApi,
+    options?: RequestInit
+): Promise<ChannelDocumentDTOApi> => {
+    return apiMutator<ChannelDocumentDTOApi>(getTaskChannelsDocumentsCreateUrl(projectId, channelId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelDocumentCreateApi),
+    })
+}
+
+export const getTaskChannelsDocumentsRetrieveUrl = (projectId: string, channelId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${channelId}/documents/${id}/`
+}
+
+/**
+ * API for a channel's documents — shared markdown docs (todo lists, plans) captured
+ * from agent conversations and edited collaboratively. Public channels are
+ * team-writable; personal (#me) channels stay creator-only.
+ * @summary Get a channel document
+ */
+export const taskChannelsDocumentsRetrieve = async (
+    projectId: string,
+    channelId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ChannelDocumentDTOApi> => {
+    return apiMutator<ChannelDocumentDTOApi>(getTaskChannelsDocumentsRetrieveUrl(projectId, channelId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTaskChannelsDocumentsPartialUpdateUrl = (projectId: string, channelId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${channelId}/documents/${id}/`
+}
+
+/**
+ * API for a channel's documents — shared markdown docs (todo lists, plans) captured
+ * from agent conversations and edited collaboratively. Public channels are
+ * team-writable; personal (#me) channels stay creator-only.
+ * @summary Replace a channel document's content
+ */
+export const taskChannelsDocumentsPartialUpdate = async (
+    projectId: string,
+    channelId: string,
+    id: string,
+    patchedChannelDocumentUpdateApi?: PatchedChannelDocumentUpdateApi,
+    options?: RequestInit
+): Promise<ChannelDocumentDTOApi> => {
+    return apiMutator<ChannelDocumentDTOApi>(getTaskChannelsDocumentsPartialUpdateUrl(projectId, channelId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedChannelDocumentUpdateApi),
+    })
+}
+
+export const getTaskChannelsDocumentsDestroyUrl = (projectId: string, channelId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${channelId}/documents/${id}/`
+}
+
+/**
+ * API for a channel's documents — shared markdown docs (todo lists, plans) captured
+ * from agent conversations and edited collaboratively. Public channels are
+ * team-writable; personal (#me) channels stay creator-only.
+ * @summary Delete a channel document
+ */
+export const taskChannelsDocumentsDestroy = async (
+    projectId: string,
+    channelId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTaskChannelsDocumentsDestroyUrl(projectId, channelId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getTaskChannelsDocumentsAppendCreateUrl = (projectId: string, channelId: string, id: string) => {
+    return `/api/projects/${projectId}/task_channels/${channelId}/documents/${id}/append/`
+}
+
+/**
+ * Appends markdown lines to the document. Appends serialize server-side, so concurrent captures from different clients all land.
+ * @summary Append to a channel document
+ */
+export const taskChannelsDocumentsAppendCreate = async (
+    projectId: string,
+    channelId: string,
+    id: string,
+    channelDocumentAppendApi: ChannelDocumentAppendApi,
+    options?: RequestInit
+): Promise<ChannelDocumentDTOApi> => {
+    return apiMutator<ChannelDocumentDTOApi>(getTaskChannelsDocumentsAppendCreateUrl(projectId, channelId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(channelDocumentAppendApi),
     })
 }
 

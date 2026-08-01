@@ -787,3 +787,131 @@ class ChannelFeedMessageAPITestCase(TestCase):
         # Same org, wrong team in the URL — the channel must not resolve.
         response = self.client.get(f"/api/projects/{other_team.id}/task_channels/{channel_id}/feed/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class ChannelDocumentsAPITestCase(TestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Growth Team")
+        self.user = User.objects.create_user(email="author@example.com", first_name="Ann", password="password")
+        self.other_user = User.objects.create_user(email="peer@example.com", first_name="Bob", password="password")
+        for user in (self.user, self.other_user):
+            self.organization.members.add(user)
+            OrganizationMembership.objects.filter(user=user, organization=self.organization).update(
+                level=OrganizationMembership.Level.ADMIN
+            )
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.other_client = APIClient()
+        self.other_client.force_authenticate(self.other_user)
+
+    def _channels_url(self) -> str:
+        return f"/api/projects/{self.team.id}/task_channels/"
+
+    def _documents_url(self, channel_id: str) -> str:
+        return f"{self._channels_url()}{channel_id}/documents/"
+
+    def _public_channel(self) -> str:
+        return self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+
+    def _personal_channel(self) -> str:
+        channels = self.client.get(self._channels_url()).json()
+        return next(c["id"] for c in channels if c["channel_type"] == "personal")
+
+    def _create_document(self, channel_id: str, **overrides) -> dict:
+        body = {"name": "Todos", "doc_kind": "todo", "content": "- [ ] first\n", **overrides}
+        response = self.client.post(self._documents_url(channel_id), body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        return response.json()
+
+    def test_public_channel_documents_are_team_writable(self):
+        channel_id = self._public_channel()
+        document = self._create_document(channel_id)
+
+        listed = self.other_client.get(self._documents_url(channel_id))
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        self.assertEqual([d["id"] for d in listed.json()], [document["id"]])
+
+        appended = self.other_client.post(
+            f"{self._documents_url(channel_id)}{document['id']}/append/",
+            {"text": "- [ ] from a teammate"},
+            format="json",
+        )
+        self.assertEqual(appended.status_code, status.HTTP_200_OK, appended.content)
+        self.assertIn("- [ ] from a teammate", appended.json()["content"])
+        self.assertEqual(appended.json()["current_version"], 2)
+
+    def test_personal_channel_documents_are_creator_only(self):
+        channel_id = self._personal_channel()
+        document = self._create_document(channel_id)
+
+        self.assertEqual(self.other_client.get(self._documents_url(channel_id)).status_code, status.HTTP_404_NOT_FOUND)
+        blocked_append = self.other_client.post(
+            f"{self._documents_url(channel_id)}{document['id']}/append/",
+            {"text": "- [ ] intrusion"},
+            format="json",
+        )
+        self.assertEqual(blocked_append.status_code, status.HTTP_404_NOT_FOUND)
+
+        mine = self.client.get(self._documents_url(channel_id))
+        self.assertEqual([d["id"] for d in mine.json()], [document["id"]])
+
+    def test_create_resolves_existing_document_by_name_and_kind(self):
+        channel_id = self._public_channel()
+        first = self._create_document(channel_id)
+        again = self._create_document(channel_id, content="ignored on resolve")
+        self.assertEqual(again["id"], first["id"])
+        self.assertEqual(again["content"], first["content"])
+
+        other_kind = self._create_document(channel_id, doc_kind="plan")
+        self.assertNotEqual(other_kind["id"], first["id"])
+
+    def test_append_adds_line_and_bumps_version(self):
+        channel_id = self._public_channel()
+        document = self._create_document(channel_id, content="- [ ] existing")
+        appended = self.client.post(
+            f"{self._documents_url(channel_id)}{document['id']}/append/",
+            {"text": "- [ ] captured"},
+            format="json",
+        )
+        self.assertEqual(appended.status_code, status.HTTP_200_OK)
+        self.assertEqual(appended.json()["content"], "- [ ] existing\n- [ ] captured\n")
+        self.assertEqual(appended.json()["current_version"], 2)
+
+    def test_stale_edit_conflicts_and_preserves_content(self):
+        channel_id = self._public_channel()
+        document = self._create_document(channel_id)
+        self.client.post(
+            f"{self._documents_url(channel_id)}{document['id']}/append/",
+            {"text": "- [ ] concurrent"},
+            format="json",
+        )
+
+        stale = self.client.patch(
+            f"{self._documents_url(channel_id)}{document['id']}/",
+            {"content": "clobbered", "expected_version": document["current_version"]},
+            format="json",
+        )
+        self.assertEqual(stale.status_code, status.HTTP_409_CONFLICT)
+
+        current = self.client.get(f"{self._documents_url(channel_id)}{document['id']}/").json()
+        self.assertIn("- [ ] concurrent", current["content"])
+
+        retried = self.client.patch(
+            f"{self._documents_url(channel_id)}{document['id']}/",
+            {"content": "merged content", "expected_version": current["current_version"]},
+            format="json",
+        )
+        self.assertEqual(retried.status_code, status.HTTP_200_OK)
+        self.assertEqual(retried.json()["content"], "merged content")
+
+    def test_append_over_size_cap_is_rejected(self):
+        channel_id = self._public_channel()
+        near_cap = "x" * (255 * 1024)
+        document = self._create_document(channel_id, content=near_cap)
+        overflow = self.client.post(
+            f"{self._documents_url(channel_id)}{document['id']}/append/",
+            {"text": "y" * (2 * 1024)},
+            format="json",
+        )
+        self.assertEqual(overflow.status_code, status.HTTP_400_BAD_REQUEST)

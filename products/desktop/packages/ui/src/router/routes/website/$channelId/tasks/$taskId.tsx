@@ -3,6 +3,7 @@ import { ThreadSidebar } from "@posthog/ui/features/canvas/components/ThreadSide
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
+import { SpaceDocsPanel } from "@posthog/ui/features/space-docs/SpaceDocsPanel";
 import { TaskDetail } from "@posthog/ui/features/task-detail/components/TaskDetail";
 import {
   getCachedTask,
@@ -121,6 +122,7 @@ function ChannelTaskDetailRoute() {
         showTaskSummary={false}
         canOpenInPlace
       />
+      <SpaceDocsPanel />
     </div>
   );
 }

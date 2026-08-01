@@ -127,6 +127,28 @@ export interface ChannelFeedMessage {
   created_at: string;
 }
 
+/** Flavors of a channel document. Both store plain markdown; the kind only drives rendering. */
+export type ChannelDocumentKind = "todo" | "plan";
+
+/**
+ * A shared markdown doc (todo list or plan) living in a backend task channel,
+ * captured from agent conversations and edited collaboratively. Public channels
+ * are team-writable; personal (#me) docs stay creator-only. `current_version`
+ * is the optimistic-concurrency token for full edits: a stale edit gets a 409
+ * (refetch and retry), while appends serialize server-side and never conflict.
+ */
+export interface ChannelDocument {
+  id: string;
+  channel: string;
+  name: string;
+  doc_kind: ChannelDocumentKind;
+  content: string;
+  current_version: number;
+  created_at: string;
+  updated_at: string;
+  created_by?: UserBasic | null;
+}
+
 /**
  * One human message in a task's thread. Thread messages never reach the agent
  * unless the task author forwards one, which stamps the forwarded_* fields.

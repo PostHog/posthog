@@ -1013,6 +1013,76 @@ export const TaskChannelsCreateBody = /* @__PURE__ */ zod
     .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
 
 /**
+ * Returns the channel's existing document with the same name and kind, creating it if needed.
+ * @summary Resolve or create a channel document
+ */
+export const taskChannelsDocumentsCreateBodyNameMax = 255
+
+export const taskChannelsDocumentsCreateBodyContentDefault = ``
+
+export const TaskChannelsDocumentsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(taskChannelsDocumentsCreateBodyNameMax)
+            .describe(
+                'Document title, e.g. \"Todos\". Together with doc_kind this is the resolve-or-create key: creating an existing (name, doc_kind) pair returns the existing document.'
+            ),
+        doc_kind: zod
+            .enum(['todo', 'plan'])
+            .describe('\* `todo` - todo\n\* `plan` - plan')
+            .describe(
+                "Document flavor: 'todo' renders as a checklist, 'plan' as prose. Both store plain markdown.\n\n\* `todo` - todo\n\* `plan` - plan"
+            ),
+        content: zod
+            .string()
+            .default(taskChannelsDocumentsCreateBodyContentDefault)
+            .describe('Initial markdown content. At most 256 KB.'),
+    })
+    .describe('Request body for resolve-or-creating a channel document.')
+
+/**
+ * API for a channel's documents — shared markdown docs (todo lists, plans) captured
+ * from agent conversations and edited collaboratively. Public channels are
+ * team-writable; personal (#me) channels stay creator-only.
+ * @summary Replace a channel document's content
+ */
+
+export const taskChannelsDocumentsPartialUpdateBodyNameMax = 255
+
+export const TaskChannelsDocumentsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod.string().optional().describe('Full replacement markdown content. At most 256 KB.'),
+        expected_version: zod
+            .number()
+            .min(1)
+            .optional()
+            .describe(
+                'The current_version this edit was based on. A mismatch returns 409: refetch the document, reapply the edit, and retry.'
+            ),
+        name: zod
+            .string()
+            .max(taskChannelsDocumentsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('New document title, if renaming.'),
+    })
+    .describe("Request body for replacing a channel document's content.")
+
+/**
+ * Appends markdown lines to the document. Appends serialize server-side, so concurrent captures from different clients all land.
+ * @summary Append to a channel document
+ */
+export const TaskChannelsDocumentsAppendCreateBody = /* @__PURE__ */ zod
+    .object({
+        text: zod
+            .string()
+            .describe(
+                'Markdown line(s) to append, e.g. \"- [ ] Follow up on retries\". The server adds surrounding newlines; concurrent appends from different clients all land.'
+            ),
+    })
+    .describe('Request body for appending lines to a channel document.')
+
+/**
  * API for a channel's system-announcement feed — durable "PostHog agent" rows
  * (context created, CONTEXT.md being built) rendered alongside the channel's task
  * cards. Read by any team member for a public channel; personal channels are owner-only.
@@ -2725,13 +2795,13 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
             'Artifact format or delivery surface to create, such as document, spreadsheet, slack_canvas, or file.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `document` - document\n\* `spreadsheet` - spreadsheet\n\* `dashboard` - dashboard\n\* `file` - file\n\* `github_pr` - github_pr'
         ),
     adapter: zod
-        .enum(['slack_message', 'slack_canvas', 'slack_file', 'document_connector', 'github_pr'])
+        .enum(['slack_message', 'slack_canvas', 'slack_file', 'document_connector', 'github_pr', 'native'])
         .describe(
-            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+            '\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr\n\* `native` - native'
         )
         .optional()
         .describe(
-            'Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr'
+            'Optional preferred external storage or delivery adapter. Slack adapters deliver into the mapped Slack thread; omitted Slack-run documents use Slack canvas, omitted Slack-run files and spreadsheets use Slack file upload, and document_connector uses a connected external document provider.\n\n\* `slack_message` - slack_message\n\* `slack_canvas` - slack_canvas\n\* `slack_file` - slack_file\n\* `document_connector` - document_connector\n\* `github_pr` - github_pr\n\* `native` - native'
         ),
     content: zod
         .string()

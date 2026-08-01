@@ -2253,6 +2253,9 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         SLACK_FILE = "slack_file", "Slack file"
         DOCUMENT_CONNECTOR = "document_connector", "Document connector"
         GITHUB_PR = "github_pr", "GitHub PR"
+        # Content lives on the row itself (metadata["content"]) instead of an external
+        # system — used for channel documents (shared todo/plan markdown docs).
+        NATIVE = "native", "Native"
 
     class Status(models.TextChoices):
         ACTIVE = "active", "Active"
@@ -2260,8 +2263,20 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
 
     # App-level scoping is enforced by TeamScopedRootMixin; avoid locking the hot Team/User tables.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts")
-    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="living_artifacts")
+    # Run-delivered artifacts carry task+task_run; channel documents carry channel instead.
+    # The service layers enforce that exactly one of the two scopes is set.
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="living_artifacts", null=True, blank=True)
+    task_run = models.ForeignKey(
+        TaskRun, on_delete=models.CASCADE, related_name="living_artifacts", null=True, blank=True
+    )
+    channel = models.ForeignKey(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name="documents",
+        null=True,
+        blank=True,
+        db_index=False,
+    )
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
@@ -2292,6 +2307,7 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "task", "-updated_at"], name="task_artifact_team_task_idx"),
             models.Index(fields=["team", "task_run", "-updated_at"], name="task_artifact_team_run_idx"),
+            models.Index(fields=["team", "channel", "-updated_at"], name="task_artifact_team_chan_idx"),
         ]
 
     def __str__(self):

@@ -36,6 +36,7 @@ import {
   useBackendChannel,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { SpaceDocsPanel } from "@posthog/ui/features/space-docs/SpaceDocsPanel";
 import { SuggestedPromptCard } from "@posthog/ui/features/task-detail/components/SuggestedPromptCard";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
@@ -347,6 +348,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           existingContext={{ channelId, channelName }}
         />
       )}
+      <SpaceDocsPanel />
     </div>
   );
 }

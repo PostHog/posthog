@@ -165,6 +165,10 @@ def edit_living_artifact(
     # must resolve Slack mappings (repointed to the latest run) and storage paths as itself,
     # not as the run that originally created the artifact.
     run = run or artifact.task_run
+    if run is None:
+        # Channel documents (adapter="native") have no run and are edited through
+        # the channel_documents service, never this delivery pipeline.
+        raise ValueError("Living artifact edits require a run-scoped artifact")
     _require_living_artifacts_enabled(run)
     selected_adapter = _adapter_for_existing_artifact(artifact)
     next_version = int(artifact.current_version or 0) + 1
@@ -499,6 +503,8 @@ class DocumentConnectorArtifactAdapter(LivingArtifactAdapter):
     adapter = TaskArtifact.Adapter.DOCUMENT_CONNECTOR
 
     def open(self, artifact: TaskArtifact) -> str | None:
+        if artifact.task_run is None:
+            return None
         connector = _document_connector_adapter_for_run(artifact.task_run)
         if connector is None:
             return None

@@ -180,6 +180,22 @@ class ChannelDTO:
 
 
 @dataclass(frozen=True)
+class ChannelDocumentDTO:
+    """The HTTP representation of a channel document — a shared markdown doc
+    (todo list, plan) living in a task channel."""
+
+    id: UUID
+    channel: UUID
+    name: str
+    doc_kind: str
+    content: str
+    current_version: int
+    created_at: datetime
+    updated_at: datetime
+    created_by: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
 class TaskThreadMessageDTO:
     """The HTTP representation of one message in a task's thread."""
 

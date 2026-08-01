@@ -61,6 +61,7 @@ import {
 } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { MessageMinimap } from "@posthog/ui/features/sessions/components/chat-thread/MessageMinimap";
+import { MessageSelectionPopover } from "@posthog/ui/features/sessions/components/chat-thread/MessageSelectionPopover";
 import { ToolGroup } from "@posthog/ui/features/sessions/components/chat-thread/ToolGroup";
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import {
@@ -449,6 +450,7 @@ function UserBubble({
             <ChatBubbleContent>
               <div
                 ref={textRef}
+                data-selectable-message=""
                 className={cn(
                   "[&_p]:my-0",
                   !isExpanded && "max-h-[5lh] overflow-hidden",
@@ -568,11 +570,16 @@ const AgentProse = memo(function AgentProse({
         <ChatMessageContent className="gap-1">
           <ChatBubble variant="ghost">
             <ChatBubbleContent>
-              {isStreaming ? (
-                <ChatStreamingMarkdown content={smoothed} />
-              ) : (
-                <ChatMarkdown content={text} />
-              )}
+              <div
+                data-selectable-message=""
+                data-streaming={isStreaming ? "true" : undefined}
+              >
+                {isStreaming ? (
+                  <ChatStreamingMarkdown content={smoothed} />
+                ) : (
+                  <ChatMarkdown content={text} />
+                )}
+              </div>
             </ChatBubbleContent>
           </ChatBubble>
         </ChatMessageContent>
@@ -1129,6 +1136,7 @@ function ChatThreadRenderer({
 
   const optimisticItems = useOptimisticItemsForTask(taskId);
   const isCloud = useSessionIsCloud(taskId);
+  const selectionRootRef = useRef<HTMLDivElement>(null);
 
   const items = useMemo<ConversationItem[]>(
     () =>
@@ -1285,43 +1293,48 @@ function ChatThreadRenderer({
     >
       <SessionTaskIdProvider taskId={taskId}>
         <ChatThreadChromeProvider value={true}>
-          <ChatMessageScrollerProvider
-            // The windowed body owns following itself (anchorTo end + followOnAppend) — the
-            // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
-            autoScroll={!virtualized}
-            defaultScrollPosition="end"
-            // Default is 8px: with the thread's bottom padding you're rarely that close, so
-            // auto-follow ("following-bottom") would disengage on any stray trackpad wheel and
-            // never re-engage. Within this band the engine recaptures follow on the next content
-            // change; deliberate upward flicks travel past it and stay free-scrolling.
-            scrollEdgeThreshold={100}
-            scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
-          >
-            {virtualized ? (
-              <VirtualThreadScrollBody
-                items={items}
-                flatRows={flatRows}
-                renderRow={renderWindowedRow}
-                onUserInteract={clearKeyboardFocus}
-                footer={footer}
-                renderNav={renderNav}
-                resumeRef={threadResumeRef}
-              />
-            ) : (
-              <>
-                <ThreadScrollBody
+          {/* display:contents so the ref scopes selection handling to this
+              thread instance without adding a layout box around the scroller. */}
+          <div ref={selectionRootRef} className="contents">
+            <MessageSelectionPopover rootRef={selectionRootRef} task={task} />
+            <ChatMessageScrollerProvider
+              // The windowed body owns following itself (anchorTo end + followOnAppend) — the
+              // engine's own follow would fight it, so it only auto-scrolls when non-virtualized.
+              autoScroll={!virtualized}
+              defaultScrollPosition="end"
+              // Default is 8px: with the thread's bottom padding you're rarely that close, so
+              // auto-follow ("following-bottom") would disengage on any stray trackpad wheel and
+              // never re-engage. Within this band the engine recaptures follow on the next content
+              // change; deliberate upward flicks travel past it and stay free-scrolling.
+              scrollEdgeThreshold={100}
+              scrollPreviousItemPeek={SCROLL_PREVIOUS_ITEM_PEEK}
+            >
+              {virtualized ? (
+                <VirtualThreadScrollBody
                   items={items}
-                  rows={rows}
-                  renderItem={renderItem}
-                  keyboardFocusedMessageId={keyboardFocusedMessageId}
+                  flatRows={flatRows}
+                  renderRow={renderWindowedRow}
                   onUserInteract={clearKeyboardFocus}
                   footer={footer}
-                  resumeStateRef={threadResumeRef}
+                  renderNav={renderNav}
+                  resumeRef={threadResumeRef}
                 />
-                {renderNav()}
-              </>
-            )}
-          </ChatMessageScrollerProvider>
+              ) : (
+                <>
+                  <ThreadScrollBody
+                    items={items}
+                    rows={rows}
+                    renderItem={renderItem}
+                    keyboardFocusedMessageId={keyboardFocusedMessageId}
+                    onUserInteract={clearKeyboardFocus}
+                    footer={footer}
+                    resumeStateRef={threadResumeRef}
+                  />
+                  {renderNav()}
+                </>
+              )}
+            </ChatMessageScrollerProvider>
+          </div>
         </ChatThreadChromeProvider>
       </SessionTaskIdProvider>
     </WorkerPoolContextProvider>

@@ -66,6 +66,8 @@ import type {
   ActionabilityJudgmentArtefact,
   AvailableSuggestedReviewer,
   AvailableSuggestedReviewersResponse,
+  ChannelDocument,
+  ChannelDocumentKind,
   ChannelFeedMessage,
   ChannelFeedMessageEvent,
   CodeReferenceArtefact,
@@ -629,6 +631,17 @@ export class FolderInstructionsConflictError extends Error {
   ) {
     super(message);
     this.name = "FolderInstructionsConflictError";
+  }
+}
+
+// Thrown when PATCH on a channel document rejects an edit because
+// `expected_version` is older than the current version. Callers can re-fetch
+// and retry against the new content.
+export class ChannelDocumentConflictError extends Error {
+  status = 409;
+  constructor(message = "Document changed since you started editing") {
+    super(message);
+    this.name = "ChannelDocumentConflictError";
   }
 }
 
@@ -2789,6 +2802,129 @@ export class PostHogAPIClient {
       );
     }
     return (await response.json()) as ChannelFeedMessage;
+  }
+
+  // Channel documents — shared markdown docs (todo lists, plans) captured from
+  // agent conversations. Keyed on the backend task-channel id, not the desktop
+  // file-system folder id.
+
+  async getChannelDocuments(channelId: string): Promise<ChannelDocument[]> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/documents/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch channel documents: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelDocument[];
+  }
+
+  // Resolve-or-create a document by (name, kind): creating an existing pair
+  // returns the existing document, so capture flows can call this blindly.
+  async createChannelDocument(
+    channelId: string,
+    input: { name: string; docKind: ChannelDocumentKind; content?: string },
+  ): Promise<ChannelDocument> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/documents/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          name: input.name,
+          doc_kind: input.docKind,
+          content: input.content ?? "",
+        }),
+      },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to create channel document: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelDocument;
+  }
+
+  // Append markdown lines to a document. Appends serialize server-side, so
+  // concurrent captures from different clients all land without conflicts.
+  async appendChannelDocument(
+    channelId: string,
+    documentId: string,
+    text: string,
+  ): Promise<ChannelDocument> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/documents/${documentId}/append/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify({ text }) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to append to channel document: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelDocument;
+  }
+
+  // Replace a document's content (and optionally rename). `expectedVersion` is
+  // the current_version the edit was based on; a stale edit throws
+  // ChannelDocumentConflictError so callers can refetch and retry.
+  async updateChannelDocument(
+    channelId: string,
+    documentId: string,
+    input: { content: string; expectedVersion: number; name?: string },
+  ): Promise<ChannelDocument> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/documents/${documentId}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: {
+        body: JSON.stringify({
+          content: input.content,
+          expected_version: input.expectedVersion,
+          ...(input.name ? { name: input.name } : {}),
+        }),
+      },
+    });
+    if (response.status === 409) {
+      throw new ChannelDocumentConflictError();
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update channel document: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as ChannelDocument;
+  }
+
+  async deleteChannelDocument(
+    channelId: string,
+    documentId: string,
+  ): Promise<void> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/documents/${documentId}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "delete",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+    });
+    // A 404 means it's already gone, which is the outcome the caller wanted.
+    if (!response.ok && response.status !== 404) {
+      throw new Error(
+        `Failed to delete channel document: ${response.statusText}`,
+      );
+    }
   }
 
   // Mentions of the current user across task threads, newest first.
