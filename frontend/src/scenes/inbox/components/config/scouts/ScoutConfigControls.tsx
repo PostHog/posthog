@@ -151,7 +151,10 @@ export function ScoutConfigForm({
                         { value: ScoutConfigNetworkAccessEnumApi.Trusted, label: 'Trusted domains only' },
                         { value: ScoutConfigNetworkAccessEnumApi.Full, label: 'Full access' },
                     ]}
-                    disabledReason={controlsDisabledReason}
+                    // Editable while the scout is disabled, unlike the schedule controls: a newly
+                    // enabled scout with no prior run is immediately due, so network access must be
+                    // settable BEFORE the enable or the first run races out under the default policy.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
                     className="w-44"
                     onChange={(value) => {
                         if (value !== config.network_access) {
