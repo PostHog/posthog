@@ -26,6 +26,53 @@ fn test_person(version: i64) -> Person {
     }
 }
 
+/// Count the records a `read_committed` consumer can see on partition 0
+/// — the same isolation the warming path uses.
+async fn read_committed_count(topic: &str) -> usize {
+    use rdkafka::consumer::{Consumer, StreamConsumer};
+    use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
+
+    let consumer: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set(
+            "group.id",
+            format!("fence-abort-probe-{}", uuid::Uuid::new_v4()),
+        )
+        .set("enable.auto.commit", "false")
+        .set("auto.offset.reset", "earliest")
+        .set("isolation.level", "read_committed")
+        .create()
+        .expect("probe consumer");
+    let mut tpl = TopicPartitionList::new();
+    tpl.add_partition_offset(topic, 0, Offset::Beginning)
+        .expect("assign");
+    consumer.assign(&tpl).expect("assign");
+
+    let mut seen = 0;
+    // Anything committed is available immediately; the quiet period only
+    // has to outlast delivery, not a transaction timeout.
+    while let Ok(Ok(message)) =
+        tokio::time::timeout(Duration::from_millis(750), consumer.recv()).await
+    {
+        if message.payload().is_some() {
+            seen += 1;
+        }
+    }
+    seen
+}
+
+fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelogProducers {
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
+    FencedChangelogProducers::new(
+        kafka,
+        topic.to_string(),
+        Duration::from_secs(10),
+        Duration::from_secs(10),
+        window,
+    )
+}
+
 fn fenced_producers(topic: &str) -> FencedChangelogProducers {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
@@ -143,44 +190,54 @@ async fn a_cancelled_produce_does_not_wedge_the_partition() {
     .expect("and must succeed");
 }
 
-/// The drain's promise is that nothing more appends to the partition.
-/// A request cancelled mid-produce takes its handler — and the drain's
-/// in-flight count — with it while its record waits in an open window,
-/// so the drain must also wait for that window to settle. With a long
-/// admission interval the difference is unmistakable: quiescing takes
-/// about the window, and afterwards the changelog is genuinely quiet.
+/// Does a successor's `init_transactions` abort the predecessor's open
+/// transaction, or merely stop it from committing?
+///
+/// The drain does not wait for open transaction windows, which is only
+/// safe if a record abandoned in one cannot become visible after the
+/// partition moves. This pins that: the successor's acquire — which
+/// precedes its warm read — leaves the predecessor unable to commit.
+///
+/// Without this guarantee the drain would have to wait out every open
+/// window before acking, so the assertion is load-bearing rather than
+/// incidental.
 #[tokio::test]
-async fn quiesce_waits_for_an_abandoned_window_to_settle() {
-    let topic = format!("fence_quiesce_{}", uuid::Uuid::new_v4().simple());
-    let mut kafka = test_kafka_config();
-    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
-    // A long window so "did it wait?" is measurable rather than inferred.
-    let window = Duration::from_millis(1500);
-    let producers = Arc::new(FencedChangelogProducers::new(
-        kafka,
-        topic.clone(),
-        Duration::from_secs(10),
-        Duration::from_secs(10),
-        window,
-    ));
-    producers.acquire(0).await.expect("acquire");
+async fn a_successors_init_aborts_the_predecessors_open_window() {
+    let topic = format!("fence_abort_{}", uuid::Uuid::new_v4().simple());
 
+    // Predecessor: open a window and get a record enqueued into it, then
+    // abandon it exactly as a cancelled request would. The window is
+    // short on purpose — its committer must fire *after* the successor
+    // has taken the epoch, because "invisible while uncommitted" proves
+    // nothing. What has to be shown is that the record can never become
+    // visible once the successor owns the partition.
+    let first = Arc::new(fenced_producers_with_window(&topic, Duration::from_secs(1)));
+    first.acquire(0).await.expect("first owner acquires");
     {
-        let p = Arc::clone(&producers);
+        let p = Arc::clone(&first);
         let mut inflight = Box::pin(async move { p.produce(0, &test_person(1)).await });
-        tokio::time::timeout(Duration::from_millis(50), &mut inflight)
+        // Long enough for the send to reach the broker, far too short for
+        // the 30s window to close.
+        tokio::time::timeout(Duration::from_millis(200), &mut inflight)
             .await
             .ok();
     }
 
-    let start = std::time::Instant::now();
-    assert!(
-        producers.quiesce(0).await,
-        "the partition must quiesce within the bound"
-    );
-    assert!(
-        start.elapsed() >= window / 2,
-        "quiesce returned in {:?}, so it did not wait for the abandoned window",
-        start.elapsed()
+    // Successor takes the partition before that window closes, as a
+    // warming new owner does.
+    let second = fenced_producers(&topic);
+    second.acquire(0).await.expect("successor acquires");
+
+    // Now let the predecessor's committer run. This is the moment the
+    // drain's wait exists to prevent: an abandoned record committing
+    // after the successor is already the owner.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+
+    // Read the partition the way warming does.
+    let visible = read_committed_count(&topic).await;
+    assert_eq!(
+        visible, 0,
+        "an abandoned record must not become readable after the successor's init — \
+         if this fails, the drain must wait for open windows before acking"
     );
 }

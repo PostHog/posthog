@@ -181,11 +181,12 @@ impl Drop for WindowSlot {
             // window would punish the writes that are still waiting.
             //
             // The record therefore becomes durable without ever being
-            // acked. It must still commit before the partition moves,
-            // which is why the drain waits on `quiesce`: landing above
-            // a new owner's cutoff would make it invisible there, and
-            // the client's retry would produce the same version with
-            // different content.
+            // acked, and it can still sit in an open window when the
+            // partition moves. That is safe because the new owner
+            // acquires this partition's transactional id before reading
+            // the changelog: the abandoned window can no longer commit,
+            // so the record is either already below the new owner's
+            // cutoff or never visible at all.
             counter!("personhog_leader_fence_slots_abandoned_total").increment(1);
             self.release_inner(false);
         }
@@ -460,64 +461,6 @@ impl FencedChangelogProducers {
     fn forget_fence(&self, partition: u32, fence: &Arc<PartitionFence>) {
         self.partitions
             .remove_if(&partition, |_, installed| Arc::ptr_eq(installed, fence));
-    }
-
-    /// Wait until the partition has no transaction in progress: no open
-    /// window, no sends outstanding, no commit running.
-    ///
-    /// The drain needs this. Waiting for in-flight request handlers is
-    /// not enough, because a cancelled request drops its handler — and
-    /// with it the drain's count — while the record it already enqueued
-    /// stays in an open window. Without this wait the drain can finish,
-    /// the handoff can advance, and the new owner can warm, all before
-    /// that record commits; it then lands above the new owner's cutoff,
-    /// invisible to it, and the client's retry produces the same version
-    /// with different content, which the writer's version guard resolves
-    /// in favor of the record nobody acked.
-    ///
-    /// Returns whether the partition actually quiesced.
-    pub async fn quiesce(&self, partition: u32) -> bool {
-        let Some(fence) = self.partitions.get(&partition).map(|f| Arc::clone(&f)) else {
-            return true;
-        };
-        // A window can take its admission interval plus a full commit;
-        // allow two commits so a window that opens as we arrive is still
-        // covered.
-        let bound = self.window + self.commit_timeout * 2;
-        let start = Instant::now();
-        let quiesced = loop {
-            // Register before inspecting, so a window closing between the
-            // two cannot leave this waiting for a notification already
-            // sent.
-            let closed = fence.window_closed.notified();
-            tokio::pin!(closed);
-            closed.as_mut().enable();
-            {
-                let gate = fence.gate.lock().unwrap();
-                if !gate.open && gate.in_flight == 0 && !gate.committing {
-                    break true;
-                }
-            }
-            let remaining = bound.saturating_sub(start.elapsed());
-            if remaining.is_zero() {
-                break false;
-            }
-            // A timeout here is not the answer: re-check the gate, since
-            // the window may have closed without a notification racing us.
-            let _ = tokio::time::timeout(remaining, closed).await;
-        };
-        histogram!("personhog_leader_fence_quiesce_ms")
-            .record(start.elapsed().as_secs_f64() * 1000.0);
-        if !quiesced {
-            counter!("personhog_leader_fence_quiesce_timeouts_total").increment(1);
-            error!(
-                partition,
-                ?bound,
-                "changelog window did not settle before the drain gave up; a record may \
-                 commit after this partition is handed off"
-            );
-        }
-        quiesced
     }
 }
 
