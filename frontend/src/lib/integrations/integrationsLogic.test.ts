@@ -70,8 +70,8 @@ describe('integrationsLogic — handleOauthCallback', () => {
 
     it('does not create the integration when the OAuth state token no longer matches the cookie', async () => {
         // A stale/expired flow: the cookie minted at authorize time is gone or changed, so the token
-        // carried in the state can't match. The callback must recover by redirecting back, not POST a
-        // create — otherwise an expired (or forged) state could still link an integration.
+        // carried in the state can't match. The callback must recover by redirecting back rather than
+        // POST a create, so an expired (or forged) state can never link an integration.
         document.cookie = 'ph_oauth_state=a-different-token'
         const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
 
