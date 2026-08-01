@@ -214,7 +214,18 @@ jobs:
                   sparse-checkout: |
                       products/visual_review/cli
                       products/visual_review/frontend/generated/api.schemas.ts
+                      .nvmrc
                   sparse-checkout-cone-mode: false
+
+            # The CLI requires node >=24 <25, but the desktop build above pins node 22.
+            # Installing it under 22 resolves the optional @emnapi platform deps against a
+            # different npm and `npm ci` then rejects the lockfile as out of sync.
+            - name: Set up Node.js for the Visual Review CLI
+              if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version-file: vr-cli/.nvmrc
+                  package-manager-cache: false
 
             - name: Install Visual Review CLI
               if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push'
