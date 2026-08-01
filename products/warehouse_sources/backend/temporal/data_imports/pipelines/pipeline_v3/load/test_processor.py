@@ -637,6 +637,11 @@ class TestPostImportTrigger:
 
         assert client.start_workflow.call_count == 3
         mock_capture.assert_called_once()
+        # tenacity defaults to wrapping the last attempt in a RetryError once retries are
+        # exhausted; `reraise=True` must be set so the underlying RPCError reaches capture
+        # instead, keeping the error-tracking issue actionable.
+        captured_exception = mock_capture.call_args[0][0]
+        assert isinstance(captured_exception, RPCError)
 
 
 # Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.

@@ -493,6 +493,7 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             retry=retry_if_exception(_is_retryable_temporal_rpc_error),
             stop=stop_after_attempt(3),
             wait=wait_exponential_jitter(initial=1, max=5),
+            reraise=True,
         )
         async def _start() -> None:
             temporal = await async_connect()
@@ -574,6 +575,7 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
             retry=retry_if_exception(_is_retryable_temporal_rpc_error),
             stop=stop_after_attempt(3),
             wait=wait_exponential_jitter(initial=1, max=5),
+            reraise=True,
         )
         async def _start() -> None:
             temporal = await async_connect()
