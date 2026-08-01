@@ -48,6 +48,29 @@ describe('playerSidebarLogic', () => {
         }).toMatchValues({ activeTab: SessionRecordingSidebarTab.OVERVIEW })
     })
 
+    it('honors a tab from the URL when the sidebar appears with no recording in the URL', async () => {
+        // On /replay/home the first recording autoplays without its id ever reaching the URL, so
+        // a refresh has to fall back to the sidebar appearing as the signal that a recording is on
+        // screen. Remounting with the tab already in the URL is what that refresh looks like.
+        logic.unmount()
+        router.actions.push('/replay/home', { tab: SessionRecordingSidebarTab.NETWORK_WATERFALL })
+        logic = playerSidebarLogic()
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({ activeTab: SessionRecordingSidebarTab.NETWORK_WATERFALL })
+    })
+
+    it('leaves the tab alone when another scene puts its own tab in the URL', async () => {
+        // Two sidebar tab values are also tab values elsewhere ('overview' on a group page,
+        // 'sessions' in activity), and this logic matches on '*', so it sees those URLs too.
+        router.actions.push('/groups/0/abc', { tab: SessionRecordingSidebarTab.OVERVIEW })
+
+        await expectLogic(logic).toMatchValues({
+            selectedTab: null,
+            activeTab: SessionRecordingSidebarTab.INSPECTOR,
+        })
+    })
+
     it('keeps the host default out of the URL', () => {
         logic.actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
         expect(router.values.searchParams).not.toHaveProperty('tab')

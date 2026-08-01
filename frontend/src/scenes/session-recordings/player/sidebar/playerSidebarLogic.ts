@@ -84,7 +84,16 @@ export const playerSidebarLogic = kea<playerSidebarLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '*': (_, searchParams, hashParams) => {
+        '*': (_, searchParams, hashParams, payload) => {
+            // kea-router sets `initial` only on the replay it hands a logic right after it mounts,
+            // and this logic mounts with a player's sidebar, so an initial replay means a recording
+            // just came on screen and the tab in the URL is ours to read. That is the only signal
+            // available for the first recording on /replay/home, which autoplays without its id
+            // ever reaching the URL.
+            const sidebarJustAppeared = payload.initial
+            // Every later URL change still has to prove a recording is on screen, because `'*'`
+            // matches the many other scenes that keep their own `tab` in the URL, two of which use
+            // values this enum also has ('overview' and 'sessions').
             const isShowingRecording =
                 Object.keys(searchParams).includes('sessionRecordingId') ||
                 Object.keys(hashParams).includes('sessionRecordingId')
@@ -97,7 +106,7 @@ export const playerSidebarLogic = kea<playerSidebarLogicType>([
             // Compared against the viewer's pick rather than the active tab: a tab in the URL is an
             // explicit choice, and checking the active tab would skip recording it whenever a host
             // default happened to match — the choice would then evaporate once that host went away.
-            if (isShowingRecording && urlTab && urlTab !== values.selectedTab) {
+            if ((sidebarJustAppeared || isShowingRecording) && urlTab && urlTab !== values.selectedTab) {
                 actions.setTab(urlTab)
             }
         },
