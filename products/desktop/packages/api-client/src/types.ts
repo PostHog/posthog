@@ -6,8 +6,15 @@ export type McpApprovalState =
   Schemas.MCPServerInstallationToolApprovalStateEnum;
 export type McpAuthType = Schemas.MCPAuthTypeEnum;
 export type McpRecommendedServer = Schemas.MCPServerTemplate;
-export type McpServerInstallation = Schemas.MCPServerInstallation;
-export type McpInstallationTool = Schemas.MCPServerInstallationTool;
+export type McpServerInstallation = Schemas.MCPServerInstallation & {
+  scope?: "personal" | "shared";
+};
+export type McpInstallationTool = Schemas.MCPServerInstallationTool & {
+  /** Team-admin ceiling returned by gateway-aware backends. */
+  team_state?: McpApprovalState | null;
+  locked?: boolean;
+  decided_by?: "rule" | "scope" | "team" | "preset" | "legacy" | "default";
+};
 export type McpOAuthRedirectResponse = Schemas.OAuthRedirectResponse;
 export type McpInstallSource = "posthog" | "posthog-code" | "posthog-mobile";
 export type McpInstallResponse =

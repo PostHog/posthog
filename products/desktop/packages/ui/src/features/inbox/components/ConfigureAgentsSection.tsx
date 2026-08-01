@@ -124,7 +124,7 @@ export function ConfigureAgentsSection() {
 
       <Subsection
         title="Connections"
-        description="Foundational integrations responders read from and write to."
+        description="Foundational integrations agents read from and write to."
       >
         <GitHubIntegrationSection
           hasGithubIntegration={hasGithubIntegration}
@@ -138,7 +138,7 @@ export function ConfigureAgentsSection() {
         description={
           <>
             Scheduled agents that sweep this project on a cadence and emit
-            findings to your inbox.{" "}
+            signals to your inbox.{" "}
             {/* Placeholder docs link until a dedicated scouts page exists. */}
             <a
               href="https://posthog.com/blog/self-driving-product"
@@ -155,8 +155,8 @@ export function ConfigureAgentsSection() {
       </Subsection>
 
       <Subsection
-        title="Responders"
-        description="Each source: 1. watches for signals, 2. spins up a Responder when something matters, 3. hands you solutions."
+        title="Signal sources"
+        description="Each source watches for signals and spins up work when something matters."
       >
         {isLoading ? (
           <ResponderAgentRosterSkeleton />
@@ -207,7 +207,7 @@ export function ConfigureAgentsSection() {
 
       <Subsection
         title="MCP servers"
-        description="External tools responders can read from. PostHog data is always available; this is everything else."
+        description="External tools agents can read from. PostHog data is always available; this is everything else."
       >
         <Link
           to="/settings/$category"

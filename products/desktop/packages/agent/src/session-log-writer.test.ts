@@ -47,6 +47,45 @@ describe("SessionLogWriter", () => {
       expect(entries).toHaveLength(2);
     });
 
+    it("redacts MCP authorization headers before persistence", async () => {
+      const sessionId = "s1";
+      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
+
+      logWriter.appendRawLine(
+        sessionId,
+        JSON.stringify({
+          jsonrpc: "2.0",
+          method: "session/new",
+          params: {
+            mcpServers: [
+              {
+                name: "posthog",
+                headers: [
+                  { name: "Authorization", value: "Bearer protocol-secret" },
+                  { name: "x-posthog-project-id", value: "123" },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+      await logWriter.flush(sessionId);
+
+      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+      expect(JSON.stringify(entries)).not.toContain("protocol-secret");
+      expect(entries[0].notification.params).toEqual({
+        mcpServers: [
+          {
+            name: "posthog",
+            headers: [
+              { name: "Authorization", value: "[REDACTED]" },
+              { name: "x-posthog-project-id", value: "123" },
+            ],
+          },
+        ],
+      });
+    });
+
     it("ignores unregistered sessions", async () => {
       logWriter.appendRawLine("unknown", JSON.stringify({ method: "test" }));
       await logWriter.flush("unknown");

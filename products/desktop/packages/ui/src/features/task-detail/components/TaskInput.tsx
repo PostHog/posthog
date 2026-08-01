@@ -13,11 +13,7 @@ import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
-import {
-  type AgentRuntime,
-  ANALYTICS_EVENTS,
-  getCloudUrlFromRegion,
-} from "@posthog/shared";
+import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -81,6 +77,7 @@ import {
   PiModelSelector,
   PiThinkingLevelSelector,
 } from "../../pi-sessions/PiSessionControls";
+import { usePiModelCatalog } from "../../pi-sessions/usePiModelCatalog";
 import { DropZoneOverlay } from "../../sessions/components/DropZoneOverlay";
 import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevelSelector";
 import { getCurrentModeFromConfigOptions } from "../../sessions/sessionStore";
@@ -261,17 +258,8 @@ export function TaskInput({
   );
   const [selectedPiThinkingLevel, setSelectedPiThinkingLevel] =
     useState<PiThinkingLevel | null>(null);
-  const piApiHost = useMemo(
-    () => (cloudRegion ? getCloudUrlFromRegion(cloudRegion) : null),
-    [cloudRegion],
-  );
-  const { data: piModelCatalog = [], isPending: isPiConfigLoading } = useQuery({
-    ...trpc.agent.getPiModelCatalog.queryOptions({
-      apiHost: piApiHost ?? "",
-      region: cloudRegion ?? "us",
-    }),
-    enabled: runtime === "pi" && piApiHost !== null,
-  });
+  const { data: piModelCatalog = [], isPending: isPiConfigLoading } =
+    usePiModelCatalog(runtime === "pi");
   const [cloudRepoSearchQuery, setCloudRepoSearchQuery] = useState("");
   const [isCloudRepoPickerOpen, setIsCloudRepoPickerOpen] = useState(false);
   const [cloudBranchSearchQuery, setCloudBranchSearchQuery] = useState("");
@@ -779,6 +767,7 @@ export function TaskInput({
   )
     ? (selectedPiThinkingLevel ?? "high")
     : piThinkingLevels[0];
+  const supportsPiThinking = piThinkingLevels.some((level) => level !== "off");
   const currentContextWindow =
     contextWindowOption?.type === "select" &&
     (contextWindowOption.currentValue === "200k" ||
@@ -809,7 +798,11 @@ export function TaskInput({
     : currentReasoningLevel;
   const taskModel = runtime === "pi" ? currentPiModel?.id : effectiveModel;
   const taskReasoningLevel =
-    runtime === "pi" ? currentPiThinkingLevel : effectiveReasoningLevel;
+    runtime === "pi"
+      ? supportsPiThinking
+        ? currentPiThinkingLevel
+        : undefined
+      : effectiveReasoningLevel;
 
   useWarmTask({
     workspaceMode,
@@ -1427,7 +1420,7 @@ export function TaskInput({
                   }
                   reasoningSelector={
                     autoresearchDraft ? null : runtime === "pi" ? (
-                      currentPiThinkingLevel ? (
+                      currentPiThinkingLevel && supportsPiThinking ? (
                         <PiThinkingLevelSelector
                           level={currentPiThinkingLevel}
                           levels={piThinkingLevels}

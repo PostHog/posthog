@@ -162,11 +162,17 @@ describe("createPiConversationTranslator", () => {
         delayMs: 1000,
       },
     ]);
+    const retriedMessage = assistant([{ type: "text", text: "Done" }]);
     expect(
       translator.translateEvent({
-        type: "auto_retry_end",
-        success: true,
-        attempt: 1,
+        type: "message_update",
+        message: retriedMessage,
+        assistantMessageEvent: {
+          type: "text_delta",
+          contentIndex: 0,
+          delta: "Done",
+          partial: retriedMessage,
+        },
       }),
     ).toEqual([
       {
@@ -175,7 +181,19 @@ describe("createPiConversationTranslator", () => {
         status: "retrying",
         isComplete: true,
       },
+      {
+        type: "assistant_message_chunk",
+        timestamp: 10,
+        content: { type: "text", text: "Done" },
+      },
     ]);
+    expect(
+      translator.translateEvent({
+        type: "auto_retry_end",
+        success: true,
+        attempt: 1,
+      }),
+    ).toEqual([]);
   });
 
   it("renders terminal Pi runtime errors inline", () => {

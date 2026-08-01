@@ -83,7 +83,7 @@ export function ScoutEmissionCard({
           className={`shrink-0 text-gray-9 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
         />
         <CompassIcon size={14} className="shrink-0 text-(--iris-9)" />
-        <Text className="font-medium text-[13px] text-gray-10">Finding</Text>
+        <Text className="font-medium text-[13px] text-gray-10">Signal</Text>
         <SeverityBadge severity={emission.severity} />
         <Text className="text-[11px] text-gray-10">
           confidence {Math.round(emission.confidence * 100)}%

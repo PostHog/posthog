@@ -2,6 +2,7 @@ import type {
   McpApprovalState,
   McpInstallationTool,
 } from "@posthog/api-client/posthog-client";
+import { isPolicyStateAllowedByCeiling } from "@posthog/core/mcp-gateway/gatewayServers";
 import { dispatchBulkApproval } from "@posthog/core/mcp-servers/toolBulk";
 import { shouldAutoRefreshTools } from "@posthog/core/mcp-servers/toolRefresh";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -16,6 +17,7 @@ import { mcpKeys } from "./useMcpServers";
 interface UseMcpInstallationToolsOptions {
   includeRemoved?: boolean;
   autoRefreshIfEmpty?: boolean;
+  teamScope?: boolean;
 }
 
 // Module-scoped on purpose: state must survive remounts of this hook so a
@@ -52,9 +54,11 @@ export function useMcpInstallationTools(
   const invalidate = useCallback(() => {
     if (!installationId) return;
     queryClient.invalidateQueries({
-      queryKey: mcpKeys.tools(installationId),
+      queryKey: options.teamScope
+        ? mcpKeys.installations
+        : mcpKeys.tools(installationId),
     });
-  }, [installationId, queryClient]);
+  }, [installationId, options.teamScope, queryClient]);
 
   const setToolApprovalMutation = useAuthenticatedMutation(
     (client, vars: { toolName: string; approval_state: McpApprovalState }) => {
@@ -88,10 +92,19 @@ export function useMcpInstallationTools(
       if (!installationId) {
         return Promise.reject(new Error("No installation selected"));
       }
+      const eligibleTools = (vars.targetTools ?? tools ?? []).filter(
+        (tool) =>
+          !tool.locked &&
+          (options.teamScope ||
+            isPolicyStateAllowedByCeiling(
+              vars.approval_state,
+              tool.team_state,
+            )),
+      );
       return dispatchBulkApproval(
         client,
         installationId,
-        vars.targetTools ?? tools ?? [],
+        eligibleTools,
         vars.approval_state,
       );
     },
@@ -125,7 +138,13 @@ export function useMcpInstallationTools(
       onError: (error: Error) => {
         const silent = silentRefreshRef.current;
         silentRefreshRef.current = false;
-        if (!silent) toast.error(error.message || "Failed to refresh tools");
+        if (!silent) {
+          toast.error(error.message || "Failed to refresh tools");
+          return;
+        }
+        // A silent refresh reports nothing, so leaving the id marked would
+        // strand the page empty for the session. Let the next mount retry.
+        if (installationId) autoRefreshedInstallations.delete(installationId);
       },
     },
   );

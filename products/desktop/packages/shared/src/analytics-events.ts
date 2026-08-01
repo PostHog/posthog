@@ -327,6 +327,15 @@ export interface CloudStreamDisconnectedProperties {
   was_bootstrapping: boolean;
 }
 
+export interface CloudStreamIdleTimeoutProperties {
+  task_id: string;
+  run_id: string;
+  team_id: number;
+  idle_timeout_ms: number;
+  bytes_received: number;
+  events_received: number;
+}
+
 // Permission events
 export interface PermissionRespondedProperties {
   task_id: string;
@@ -1378,6 +1387,7 @@ export const ANALYTICS_EVENTS = {
   TASK_CREATION_FAILED: "Task creation failed",
   AGENT_SESSION_ERROR: "Agent session error",
   CLOUD_STREAM_DISCONNECTED: "Cloud stream disconnected",
+  CLOUD_STREAM_IDLE_TIMEOUT: "Cloud stream idle timeout",
 
   // Inbox events
   INBOX_VIEWED: "Inbox viewed",
@@ -1556,6 +1566,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_CREATION_FAILED]: TaskCreationFailedProperties;
   [ANALYTICS_EVENTS.AGENT_SESSION_ERROR]: AgentSessionErrorProperties;
   [ANALYTICS_EVENTS.CLOUD_STREAM_DISCONNECTED]: CloudStreamDisconnectedProperties;
+  [ANALYTICS_EVENTS.CLOUD_STREAM_IDLE_TIMEOUT]: CloudStreamIdleTimeoutProperties;
 
   // Inbox events
   [ANALYTICS_EVENTS.INBOX_VIEWED]: InboxViewedProperties;

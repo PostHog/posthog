@@ -8,10 +8,10 @@ const STATUS_TOOLTIPS: Record<string, string> = {
   resolved: "This report is resolved — its implementation pull request merged.",
   pending_input:
     "This report needs human input in PostHog before it can proceed.",
-  in_progress: "An AI agent is actively researching this report's findings.",
+  in_progress: "An AI agent is actively researching this report's signals.",
   candidate: "Queued for research. An agent will pick this up shortly.",
   potential:
-    "Gathering findings. The report will be queued once enough evidence accumulates.",
+    "Gathering signals. The report will be queued once enough evidence accumulates.",
   failed: "Research failed. The report may be retried automatically.",
   suppressed: "This report has been suppressed and is out of your inbox.",
   deleted: "This report has been deleted.",
