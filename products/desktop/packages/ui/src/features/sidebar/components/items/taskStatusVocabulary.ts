@@ -107,17 +107,21 @@ export interface TaskDot {
  * the reader actually gets is output they haven't seen, which is `isUnread`, and
  * the run's real story lives in the task detail where there's room to tell it.
  *
- * Queued is folded into pending for the same reason. "Waiting on a sandbox" and
- * "a run that hasn't been closed out" are one fact to the reader — it's live but
- * nothing is moving — so they share the still yellow dot. Only a prompt in
- * flight spins.
+ * A cloud run's queued is folded into working for the same reason. "Waiting on a
+ * sandbox" and "a sandbox is writing code" are one fact to the reader, that it's
+ * under way, so they share the spinner. Two states don't share it: a local run
+ * at `queued`, whose persisted status nothing ever advances, and a run at
+ * `in_progress` with nothing streaming. Both claims outlive the work, and a
+ * spinner that never stops is a lie about the machine.
  *
  * And a run that has already opened a PR is not working, whatever its status
  * says. The cloud workflow keeps the run `in_progress` while it babysits CI
  * after opening the PR, and under a merge queue that wait ends only when someone
  * enqueues the merge — so the run can claim to be working for hours after the
  * agent stopped. The PR is the deliverable; once it exists the badge carries the
- * story and the dot goes quiet.
+ * story and the dot goes quiet. This beats a status that merely claims work, not
+ * one that is visibly starting: a re-queued cloud run keeps its spinner even
+ * with last run's PR still on the task.
  */
 export function taskDot(props: TaskStatusInput): TaskDot {
   if (props.needsPermission) {
@@ -128,21 +132,26 @@ export function taskDot(props: TaskStatusInput): TaskDot {
       label: "Needs permission — blocked on you",
     };
   }
-  // The spinner is reserved for a prompt actually in flight — the agent typing
-  // right now. A run status can't earn it: nothing writes a terminal status when
-  // a local agent goes idle, and the cloud workflow holds `in_progress` while it
-  // babysits CI, so both keep claiming work for as long as the row exists. A
-  // spinner that never stops is a lie about the machine, so the claim gets the
-  // still dot below instead.
-  if (props.isGenerating) {
+  // Spinning means something is moving on its own: a prompt in flight, or a
+  // cloud run still coming up. Cloud `queued` is a sandbox being claimed, and
+  // the backend leaves that state by itself, so the motion is bounded. A local
+  // run at `queued` is not a launch: nothing advances a local run's persisted
+  // status, so it can sit there for hours after the agent is done with it.
+  const isStartingCloudRun =
+    props.taskRunStatus === "queued" && props.workspaceMode === "cloud";
+  if (props.isGenerating || isStartingCloudRun) {
     return {
       tone: "yellow",
       style: "solid",
       pulse: false,
       spinner: true,
-      label: "Working",
+      label: props.isGenerating ? "Working" : "Starting",
     };
   }
+  // The statuses that lie. Nothing writes a terminal status when a local agent
+  // goes idle, and the cloud workflow holds in_progress while it babysits CI, so
+  // the claim outlives the work, sometimes for the row's whole life. Live, but
+  // nothing moving: the still dot.
   const runClaimsWork =
     props.taskRunStatus === "in_progress" || props.taskRunStatus === "queued";
   if (runClaimsWork && !hasPullRequest(props)) {
