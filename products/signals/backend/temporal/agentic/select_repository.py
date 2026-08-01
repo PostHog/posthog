@@ -62,12 +62,15 @@ def _capture_repo_research_event(
     report_id: str,
     result: str | None = None,
     failure_reason: str | None = None,
+    repo: str | None = None,
 ) -> None:
-    properties: dict = {"report_id": report_id}
+    properties: dict = {"report_id": report_id, "team_id": team.id}
     if result is not None:
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if repo is not None:
+        properties["repo"] = repo
     try:
         posthoganalytics.capture(
             event=event,
@@ -101,15 +104,12 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
     team = await aretry_on_db_connection_drop(
         lambda: Team.objects.select_related("organization").aget(pk=input.team_id)
     )
-    _capture_repo_research_event(
-        "signals_repo_research_started",
-        team,
-        team.organization,
-        input.report_id,
-    )
     try:
         async with Heartbeater():
-            # Check for a previous selection from an earlier run, if any
+            # Check for a previous selection from an earlier run, if any. This must happen
+            # before the "started" event fires: a run that reuses a cached selection does no
+            # research at all, and counting it as "started" makes cache-hit replay traffic
+            # look like a demand spike in anything that alerts on this event.
             previous = await aretry_on_db_connection_drop(
                 lambda: database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(input.report_id)
             )
@@ -125,8 +125,16 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     team.organization,
                     input.report_id,
                     result="reused",
+                    repo=previous.repository,
                 )
                 return previous
+
+            _capture_repo_research_event(
+                "signals_repo_research_started",
+                team,
+                team.organization,
+                input.report_id,
+            )
 
             user_id = await database_sync_to_async(_resolve_sandbox_user_id, thread_sensitive=False)(input.team_id)
             if user_id is None:
@@ -172,6 +180,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 team.organization,
                 input.report_id,
                 result="selected" if result.repository is not None else "no_repo",
+                repo=result.repository,
             )
             return result
     except Exception as e:

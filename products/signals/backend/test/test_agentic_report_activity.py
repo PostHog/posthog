@@ -234,13 +234,25 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
         fake_select_repo,
     )
 
-    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch("products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture") as capture,
+    ):
         result = await select_repository_activity(
             SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
         )
 
     assert result is previous
     assert not select_repo_called
+
+    # A cache hit does no research at all, so it must not be counted alongside fresh research
+    # under "signals_repo_research_started" — that's what made the alert misread replayed
+    # backlog traffic as a demand spike.
+    events = [call.kwargs["event"] for call in capture.call_args_list]
+    assert events == ["signals_repo_research_completed"]
+    completed_properties = capture.call_args_list[0].kwargs["properties"]
+    assert completed_properties["result"] == "reused"
+    assert completed_properties["repo"] == "posthog/posthog"
 
 
 @pytest.mark.asyncio
