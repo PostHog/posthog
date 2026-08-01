@@ -571,7 +571,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Exempt this scout from the inactivity pause. Set it on watchdog scouts whose value is staying quiet, so silence is never read as waste.'
+                'Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.'
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')
