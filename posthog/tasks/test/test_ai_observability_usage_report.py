@@ -558,7 +558,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(team_2, distinct_id_2, "$llm_prompt_fetched", 1)
 
         # Generate reports
-        org_reports = _get_all_ai_observability_reports(period.start, period.end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         # Verify we have reports for both organizations
         assert len(org_reports) == 2
@@ -653,7 +653,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         period = get_previous_day()
 
         # Generate reports without creating any trigger events
-        org_reports = _get_all_ai_observability_reports(period.start, period.end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         # Should return empty dict
         assert len(org_reports) == 0
@@ -670,7 +670,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
 
         self._create_ai_events(team_2, distinct_id, "$llm_prompt_fetched", 2)
 
-        org_reports = _get_all_ai_observability_reports(period.start, period.end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         assert len(org_reports) == 1
         org_report = org_reports[str(org_2.id)]
@@ -718,7 +718,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
         # Generate reports
-        org_reports = _get_all_ai_observability_reports(period.start, period.end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         # Should have one report for the organization
         assert len(org_reports) == 1
@@ -797,7 +797,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         )
 
         # Generate reports
-        org_reports = _get_all_ai_observability_reports(period.start, period.end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         # Should have one report for the organization
         assert len(org_reports) == 1
@@ -997,7 +997,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         self._create_ai_events(self.team, distinct_id, "$ai_generation", 5)
         self._create_ai_events(self.team, distinct_id, "$llm_prompt_fetched", 3)
 
-        org_reports = _get_all_ai_observability_reports(period.start, period.end)
+        org_reports = _get_all_ai_observability_reports(period=period)
 
         assert len(org_reports) == 1
         org_report = org_reports[str(self.organization.id)]

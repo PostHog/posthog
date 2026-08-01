@@ -615,7 +615,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
             self._create_plugin("Installed and enabled", True)
 
             period = get_previous_day()
-            all_reports = _get_all_org_reports(period.start, period.end)
+            all_reports = _get_all_org_reports(period=period)
             report = _get_full_org_usage_report_as_dict(
                 _get_full_org_usage_report(
                     all_reports[str(self.organization.id)],
@@ -1598,7 +1598,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
             period = get_previous_day(at=now() + relativedelta(days=1))
-            all_reports = _get_all_org_reports(period.start, period.end)
+            all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -1677,7 +1677,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
         with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
             period = get_previous_day(at=now() + relativedelta(days=1))
-            all_reports = _get_all_org_reports(period.start, period.end)
+            all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -1776,7 +1776,7 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
@@ -1860,7 +1860,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
         flush_persons_and_events()
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -1913,7 +1913,7 @@ class TestSurveysUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseT
             )
         flush_persons_and_events()
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
         report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
@@ -2118,7 +2118,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 )
 
             period = get_previous_day(at=now() + relativedelta(days=1))
-            all_reports = _get_all_org_reports(period.start, period.end)
+            all_reports = _get_all_org_reports(period=period)
 
             assert len(all_reports) == 3
 
@@ -2189,7 +2189,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 )
 
             period = get_previous_day(at=now() + relativedelta(days=1))
-            all_reports = _get_all_org_reports(period.start, period.end)
+            all_reports = _get_all_org_reports(period=period)
 
             assert len(all_reports) == 3
 
@@ -2254,7 +2254,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
                 )
 
             period = get_previous_day(at=now() + relativedelta(days=1))
-            all_reports = _get_all_org_reports(period.start, period.end)
+            all_reports = _get_all_org_reports(period=period)
 
             assert len(all_reports) == 3
 
@@ -2315,7 +2315,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2384,7 +2384,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2429,7 +2429,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2474,7 +2474,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2543,7 +2543,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2602,7 +2602,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2650,7 +2650,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2708,7 +2708,7 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2763,7 +2763,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2808,7 +2808,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=None)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2851,7 +2851,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
         DataWarehouseTable.objects.create(team_id=3, size_in_s3_mib=None)
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2897,7 +2897,7 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -2977,7 +2977,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3060,7 +3060,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3167,7 +3167,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3236,7 +3236,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         sync_execute(f"INSERT INTO logs_distributed FORMAT JSONEachRow\n{lines}")
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3307,7 +3307,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -3386,7 +3386,7 @@ class TestErrorTrackingUsageReport(ClickhouseDestroyTablesMixin, TestCase, Click
         flush_persons_and_events()
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         assert len(all_reports) == 3
 
@@ -3506,7 +3506,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         flush_persons_and_events()
 
         period = get_previous_day(at=now() + relativedelta(days=1))
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
@@ -4845,7 +4845,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mock_get_sqs_producer.return_value = mock_producer
 
         period = get_previous_day()
-        all_reports = _get_all_org_reports(period.start, period.end)
+        all_reports = _get_all_org_reports(period=period)
 
         full_report_as_dict = _get_full_org_usage_report_as_dict(
             _get_full_org_usage_report(all_reports[str(self.organization.id)], get_instance_metadata(period))
@@ -4895,7 +4895,7 @@ class TestSendUsage(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             mock_get_sqs_producer.return_value = mock_producer
 
             period = get_previous_day()
-            all_reports = _get_all_org_reports(period.start, period.end)
+            all_reports = _get_all_org_reports(period=period)
 
             full_report_as_dict = _get_full_org_usage_report_as_dict(
                 _get_full_org_usage_report(

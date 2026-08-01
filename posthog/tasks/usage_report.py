@@ -3035,10 +3035,10 @@ def _add_team_report_to_org_reports(
                 )
 
 
-def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[str, OrgReport]:
-    logger.info("Querying all org reports", period_start=period_start, period_end=period_end)
+def _get_all_org_reports(*, period: DayRange) -> dict[str, OrgReport]:
+    logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
-    all_data = _get_all_usage_data_as_team_rows(period_start, period_end)
+    all_data = _get_all_usage_data_as_team_rows(period.start, period.end)
 
     logger.info("Querying all teams")
 
@@ -3052,7 +3052,7 @@ def _get_all_org_reports(period_start: datetime, period_end: datetime) -> dict[s
 
     for team in teams:
         team_report = _get_team_report(all_data, team)
-        _add_team_report_to_org_reports(org_reports, team, team_report, period_start)
+        _add_team_report_to_org_reports(org_reports, team, team_report, period.start)
 
     logger.info("Generating org reports complete", org_reports_count=len(org_reports))
 
@@ -3159,7 +3159,7 @@ def send_all_org_usage_reports(
     logger.info("Querying usage report data")
     query_time_start = datetime.now()
 
-    org_reports = _get_all_org_reports(period.start, period.end)
+    org_reports = _get_all_org_reports(period=period)
 
     if organization_ids:
         original_count = len(org_reports)
