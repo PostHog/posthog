@@ -95,17 +95,20 @@ export function NotificationGroupRow({
                             {group.count} notifications · latest {dayjs(group.last_seen).fromNow()}
                         </div>
                         <div className="shrink-0 flex items-center gap-1">
-                            {archivingEnabled && !readOnly && (
-                                <NotificationActionButton
-                                    icon={<IconArchive className="size-4" />}
-                                    tooltip="Archive group"
-                                    onClick={handleArchive}
-                                    tone="danger"
-                                    className={ROW_ACTION_REVEAL_CLASSES}
-                                />
-                            )}
                             {!readOnly && (
-                                <NotificationReadToggle read={allRead} onToggle={handleToggleRead} target="group" />
+                                // Revealed as one unit, like a single row's cluster — a group's actions
+                                // shouldn't sit louder in the list than the rows it contains
+                                <div className={`flex items-center gap-1 ${ROW_ACTION_REVEAL_CLASSES}`}>
+                                    {archivingEnabled && (
+                                        <NotificationActionButton
+                                            icon={<IconArchive className="size-4" />}
+                                            tooltip="Archive group"
+                                            onClick={handleArchive}
+                                            tone="danger"
+                                        />
+                                    )}
+                                    <NotificationReadToggle read={allRead} onToggle={handleToggleRead} target="group" />
+                                </div>
                             )}
                             {/* Stays visible: it's the only hint the row expands */}
                             <button
