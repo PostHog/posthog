@@ -206,7 +206,14 @@ async fn build_completion(
     })
     .await
     .context("joining marker topic verification task")?
-    .context("verifying the marker topic is reachable")?;
+    .with_context(|| {
+        format!(
+            "verifying the marker topic {:?} is reachable. Provision it before arming either \
+             completion half, or leave SEEDER_RECONCILE_AUTO_DISPATCH_ENABLED and \
+             SEEDER_RECONCILE_OBSERVER_ENABLED off to boot without it.",
+            config.cohort_reconcile_markers_topic,
+        )
+    })?;
 
     let mut driver = CompletionDriver::new(
         pool.clone(),

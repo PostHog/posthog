@@ -383,6 +383,19 @@ impl ObservationEnds {
             .count()
     }
 
+    /// Captured-end partitions this dispatch never recorded a start position for. The watcher is
+    /// assigned from those start positions alone, so it can never read these, and the run holds at
+    /// [`Self::caught_up`] until a re-dispatch recaptures the full partition set. Non-empty only
+    /// when the marker topic gained partitions between the dispatch and the liveness pass, which is
+    /// worth separating out because that hold is permanent and an ordinary lag is not.
+    pub fn uncovered(&self, positions: &WatchPositions) -> Vec<WatchPartition> {
+        self.0
+            .keys()
+            .copied()
+            .filter(|partition| positions.get(*partition).is_none())
+            .collect()
+    }
+
     /// A [`SettleProof`] is minted only when the watcher has read to or past every captured end. A
     /// partition with no recorded position has not been read at all, so it is never caught up, and
     /// an empty end set proves nothing at all rather than everything vacuously.
@@ -831,8 +844,14 @@ mod tests {
         short.insert(WatchPartition::new(0), NextOffset::from_high_watermark(9));
         assert!(ends.caught_up(&short).is_none());
 
-        // A partition with no recorded position is never caught up.
+        // A partition with no recorded position is never caught up, and is reported as uncovered so
+        // a permanent hold (the topic gained partitions) is distinguishable from a lagging watcher.
         assert!(ends.caught_up(&WatchPositions::new()).is_none());
+        assert_eq!(
+            ends.uncovered(&WatchPositions::new()),
+            vec![WatchPartition::new(0)],
+        );
+        assert!(ends.uncovered(&short).is_empty());
 
         // An empty end set proves nothing rather than everything vacuously.
         assert!(ObservationEnds::new().caught_up(&at_end).is_none());

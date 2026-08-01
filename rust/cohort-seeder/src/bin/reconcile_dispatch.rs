@@ -127,6 +127,10 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
         PreparedDispatch::Certified(certified) => {
             let run_id = certified.prepared().run_id();
             let status = certified.prepared().run_status();
+            // Probe before the CAS: `dispatch_and_record`'s first act is to capture this topic's
+            // watermarks, and it owns the claim by then, so a topic that is missing or unreachable
+            // would leave the run parked in `reconciling` with no dispatch record.
+            verify_marker_topic(&producer, &config.cohort_reconcile_markers_topic).await?;
             let claim =
                 acquire_claim(&pool, run_id, certified.prepared().run_kind(), status).await?;
             // `plan_chunks` gates its INSERT on a non-locking `status = 'seeding'` read, so a
@@ -198,6 +202,20 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
             }
         }
     }
+    Ok(())
+}
+
+/// Prove the marker topic exists and reports watermarks, the same preflight the daemon runs before
+/// arming either completion half.
+async fn verify_marker_topic(producer: &SeedTileProducer, topic: &str) -> Result<()> {
+    let producer = producer.clone();
+    let owned = topic.to_string();
+    tokio::task::spawn_blocking(move || {
+        producer.capture_topic_offsets(&owned, PARTITION_VERIFY_TIMEOUT)
+    })
+    .await
+    .context("joining the marker topic verification task")?
+    .with_context(|| format!("verifying the marker topic {topic:?} is reachable"))?;
     Ok(())
 }
 

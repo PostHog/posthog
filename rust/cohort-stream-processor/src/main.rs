@@ -183,9 +183,10 @@ async fn async_main(config: Config) -> Result<()> {
 
     // Only the transfer sink gets the shorter `message.timeout.ms`: its produce runs inline on a
     // partition worker under a bounded retry loop, so a long per-attempt timeout would multiply into
-    // a worker hold past the 30 s graceful-shutdown window. The membership and re-key sinks keep the
-    // shared 20 s — membership drops on fail (at-most-once) and the re-key produce rides the
-    // events-path offset gate (held-then-redelivered), so neither blocks a worker for the full timeout.
+    // a worker hold past the 30 s graceful-shutdown window. The membership, re-key, and marker sinks
+    // keep the shared 20 s: membership drops on fail (at-most-once), the re-key produce rides the
+    // events-path offset gate (held-then-redelivered), and a marker produce is a single un-retried
+    // attempt that yields the job on failure, so none of them holds a worker for more than one timeout.
     let transfer_kafka_config = config.build_transfer_kafka_config();
     let transfer_sink: Arc<dyn TransferSink> = Arc::new(
         KafkaTransferSink::new(
@@ -402,8 +403,19 @@ async fn async_main(config: Config) -> Result<()> {
         );
         // Nothing co-partitions with the marker topic, so only its existence matters. Failing here
         // beats the alternative: a marker produce retrying forever while it holds the seed offset.
+        // Nested under the seed consumer on purpose: reconcile jobs are admitted only from seed
+        // tiles, so without it no marker can be produced and there is nothing to prove.
         if config.cohort_seed_reconcile_enabled {
-            fetch_partition_count(seed_consumer, &config.cohort_reconcile_markers_topic)?;
+            fetch_partition_count(seed_consumer, &config.cohort_reconcile_markers_topic).with_context(
+                || {
+                    format!(
+                        "{} must exist before a processor with COHORT_SEED_RECONCILE_ENABLED starts. \
+                         Provision the topic, or set COHORT_SEED_RECONCILE_ENABLED=false to start \
+                         without the reconcile path.",
+                        config.cohort_reconcile_markers_topic,
+                    )
+                },
+            )?;
         }
     }
 

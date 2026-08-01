@@ -270,7 +270,9 @@ pub struct Config {
     pub seeder_reconcile_max_concurrent_dispatches: usize,
 
     /// The reconcile-marker topic whose high watermarks anchor the marker watcher's start positions,
-    /// captured at dispatch time. The observer reads markers from the same topic.
+    /// captured at dispatch time. The observer reads markers from the same topic. Its partition count
+    /// must not change while runs are in flight: a run's watch covers the partitions that existed at
+    /// its dispatch, so one added later is never read and holds the run open until a re-dispatch.
     #[envconfig(default = "cohort_reconcile_markers")]
     pub cohort_reconcile_markers_topic: String,
 

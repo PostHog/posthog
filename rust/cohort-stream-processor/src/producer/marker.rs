@@ -3,6 +3,14 @@
 //! A dedicated producer rather than a second topic on [`crate::producer::KafkaMembershipSink`]: the
 //! membership output has to move to its own cluster, while markers stay alongside the seed topic on
 //! ingestion, and one shared producer would force them to move together.
+//!
+//! Two topic properties the seeder's watcher depends on, recorded here because the topic is
+//! provisioned in another repo and either would fail silently:
+//!
+//! - `cleanup.policy=delete`. Every partition marker of a run shares one key (see
+//!   [`reconcile_complete_key`]), so compaction would retain one of the 64 and erase the rest.
+//! - A stable partition count. The watcher captures a start offset per partition at dispatch and is
+//!   assigned exactly those, so a partition added mid-run is never read and holds the run open.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -56,7 +64,10 @@ impl ReconcileMarkerSink for KafkaReconcileMarkerSink {
 }
 
 /// No-op marker sink for when the reconcile gate is off: satisfies the [`ReconcileMarkerSink`] slot
-/// without a Kafka producer. The reconcile gate prevents produces from reaching this.
+/// without a Kafka producer. Nothing can produce through it, because a reconcile job is only ever
+/// admitted from a seed tile and `ReconcileDeps::enabled` gates that admission. Pairing this sink
+/// with `enabled: true` would break that: it acks every marker without producing one, so the jobs
+/// would complete and commit their seed offsets while the seeder saw no certificate at all.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoopReconcileMarkerSink;
 

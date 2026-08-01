@@ -27,7 +27,7 @@ use tracing::warn;
 
 use crate::domain::{
     DispatchEpoch, LivenessCheck, MarkerLedger, MarkerWatch, ObservationEnds, PartitionBitmap,
-    ReconcileHwms, ReconcileScope, RunId, SeedGroupCommits, SettledVerdict,
+    ReconcileHwms, ReconcileScope, RunId, SeedGroupCommits, SettledVerdict, WatchPartition,
 };
 use crate::kafka::committed::SeedGroupOffsetReader;
 use crate::kafka::producer::SeedTileProducer;
@@ -140,9 +140,24 @@ pub async fn observe_run(
         }
         Some(ends) => match ends.caught_up(&target.watch.positions) {
             None => {
+                let uncovered: Vec<i32> = ends
+                    .uncovered(&target.watch.positions)
+                    .into_iter()
+                    .map(WatchPartition::get)
+                    .collect();
+                if !uncovered.is_empty() {
+                    warn!(
+                        run_id = ?target.run_id,
+                        topic = %target.watch.topic,
+                        partitions = ?uncovered,
+                        "the marker topic gained partitions after this run was dispatched; the \
+                         watcher is assigned only the partitions captured then, so this run holds \
+                         until it is re-dispatched"
+                    );
+                }
                 return Ok(ObserveStep::MarkerLagging(
                     ends.behind(&target.watch.positions),
-                ))
+                ));
             }
             Some(proof) => proof,
         },
@@ -200,10 +215,18 @@ async fn apply_verdict(
             })
         }
         SettledVerdict::NoMarkers => {
+            // `topic_idle` separates the two causes: nothing at all reached the watched topic (the
+            // processor's gate is off, or its markers are going somewhere else) versus markers that
+            // reached it but named no cohort of this run.
+            let topic_idle = target.watch.ends.as_ref().is_some_and(|ends| {
+                *ends == ObservationEnds::from_positions(&target.watch.positions)
+            });
             warn!(
                 run_id = ?target.run_id,
                 team_id = target.team_id.0,
-                "zero reconcile markers observed for a settled run — the processor reconcile gate is likely off fleet-wide"
+                topic = %target.watch.topic,
+                topic_idle,
+                "zero reconcile markers observed for a settled run: the processor reconcile gate is off fleet-wide, or its markers are landing on a different topic than the one watched"
             );
             let incomplete: Vec<(CohortId, PartitionBitmap)> =
                 active.iter().map(|p| (p.cohort_id, p.bits)).collect();
