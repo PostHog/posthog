@@ -611,7 +611,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     if (!getCurrentTeamIdOrNone()) {
                         return false
                     }
-                    const response = await api.fileSystem.unfiled()
+                    let response
+                    try {
+                        response = await api.fileSystem.unfiled()
+                    } catch (error) {
+                        // Failure here is cosmetic (the Unfiled folder just won't auto-expand),
+                        // so fail soft instead of letting it escape as an unhandled exception.
+                        console.error('Error loading unfiled items:', error)
+                        return false
+                    }
                     if ((response?.count ?? 0) > 0) {
                         actions.loadFolder('Unfiled')
                         for (const folder of Object.keys(values.folders)) {

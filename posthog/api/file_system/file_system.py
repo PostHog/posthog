@@ -702,7 +702,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         file_type = query_serializer.validated_data.get("type")
         files = save_unfiled_files(self.team, cast(User, request.user), file_type, surface=self.file_system_surface)
 
-        self._retroactively_fix_folders_and_depth(cast(User, request.user))
+        self._assure_parent_folders_for_new_files(files, cast(User, request.user))
 
         if self.user_access_control:
             # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get (IDs from prior team-scoped query)
@@ -981,54 +981,18 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 surface=self.file_system_surface,
             )
 
-    def _retroactively_fix_folders_and_depth(self, user: User) -> None:
+    def _assure_parent_folders_for_new_files(self, files: builtins.list[FileSystem], user: User) -> None:
         """
-        For all existing FileSystem rows in `team`, ensure that any missing parent
-        folders are created. Also ensure `depth` is correct.
+        Ensure the parent folders for a batch of just-created FileSystem rows exist.
+        `files` already carry a correct `depth` (set at creation in `UnfiledFileSaver`),
+        so unlike a full-team repair, this only ever touches the paths just created.
         """
-
-        # TODO: this needs some concurrency controls or a unique index
-        scoped_files = self._scope_by_project_and_environment(FileSystem.objects.all())
-        existing_paths = set(scoped_files.values_list("path", flat=True))
-
-        folders_to_create = []
-        items_to_update = []
-
-        all_files = scoped_files.select_related("created_by")
-        for file_obj in all_files:
-            segments = split_path(file_obj.path)
-            correct_depth = len(segments)
-
-            # If depth is missing or incorrect, fix it
-            if file_obj.depth != correct_depth:
-                file_obj.depth = correct_depth
-                items_to_update.append(file_obj)
-
-            # Create missing parent folders
-            # e.g. for path "a/b/c/d/e", the parent folders are:
-            #  "a" (depth=1), "a/b" (depth=2), "a/b/c" (depth=3), "a/b/c/d" (depth=4)
-            for depth_index in range(1, len(segments)):
-                parent_path = join_path(segments[:depth_index])
-                if parent_path not in existing_paths:
-                    # Mark that we have it now (so we don't create duplicates)
-                    existing_paths.add(parent_path)
-                    folders_to_create.append(
-                        FileSystem(
-                            team=self.team,
-                            path=parent_path,
-                            depth=depth_index,
-                            type="folder",
-                            created_by=user,
-                            surface=self.file_system_surface,
-                        )
-                    )
-
-        if folders_to_create:
-            FileSystem.objects.bulk_create(folders_to_create)
-
-        if items_to_update:
-            for item in items_to_update:
-                item.save()
+        seen_paths: set[str] = set()
+        for file_obj in files:
+            if file_obj.path in seen_paths:
+                continue
+            seen_paths.add(file_obj.path)
+            self._assure_parent_folders(file_obj.path, user, file_obj.team)
 
 
 class CanvasPublishSerializer(serializers.Serializer):

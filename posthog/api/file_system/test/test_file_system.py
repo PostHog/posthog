@@ -278,6 +278,38 @@ class TestFileSystemAPI(APIBaseTest):
             "Should not have created an experiment row yet!",
         )
 
+    def test_unfiled_endpoint_queries_do_not_scale_with_pre_existing_rows(self):
+        """
+        The 'unfiled' endpoint used to repair folders/depth for every FileSystem row in the
+        team on every call, so its query count grew with the size of the existing tree. It
+        should only ever touch the rows it just created.
+        """
+        list_url = f"/api/projects/{self.team.id}/file_system/unfiled/"
+
+        # Pre-create the parent folders so both measurements hit the same "already exists"
+        # branch in `_assure_parent_folders` - only the pre-existing row count should differ.
+        FileSystem.objects.create(team=self.team, path="Unfiled", depth=1, type="folder", created_by=self.user)
+        FileSystem.objects.create(
+            team=self.team, path="Unfiled/Feature Flags", depth=2, type="folder", created_by=self.user
+        )
+
+        FeatureFlag.objects.create(team=self.team, key="Flag A", created_by=self.user)
+        with CaptureQueriesContext(connection) as small_ctx:
+            self.client.get(list_url)
+
+        # Bulk up the team's existing (already-filed), unrelated rows before the next unfiled item.
+        FileSystem.objects.bulk_create(
+            [
+                FileSystem(team=self.team, path=f"Existing {i}", depth=1, type="doc", created_by=self.user)
+                for i in range(50)
+            ]
+        )
+        FeatureFlag.objects.create(team=self.team, key="Flag B", created_by=self.user)
+        with CaptureQueriesContext(connection) as large_ctx:
+            self.client.get(list_url)
+
+        self.assertEqual(len(small_ctx), len(large_ctx))
+
     def test_search_files_by_path(self):
         """
         Ensure the search functionality is working on the 'path' field.
