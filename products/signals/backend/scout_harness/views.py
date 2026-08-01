@@ -1788,7 +1788,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     serializer_class = SignalScoutConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    # Every action resolves `_canonical_team_id`, so the rows read and written belong to the
+    # parent project even on a child-environment URL — and config writes drive spend and the
+    # sandbox network posture, so authorization must anchor to the data-owning team.
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     queryset = SignalScoutConfig.objects.unscoped()
     lookup_field = "id"

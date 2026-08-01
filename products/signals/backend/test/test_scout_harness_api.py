@@ -1638,6 +1638,37 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         if expected_missing_scope is not None:
             assert expected_missing_scope in response.json()["detail"]
 
+    def test_child_scoped_api_key_cannot_update_parent_config(self) -> None:
+        # Config rows canonicalize to the parent team, so a key scoped only to a child
+        # environment passes the default scope check (URL team == child) while the PATCH
+        # targets the parent's row — ScoutCanonicalTeamAccessPermission must 403 before a
+        # child-scoped credential can change the parent's sandbox posture (network_access).
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="child-scoped",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:write"],
+            scoped_teams=[env.id],
+        )
+        self.client.logout()
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/signals/scout/configs/{config.id}/",
+            data={"network_access": "full"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {raw}",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        config.refresh_from_db()
+        assert config.network_access == SignalScoutConfig.NetworkAccess.TRUSTED
+
     def test_partial_update_round_trips_network_access(self) -> None:
         # Wiring guard: DRF silently drops a field missing from the update serializer's
         # `Meta.fields` (the PATCH would 200 while never changing the sandbox posture), and the
