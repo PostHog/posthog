@@ -270,6 +270,33 @@ class TestGetDeltaTableUnrecoverableErrors:
                 assert helper.is_first_sync is False
 
     @pytest.mark.asyncio
+    async def test_open_failure_heals_even_if_prefix_already_gone(self):
+        """A concurrent purge (e.g. a retried Temporal attempt) can already have cleared the
+        prefix by the time this one runs `_purge_s3_prefix`, which surfaces as `FileNotFoundError`.
+        That's still a successful heal, not a failure to propagate."""
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        delta_uri = "s3://bucket/team_id/job_id/t"
+
+        s3_cm = MagicMock()
+        s3_cm.__aenter__ = AsyncMock(return_value=MagicMock())
+        s3_cm.__aexit__ = AsyncMock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        with (
+            patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
+            patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
+            patch(f"{module}.aget_s3_client", MagicMock(return_value=s3_cm)),
+            patch(f"{module}._purge_s3_prefix", AsyncMock(side_effect=FileNotFoundError)),
+            patch(f"{module}.capture_exception"),
+        ):
+            mock_delta_table.is_deltatable.return_value = True
+            mock_delta_table.side_effect = Exception("Kernel error: No table metadata or protocol found in delta log.")
+
+            result = await helper.get_delta_table()
+            assert result is None
+            assert helper.is_first_sync is True
+
+    @pytest.mark.asyncio
     async def test_is_deltatable_failure_is_captured_and_reraised(self):
         """The `is_deltatable` existence check is a separate S3 call from the DeltaTable() open
         handled above, and callers span best-effort maintenance to the main write path, so a
