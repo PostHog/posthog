@@ -5,10 +5,17 @@ from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.property import property_to_expr
 
+from products.web_analytics.backend.hogql_queries.pre_aggregated.freshness import get_pre_aggregated_watermark
 from products.web_analytics.backend.hogql_queries.pre_aggregated.property_transformer import (
     ChannelTypeReplacer,
     PreAggregatedPropertyTransformer,
 )
+
+# The current-day partition is rebuilt on a ~20 minute cadence, and each rebuild computes an
+# hourly bucket for the still-in-progress hour, so a healthy watermark can trail "now" by up to
+# just under an hour purely from bucket granularity. This buffer covers that plus normal schedule
+# jitter, while still catching a partition that's stuck (skipped runs, failures) for longer than that.
+WATERMARK_STALENESS_BUFFER = timedelta(hours=2)
 
 # V1 tables have been removed - always use v2 tables
 get_stats_table = lambda use_v2: "web_pre_aggregated_stats"
@@ -43,6 +50,9 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         if self._is_recent_relative_date_range():
             return False
 
+        if self._exceeds_pre_aggregated_watermark():
+            return False
+
         return True
 
     def _is_recent_relative_date_range(self) -> bool:
@@ -60,6 +70,25 @@ class WebAnalyticsPreAggregatedQueryBuilder:
         date_from = self.runner.query_date_range.date_from()
         date_to = self.runner.query_date_range.date_to()
         return (date_to - date_from) <= timedelta(hours=6)
+
+    def _exceeds_pre_aggregated_watermark(self) -> bool:
+        """Returns True if the query's live edge (date_to ending at "now") reaches past what's
+        actually been built for this team, so the caller should fall back to raw events instead
+        of silently reading an unbuilt or stale current-day partition.
+
+        Only relevant for date ranges ending at "now" - an explicit date_to is assumed to already
+        be covered by the daily historical build, same as before this check existed.
+        """
+        date_range = getattr(self.runner.query, "dateRange", None)
+        if date_range and date_range.date_to:
+            return False
+
+        date_to = self.runner.query_date_range.date_to()
+        watermark = get_pre_aggregated_watermark(self.runner.team.id)
+        if watermark is None:
+            return True
+
+        return date_to > watermark + WATERMARK_STALENESS_BUFFER
 
     def _get_channel_type_expr(self) -> ast.Expr:
         def _wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:

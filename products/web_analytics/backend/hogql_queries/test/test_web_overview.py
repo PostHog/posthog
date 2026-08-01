@@ -1091,6 +1091,46 @@ class TestWebOverviewQueryRunner(FirstPageviewAttributionTestMixin, ClickhouseTe
         builder = WebOverviewPreAggregatedQueryBuilder(runner)
         self.assertFalse(builder.can_use_preaggregated_tables())
 
+    @parameterized.expand(
+        [
+            # (name, watermark, expected_can_use)
+            ("watermark_matches_now", datetime(2025, 1, 31, 12, 0, 0, tzinfo=UTC), True),
+            ("watermark_within_buffer", datetime(2025, 1, 31, 11, 0, 0, tzinfo=UTC), True),
+            ("watermark_stale_beyond_buffer", datetime(2025, 1, 31, 9, 0, 0, tzinfo=UTC), False),
+            ("no_watermark_ever_built", None, False),
+        ]
+    )
+    def test_can_use_preaggregated_tables_checks_watermark_for_live_edge_queries(
+        self, _name, watermark, expected_can_use
+    ):
+        # A window > 6 hours with no explicit date_to is exactly the "Today" preset shape that
+        # silently read an unbuilt current-day partition before the watermark check existed.
+        now = datetime(2025, 1, 31, 12, 0, 0, tzinfo=UTC)
+        date_from = now - timedelta(hours=8)
+
+        query = WebOverviewQuery(
+            dateRange=DateRange(),  # No explicit date_to means query ends at "now"
+            properties=[],
+        )
+
+        runner = MagicMock()
+        runner.query = query
+        runner.team = self.team
+        runner.modifiers = HogQLQueryModifiers(useWebAnalyticsPreAggregatedTables=True, convertToProjectTimezone=False)
+
+        mock_date_range = MagicMock()
+        mock_date_range.date_from.return_value = date_from
+        mock_date_range.date_to.return_value = now
+        runner.query_date_range = mock_date_range
+        runner.query_compare_to_date_range = None
+
+        builder = WebOverviewPreAggregatedQueryBuilder(runner)
+        with patch(
+            "products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder.get_pre_aggregated_watermark",
+            return_value=watermark,
+        ):
+            self.assertEqual(builder.can_use_preaggregated_tables(), expected_can_use)
+
 
 class TestWebOverviewNoJoinFastPath(ClickhouseTestMixin, APIBaseTest):
     QUERY_TIMESTAMP = "2025-01-29"
