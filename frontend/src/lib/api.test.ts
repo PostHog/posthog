@@ -1,6 +1,7 @@
 import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
+import { ResponseBodyReadError } from 'lib/api-error'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -240,10 +241,13 @@ describe('API helper', () => {
             expect(error.message).toContain('[POST /api/environments/2/insights]')
         })
 
-        it('surfaces a body stream that fails mid-read as an ApiError instead of null', async () => {
+        it('surfaces a body stream that fails mid-read as a ResponseBodyReadError instead of null', async () => {
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(new TypeError('network error')) }))
             const error = await api.get('api/environments/2/insights').catch((e) => e)
-            expect(error).toBeInstanceOf(ApiError)
+            // A distinct subclass (rather than plain ApiError) so `initKea`'s loader `onFailure` and
+            // the `dropResponseBodyReadExceptions` before_send filter can recognize this as transient
+            // network noise and exclude it from error tracking.
+            expect(error).toBeInstanceOf(ResponseBodyReadError)
             expect(error.status).toBeUndefined()
         })
 

@@ -7,7 +7,7 @@ import { encodeParams } from 'kea-router'
 export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, ResponseBodyReadError } from 'lib/api-error'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -392,7 +392,9 @@ export async function getJSONOrNull(response: Response): Promise<any> {
  * must still surface as a failure. The thrown ApiError deliberately carries no `status`: the
  * HTTP status was 2xx, and recovery paths keyed on `status === undefined || status >= 500`
  * should classify a garbled body like the fetch-level network failure it effectively is. The
- * real status stays in the message for triage.
+ * real status stays in the message for triage. A read that fails mid-stream (rather than
+ * completing with unparsable content) is thrown as `ResponseBodyReadError` specifically, so it
+ * can be recognized as transient network noise and excluded from error tracking.
  */
 async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
     const requestContext = (): string =>
@@ -406,7 +408,7 @@ async function getJSONFromSuccessResponse(response: Response, method: string, ur
         }
         // The body stream failed mid-read (e.g. a network drop truncating a chunked response) —
         // the response is unusable, so surface it instead of handing callers a null.
-        throw new ApiError(`Failed to read response body ${requestContext()}`)
+        throw new ResponseBodyReadError(`Failed to read response body ${requestContext()}`)
     }
     if (!text.trim()) {
         return null
@@ -2557,8 +2559,9 @@ const api = {
             // return a non-array, which would break callers that iterate over the result.
             return Array.isArray(response) ? response : []
         },
-        async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemLogView().create({ data })
+        // Backend returns 204 No Content — there is no body to hand back.
+        async create(data: { ref?: string; type?: string }): Promise<void> {
+            await new ApiRequest().fileSystemLogView().create({ data })
         },
     },
 

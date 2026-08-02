@@ -55,3 +55,17 @@ export class ApiError extends Error {
         return 'later'
     }
 }
+
+/**
+ * A 2xx response's body stream failed mid-read (dropped connection, proxy hiccup) after the
+ * server already answered successfully — a transient network condition, not an application
+ * defect. `getJSONFromSuccessResponse` throws this instead of resolving `null` so callers still
+ * see a failure to react to, while `initKea`'s loader `onFailure` and error tracking recognize
+ * the type and skip reporting it, the same way `TRANSIENT_GATEWAY_STATUSES` skips 502/503/504.
+ */
+export class ResponseBodyReadError extends ApiError {
+    constructor(message: string) {
+        super(message)
+        this.name = 'ResponseBodyReadError'
+    }
+}

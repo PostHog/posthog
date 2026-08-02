@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError } from 'lib/api-error'
+import { ResponseBodyReadError, isAccessDeniedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -57,6 +57,16 @@ don't report them to error tracking — otherwise sporadic 5xxs surface as noisy
 issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
 */
 const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
+
+/*
+Whether a loader failure is worth reporting to error tracking. Transient gateway/proxy statuses
+and a `ResponseBodyReadError` (a 2xx response body that failed mid-read after the server already
+answered successfully) are both infrastructure-level noise, not application bugs — exported for
+testing.
+*/
+export function isReportableLoaderFailure(error: any): boolean {
+    return !TRANSIENT_GATEWAY_STATUSES.includes(error?.status) && !(error instanceof ResponseBodyReadError)
+}
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -177,7 +187,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                if (isReportableLoaderFailure(error)) {
                     posthog.captureException(error)
                 }
             },

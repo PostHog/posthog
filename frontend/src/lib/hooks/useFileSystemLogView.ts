@@ -39,7 +39,9 @@ export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileS
     }
 
     recentItemsModel.findMounted()?.actions.recordView(type, String(ref))
-    void api.fileSystemLogView.create({ type, ref: String(ref) })
+    // Fire-and-forget: nothing reads the result, so a failure here shouldn't be a page-level concern —
+    // but it still needs a `.catch()` or a failed request becomes an unhandled promise rejection.
+    api.fileSystemLogView.create({ type, ref: String(ref) }).catch(() => {})
 }
 
 export function useFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {

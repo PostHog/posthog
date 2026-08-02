@@ -2,6 +2,7 @@ import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dropResponseBodyReadExceptions } from 'lib/errorTracking/dropResponseBodyReadExceptions'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -56,7 +57,9 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // Always drop `ResponseBodyReadError` noise first, then run any caller-supplied filter(s) —
+            // `selfReadOnlyModeLogic` composes on top of this rather than overwriting `before_send`.
+            before_send: [dropResponseBodyReadExceptions, ...[options.beforeSend ?? []].flat()],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
