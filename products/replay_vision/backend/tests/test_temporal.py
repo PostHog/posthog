@@ -52,6 +52,7 @@ from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
+    _load_known_freeform_tags,
     _resolve_citations,
     call_scanner_provider_activity,
 )
@@ -539,6 +540,107 @@ class TestEgressConsentRecheck:
         assert exc_info.value.non_retryable is True
         assert exc_info.value.type == INELIGIBLE_SESSION_ERROR_TYPE
         assert exc_info.value.details == ("no_ai_consent",)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestKnownFreeformTags:
+    @staticmethod
+    def _classifier_scanner(**overrides) -> ReplayScanner:
+        defaults: dict = {
+            "scanner_type": ScannerType.CLASSIFIER,
+            "scanner_config": {"prompt": "categorize", "tags": ["checkout"], "allow_freeform_tags": True},
+        }
+        defaults.update(overrides)
+        return _make_scanner(**defaults)
+
+    @staticmethod
+    def _succeeded(scanner: ReplayScanner, session_id: str, freeform: list[str]) -> ReplayObservation:
+        return _make_observation(
+            scanner,
+            session_id=session_id,
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=timezone.now(),
+            scanner_result={"model_output": {"tags": ["checkout"], "tags_freeform": freeform}},
+        )
+
+    def test_ranks_recent_freeform_tags_by_frequency(self) -> None:
+        scanner = self._classifier_scanner()
+        self._succeeded(scanner, "s1", ["search_error", "slow_page"])
+        self._succeeded(scanner, "s2", ["search_error"])
+        target = _make_observation(scanner, session_id="s3")
+
+        assert _load_known_freeform_tags(target.id, scanner.team_id) == ["search_error", "slow_page"]
+
+    def test_ignores_other_scanners_old_rows_and_missing_observation(self) -> None:
+        scanner = self._classifier_scanner()
+        sibling = ReplayScanner.objects.create(
+            team=scanner.team,
+            name="sibling",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "categorize", "tags": ["checkout"], "allow_freeform_tags": True},
+            model=ScannerModel.GEMINI_3_6_FLASH,
+        )
+        self._succeeded(sibling, "s1", ["sibling_tag"])
+        stale = self._succeeded(scanner, "s2", ["stale_tag"])
+        # `created_at` is auto_now_add, so backdate past the recency window with a direct update.
+        ReplayObservation.objects.filter(pk=stale.pk).update(created_at=timezone.now() - dt.timedelta(days=40))
+        self._succeeded(scanner, "s3", ["fresh_tag"])
+        target = _make_observation(scanner, session_id="s4")
+
+        assert _load_known_freeform_tags(target.id, scanner.team_id) == ["fresh_tag"]
+        # A missing observation row (e.g. deleted mid-flight) yields no tags rather than failing the scan.
+        assert _load_known_freeform_tags(uuid.uuid4(), scanner.team_id) == []
+
+    def test_caps_the_tag_list(self) -> None:
+        scanner = self._classifier_scanner()
+        self._succeeded(scanner, "s1", [f"tag_{i:02d}" for i in range(35)])
+        target = _make_observation(scanner, session_id="s2")
+
+        assert len(_load_known_freeform_tags(target.id, scanner.team_id)) == 30
+
+    @pytest.mark.asyncio
+    async def test_scan_prompt_receives_previously_used_freeform_tags(self) -> None:
+        scanner = await sync_to_async(self._classifier_scanner)()
+        await sync_to_async(self._succeeded)(scanner, "s1", ["search_error"])
+        target = await sync_to_async(_make_observation)(scanner, session_id="s2")
+        model_output = ClassifierOutput(tags=["checkout"], reasoning="r", confidence=0.9)
+        llm_inputs = ScannerLlmInputs(
+            session_id=target.session_id,
+            team_id=target.team_id,
+            events=EventTable(columns=["event"], rows=[["$pageview"]]),
+            metadata=SessionMetadata(
+                start_time=dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC),
+                end_time=dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC),
+                duration_seconds=300.0,
+            ),
+        )
+
+        with (
+            patch(
+                "products.replay_vision.backend.temporal.activities.call_scanner_provider._run_mission",
+                new_callable=AsyncMock,
+                return_value=(model_output, []),
+            ) as mock_run_mission,
+            patch(
+                "products.replay_vision.backend.temporal.activities.call_scanner_provider._load_llm_inputs",
+                new_callable=AsyncMock,
+                return_value=llm_inputs,
+            ),
+        ):
+            await ActivityEnvironment().run(
+                call_scanner_provider_activity,
+                CallScannerProviderInputs(
+                    team_id=target.team_id,
+                    observation_id=target.id,
+                    file_uri="gemini://files/x",
+                    mime_type="video/mp4",
+                ),
+            )
+
+        assert mock_run_mission.await_args is not None
+        passed_scanner = mock_run_mission.await_args.kwargs["scanner"]
+        assert passed_scanner.known_freeform_tags == ["search_error"]
+        assert "'search_error'" in passed_scanner.core_steps()[0].instruction
 
 
 @pytest.mark.django_db(transaction=True)
