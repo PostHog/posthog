@@ -26242,11 +26242,24 @@ export namespace Schemas {
     };
 
     /**
+     * For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'.
+     */
+    export type EvaluationOutputConfigPolarity = typeof EvaluationOutputConfigPolarity[keyof typeof EvaluationOutputConfigPolarity];
+
+
+    export const EvaluationOutputConfigPolarity = {
+      TrueIsPass: 'true_is_pass',
+      TrueIsFail: 'true_is_fail',
+    } as const;
+
+    /**
      * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
+      /** For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'. */
+      polarity?: EvaluationOutputConfigPolarity;
     };
 
     /**
@@ -50596,11 +50609,24 @@ export namespace Schemas {
     };
 
     /**
+     * For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'.
+     */
+    export type PatchedEvaluationOutputConfigPolarity = typeof PatchedEvaluationOutputConfigPolarity[keyof typeof PatchedEvaluationOutputConfigPolarity];
+
+
+    export const PatchedEvaluationOutputConfigPolarity = {
+      TrueIsPass: 'true_is_pass',
+      TrueIsFail: 'true_is_fail',
+    } as const;
+
+    /**
      * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
+      /** For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'. */
+      polarity?: PatchedEvaluationOutputConfigPolarity;
     };
 
     /**

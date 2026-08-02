@@ -106,6 +106,7 @@ export const evaluationsCreateBodyNameMax = 400
 
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsCreateBodyOutputConfigPolarityDefault = `true_is_pass`
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -177,6 +178,12 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .default(evaluationsCreateBodyOutputConfigAllowsNaDefault)
                 .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            polarity: zod
+                .enum(['true_is_pass', 'true_is_fail'])
+                .default(evaluationsCreateBodyOutputConfigPolarityDefault)
+                .describe(
+                    "For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'."
+                ),
         })
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
@@ -298,6 +305,7 @@ export const evaluationsUpdateBodyNameMax = 400
 
 export const evaluationsUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsUpdateBodyOutputConfigPolarityDefault = `true_is_pass`
 export const evaluationsUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -369,6 +377,12 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .default(evaluationsUpdateBodyOutputConfigAllowsNaDefault)
                 .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            polarity: zod
+                .enum(['true_is_pass', 'true_is_fail'])
+                .default(evaluationsUpdateBodyOutputConfigPolarityDefault)
+                .describe(
+                    "For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'."
+                ),
         })
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),
@@ -490,6 +504,7 @@ export const evaluationsPartialUpdateBodyNameMax = 400
 
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault = false
+export const evaluationsPartialUpdateBodyOutputConfigPolarityDefault = `true_is_pass`
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -563,6 +578,12 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .boolean()
                 .default(evaluationsPartialUpdateBodyOutputConfigAllowsNaDefault)
                 .describe('Whether the evaluation can return N\/A for non-applicable generations.'),
+            polarity: zod
+                .enum(['true_is_pass', 'true_is_fail'])
+                .default(evaluationsPartialUpdateBodyOutputConfigPolarityDefault)
+                .describe(
+                    "For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'."
+                ),
         })
         .optional()
         .describe("Output config. For 'boolean' output_type: {allows_na} to permit N\/A results."),

@@ -428,6 +428,17 @@ export const OutputTypeEnumApi = {
     Sentiment: 'sentiment',
 } as const
 
+/**
+ * For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'.
+ */
+export type EvaluationApiOutputConfigPolarity =
+    (typeof EvaluationApiOutputConfigPolarity)[keyof typeof EvaluationApiOutputConfigPolarity]
+
+export const EvaluationApiOutputConfigPolarity = {
+    TrueIsPass: 'true_is_pass',
+    TrueIsFail: 'true_is_fail',
+} as const
+
 export type EvaluationConditionApiPropertiesItem = { [key: string]: unknown }
 
 /**
@@ -530,6 +541,8 @@ export type EvaluationApiEvaluationConfig =
 export type EvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'. */
+    polarity?: EvaluationApiOutputConfigPolarity
 }
 
 /**
@@ -647,11 +660,24 @@ export type PatchedEvaluationApiEvaluationConfig =
       }
 
 /**
+ * For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'.
+ */
+export type PatchedEvaluationApiOutputConfigPolarity =
+    (typeof PatchedEvaluationApiOutputConfigPolarity)[keyof typeof PatchedEvaluationApiOutputConfigPolarity]
+
+export const PatchedEvaluationApiOutputConfigPolarity = {
+    TrueIsPass: 'true_is_pass',
+    TrueIsFail: 'true_is_fail',
+} as const
+
+/**
  * Output config. For 'boolean' output_type: {allows_na} to permit N/A results.
  */
 export type PatchedEvaluationApiOutputConfig = {
     /** Whether the evaluation can return N/A for non-applicable generations. */
     allows_na?: boolean
+    /** For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'. */
+    polarity?: PatchedEvaluationApiOutputConfigPolarity
 }
 
 /**
