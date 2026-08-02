@@ -102,18 +102,21 @@ def get_rows(
     config = TABOOLA_ENDPOINTS[endpoint]
     session = _get_session(client_secret)
 
-    # The initial mint below and the mid-sync re-mint on 401 (inside `fetch`) share this
-    # retry so a transient token-endpoint failure backs off instead of failing the sync.
+    # Unlike the mid-sync re-mint below, nothing else retries this initial mint, so a
+    # transient token-endpoint failure here needs its own backoff instead of failing the
+    # sync outright. Don't reuse `fetch`'s retry for this: it also retries on
+    # TaboolaRetryableError, and re-mint failures already propagate into that retry via the
+    # 401 branch below, so decorating the mint itself too would let the two retries compound.
     @retry(
         retry=retry_if_exception_type(TaboolaRetryableError),
         stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=2, max=90),
         reraise=True,
     )
-    def mint_token() -> str:
+    def mint_initial_token() -> str:
         return _mint_token(session, client_id, client_secret)
 
-    token = mint_token()
+    token = mint_initial_token()
     account_base = f"{TABOOLA_API_BASE_URL}/{_encode_path_segment(account_id)}"
 
     @retry(
@@ -126,9 +129,10 @@ def get_rows(
         nonlocal token
         response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
 
-        # Access tokens are short-lived; re-mint once if one expires mid-sync.
+        # Access tokens are short-lived; re-mint once if one expires mid-sync. A retryable
+        # failure here isn't retried separately — it propagates to this function's own retry.
         if response.status_code == 401:
-            token = mint_token()
+            token = _mint_token(session, client_id, client_secret)
             response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
