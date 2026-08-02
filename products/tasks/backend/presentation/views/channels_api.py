@@ -84,7 +84,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request, pk=None, **kwargs):
         serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        result = tasks_facade.update_channel(pk, self.team_id, **serializer.validated_data)
+        result = tasks_facade.update_channel(pk, self.team_id, self._user_id(), **serializer.validated_data)
         if result == "not_found":
             raise NotFound()
         if result == "personal":

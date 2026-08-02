@@ -84,6 +84,36 @@ class ChannelsAPITestCase(TestCase):
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
         self.assertEqual(delete.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
+        list_repositories.return_value = [{"full_name": "posthog/posthog"}]
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        # Listing provisions the requester's personal channel.
+        self.client.get(self._channels_url())
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+
+        # A teammate who learns the id must not be able to redirect the owner's
+        # tasks — the personal channel is invisible to them, so this reads as 404.
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        sneaky = other_client.patch(
+            f"{self._channels_url()}{personal.id}/",
+            {"github_integration": integration.id, "repositories": ["posthog/posthog"]},
+            format="json",
+        )
+        self.assertEqual(sneaky.status_code, status.HTTP_404_NOT_FOUND)
+        personal.refresh_from_db()
+        self.assertEqual(personal.repositories, [])
+
+        # The owner can still configure their own personal channel's repositories.
+        owned = self.client.patch(
+            f"{self._channels_url()}{personal.id}/",
+            {"github_integration": integration.id, "repositories": ["posthog/posthog"]},
+            format="json",
+        )
+        self.assertEqual(owned.status_code, status.HTTP_200_OK, owned.content)
+        self.assertEqual(owned.json()["repositories"], ["posthog/posthog"])
+
     def test_task_created_in_public_channel_is_team_visible(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
         created = self.client.post(

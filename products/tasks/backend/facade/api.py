@@ -5467,6 +5467,7 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
 def update_channel(
     channel_id: str | UUID,
     team_id: int,
+    user_id: int | None,
     *,
     name: str | None = None,
     github_integration: Integration | None = None,
@@ -5476,8 +5477,16 @@ def update_channel(
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
-    if channel.channel_type == Channel.ChannelType.PERSONAL and name is not None:
-        return "personal"
+    if channel.channel_type == Channel.ChannelType.PERSONAL:
+        # A personal channel is private to its owner. Hide it from every other
+        # member — same as the read path's _visible_channel — so a teammate who
+        # learns the id can't rewrite the owner's repository config and redirect
+        # their future tasks to different repositories.
+        if channel.created_by_id != user_id:
+            return "not_found"
+        # Renaming a personal channel stays disallowed, even for its owner.
+        if name is not None:
+            return "personal"
     update_fields: list[str] = []
     if name is not None:
         normalized = normalize_channel_name(name)
