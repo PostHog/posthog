@@ -654,10 +654,15 @@ impl FencedChangelogProducers {
                 }
                 Err(e)
             }
+            // The committer dropped its senders without answering, so
+            // nobody observed whether the commit landed — and
+            // `spawn_blocking` work is not cancelled when its handle is
+            // dropped, so it may well have. Reporting a definite abort
+            // here frees a version whose record may exist.
             Err(_) => {
                 counter!("personhog_leader_kafka_produce_errors_total").increment(1);
-                Err(FencedProduceError::Failed(
-                    "commit task dropped".to_string(),
+                Err(FencedProduceError::Indeterminate(
+                    "commit task dropped without reporting an outcome".to_string(),
                 ))
             }
         }
@@ -1010,10 +1015,17 @@ async fn commit_window_after(
             }
         }
         // The commit task itself vanished, so nothing observed the
-        // transaction's fate.
-        Err(join) => Err(FencedProduceError::Indeterminate(format!(
-            "commit join: {join}"
-        ))),
+        // transaction's fate — which leaves the transaction open and this
+        // producer unable to begin another. Condemning it is what lets
+        // the repair pass see a partition that needs re-acquiring;
+        // without it `holds()` keeps answering yes and every later write
+        // fails for the life of the process.
+        Err(join) => {
+            fence.condemn(partition, "commit_task_lost");
+            Err(FencedProduceError::Indeterminate(format!(
+                "commit join: {join}"
+            )))
+        }
     };
 
     for waiter in waiters {
@@ -1035,7 +1047,7 @@ pub fn preregister_fencing_metrics(partitions: u32) {
     counter!("personhog_leader_fence_slots_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abandoned_total").increment(0);
     counter!("personhog_leader_fence_abort_failed_total").increment(0);
-    for reason in ["abort_failed", "commit_indeterminate"] {
+    for reason in ["abort_failed", "commit_indeterminate", "commit_task_lost"] {
         counter!("personhog_leader_fence_condemned_total", "reason" => reason).increment(0);
     }
     counter!("personhog_leader_fence_commit_retries_total").increment(0);

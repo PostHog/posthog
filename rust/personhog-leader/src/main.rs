@@ -210,6 +210,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let locks = Arc::new(DashMap::new());
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(config.dirty_index_max_entries));
+    // One per pod, shared by the service that raises floors and the
+    // handler that drops them with the partition. The same bound the
+    // dirty index uses: both hold one entry per person written but not
+    // yet settled, and both are attackable the same way.
+    let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(
+        config.dirty_index_max_entries,
+    ));
     let recovery = Arc::new(
         ChangelogRecovery::new(RecoveryConfig {
             kafka: config.kafka.clone(),
@@ -277,6 +284,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ),
         warnings.clone(),
         fenced.clone(),
+        Arc::clone(&emitted_versions),
     );
 
     let warm_pools = Arc::new(WarmClientPools::new(
@@ -309,7 +317,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         Arc::clone(&warm_pools),
         fenced,
-        service.emitted_versions(),
+        Arc::clone(&emitted_versions),
     );
     let advertise_address =
         personhog_leader::config::derive_advertise_address(&config.grpc_address, &config.pod_ip)

@@ -107,11 +107,8 @@ impl PersonHogLeaderService {
         size_limits: PropertySizeLimits,
         warnings: WarningsProducer,
         fenced: Option<Arc<FencedChangelogProducers>>,
+        emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
-        // The same bound the dirty index uses: both hold one entry per
-        // person written but not yet settled, and both are attackable the
-        // same way.
-        let emitted_capacity = dirty_index.max_entries();
         Self {
             cache,
             locks,
@@ -125,7 +122,7 @@ impl PersonHogLeaderService {
             size_limits,
             warnings,
             fenced,
-            emitted_versions: Arc::new(EmittedVersions::new(emitted_capacity)),
+            emitted_versions,
         }
     }
 
@@ -159,12 +156,6 @@ impl PersonHogLeaderService {
             "source" => "cache", "outcome" => "ok"
         )
         .increment(1);
-    }
-
-    /// The version floors this service maintains, shared with the
-    /// handoff handler so a released partition's floors go with it.
-    pub fn emitted_versions(&self) -> Arc<EmittedVersions> {
-        Arc::clone(&self.emitted_versions)
     }
 
     /// Recover a cache miss from the right source. A person in the dirty
@@ -979,6 +970,7 @@ mod tests {
             PropertySizeLimits::new(655360, 524288),
             WarningsProducer::new(producer, "clickhouse_ingestion_warnings".to_string()),
             None,
+            Arc::new(EmittedVersions::new(1_000_000)),
         )
     }
 

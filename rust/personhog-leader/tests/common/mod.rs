@@ -344,6 +344,11 @@ pub async fn start_leader_pod(
     // One dirty index per pod, shared by handler and service exactly as
     // main.rs wires them: warming seeds the marks the service consults.
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    // One per pod, shared by handler and service exactly as main.rs
+    // wires them: otherwise `release_partition` clears a map the
+    // service never reads, and the floors survive a handoff in tests
+    // while production drops them.
+    let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
     // Recovery must read the broker the service produces to.
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
@@ -359,7 +364,7 @@ pub async fn start_leader_pod(
         warming,
         pools,
         None,
-        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
+        std::sync::Arc::clone(&emitted_versions),
     );
     let pod = PodHandle::new(
         store,
@@ -390,6 +395,7 @@ pub async fn start_leader_pod(
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        std::sync::Arc::clone(&emitted_versions),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -428,6 +434,11 @@ pub async fn start_leader_pod_with_lease_ttl(
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(1_000_000));
+    // One per pod, shared by handler and service exactly as main.rs
+    // wires them: otherwise `release_partition` clears a map the
+    // service never reads, and the floors survive a handoff in tests
+    // while production drops them.
+    let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
     let recovery = test_recovery(&mock_cluster.bootstrap_servers());
     let warming = test_warming_config(name, &mock_cluster.bootstrap_servers());
     let pools = Arc::new(WarmClientPools::new(
@@ -442,7 +453,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         warming,
         pools,
         None,
-        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
+        std::sync::Arc::clone(&emitted_versions),
     );
     let pod = PodHandle::new(
         store,
@@ -474,6 +485,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        std::sync::Arc::clone(&emitted_versions),
     );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let leader_addr = listener.local_addr().unwrap();
@@ -563,6 +575,7 @@ pub async fn start_leader_with_pg_fallback(
         PropertySizeLimits::new(655360, 524288),
         WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
         None,
+        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
