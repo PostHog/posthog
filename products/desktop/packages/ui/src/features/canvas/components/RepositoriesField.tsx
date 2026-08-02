@@ -196,14 +196,12 @@ export function RepositoriesField({
         : null;
 
   return (
+    // Tailwind gap (not Radix `gap`): this row also renders inside quill's
+    // dialog portal, which is outside the `.radix-themes` scope where the
+    // `--space-*` tokens live, so a Radix `gap` collapses to 0 there.
     // w-fit keeps the chips + add button as one tight cluster instead of
     // stretching across the row, so the group doesn't float in empty space.
-    <Flex
-      align="center"
-      gap="2"
-      wrap="wrap"
-      className="min-h-7 w-fit max-w-full"
-    >
+    <Flex align="center" wrap="wrap" className="min-h-7 w-fit max-w-full gap-2">
       {selected.map((repository) => (
         <RepoChip
           key={repository}
