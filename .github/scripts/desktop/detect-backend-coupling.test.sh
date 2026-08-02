@@ -51,6 +51,7 @@ register_pr() {
 
 run_detector() {
     (cd "$repo" && PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" REPOSITORY="PostHog/posthog" \
+        GITHUB_OUTPUT=/dev/stdout \
         CURRENT_TAG="${CURRENT_TAG:-}" CURRENT_SHA="$(git -C "$repo" rev-parse HEAD)" "$detector")
 }
 
@@ -107,7 +108,7 @@ pretag=$(git -C "$repo" rev-parse HEAD)
 posttag=$(commit "coupled after tag" products/desktop/apps/late.ts posthog/late.py)
 export CURRENT_TAG=""
 output=$(cd "$repo" && PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" REPOSITORY="PostHog/posthog" \
-    RANGE_START_SHA="$pretag" CURRENT_SHA="$posttag" "$detector")
+    GITHUB_OUTPUT=/dev/stdout RANGE_START_SHA="$pretag" CURRENT_SHA="$posttag" "$detector")
 actual=$(sed -n 's/^required_shas=//p' <<<"$output")
 if [ "$actual" != "$posttag" ]; then
     echo "FAIL: explicit range override walks only start..end"
@@ -127,7 +128,7 @@ echo x >"$first_repo/posthog/models.py"
 git -C "$first_repo" add . && git -C "$first_repo" commit -qm "initial import"
 root_sha=$(git -C "$first_repo" rev-parse HEAD)
 output=$(cd "$first_repo" && PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" REPOSITORY="PostHog/posthog" \
-    CURRENT_SHA="$root_sha" "$detector")
+    GITHUB_OUTPUT=/dev/stdout CURRENT_SHA="$root_sha" "$detector")
 actual=$(sed -n 's/^required_shas=//p' <<<"$output")
 if [ "$actual" != "$root_sha" ]; then
     echo "FAIL: first release includes the root desktop commit"
