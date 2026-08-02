@@ -132,9 +132,17 @@ def _row_id(*parts: Any) -> str:
 
 
 def _normalize_billing_record(record: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(record)
+    if "time" not in normalized and "startDate" in normalized:
+        # RunPod's network volume billing has been observed returning the bucket start under
+        # `startDate` rather than the `time` field documented for every other billing endpoint —
+        # alias it so the schema's declared "time" incremental field stays valid.
+        normalized["time"] = normalized.pop("startDate")
     return {
-        "id": _row_id(record.get("time"), record.get("podId"), record.get("endpointId"), record.get("gpuTypeId")),
-        **record,
+        "id": _row_id(
+            normalized.get("time"), normalized.get("podId"), normalized.get("endpointId"), normalized.get("gpuTypeId")
+        ),
+        **normalized,
     }
 
 
