@@ -642,8 +642,8 @@ jobs:
     # update feed, not the previous tag: releases are cumulative, so if a gated
     # predecessor never published (failed, timed out, dropped from the queue),
     # its backend requirements carry into this release instead of vanishing.
-    # Runs in this concurrency group queue and never cancel an in-progress
-    # release, which also keeps publishes ordered.
+    # The workflow-level concurrency group queues release runs without
+    # canceling, which keeps feed flips ordered.
     check-backend-deps:
         runs-on: ubuntu-latest
         timeout-minutes: 10

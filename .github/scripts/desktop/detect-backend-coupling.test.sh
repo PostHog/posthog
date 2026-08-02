@@ -14,7 +14,10 @@ mkdir -p "$fake_bin" "$fixtures"
 cat >"$fake_bin/gh" <<'EOF'
 #!/usr/bin/env bash
 slug=$(printf '%s' "${2:?}" | tr '/?&=' '____')
-if [ -f "$GH_FIXTURE_DIR/$slug.json" ]; then
+if [ -f "$GH_FIXTURE_DIR/$slug.fail" ]; then
+    echo "stubbed API failure for ${2}" >&2
+    exit 1
+elif [ -f "$GH_FIXTURE_DIR/$slug.json" ]; then
     cat "$GH_FIXTURE_DIR/$slug.json"
 elif [[ "${2}" == */pulls ]]; then
     echo '[]'
@@ -79,7 +82,7 @@ assert_required "desktop-only commit does not gate" ""
 coupled=$(commit "desktop plus backend" products/desktop/apps/bar.ts posthog/models.py)
 assert_required "coupled commit gates on its own sha" "$coupled"
 
-commit "backend only" posthog/api.py >/dev/null
+backend_only=$(commit "backend only" posthog/api.py)
 assert_required "backend-only commit does not gate" "$coupled"
 
 commit "docs both sides" products/desktop/README2.md posthog/README.md >/dev/null
@@ -89,10 +92,10 @@ commit "tooling change" products/desktop/apps/baz.ts pyproject.toml conftest.py 
 assert_required "tooling paths never count as backend" "$coupled"
 
 trailer_sha=$(commit "desktop with trailer" products/desktop/apps/qux.ts)
-backend_dep="aaaabbbbccccddddeeeeffff0000111122223333"
+backend_dep="$backend_only"
 merged_dep="1234123412341234123412341234123412341234"
 register_pr "$trailer_sha" 42 $'Adds a thing.\r\n\r\nRequires-Backend: '"$backend_dep"$'\r\nRequires-Backend: #77' "[]"
-echo "{\"merge_commit_sha\": \"$merged_dep\"}" >"$fixtures/repos_PostHog_posthog_pulls_77.json"
+echo "{\"merged\": true, \"merge_commit_sha\": \"$merged_dep\"}" >"$fixtures/repos_PostHog_posthog_pulls_77.json"
 assert_required "trailers resolve shas and merged PRs" "$coupled $backend_dep $merged_dep"
 
 skipped=$(commit "coupled but skipped" products/desktop/apps/skip.ts posthog/skip.py)
@@ -127,19 +130,76 @@ echo "version: 9.9.9" >"$workdir/feed-untagged.yml"
 TEST_FEED_URL="file://$workdir/feed-untagged.yml" \
     assert_required "unknown feed version falls back to the previous tag" "$posttag"
 
+assert_fails() {
+    local name="$1" needle="$2" output status
+    set +e
+    output=$(run_detector 2>&1)
+    status=$?
+    set -e
+    if [ "$status" -eq 0 ] || ! grep -Fq "$needle" <<<"$output"; then
+        echo "FAIL: $name (exit $status)"
+        awk '{print "  | " $0}' <<<"$output"
+        exit 1
+    fi
+    echo "ok: $name"
+}
+
+# Open PRs still carry an ephemeral test-merge merge_commit_sha; only
+# merged: true may satisfy the dependency.
 unmerged_sha=$(commit "desktop with unmerged dep" products/desktop/apps/unmerged.ts)
 register_pr "$unmerged_sha" 44 "Requires-Backend: 99" "[]"
-echo '{}' >"$fixtures/repos_PostHog_posthog_pulls_99.json"
-set +e
-output=$(run_detector 2>&1)
-status=$?
-set -e
-if [ "$status" -eq 0 ] || ! grep -Fq "Requires-Backend: #99 but that PR has no merge commit" <<<"$output"; then
-    echo "FAIL: unmerged Requires-Backend must fail the gate (exit $status)"
-    awk '{print "  | " $0}' <<<"$output"
-    exit 1
-fi
-echo "ok: unmerged Requires-Backend fails the gate"
+echo '{"merged": false, "merge_commit_sha": "cafecafecafecafecafecafecafecafecafecafe"}' \
+    >"$fixtures/repos_PostHog_posthog_pulls_99.json"
+assert_fails "unmerged Requires-Backend fails the gate" "Requires-Backend: #99 but that PR is not merged"
+
+echo "{\"merged\": true, \"merge_commit_sha\": \"$merged_dep\"}" >"$fixtures/repos_PostHog_posthog_pulls_99.json"
+badsha_sha=$(commit "desktop with bad sha dep" products/desktop/apps/badsha.ts)
+register_pr "$badsha_sha" 45 "Requires-Backend: 0000000000000000000000000000000000000001" "[]"
+assert_fails "nonexistent Requires-Backend sha fails the gate" "no such commit exists in this repo"
+
+register_pr "$badsha_sha" 45 "" "[]"
+apifail_sha=$(commit "desktop with api failure" products/desktop/apps/apifail.ts)
+touch "$fixtures/repos_PostHog_posthog_commits_${apifail_sha}_pulls.fail"
+assert_fails "API failure fails the gate instead of dropping deps" "GitHub API request failed"
+rm "$fixtures/repos_PostHog_posthog_commits_${apifail_sha}_pulls.fail"
+
+classifier_repo="$workdir/classifier"
+mkdir -p "$classifier_repo"
+git -C "$classifier_repo" -c init.defaultBranch=main init -q
+git -C "$classifier_repo" config user.email test@example.com
+git -C "$classifier_repo" config user.name test
+echo base >"$classifier_repo/README.md"
+git -C "$classifier_repo" add . && git -C "$classifier_repo" commit -qm base
+git -C "$classifier_repo" tag desktop-v0.1.0
+
+classifier_expected=""
+case_index=0
+while IFS='|' read -r path gated; do
+    case_index=$((case_index + 1))
+    mkdir -p "$classifier_repo/products/desktop" "$classifier_repo/$(dirname "$path")"
+    echo "$case_index" >"$classifier_repo/products/desktop/file-$case_index.ts"
+    echo "$case_index" >"$classifier_repo/$path"
+    git -C "$classifier_repo" add . && git -C "$classifier_repo" commit -qm "case $path"
+    sha=$(git -C "$classifier_repo" rev-parse HEAD)
+    if [ "$gated" = yes ]; then
+        classifier_expected="${classifier_expected:+$classifier_expected }$sha"
+    fi
+    output=$(cd "$classifier_repo" && PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" REPOSITORY="PostHog/posthog" \
+        GITHUB_OUTPUT=/dev/stdout UPDATE_FEED_URL="file://$workdir/no-feed.yml" CURRENT_SHA="$sha" "$detector")
+    actual=$(sed -n 's/^required_shas=//p' <<<"$output")
+    if [ "$actual" != "$classifier_expected" ]; then
+        echo "FAIL: classifier arm $path (gated=$gated)"
+        echo "  expected '$classifier_expected', got '$actual'"
+        exit 1
+    fi
+    echo "ok: classifier arm $path gated=$gated"
+done <<'CASES'
+ee/billing/models.py|yes
+ee/frontend/exports.ts|no
+common/hogql_parser/parser.cpp|yes
+products/llm_analytics/backend/api.py|yes
+frontend/src/products.json|yes
+CASES
 
 first_repo="$workdir/first-release"
 mkdir -p "$first_repo"

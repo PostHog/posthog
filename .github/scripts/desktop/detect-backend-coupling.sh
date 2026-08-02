@@ -28,6 +28,7 @@ is_backend_path() {
         ee/*) return 0 ;;
         common/__init__.py | common/hogql_parser/* | common/hogvm/* | common/ingestion/* | common/migration_utils/* | common/plugin_transpiler/*) return 0 ;;
         products/*/backend/* | products/*.py) return 0 ;;
+        frontend/src/products.json) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -37,6 +38,16 @@ is_desktop_path() {
         products/desktop/*) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# A GitHub API failure must fail the gate, not read as an empty result: a
+# missed Requires-Backend declaration would ship a release its author said
+# must wait.
+fetch_api() {
+    if ! gh api "$1"; then
+        echo "::error::GitHub API request failed for $1; cannot verify backend dependencies" >&2
+        return 1
+    fi
 }
 
 # The range must start at the last version users can actually receive, not the
@@ -98,11 +109,12 @@ while IFS= read -r sha; do
 
     [ "$touched_desktop" = true ] || continue
 
-    pr_number=$(gh api "repos/$REPOSITORY/commits/$sha/pulls" 2>/dev/null | jq -r '.[0].number // empty' || true)
+    pulls_json=$(fetch_api "repos/$REPOSITORY/commits/$sha/pulls") || exit 1
+    pr_number=$(jq -r '.[0].number // empty' <<<"$pulls_json")
     pr_body=""
     skip_gate=false
     if [ -n "$pr_number" ]; then
-        pr_json=$(gh api "repos/$REPOSITORY/pulls/$pr_number" 2>/dev/null || echo '{}')
+        pr_json=$(fetch_api "repos/$REPOSITORY/pulls/$pr_number") || exit 1
         pr_body=$(jq -r '.body // ""' <<<"$pr_json" | tr -d '\r')
         if jq -e '[.labels[]?.name] | index("desktop-skip-backend-gate") != null' <<<"$pr_json" >/dev/null; then
             skip_gate=true
@@ -119,16 +131,26 @@ while IFS= read -r sha; do
     while IFS= read -r line; do
         ref=$(printf '%s' "$line" | cut -d: -f2- | tr -d ' #')
         [ -n "$ref" ] || continue
-        if [[ "$ref" =~ ^[0-9]+$ ]]; then
-            resolved=$(gh api "repos/$REPOSITORY/pulls/$ref" 2>/dev/null | jq -r '.merge_commit_sha // empty' || true)
+        # PR numbers cap at 9 digits so an unlucky all-numeric commit SHA
+        # still routes to the commit branch below.
+        if [[ "$ref" =~ ^[0-9]{1,9}$ ]]; then
+            dep_json=$(fetch_api "repos/$REPOSITORY/pulls/$ref") || exit 1
+            # merged must be checked explicitly: open PRs carry an ephemeral
+            # test-merge merge_commit_sha, so non-emptiness proves nothing. A
+            # declared dependency that is not merged must block, not ship.
+            resolved=$(jq -r 'select(.merged == true) | .merge_commit_sha // empty' <<<"$dep_json")
             if [ -z "$resolved" ]; then
-                # A declared dependency that cannot be resolved must block, not
-                # ship: releasing ahead of an unmerged backend PR is exactly
-                # what the author asked us to prevent.
-                echo "::error::PR #${pr_number:-unknown} declares Requires-Backend: #$ref but that PR has no merge commit; refusing to release ahead of it"
+                echo "::error::PR #${pr_number:-unknown} declares Requires-Backend: #$ref but that PR is not merged; refusing to release ahead of it"
                 exit 1
             fi
         else
+            if ! git rev-parse -q --verify "$ref^{commit}" >/dev/null; then
+                # A typo'd SHA would otherwise block every release until a
+                # human intervenes, with only a generic deploy timeout as the
+                # symptom. Fail fast and name the bad reference instead.
+                echo "::error::PR #${pr_number:-unknown} declares Requires-Backend: $ref but no such commit exists in this repo"
+                exit 1
+            fi
             resolved="$ref"
         fi
         echo "PR #${pr_number:-unknown} requires backend $resolved (Requires-Backend: $ref)"

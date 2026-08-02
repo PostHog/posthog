@@ -23,6 +23,8 @@ IFS=' ' read -r -a environments <<<"$ENVIRONMENTS"
 
 latest_successful_sha() {
     local env="$1" page deployments id ref
+    # 3 pages = 300 deployments, several days of history at the observed
+    # ~15-minute deploy cadence; a healthy environment succeeds far sooner.
     for page in 1 2 3; do
         deployments=$(gh api "repos/$REPOSITORY/deployments?environment=$env&per_page=100&page=$page" 2>/dev/null || echo '[]')
         [ "$(jq 'length' <<<"$deployments")" -gt 0 ] || break

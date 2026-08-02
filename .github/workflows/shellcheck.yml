@@ -26,8 +26,9 @@ jobs:
 
             - name: Check desktop release gate scripts
               run: |
-                  shellcheck .github/scripts/desktop/detect-backend-coupling.sh .github/scripts/desktop/wait-for-backend-deploy.sh .github/scripts/desktop/detect-backend-coupling.test.sh
+                  shellcheck .github/scripts/desktop/detect-backend-coupling.sh .github/scripts/desktop/wait-for-backend-deploy.sh .github/scripts/desktop/detect-backend-coupling.test.sh .github/scripts/desktop/wait-for-backend-deploy.test.sh
                   .github/scripts/desktop/detect-backend-coupling.test.sh
+                  .github/scripts/desktop/wait-for-backend-deploy.test.sh
 
             # Runs here, not in a path-gated ci-* job, so AGENTS/CLAUDE changes
             # anywhere in the repo are validated on every PR.
