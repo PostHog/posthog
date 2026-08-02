@@ -140,9 +140,13 @@ function syncStagedUpdates(): void {
   lastSyncedStagedUpdates = enabled;
   void hostTrpcClient.updates.setStagedUpdates
     .mutate({ enabled })
-    .catch((error: unknown) =>
-      log.error("Failed to sync staged-updates flag", { error }),
-    );
+    .catch((error: unknown) => {
+      // Forget the failed sync so the next flags-loaded callback retries it.
+      if (lastSyncedStagedUpdates === enabled) {
+        lastSyncedStagedUpdates = null;
+      }
+      log.error("Failed to sync staged-updates flag", { error });
+    });
 }
 posthogFeatureFlags.onFlagsLoaded(syncStagedUpdates);
 
