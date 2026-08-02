@@ -5109,6 +5109,64 @@ class TestExperimentService(APIBaseTest):
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
 
+    @parameterized.expand(
+        [
+            (
+                "ascending",
+                "conclusion",
+                ["Won", "Lost", "Inconclusive", "Stopped early", "Invalid", "No conclusion"],
+            ),
+            (
+                "descending",
+                "-conclusion",
+                ["No conclusion", "Invalid", "Stopped early", "Inconclusive", "Lost", "Won"],
+            ),
+        ]
+    )
+    def test_filter_experiments_queryset_orders_by_conclusion(
+        self, _: str, order: str, expected_order: list[str]
+    ) -> None:
+        service = self._service()
+        for name, conclusion in [
+            ("Inconclusive", "inconclusive"),
+            ("Won", "won"),
+            ("No conclusion", None),
+            ("Invalid", "invalid"),
+            ("Lost", "lost"),
+            ("Stopped early", "stopped_early"),
+        ]:
+            service.create_experiment(
+                name=name,
+                feature_flag_key=f"order-conclusion-{name.lower().replace(' ', '-')}",
+                conclusion=conclusion,
+            )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": order},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:6]) == expected_order
+
+    def test_filter_experiments_queryset_breaks_conclusion_ties_by_recency(self) -> None:
+        service = self._service()
+        now = timezone.now()
+        for index, name in enumerate(["Oldest", "Middle", "Newest"]):
+            experiment = service.create_experiment(
+                name=name,
+                feature_flag_key=f"conclusion-tie-{name.lower()}",
+            )
+            Experiment.objects.filter(id=experiment.id).update(created_at=now - timedelta(days=3 - index))
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": "conclusion"},
+        )
+
+        assert list(queryset.values_list("name", flat=True)[:3]) == ["Newest", "Middle", "Oldest"]
+
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
             self._service().filter_experiments_queryset(

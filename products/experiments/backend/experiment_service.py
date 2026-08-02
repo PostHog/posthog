@@ -599,7 +599,15 @@ class ExperimentService:
         "-duration",
         "status",
         "-status",
+        "conclusion",
+        "-conclusion",
     }
+
+    # Ranks conclusions by outcome instead of alphabetically, matching the Result column's
+    # sorter in Experiments.tsx. LemonTable re-sorts every page it receives with that sorter,
+    # so a backend order that disagreed would reshuffle the rows the server had already
+    # paginated, and rows would appear to jump between pages.
+    CONCLUSION_SORT_ORDER = ("won", "lost", "inconclusive", "stopped_early", "invalid")
 
     @classmethod
     def validate_stats_config(cls, stats_config: dict | None, variant_keys: list[str] | None = None) -> None:
@@ -3778,6 +3786,21 @@ class ExperimentService:
                     queryset = queryset.order_by(F("status_sort_key").desc())
                 else:
                     queryset = queryset.order_by(F("status_sort_key").asc())
+            elif order_value in ["conclusion", "-conclusion"]:
+                # Experiments with no conclusion rank after every real one rather than sorting
+                # as NULL, so ascending and descending stay exact mirrors of each other. Most
+                # experiments are still running and have no conclusion, so that bucket is large
+                # and needs a stable tiebreaker for pagination to return each row exactly once.
+                prefix = "-" if order_value.startswith("-") else ""
+                queryset = queryset.annotate(
+                    conclusion_sort_key=Case(
+                        *[
+                            When(conclusion=value, then=Value(rank))
+                            for rank, value in enumerate(self.CONCLUSION_SORT_ORDER)
+                        ],
+                        default=Value(len(self.CONCLUSION_SORT_ORDER)),
+                    )
+                ).order_by(f"{prefix}conclusion_sort_key", "-created_at")
             elif order_value in ["created_by", "-created_by"]:
                 # Match the frontend column's `first_name || email` sorter — treat an
                 # empty `first_name` as missing and fall back to `email`, so users with
