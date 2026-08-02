@@ -60,6 +60,11 @@ message Done {
   // remapping. It replaces only the submitted exception item, not the full
   // event or exception list.
   bytes resolved_exception_json = 1;
+  // Serialized JSON array of the releases bound to the symbol sets that
+  // resolved this exception's frames, deduped by release id. Empty when no
+  // resolved frame had a release. Callers must tolerate empty bytes (older
+  // servers do not set this field).
+  bytes releases_json = 2;
 }
 
 // Error is a terminal item failure. The kind enum is the shared control-flow

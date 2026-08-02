@@ -8,11 +8,12 @@ use tonic::{Status, Streaming};
 use tracing::{debug, warn};
 
 use crate::error::UnhandledError;
+use crate::frames::releases::ReleaseRecord;
 use crate::langs::native::DebugImage;
 use crate::stages::resolution::exception::ExceptionResolver;
 use crate::stages::resolution::frame::FrameResolver;
 use crate::stages::resolution::ResolutionStage;
-use crate::types::Exception;
+use crate::types::{Exception, Stacktrace};
 use cymbal_proto::cymbal::resolution::v1::{
     resolve_outcome, Accepted, Done, Error as ItemError, ResolveItem, ResolveOutcome,
 };
@@ -152,7 +153,8 @@ async fn process_item(
         match tokio::time::timeout(deadline, resolve_item(&stage, &item)).await {
             Ok(Ok(resolved)) => (
                 resolve_outcome::Result::Done(Done {
-                    resolved_exception_json: resolved,
+                    resolved_exception_json: resolved.exception_json,
+                    releases_json: resolved.releases_json,
                 }),
                 "done",
                 "ok",
@@ -230,7 +232,15 @@ enum ItemFailure {
     Unhandled(String),
 }
 
-async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec<u8>, ItemFailure> {
+struct ResolvedItemPayload {
+    exception_json: Vec<u8>,
+    releases_json: Vec<u8>,
+}
+
+async fn resolve_item(
+    stage: &ResolutionStage,
+    item: &ResolveItem,
+) -> Result<ResolvedItemPayload, ItemFailure> {
     let exception: Exception = serde_json::from_slice(&item.exception_json)
         .map_err(|e| ItemFailure::InvalidPayload(format!("invalid exception_json: {e}")))?;
 
@@ -245,8 +255,31 @@ async fn resolve_item(stage: &ResolutionStage, item: &ResolveItem) -> Result<Vec
             ResolveOneError::Unhandled(err) => ItemFailure::Unhandled(err),
         })?;
 
-    serde_json::to_vec(&resolved)
-        .map_err(|e| ItemFailure::Unhandled(format!("serialize resolved exception: {e}")))
+    let releases_json = frame_releases_json(&resolved)?;
+    let exception_json = serde_json::to_vec(&resolved)
+        .map_err(|e| ItemFailure::Unhandled(format!("serialize resolved exception: {e}")))?;
+
+    Ok(ResolvedItemPayload {
+        exception_json,
+        releases_json,
+    })
+}
+
+// `Frame.release` is `#[serde(skip)]`, so the releases the symbol-set join attached during
+// resolution would be lost in `resolved_exception_json`; they cross the wire in this sidecar
+// instead. Empty bytes (not an empty JSON array) when nothing resolved, matching what an older
+// server sends.
+fn frame_releases_json(exception: &Exception) -> Result<Vec<u8>, ItemFailure> {
+    let frames = match &exception.stack {
+        Some(Stacktrace::Resolved { frames }) => frames.as_slice(),
+        _ => &[],
+    };
+    let releases = ReleaseRecord::collect_from_frames(frames.iter());
+    if releases.is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::to_vec(&releases)
+        .map_err(|e| ItemFailure::Unhandled(format!("serialize frame releases: {e}")))
 }
 
 fn debug_images_from_metadata(metadata: &[u8]) -> Result<Vec<DebugImage>, ItemFailure> {

@@ -224,6 +224,7 @@ impl RawAppleFrame {
             resolve_failure: None,
 
             junk_drawer: None,
+            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -291,6 +292,7 @@ impl RawAppleFrame {
             resolved: false,
             resolve_failure: Some(err.to_string()),
             junk_drawer: None,
+            release: None,
             synthetic: self.meta.synthetic,
             context: None,
             suspicious: false,
@@ -382,6 +384,7 @@ impl From<&RawAppleFrame> for Frame {
             resolve_failure: None,
 
             junk_drawer: None,
+            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,

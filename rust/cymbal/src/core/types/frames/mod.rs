@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use common_types::error_tracking::{FrameData, FrameId, RawFrameId};
+use releases::ReleaseRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -172,6 +173,11 @@ pub struct Frame {
     // use in the frontend
     #[serde(skip)]
     pub context: Option<Context>,
+    // The release bound to the symbol set that resolved this frame. Never serialized: it must not
+    // reach the clickhouse-bound event JSON, and the remote resolution response carries releases
+    // in its own `releases_json` sidecar field instead of inside the frame.
+    #[serde(skip)]
+    pub release: Option<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

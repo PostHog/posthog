@@ -259,6 +259,7 @@ fn done_outcome(item: &ResolveItem) -> ResolveOutcome {
         id: item.id,
         result: Some(resolve_outcome::Result::Done(Done {
             resolved_exception_json: item.exception_json.clone(),
+            releases_json: Vec::new(),
         })),
     }
 }
@@ -489,6 +490,16 @@ pub fn build_event_with(
     uuid: Uuid,
     debug_images: Vec<DebugImage>,
 ) -> ExceptionEvent<Parsed> {
+    build_event_with_raw_frames(num_exceptions, team_id, uuid, debug_images, Vec::new())
+}
+
+pub fn build_event_with_raw_frames(
+    num_exceptions: usize,
+    team_id: i32,
+    uuid: Uuid,
+    debug_images: Vec<DebugImage>,
+    frames: Vec<RawFrame>,
+) -> ExceptionEvent<Parsed> {
     let exceptions: Vec<Exception> = (0..num_exceptions)
         .map(|i| Exception {
             exception_id: None,
@@ -497,7 +508,9 @@ pub fn build_event_with(
             mechanism: None,
             module: None,
             thread_id: None,
-            stack: Some(Stacktrace::Raw { frames: vec![] }),
+            stack: Some(Stacktrace::Raw {
+                frames: frames.clone(),
+            }),
         })
         .collect();
     AnyEvent {

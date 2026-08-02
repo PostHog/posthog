@@ -8,6 +8,7 @@ use tokio::sync::Semaphore;
 
 use crate::{
     error::UnhandledError,
+    frames::releases::ReleaseRecord,
     stages::{
         pipeline::ParsedPipelineItem,
         resolution::{
@@ -166,6 +167,9 @@ struct ResolvedRemoteItem {
     event_slot: usize,
     exception_slot: usize,
     exception: Exception,
+    /// Releases bound to the symbol sets that resolved this exception's frames, from the
+    /// response's `releases_json` sidecar — `Frame.release` itself does not survive the wire.
+    releases: Vec<ReleaseRecord>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -233,6 +237,7 @@ async fn resolve_remote_events(
                 item.event_slot, item.exception_slot
             )));
         }
+        event_slot.evt.add_frame_releases(item.releases);
     }
 
     event_slots

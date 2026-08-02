@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -5,7 +7,11 @@ use sha2::{Digest, Sha512};
 use sqlx::Executor;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Eq, PartialEq)]
+use super::Frame;
+
+// Serialized only on the internal resolution-service wire (`Done.releases_json`), never into the
+// clickhouse-bound event JSON — `Frame.release` stays `#[serde(skip)]`.
+#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ReleaseRecord {
     pub id: Uuid,
     pub team_id: i32,
@@ -71,6 +77,56 @@ impl ReleaseRecord {
         Ok(row)
     }
 
+    pub async fn for_symbol_set_ref<'c, E>(
+        e: E,
+        symbol_set_ref: &str,
+        team_id: i32,
+    ) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
+        let row = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT r.id, r.team_id, r.hash_id, r.created_at, r.version, r.project, r.metadata
+            FROM posthog_errortrackingsymbolset ss
+            INNER JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
+            WHERE ss.ref = $1 AND ss.team_id = $2
+            "#,
+            symbol_set_ref,
+            team_id
+        )
+        .fetch_optional(e)
+        .await?;
+
+        Ok(row)
+    }
+
+    pub async fn for_symbol_set_id<'c, E>(
+        e: E,
+        symbol_set_id: Uuid,
+        team_id: i32,
+    ) -> Result<Option<Self>, sqlx::Error>
+    where
+        E: Executor<'c, Database = sqlx::Postgres>,
+    {
+        let row = sqlx::query_as!(
+            Self,
+            r#"
+            SELECT r.id, r.team_id, r.hash_id, r.created_at, r.version, r.project, r.metadata
+            FROM posthog_errortrackingsymbolset ss
+            INNER JOIN posthog_errortrackingrelease r ON ss.release_id = r.id
+            WHERE ss.id = $1 AND ss.team_id = $2
+            "#,
+            symbol_set_id,
+            team_id
+        )
+        .fetch_optional(e)
+        .await?;
+
+        Ok(row)
+    }
+
     pub fn to_info(&self) -> ReleaseInfo {
         ReleaseInfo {
             project: self.project.clone(),
@@ -78,6 +134,26 @@ impl ReleaseRecord {
             timestamp: self.created_at,
             metadata: self.metadata.clone(),
         }
+    }
+
+    /// Distinct releases attached to the given frames, deduped by release id, in first-seen order.
+    pub fn collect_from_frames<'a>(frames: impl Iterator<Item = &'a Frame>) -> Vec<Self> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for release in frames.filter_map(|f| f.release.as_ref()) {
+            if seen.insert(release.id) {
+                out.push(release.clone());
+            }
+        }
+        out
+    }
+
+    /// The most recently created release, with ties broken by id so the pick is deterministic
+    /// regardless of frame order.
+    pub fn latest(releases: impl IntoIterator<Item = Self>) -> Option<Self> {
+        releases
+            .into_iter()
+            .max_by_key(|release| (release.created_at, release.id))
     }
 
     /// Rough in-memory footprint, for the release cache's weigher. `metadata` is a free-form

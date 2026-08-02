@@ -50,6 +50,7 @@ impl From<&RawDartFrame> for Frame {
             resolve_failure: None,
 
             junk_drawer: None,
+            release: None,
             synthetic: raw.meta.synthetic,
             context: None,
             suspicious: false,

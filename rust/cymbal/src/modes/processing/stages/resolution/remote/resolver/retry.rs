@@ -17,6 +17,7 @@ use cymbal_proto::cymbal::resolution::v1::{resolve_outcome, ErrorKind, ResolveOu
 use tonic::Status;
 
 use crate::error::UnhandledError;
+use crate::frames::releases::ReleaseRecord;
 use crate::metric_consts::{
     REMOTE_RESOLUTION_ERROR_KINDS, REMOTE_RESOLUTION_LATENCY,
     REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS, REMOTE_RESOLUTION_REQUESTS,
@@ -151,13 +152,17 @@ pub(super) async fn resolve_work_item(
         };
 
         match decision {
-            ItemDecision::Done(exception) => {
+            ItemDecision::Done {
+                exception,
+                releases,
+            } => {
                 metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "ok").increment(1);
                 record_reroute_depth("ok", attempts_used);
                 return Ok(ResolvedRemoteItem {
                     event_slot: work_item.event_slot,
                     exception_slot: work_item.exception_slot,
                     exception,
+                    releases,
                 });
             }
             ItemDecision::Overloaded(message) => {
@@ -275,7 +280,10 @@ fn single_outcome(
 
 #[derive(Debug)]
 enum ItemDecision {
-    Done(Exception),
+    Done {
+        exception: Exception,
+        releases: Vec<ReleaseRecord>,
+    },
     Overloaded(String),
     Retry {
         message: String,
@@ -303,7 +311,24 @@ fn classify_outcome(
                         format!("invalid_done_payload: failed to parse resolved exception: {err}"),
                     )
                 })?;
-            Ok(ItemDecision::Done(exception))
+            // Empty bytes means an older server that predates the field, or no frame resolved
+            // with a release — both are simply "no releases".
+            let releases = if done.releases_json.is_empty() {
+                Vec::new()
+            } else {
+                serde_json::from_slice::<Vec<ReleaseRecord>>(&done.releases_json).map_err(
+                    |err| {
+                        terminal_item_error(
+                            work_item.token,
+                            format!("invalid_done_payload: failed to parse frame releases: {err}"),
+                        )
+                    },
+                )?
+            };
+            Ok(ItemDecision::Done {
+                exception,
+                releases,
+            })
         }
         resolve_outcome::Result::Retry(retry) => {
             let retry_after = (retry.retry_after_ms > 0)
@@ -430,16 +455,66 @@ mod tests {
     #[test]
     fn classify_outcome_parses_done_exception() {
         let work_item = work_item(7);
+        // Empty `releases_json` is what a server predating the field sends; it must decode as
+        // "no releases", not an error.
         let outcome = ResolveOutcome {
             id: 7,
             result: Some(resolve_outcome::Result::Done(Done {
                 resolved_exception_json: serde_json::to_vec(&exception("Resolved"))
                     .expect("valid exception"),
+                releases_json: Vec::new(),
             })),
         };
 
         let decision = classify_outcome(&work_item, outcome).expect("done outcome");
-        assert!(matches!(decision, ItemDecision::Done(exc) if exc.exception_type == "Resolved"));
+        assert!(matches!(
+            decision,
+            ItemDecision::Done { exception, releases }
+                if exception.exception_type == "Resolved" && releases.is_empty()
+        ));
+    }
+
+    #[test]
+    fn classify_outcome_parses_done_releases_sidecar() {
+        let release = ReleaseRecord {
+            id: uuid::Uuid::now_v7(),
+            team_id: 42,
+            hash_id: "hash".to_string(),
+            created_at: chrono::Utc::now(),
+            version: "1.2.3".to_string(),
+            project: "my-app".to_string(),
+            metadata: None,
+        };
+        let work_item = work_item(7);
+        let outcome = ResolveOutcome {
+            id: 7,
+            result: Some(resolve_outcome::Result::Done(Done {
+                resolved_exception_json: serde_json::to_vec(&exception("Resolved"))
+                    .expect("valid exception"),
+                releases_json: serde_json::to_vec(&vec![release.clone()]).expect("valid releases"),
+            })),
+        };
+
+        let decision = classify_outcome(&work_item, outcome).expect("done outcome");
+        assert!(matches!(
+            decision,
+            ItemDecision::Done { releases, .. } if releases == vec![release]
+        ));
+    }
+
+    #[test]
+    fn classify_outcome_rejects_malformed_releases_sidecar() {
+        let work_item = work_item(7);
+        let outcome = ResolveOutcome {
+            id: 7,
+            result: Some(resolve_outcome::Result::Done(Done {
+                resolved_exception_json: serde_json::to_vec(&exception("Resolved"))
+                    .expect("valid exception"),
+                releases_json: b"not json".to_vec(),
+            })),
+        };
+
+        assert!(classify_outcome(&work_item, outcome).is_err());
     }
 
     #[test]

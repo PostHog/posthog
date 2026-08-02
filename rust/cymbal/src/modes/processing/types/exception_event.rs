@@ -29,6 +29,11 @@ pub struct Parsed {
     /// The release resolved from the event's `$release_id` or mobile app metadata, if any. Set by
     /// `EventReleaseResolver` and emitted as `$exception_release` at `into_resolved`.
     pub(crate) event_release: Option<ReleaseRecord>,
+    /// Releases bound to the symbol sets that resolved this event's frames, accumulated from the
+    /// remote resolution response sidecar. The local resolution path instead leaves them on
+    /// `Frame.release`; both sources are merged at `into_resolved`, where the latest one becomes
+    /// the `$exception_release` fallback when `event_release` is unset.
+    pub(crate) frame_releases: Vec<ReleaseRecord>,
 }
 
 #[derive(Debug, Clone)]
@@ -47,14 +52,27 @@ impl ResolvedMetadata {
     fn from_exception_list(
         exception_list: &ExceptionList,
         event_release: Option<&ReleaseRecord>,
+        frame_releases: Vec<ReleaseRecord>,
     ) -> Self {
+        // The event-level release (`$release_id` / mobile app-metadata hash) is authoritative;
+        // frame-derived releases only fill in when it resolved nothing, picking the latest so an
+        // event whose stack mixes chunks from several releases reports the newest one.
+        let release = event_release
+            .cloned()
+            .or_else(|| {
+                let mut candidates = frame_releases;
+                candidates.extend(exception_list.get_frame_releases());
+                ReleaseRecord::latest(candidates)
+            })
+            .map(|release| release.to_info());
+
         Self {
             sources: exception_list.get_unique_sources(),
             types: exception_list.get_unique_types(),
             messages: exception_list.get_unique_messages(),
             functions: exception_list.get_unique_functions(),
             handled: exception_list.get_is_handled(),
-            release: event_release.map(ReleaseRecord::to_info),
+            release,
         }
     }
 }
@@ -217,10 +235,15 @@ impl ExceptionEvent<Parsed> {
         self.state.event_release = release;
     }
 
+    pub(crate) fn add_frame_releases(&mut self, releases: Vec<ReleaseRecord>) {
+        self.state.frame_releases.extend(releases);
+    }
+
     pub(crate) fn into_resolved(self) -> ExceptionEvent<Resolved> {
         let metadata = ResolvedMetadata::from_exception_list(
             &self.exception_list,
             self.state.event_release.as_ref(),
+            self.state.frame_releases.clone(),
         );
         self.map_state(|state| Resolved {
             metadata,
@@ -583,6 +606,7 @@ impl TryFrom<AnyEvent> for ExceptionEvent<Parsed> {
                 legacy_order_exception_list,
                 legacy_order_resolved: None,
                 event_release: None,
+                frame_releases: Vec::new(),
             },
         })
     }
@@ -713,33 +737,122 @@ mod tests {
     }
 
     fn release_record(hash_id: &str) -> ReleaseRecord {
+        release_record_at(hash_id, 0)
+    }
+
+    fn release_record_at(hash_id: &str, created_secs: i64) -> ReleaseRecord {
         ReleaseRecord {
             id: Uuid::now_v7(),
             team_id: 42,
             hash_id: hash_id.to_string(),
-            created_at: chrono::DateTime::from_timestamp(0, 0).unwrap(),
-            version: "1.2.3".to_string(),
+            created_at: chrono::DateTime::from_timestamp(created_secs, 0).unwrap(),
+            version: format!("1.2.{created_secs}"),
             project: "my-app".to_string(),
             metadata: None,
         }
     }
 
+    fn frame_with_release(release: Option<ReleaseRecord>) -> crate::frames::Frame {
+        crate::frames::Frame {
+            frame_id: common_types::error_tracking::FrameId::placeholder(),
+            mangled_name: "f".to_string(),
+            line: None,
+            column: None,
+            source: None,
+            module: None,
+            in_app: true,
+            resolved_name: None,
+            lang: "javascript".to_string(),
+            resolved: true,
+            resolve_failure: None,
+            synthetic: false,
+            suspicious: false,
+            junk_drawer: None,
+            code_variables: None,
+            context: None,
+            release,
+        }
+    }
+
+    fn exception_list_with_frames(frames: Vec<crate::frames::Frame>) -> ExceptionList {
+        ExceptionList(vec![crate::types::Exception {
+            exception_id: None,
+            exception_type: "Error".to_string(),
+            exception_message: "boom".to_string(),
+            mechanism: None,
+            module: None,
+            thread_id: None,
+            stack: Some(crate::types::Stacktrace::Resolved { frames }),
+        }])
+    }
+
     #[test]
     fn event_release_populates_the_singular_release() {
-        // The event-level release (from `$release_id` or mobile app metadata) is the sole source of
-        // `$exception_release`; it does not depend on any frame carrying a release.
         let metadata = ResolvedMetadata::from_exception_list(
             &ExceptionList::default(),
             Some(&release_record("hash-abc")),
+            Vec::new(),
         );
         assert!(metadata.release.is_some());
     }
 
     #[test]
     fn missing_event_release_leaves_the_release_unset() {
-        // Without an event-level release there is nothing to emit; there is no per-frame fallback.
-        let metadata = ResolvedMetadata::from_exception_list(&ExceptionList::default(), None);
+        // Without an event-level release and without any frame-derived candidate there is nothing
+        // to emit.
+        let metadata =
+            ResolvedMetadata::from_exception_list(&ExceptionList::default(), None, Vec::new());
         assert!(metadata.release.is_none());
+    }
+
+    #[test]
+    fn event_release_takes_precedence_over_frame_releases() {
+        // `$release_id`/app-hash resolution is authoritative even when frame-derived releases are
+        // newer; the fallback only fills a gap, it never overrides.
+        let event_release = release_record_at("event-hash", 100);
+        let newer_frame_release = release_record_at("frame-hash", 5_000);
+
+        let metadata = ResolvedMetadata::from_exception_list(
+            &ExceptionList::default(),
+            Some(&event_release),
+            vec![newer_frame_release],
+        );
+
+        let expected = serde_json::to_value(event_release.to_info()).unwrap();
+        assert_eq!(serde_json::to_value(&metadata.release).unwrap(), expected);
+    }
+
+    #[test]
+    fn frame_release_fallback_picks_the_latest_across_both_sources() {
+        // Without an event-level release, the fallback considers the remote sidecar and the
+        // releases local symbolication left on the frames, and picks the most recently created.
+        let sidecar_release = release_record_at("sidecar-hash", 100);
+        let latest_frame_release = release_record_at("frame-hash", 5_000);
+        let exception_list = exception_list_with_frames(vec![frame_with_release(Some(
+            latest_frame_release.clone(),
+        ))]);
+
+        let metadata = ResolvedMetadata::from_exception_list(
+            &exception_list,
+            None,
+            vec![sidecar_release.clone()],
+        );
+
+        let expected = serde_json::to_value(latest_frame_release.to_info()).unwrap();
+        assert_eq!(serde_json::to_value(&metadata.release).unwrap(), expected);
+
+        // And the other way around: a newer sidecar release beats an older frame-attached one.
+        let exception_list =
+            exception_list_with_frames(vec![frame_with_release(Some(sidecar_release))]);
+        let newer_sidecar = release_record_at("sidecar-hash-2", 9_000);
+        let metadata = ResolvedMetadata::from_exception_list(
+            &exception_list,
+            None,
+            vec![newer_sidecar.clone()],
+        );
+
+        let expected = serde_json::to_value(newer_sidecar.to_info()).unwrap();
+        assert_eq!(serde_json::to_value(&metadata.release).unwrap(), expected);
     }
 
     #[test]

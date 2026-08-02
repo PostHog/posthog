@@ -101,6 +101,7 @@ impl From<&CustomFrame> for Frame {
 
             junk_drawer: None,
             context: value.get_context(),
+            release: None,
             synthetic: value.meta.synthetic,
             suspicious: false,
             module: value.module.clone(),

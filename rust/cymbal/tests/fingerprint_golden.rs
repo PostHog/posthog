@@ -36,6 +36,7 @@ fn frame(
         junk_drawer: None,
         code_variables: None,
         context: None,
+        release: None,
         synthetic: false,
         suspicious: false,
         module: module.map(String::from),

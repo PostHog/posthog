@@ -66,8 +66,10 @@ impl CymbalResolutionService {
         ResolutionStage {
             symbol_resolver: self.symbol_resolver.clone(),
             symbol_resolution_limiter: self.symbol_resolution_limiter.clone(),
-            // The resolution server only symbolicates frames; event-level release resolution runs
-            // on the processing side, so no release pool or cache is needed here.
+            // Event-level release resolution (`$release_id` / app-metadata hash) runs on the
+            // processing side, so no release pool or cache is needed here. The frame-derived
+            // releases this server returns in the `Done` sidecar come from the symbol-set join
+            // inside the symbol resolver, which uses its own pool.
             posthog_pool: None,
             release_cache: ReleaseCache::disabled(),
             // The cymbal-resolution server never enables remote mode itself;

@@ -7,7 +7,7 @@ use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
 use crate::fingerprinting::{FingerprintRecordPart, FingerprintVersion};
-use crate::frames::releases::ReleaseInfo;
+use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::langs::native::DebugImage;
 use crate::metric_consts::POSTHOG_SDK_EXCEPTION_RESOLVED;
@@ -92,6 +92,13 @@ impl ExceptionList {
             .and_then(|e| e.mechanism.as_ref())
             .and_then(|m| m.handled)
             .unwrap_or(false)
+    }
+
+    /// Releases attached in-memory to this list's frames by local symbolication. Frames that came
+    /// back from the remote resolution service never carry one (`Frame.release` is not
+    /// serialized); their releases arrive via the response sidecar instead.
+    pub fn get_frame_releases(&self) -> Vec<ReleaseRecord> {
+        ReleaseRecord::collect_from_frames(self.get_frames_iter())
     }
 }
 

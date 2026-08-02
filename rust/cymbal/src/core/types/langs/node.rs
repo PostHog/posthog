@@ -189,6 +189,7 @@ impl From<&RawNodeFrame> for Frame {
 
             junk_drawer: None,
             context: raw.get_context(),
+            release: None,
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: raw.module.clone(),
@@ -234,6 +235,7 @@ impl From<(&RawNodeFrame, SourceLocation<'_>, usize)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: get_sourcelocation_context(&location, context_lines),
+            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: raw_frame.module.clone(),
@@ -291,6 +293,7 @@ impl From<(&RawNodeFrame, JsResolveErr)> for Frame {
             junk_drawer: None,
             code_variables: None,
             context: raw_frame.get_context(),
+            release: None,
             synthetic: raw_frame.meta.synthetic,
             suspicious: false,
             module: raw_frame.module.clone(),

@@ -103,6 +103,7 @@ fn make_frame_js(name: &str) -> Frame {
         junk_drawer: None,
         code_variables: None,
         context: None,
+        release: None,
     }
 }
 
@@ -125,6 +126,7 @@ fn make_frame_ts(name: &str) -> Frame {
         junk_drawer: None,
         code_variables: None,
         context: None,
+        release: None,
     }
 }
 
