@@ -91,10 +91,9 @@ assert_required "tooling paths never count as backend" "$coupled"
 trailer_sha=$(commit "desktop with trailer" products/desktop/apps/qux.ts)
 backend_dep="aaaabbbbccccddddeeeeffff0000111122223333"
 merged_dep="1234123412341234123412341234123412341234"
-register_pr "$trailer_sha" 42 $'Adds a thing.\r\n\r\nRequires-Backend: '"$backend_dep"$'\r\nRequires-Backend: #77\r\nRequires-Backend: 99' "[]"
+register_pr "$trailer_sha" 42 $'Adds a thing.\r\n\r\nRequires-Backend: '"$backend_dep"$'\r\nRequires-Backend: #77' "[]"
 echo "{\"merge_commit_sha\": \"$merged_dep\"}" >"$fixtures/repos_PostHog_posthog_pulls_77.json"
-echo '{}' >"$fixtures/repos_PostHog_posthog_pulls_99.json"
-assert_required "trailers resolve shas and merged PRs, skip unmerged" "$coupled $backend_dep $merged_dep"
+assert_required "trailers resolve shas and merged PRs" "$coupled $backend_dep $merged_dep"
 
 skipped=$(commit "coupled but skipped" products/desktop/apps/skip.ts posthog/skip.py)
 register_pr "$skipped" 43 "" '[{"name": "desktop-skip-backend-gate"}]'
@@ -127,6 +126,20 @@ TEST_FEED_URL="file://$workdir/feed.yml" \
 echo "version: 9.9.9" >"$workdir/feed-untagged.yml"
 TEST_FEED_URL="file://$workdir/feed-untagged.yml" \
     assert_required "unknown feed version falls back to the previous tag" "$posttag"
+
+unmerged_sha=$(commit "desktop with unmerged dep" products/desktop/apps/unmerged.ts)
+register_pr "$unmerged_sha" 44 "Requires-Backend: 99" "[]"
+echo '{}' >"$fixtures/repos_PostHog_posthog_pulls_99.json"
+set +e
+output=$(run_detector 2>&1)
+status=$?
+set -e
+if [ "$status" -eq 0 ] || ! grep -Fq "Requires-Backend: #99 but that PR has no merge commit" <<<"$output"; then
+    echo "FAIL: unmerged Requires-Backend must fail the gate (exit $status)"
+    awk '{print "  | " $0}' <<<"$output"
+    exit 1
+fi
+echo "ok: unmerged Requires-Backend fails the gate"
 
 first_repo="$workdir/first-release"
 mkdir -p "$first_repo"

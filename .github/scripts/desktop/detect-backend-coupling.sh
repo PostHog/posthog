@@ -122,8 +122,11 @@ while IFS= read -r sha; do
         if [[ "$ref" =~ ^[0-9]+$ ]]; then
             resolved=$(gh api "repos/$REPOSITORY/pulls/$ref" 2>/dev/null | jq -r '.merge_commit_sha // empty' || true)
             if [ -z "$resolved" ]; then
-                echo "::warning::PR #${pr_number:-unknown} declares Requires-Backend: #$ref but that PR has no merge commit; ignoring"
-                continue
+                # A declared dependency that cannot be resolved must block, not
+                # ship: releasing ahead of an unmerged backend PR is exactly
+                # what the author asked us to prevent.
+                echo "::error::PR #${pr_number:-unknown} declares Requires-Backend: #$ref but that PR has no merge commit; refusing to release ahead of it"
+                exit 1
             fi
         else
             resolved="$ref"
