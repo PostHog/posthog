@@ -403,10 +403,6 @@ jobs:
                     echo "OK: codex-acp/$f"
                   }
 
-            # No packaged-app smoke test here (unlike macOS): Playwright's
-            # electron.launch times out against the packaged exe on Windows
-            # runners (v0.59.6 run). Renderer presence is asserted above.
-
             - name: Upload release artifacts
               shell: pwsh
               env:
