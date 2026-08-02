@@ -68,6 +68,7 @@ export function mergeTileTextUpdatesIntoDashboard(
 export interface dashboardsModelValues {
     dashboard: DashboardType<QueryBasedInsightModel> | null
     dashboardLoading: boolean
+    dashboardsBeingPinned: Record<number, boolean>
     dashboardsLoading: boolean
     nameSortedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
     pagedDashboards: PaginatedResponse<DashboardBasicType> | null
@@ -84,6 +85,13 @@ export interface dashboardsModelActions {
     loadTags: () => any // tagsModel
     addDashboardSuccess: (dashboard: DashboardType<QueryBasedInsightModel>) => {
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>
+    }
+    dashboardPinOptimisticUpdateFailed: (
+        id: number,
+        pinned: boolean
+    ) => {
+        id: number
+        pinned: boolean
     }
     dashboardsFullyLoaded: () => {
         value: true
@@ -368,6 +376,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
         }),
         pinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
         unpinDashboard: (id: number, source: DashboardEventSource) => ({ id, source }),
+        // Reverts the optimistic `pinned` flip below if the pin/unpin request fails.
+        dashboardPinOptimisticUpdateFailed: (id: number, pinned: boolean) => ({ id, pinned }),
         duplicateDashboard: ({
             id,
             name,
@@ -514,24 +524,34 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 return restored
             },
             pinDashboard: async ({ id, source }) => {
-                const response = await api.update(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
-                    {
-                        pinned: true,
-                    }
-                )
-                eventUsageLogic.actions.reportDashboardPinToggled(id, true, source)
-                return getQueryBasedDashboard(response)!
+                try {
+                    const response = await api.update(
+                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                        {
+                            pinned: true,
+                        }
+                    )
+                    eventUsageLogic.actions.reportDashboardPinToggled(id, true, source)
+                    return getQueryBasedDashboard(response)!
+                } catch (error) {
+                    actions.dashboardPinOptimisticUpdateFailed(id, false)
+                    throw error
+                }
             },
             unpinDashboard: async ({ id, source }) => {
-                const response = await api.update<DashboardType>(
-                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
-                    {
-                        pinned: false,
-                    }
-                )
-                eventUsageLogic.actions.reportDashboardPinToggled(id, false, source)
-                return getQueryBasedDashboard(response)!
+                try {
+                    const response = await api.update<DashboardType>(
+                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                        {
+                            pinned: false,
+                        }
+                    )
+                    eventUsageLogic.actions.reportDashboardPinToggled(id, false, source)
+                    return getQueryBasedDashboard(response)!
+                } catch (error) {
+                    actions.dashboardPinOptimisticUpdateFailed(id, true)
+                    throw error
+                }
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
                 const result = await api.create<DashboardType>(
@@ -588,12 +608,34 @@ export const dashboardsModel = kea<dashboardsModelType>([
                     const { [id]: _discard, ...rest } = state
                     return rest
                 },
+                // Flip `pinned` immediately so the icon doesn't lag behind the request, and re-flip it back to
+                // `false | true` in dashboardPinOptimisticUpdateFailed if the request fails.
+                pinDashboard: (state, { id }) =>
+                    state[id] ? { ...state, [id]: { ...state[id], pinned: true } } : state,
+                unpinDashboard: (state, { id }) =>
+                    state[id] ? { ...state, [id]: { ...state[id], pinned: false } } : state,
+                dashboardPinOptimisticUpdateFailed: (state, { id, pinned }) =>
+                    state[id] ? { ...state, [id]: { ...state[id], pinned } } : state,
                 pinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
                 unpinDashboardSuccess: (state, { dashboard }) => ({ ...state, [dashboard.id]: dashboard }),
                 duplicateDashboardSuccess: (state, { dashboard }) => ({
                     ...state,
                     [dashboard.id]: { ...dashboard, _highlight: true },
                 }),
+            },
+        ],
+        // Per-id in-flight tracking for the pin/unpin toggle, so re-clicking mid-request can be
+        // disabled per row instead of behind one shared `dashboardLoading` flag across the whole model.
+        dashboardsBeingPinned: [
+            {} as Record<number, boolean>,
+            {
+                pinDashboard: (state, { id }) => ({ ...state, [id]: true }),
+                unpinDashboard: (state, { id }) => ({ ...state, [id]: true }),
+                pinDashboardSuccess: (state, { payload }) =>
+                    payload?.id != null ? { ...state, [payload.id]: false } : state,
+                unpinDashboardSuccess: (state, { payload }) =>
+                    payload?.id != null ? { ...state, [payload.id]: false } : state,
+                dashboardPinOptimisticUpdateFailed: (state, { id }) => ({ ...state, [id]: false }),
             },
         ],
     }),

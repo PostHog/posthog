@@ -65,6 +65,7 @@ export function DashboardsTable({
     dashboardFsEntry,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
+    const { dashboardsBeingPinned } = useValues(dashboardsModel)
     const { tableSortingChanged, setFilters } = useActions(dashboardsLogic)
     const { tableSorting, filters } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
@@ -104,6 +105,7 @@ export function DashboardsTable({
                         }
                         tooltip={pinned ? 'Unpin dashboard' : 'Pin dashboard'}
                         icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        loading={dashboardsBeingPinned[id]}
                     />
                 )
             },

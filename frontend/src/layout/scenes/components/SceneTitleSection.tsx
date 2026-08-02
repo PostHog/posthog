@@ -587,7 +587,7 @@ export function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-20'
+                                'flex flex-1 min-w-0 text-left [&_.LemonIcon]:size-4 focus-visible:z-20'
                             )}
                             onClick={() => {
                                 if (!isGeneratingMetadata) {
@@ -767,7 +767,7 @@ function SceneDescription({
                                 }
                             }}
                             disabled={isGeneratingMetadata}
-                            className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-20"
+                            className="flex flex-1 min-w-0 text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-20"
                             autoHeight
                             size="base"
                         >
