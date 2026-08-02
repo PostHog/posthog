@@ -1,23 +1,13 @@
 import {
-  ArrowsClockwiseIcon,
   FileTextIcon,
   GitBranchIcon,
   GithubLogoIcon,
   SparkleIcon,
+  XIcon,
 } from "@phosphor-icons/react";
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
-  Combobox,
-  ComboboxChip,
-  ComboboxChips,
-  ComboboxChipsInput,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxListFooter,
-  ComboboxValue,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -43,6 +33,7 @@ import {
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -66,7 +57,7 @@ import {
   Text,
   TextArea,
 } from "@radix-ui/themes";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Mode = "rendered" | "edit";
 
@@ -211,13 +202,14 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
-      {spacesLayout && backendChannel ? (
-        <div className="shrink-0 border-gray-5 border-b px-6 py-3">
-          <SpaceRepositories channel={backendChannel} />
-        </div>
-      ) : null}
-
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 px-6 py-4">
+        {spacesLayout && backendChannel ? (
+          <>
+            <SpaceRepositories channel={backendChannel} />
+            <div className="border-gray-5 border-t" />
+          </>
+        ) : null}
+
         <Flex align="center" justify="between" gap="3" wrap="wrap">
           <Flex align="center" gap="2">
             <FileTextIcon size={15} className="text-gray-11" />
@@ -381,10 +373,48 @@ const MAX_REPOSITORIES = 10;
 // row of removable chips with an inline "add" input, driven entirely by the
 // quill Combobox. Selected repos must all belong to one GitHub integration,
 // so the add list is scoped to the active integration once one is chosen.
+// A single repository, rendered as a subtle tag. The leading GitHub glyph
+// swaps to an X on hover so the whole chip is the remove target — no separate
+// delete button crowding the tag (mirrors the message editor's attachments).
+function RepoChip({
+  repository,
+  disabled,
+  onRemove,
+}: {
+  repository: string;
+  disabled: boolean;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="group/chip inline-flex items-center gap-1 rounded-(--radius-1) bg-(--gray-a3) py-0.5 pr-2 pl-1.5 font-medium text-(--gray-11) text-[12px] transition-colors hover:bg-(--gray-a4)">
+      <button
+        type="button"
+        aria-label={`Remove ${repository}`}
+        disabled={disabled}
+        className="relative inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0 disabled:cursor-default disabled:opacity-50"
+        onClick={onRemove}
+      >
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none">
+          <GithubLogoIcon size={13} />
+        </span>
+        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100 motion-reduce:transition-none">
+          <XIcon size={12} weight="bold" />
+        </span>
+      </button>
+      <span className="max-w-[200px] truncate">{repository}</span>
+    </span>
+  );
+}
+
+// The space's connected repositories, shown as a subtle inline strip above the
+// document: tag chips for what's connected, plus an on-demand picker to add
+// more. Changes autosave — there's no Save button. Selected repos must share
+// one GitHub integration, so the add list scopes to the active integration.
 function SpaceRepositories({ channel }: { channel: TaskChannel }) {
   const {
     repositories,
     getIntegrationIdForRepo,
+    isLoadingRepos,
     isRefreshingRepos,
     refreshRepositories,
     hasGithubIntegration,
@@ -394,7 +424,6 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
   const [integrationId, setIntegrationId] = useState<number | null>(
     channel.github_integration ?? null,
   );
-  const anchorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSelected(channel.repositories ?? []);
@@ -413,123 +442,70 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
         );
       });
 
-  // The combobox hands back the full next selection. Adopt the added repo's
-  // integration when we're starting fresh; drop back to "any" once emptied.
-  const changeSelection = (next: string[]) => {
-    const added = next.find((repository) => !selected.includes(repository));
-    if (added) {
-      const repositoryIntegration = getIntegrationIdForRepo(added);
-      if (repositoryIntegration == null) return;
-      setIntegrationId(repositoryIntegration);
-    } else if (next.length === 0) {
-      setIntegrationId(null);
-    }
-    setSelected(next);
+  // Autosave: local state updates optimistically and the mutation persists the
+  // full desired set, so overlapping add/remove clicks settle last-write-wins.
+  const persist = (nextSelected: string[], nextIntegration: number | null) => {
+    setSelected(nextSelected);
+    setIntegrationId(nextIntegration);
+    update.mutate({
+      channelId: channel.id,
+      githubIntegration: nextIntegration,
+      repositories: nextSelected,
+    });
   };
 
-  const changed =
-    integrationId !== (channel.github_integration ?? null) ||
-    selected.length !== (channel.repositories ?? []).length ||
-    selected.some(
-      (repository, index) => repository !== channel.repositories?.[index],
-    );
+  const addRepository = (repository: string | null) => {
+    if (!repository || selected.includes(repository)) return;
+    const repositoryIntegration = getIntegrationIdForRepo(repository);
+    if (repositoryIntegration == null) return;
+    persist([...selected, repository], repositoryIntegration);
+  };
+
+  const removeRepository = (repository: string) => {
+    const next = selected.filter((item) => item !== repository);
+    persist(next, next.length === 0 ? null : integrationId);
+  };
 
   return (
-    <Flex align="center" gap="3" wrap="wrap">
-      <Flex align="center" gap="2" className="shrink-0">
-        <GitBranchIcon size={15} className="text-gray-11" />
-        <Text size="2" weight="medium">
-          Repositories
-        </Text>
-      </Flex>
+    <Flex align="center" gap="2" wrap="wrap" className="min-h-7 shrink-0">
+      <GitBranchIcon size={14} className="shrink-0 text-gray-10" />
+      <Text size="1" color="gray" className="mr-1 shrink-0">
+        Repositories
+      </Text>
 
-      <Combobox<string, true>
-        multiple
-        items={available}
-        value={selected}
-        onValueChange={(next) => changeSelection(next ?? [])}
-        itemToStringLabel={(repository) => repository}
-      >
-        <ComboboxChips
-          ref={anchorRef}
-          className="flex min-h-8 min-w-64 max-w-full flex-1 flex-wrap items-center gap-1 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-1.5 py-1"
-        >
-          <ComboboxValue>
-            {(repos: string[]) =>
-              repos.map((repository) => (
-                <ComboboxChip key={repository} showRemove title={repository}>
-                  <GithubLogoIcon size={12} className="shrink-0" />
-                  {repository}
-                </ComboboxChip>
-              ))
-            }
-          </ComboboxValue>
-          <ComboboxChipsInput
-            aria-label="Add repository"
-            disabled={!hasGithubIntegration || atLimit}
-            placeholder={
-              selected.length > 0
-                ? ""
-                : hasGithubIntegration
-                  ? "Add a repository…"
-                  : "Connect GitHub to add repositories"
-            }
-            className="min-w-24 flex-1 bg-transparent text-[13px] text-gray-12 outline-none placeholder:text-gray-10"
-          />
-        </ComboboxChips>
-        <ComboboxContent anchor={anchorRef} align="start" sideOffset={4}>
-          <ComboboxEmpty>
-            {atLimit ? "Repository limit reached" : "No repositories"}
-          </ComboboxEmpty>
-          <ComboboxList>
-            {(repository: string) => (
-              <ComboboxItem key={repository} value={repository}>
-                <Flex align="center" gap="2">
-                  <GithubLogoIcon size={14} className="shrink-0 text-gray-11" />
-                  {repository}
-                </Flex>
-              </ComboboxItem>
-            )}
-          </ComboboxList>
-          <ComboboxListFooter>
-            <QuillButton
-              variant="link-muted"
-              size="sm"
-              className="w-full justify-start"
-              disabled={isRefreshingRepos}
-              onClick={() => void refreshRepositories()}
-            >
-              <ArrowsClockwiseIcon
-                size={12}
-                className={isRefreshingRepos ? "animate-spin" : undefined}
-              />
-              Refresh repositories
-            </QuillButton>
-          </ComboboxListFooter>
-        </ComboboxContent>
-      </Combobox>
-
-      {update.error ? (
-        <Text size="1" color="red" className="shrink-0">
-          Couldn't save. Check GitHub access.
-        </Text>
-      ) : null}
-      {changed ? (
-        <Button
-          size="1"
-          className="shrink-0"
+      {selected.map((repository) => (
+        <RepoChip
+          key={repository}
+          repository={repository}
           disabled={update.isPending}
-          onClick={() =>
-            update.mutate({
-              channelId: channel.id,
-              githubIntegration: integrationId,
-              repositories: selected,
-            })
-          }
-        >
-          {update.isPending ? <Spinner size="1" /> : null}
-          Save
-        </Button>
+          onRemove={() => removeRepository(repository)}
+        />
+      ))}
+
+      <GitHubRepoPicker
+        value={null}
+        onChange={addRepository}
+        repositories={available}
+        isLoading={isLoadingRepos}
+        isRefreshing={isRefreshingRepos}
+        onRefresh={() => void refreshRepositories()}
+        placeholder={
+          hasGithubIntegration
+            ? selected.length > 0
+              ? "Add"
+              : "Add a repository…"
+            : "Connect GitHub"
+        }
+        size="1"
+        disabled={!hasGithubIntegration || atLimit || update.isPending}
+      />
+
+      {update.isPending ? (
+        <Spinner size="1" className="shrink-0" />
+      ) : update.error ? (
+        <Text size="1" color="red" className="shrink-0">
+          Couldn't save
+        </Text>
       ) : null}
     </Flex>
   );
