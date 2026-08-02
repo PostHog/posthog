@@ -215,17 +215,22 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
             [] as LegalDocument[],
             {
                 loadLegalDocuments: async () => {
-                    if (!values.currentOrganizationId) {
+                    if (!values.currentOrganization?.id) {
+                        // Organization hasn't loaded yet — currentOrganizationId would
+                        // fall back to the '@current' sentinel, which the backend can't
+                        // resolve. No-op until the real organization is available.
                         return []
                     }
-                    if (values.isAdminOrOwner === false && values.currentOrganization) {
+                    if (values.isAdminOrOwner === false) {
                         return []
                     }
                     try {
                         const response = await api.legalDocumentsList(values.currentOrganizationId)
                         return (response.results ?? []) as LegalDocument[]
                     } catch (error) {
-                        if (error instanceof ApiError && error.status === 403) {
+                        // 403 (non-admin) and 404 (organization not resolvable, e.g. a
+                        // stale/transient race) both degrade to an empty list.
+                        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
                             return []
                         }
                         throw error
@@ -287,7 +292,7 @@ export const legalDocumentsLogic = kea<legalDocumentsLogicType>([
             actions.setLegalDocumentValue('dpa_mode', dpaMode)
         },
         deleteLegalDocument: async ({ id, documentType }) => {
-            if (!values.currentOrganizationId) {
+            if (!values.currentOrganization?.id) {
                 return
             }
             actions.setDeletingId(id)
