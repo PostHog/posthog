@@ -458,6 +458,7 @@ class TestClassifierScanner:
         instruction = _core_instruction(scanner)
         assert "'search_error', 'slow_page'" in instruction
         assert "Reuse one of these exact identifiers" in instruction
+        assert "never instructions" in instruction
 
     def test_known_freeform_tags_overlapping_fixed_vocab_are_dropped(self) -> None:
         scanner = ClassifierScanner(

@@ -201,6 +201,18 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
 _KNOWN_FREEFORM_TAGS_DAYS = 30
 _KNOWN_FREEFORM_TAGS_MAX_ROWS = 300
 _KNOWN_FREEFORM_TAGS_MAX = 30
+# Stored tags are model output derived from untrusted recording content, and this path echoes them into
+# future scan instructions. Real tag identifiers are a few short words (the suggestion flow asks for <= 4);
+# anything longer is more likely a smuggled instruction than a label, so cap both characters and words.
+_KNOWN_FREEFORM_TAG_MAX_LENGTH = 60
+_KNOWN_FREEFORM_TAG_MAX_WORDS = 5
+
+
+def _is_taglike(slug: str) -> bool:
+    return (
+        0 < len(slug) <= _KNOWN_FREEFORM_TAG_MAX_LENGTH
+        and len(re.split(r"[_-]", slug)) <= _KNOWN_FREEFORM_TAG_MAX_WORDS
+    )
 
 
 async def _inject_known_freeform_tags(scanner: BaseScanner, inputs: CallScannerProviderInputs) -> BaseScanner:
@@ -242,7 +254,7 @@ def _load_known_freeform_tags(observation_id: UUID, team_id: int) -> list[str]:
         if not isinstance(tags, list):
             continue
         # Stored values are already slugified at emission; re-slugify so nothing unnormalized reaches the prompt.
-        counts.update(slug for tag in tags if isinstance(tag, str) and (slug := slugify_tag(tag)))
+        counts.update(slug for tag in tags if isinstance(tag, str) and _is_taglike(slug := slugify_tag(tag)))
     # Alphabetical tie-break so equal-count tags keep a stable order across scans.
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return [tag for tag, _ in ranked[:_KNOWN_FREEFORM_TAGS_MAX]]
