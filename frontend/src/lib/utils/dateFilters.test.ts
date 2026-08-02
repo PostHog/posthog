@@ -39,6 +39,13 @@ describe('dateFilters utils', () => {
                 expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Last month')
             })
 
+            // The rolling-range picker's counter can reach 0 (e.g. "0 days ago"), and `-0d`
+            // was falling through to the placeholder because a zero counter is falsy.
+            it('handles a zero-count relative range', () => {
+                expect(dateFilterToText('-0d', '', 'default')).toEqual('Last 0 day')
+                expect(dateFilterToText('-0h', '', 'default')).toEqual('Last 0 hour')
+            })
+
             // The frontend DateFilter emits YYYY-MM-DD (without allowTimePrecision) or
             // YYYY-MM-DDTHH:mm:ss (with allowTimePrecision, used by recordings).
             // The AI agent (filter_session_recordings) emits YYYY-MM-DDTHH:mm:ss.SSS.

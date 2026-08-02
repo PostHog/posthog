@@ -180,7 +180,7 @@ export function dateFilterToText(
     if (dateFrom) {
         const dateOption = dateOptionsMap[dateFrom.slice(-1) as keyof typeof dateOptionsMap]
         const counter = parseInt(dateFrom.slice(1, -1))
-        if (dateOption && counter) {
+        if (dateOption && !Number.isNaN(counter)) {
             let date = null
             switch (dateOption) {
                 case 'year':

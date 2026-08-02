@@ -486,7 +486,7 @@ export function buildTrackingProperties(
     values: {
         filters: BillingFilters
         dateFrom: string
-        dateTo: string
+        dateTo: string | null
         excludeEmptySeries: boolean
         teamOptions: { key: string; label: string }[]
     }
@@ -546,7 +546,7 @@ export const isAddonVisible = (
 export function calculateBillingPeriodMarkers(
     billingPeriodUTC: BillingPeriod,
     dateFrom: string,
-    dateTo: string
+    dateTo: string | null
 ): Array<{ date: dayjs.Dayjs }> {
     if (!billingPeriodUTC?.start || !billingPeriodUTC?.interval) {
         return []

@@ -77,7 +77,7 @@ export function BillingUsage(): JSX.Element {
             dates,
             hiddenSeries: finalHiddenSeries,
         })
-        const filename = `posthog_usage_${dateFrom}_${dateTo}_${filters.interval || 'day'}.csv`
+        const filename = `posthog_usage_${dateFrom}_${dateTo ?? 'now'}_${filters.interval || 'day'}.csv`
         startExport({
             export_format: ExporterFormat.CSV,
             export_context: {

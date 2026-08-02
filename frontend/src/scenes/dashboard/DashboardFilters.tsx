@@ -74,8 +74,10 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                             DashboardPlacement.Builtin,
                         ].includes(placement) &&
                             dashboard && <DashboardEditBar />}
-                        <DashboardEditActions />
                     </div>
+                    {/* Kept out of the filter row above so entering edit mode doesn't reflow
+                    the date/property/breakdown filter buttons under the cursor mid-interaction. */}
+                    <DashboardEditActions />
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                     <div

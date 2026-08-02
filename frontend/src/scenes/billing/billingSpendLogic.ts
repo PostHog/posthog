@@ -81,7 +81,7 @@ export interface billingSpendLogicValues {
     billingSpendResponseLoading: boolean
     dateFrom: string
     dateOptions: DateMappingOption[]
-    dateTo: string
+    dateTo: string | null
     dates: string[]
     emptySeriesIDs: number[]
     excludeEmptySeries: boolean
@@ -185,7 +185,7 @@ export interface billingSpendLogicMeta {
         billingPeriodMarkers: (
             billingPeriodUTC: BillingPeriod,
             dateFrom: string,
-            dateTo: string
+            dateTo: string | null
         ) => BillingPeriodMarker[]
         emptySeriesIDs: (
             series: {
@@ -220,7 +220,7 @@ export interface billingSpendLogicMeta {
             team_ids?: number[] | undefined
             usage_types?: string[] | undefined
         }) => string
-        headingTooltip: (dateTo: string) => string | null
+        headingTooltip: (dateTo: string | null) => string | null
         teamOptions: (
             currentOrganization: OrganizationType | null,
             billingSpendResponse: BillingSpendResponse | null
@@ -313,14 +313,19 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         dateFrom: [
             props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
             {
-                setDateRange: (_, { dateFrom }) => dateFrom || props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
+                // `null` is a valid dateFrom (e.g. "All time"), so only fall back to the
+                // default when the picker didn't set a value at all, not just a falsy one.
+                setDateRange: (_, { dateFrom }) => dateFrom ?? DEFAULT_BILLING_SPEND_DATE_FROM,
                 resetFilters: () => props.dateFrom || DEFAULT_BILLING_SPEND_DATE_FROM,
             },
         ],
         dateTo: [
             props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
             {
-                setDateRange: (_, { dateTo }) => dateTo || props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
+                // `null` is a valid dateTo (e.g. "This month" has no upper bound) — falling back
+                // to the previous value here left it stuck on a stale absolute date, which broke
+                // the picker's own label matching for "This month"/"This year"/"All time".
+                setDateRange: (_, { dateTo }) => dateTo,
                 resetFilters: () => props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
             },
         ],
@@ -383,7 +388,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             (
                 currentPeriod: import('~/types').BillingPeriod,
                 dateFrom: string,
-                dateTo: string
+                dateTo: string | null
             ): BillingPeriodMarker[] => {
                 return calculateBillingPeriodMarkers(currentPeriod, dateFrom, dateTo)
             },
@@ -440,7 +445,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
         ],
         headingTooltip: [
             (s) => [s.dateTo],
-            (dateTo: string): string | null => {
+            (dateTo: string | null): string | null => {
                 if (!dayjs(dateTo).isBefore(dayjs(), 'day')) {
                     return 'Spend is reported on a daily basis so the figures for the current day (UTC) are not available.'
                 }
