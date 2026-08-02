@@ -85,12 +85,17 @@ function EditLimitModal(): JSX.Element {
         <LemonModal
             isOpen={isModalOpen}
             onClose={closeModal}
+            closable={!isLimitFormSubmitting}
             title="PR limit"
             description="How many pull requests agents can open each month before pausing."
             width={460}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={closeModal}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closeModal}
+                        disabledReason={isLimitFormSubmitting ? 'Saving…' : undefined}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton type="primary" onClick={submitLimitForm} loading={isLimitFormSubmitting}>
