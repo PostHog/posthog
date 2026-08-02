@@ -51,6 +51,7 @@ import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
+import { getIssueReplayDateRange } from '../../utils'
 import {
     ErrorTrackingIssueSceneCategory,
     errorTrackingIssueSceneConfigurationLogic,
@@ -124,8 +125,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             <SceneMenuBarItem
                                                 onClick={() => {
                                                     const url = urls.replay(ReplayTabs.Home, {
-                                                        date_from: issue.first_seen ?? '-30d',
-                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
+                                                        ...getIssueReplayDateRange(issue.first_seen, lastSeen),
                                                         filter_group: {
                                                             type: FilterLogicalOperator.And,
                                                             values: [
@@ -176,8 +176,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 />
                                                 <ViewRecordingsPlaylistButton
                                                     filters={{
-                                                        date_from: issue.first_seen ?? '-30d',
-                                                        date_to: lastSeen ? lastSeen.toISOString() : null,
+                                                        ...getIssueReplayDateRange(issue.first_seen, lastSeen),
                                                         filter_group: {
                                                             type: FilterLogicalOperator.And,
                                                             values: [
