@@ -265,6 +265,23 @@ mod tests {
         assert_eq!(versions.floor_for(0, &key(1), 4), 4);
     }
 
+    /// A floor only ever moves up. A later unresolved emission at a
+    /// *lower* version must not lower it, because the higher one is the
+    /// constraint — losing it lets a subsequent write reuse a version
+    /// already on the wire. `only_a_version_that_covers_the_floor_clears_it`
+    /// pins the same asymmetry on the resolve side.
+    #[test]
+    fn a_lower_emission_does_not_lower_the_floor() {
+        let versions = Arc::new(EmittedVersions::new(8));
+        versions.raise_for_test(0, key(1), 9);
+        versions.raise_for_test(0, key(1), 4);
+        assert_eq!(
+            versions.floor_for(0, &key(1), 0),
+            9,
+            "a lower unresolved emission must not lower the floor"
+        );
+    }
+
     /// A floor is only cleared by a later successful write for the same
     /// person, so persons written once and abandoned leave entries
     /// nothing collects — and a client can manufacture exactly that by

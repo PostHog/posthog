@@ -146,25 +146,32 @@ async fn concurrent_writes_share_a_window() {
 /// tests above never exercise turnover.
 #[tokio::test]
 async fn sustained_writes_across_window_boundaries() {
-    let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
-    let producers = Arc::new(fenced_producers(&topic));
-    producers.acquire(0).await.expect("acquire");
+    // Bounded: a lost `window_closed` wakeup parks every writer forever,
+    // and an unbounded test reports that as a stuck runner rather than a
+    // failure.
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
+        let producers = Arc::new(fenced_producers(&topic));
+        producers.acquire(0).await.expect("acquire");
 
-    let writes: Vec<_> = (0..200i64)
-        .map(|k| {
-            let p = Arc::clone(&producers);
-            tokio::spawn(async move {
-                sleep(Duration::from_millis(((k * 7) % 97) as u64)).await;
-                p.produce(0, &test_person(k)).await
+        let writes: Vec<_> = (0..200i64)
+            .map(|k| {
+                let p = Arc::clone(&producers);
+                tokio::spawn(async move {
+                    sleep(Duration::from_millis(((k * 7) % 97) as u64)).await;
+                    p.produce(0, &test_person(k)).await
+                })
             })
-        })
-        .collect();
-    for write in writes {
-        write
-            .await
-            .unwrap()
-            .expect("every write must land across window boundaries");
-    }
+            .collect();
+        for write in writes {
+            write
+                .await
+                .unwrap()
+                .expect("every write must land across window boundaries");
+        }
+    })
+    .await
+    .expect("writes parked forever — a window_closed wakeup was lost");
 }
 
 /// A request that vanishes mid-produce — tonic drops the handler future

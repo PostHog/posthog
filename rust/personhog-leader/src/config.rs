@@ -400,27 +400,20 @@ impl Config {
         // producer gets a shallow queue — which is the honest answer for
         // a deployment with more partitions than a producer's worth of
         // memory to give them.
-        const MIN_FENCED_QUEUE_MIB: u32 = 8;
-        let aggregate = self.kafka.kafka_producer_queue_mib;
-        let divided = aggregate / partitions.max(1);
-        if MIN_FENCED_QUEUE_MIB.saturating_mul(partitions.max(1)) <= aggregate {
-            divided.max(MIN_FENCED_QUEUE_MIB)
-        } else {
-            divided.max(1)
-        }
+        // No floor. One was tried and was dead code: inside a guard that
+        // only admits it when `MIN * partitions <= aggregate`, the
+        // division already yields at least `MIN`, so the `max` never
+        // fired. Applying it *outside* such a guard is worse — it
+        // multiplies back up, which is the defect this division exists to
+        // remove. The honest bound is the aggregate, and one MiB is the
+        // smallest queue librdkafka will take.
+        (self.kafka.kafka_producer_queue_mib / partitions.max(1)).max(1)
     }
 
     /// The same division for the message-count limit, which bounds the
     /// queue independently of record size.
     pub fn fencing_queue_messages(&self, partitions: u32) -> u32 {
-        const MIN_FENCED_QUEUE_MESSAGES: u32 = 10_000;
-        let aggregate = self.kafka.kafka_producer_queue_messages;
-        let divided = aggregate / partitions.max(1);
-        if MIN_FENCED_QUEUE_MESSAGES.saturating_mul(partitions.max(1)) <= aggregate {
-            divided.max(MIN_FENCED_QUEUE_MESSAGES)
-        } else {
-            divided.max(1)
-        }
+        (self.kafka.kafka_producer_queue_messages / partitions.max(1)).max(1)
     }
 
     /// How long fence acquisition may take.
@@ -720,9 +713,10 @@ mod fencing_timescale_tests {
                 + config.fencing_message_timeout()
                 + config.fencing_txn_timeout() * FENCING_TXN_CALLS;
             assert!(
-                config.fencing_broker_txn_timeout() >= lifetime,
-                "LEASE_TTL={lease_ttl}: broker bound {:?} is under the window's own worst \
-                 case {lifetime:?}",
+                config.fencing_broker_txn_timeout() >= lifetime + lifetime / 2,
+                "LEASE_TTL={lease_ttl}: broker bound {:?} leaves no slack over the window's \
+                 own worst case {lifetime:?} — the sleep overshoots and each blocking call \
+                 waits its turn on the pool",
                 config.fencing_broker_txn_timeout(),
             );
         }
@@ -774,17 +768,64 @@ mod fencing_timescale_tests {
 
     /// Dividing must not round a producer down to a depth that cannot
     /// hold a window's worth of writes.
+    /// Overrides are the only way to reach the librdkafka limits the
+    /// derivation floors away from, so they are the only way these two
+    /// checks ever fire — and without them a pod starts with a producer
+    /// librdkafka refuses to create, or with no send timeout at all.
+    #[test]
+    fn overrides_outside_librdkafkas_limits_are_refused() {
+        for (txn_ms, message_ms, fragment) in [
+            (500u64, 0u32, "below librdkafka's minimum"),
+            (2000, 100, "is below"),
+        ] {
+            let mut config = fenced(30);
+            config.fencing_txn_timeout_ms = txn_ms;
+            config.fencing_message_timeout_ms = message_ms;
+            let err = config
+                .validate_fencing_timescales()
+                .expect_err("an override outside librdkafka's limits must not start");
+            assert!(
+                err.contains(fragment),
+                "the refusal must say which limit it trips, got: {err}"
+            );
+        }
+    }
+
+    /// Acquisition is two broker round trips and happens fleet-wide
+    /// during a deploy. Nothing asserted on its budget, and tying it to
+    /// the write path's once already shortened it by a quarter as a side
+    /// effect of re-budgeting writes.
+    #[test]
+    fn acquisition_keeps_its_own_budget() {
+        for lease_ttl in [21, 30, 60, 300] {
+            let config = fenced(lease_ttl);
+            if config.validate_fencing_timescales().is_err() {
+                continue;
+            }
+            assert!(
+                config.fencing_init_timeout() >= Duration::from_secs(2),
+                "LEASE_TTL={lease_ttl}: acquisition needs room for two broker round trips"
+            );
+            assert!(
+                config.fencing_init_timeout() <= config.lease_fence_runway(),
+                "LEASE_TTL={lease_ttl}: a warm cannot outlive the lease it warms for"
+            );
+        }
+    }
+
     #[test]
     fn a_high_partition_count_still_leaves_a_workable_queue() {
         let config = fenced(30);
-        // Below the point where the floor would breach the aggregate it
-        // applies, so no producer is rounded to nothing.
-        assert!(config.fencing_queue_mib(16) >= 8);
-        assert!(config.fencing_queue_messages(16) >= 10_000);
-        // Past it the division wins, but a producer still gets a
-        // non-zero queue rather than one librdkafka would reject.
+        // The division alone leaves a workable depth at the deployed
+        // shape, and never rounds to a value librdkafka would reject.
+        assert_eq!(config.fencing_queue_mib(16), 25);
+        assert_eq!(config.fencing_queue_messages(16), 625_000);
         assert!(config.fencing_queue_mib(1024) >= 1);
         assert!(config.fencing_queue_messages(1024) >= 1);
+        assert!(
+            config.fencing_queue_mib(0) >= 1,
+            "partitions=0 must not divide by zero"
+        );
     }
 
     /// A lease TTL long enough to derive past the broker's own ceiling
