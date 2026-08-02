@@ -52,6 +52,7 @@ from products.replay_vision.backend.quota import QuotaSnapshot
 from products.replay_vision.backend.temporal import ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
+    _inject_known_freeform_tags,
     _load_known_freeform_tags,
     _resolve_citations,
     call_scanner_provider_activity,
@@ -93,7 +94,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
     REDIS_KEY_PREFIX as _GEMINI_REDIS_KEY_PREFIX,
 )
 from products.replay_vision.backend.temporal.scanners.base import ChipSegment, Segment, SignalFinding, TextSegment
-from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput
+from products.replay_vision.backend.temporal.scanners.classifier import ClassifierOutput, ClassifierScanner
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorOutput, MonitorScanner
 from products.replay_vision.backend.temporal.scanners.scorer import ScorerOutput
 from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerOutput, SummarizerScanner
@@ -567,6 +568,10 @@ class TestKnownFreeformTags:
         scanner = self._classifier_scanner()
         self._succeeded(scanner, "s1", ["search_error", "slow_page"])
         self._succeeded(scanner, "s2", ["search_error"])
+        # A succeeded row without model output (legacy or hand-edited) must be skipped, not crash the loader.
+        _make_observation(
+            scanner, session_id="s0", status=ObservationStatus.SUCCEEDED, completed_at=timezone.now(), scanner_result={}
+        )
         target = _make_observation(scanner, session_id="s3")
 
         assert _load_known_freeform_tags(target.id, scanner.team_id) == ["search_error", "slow_page"]
@@ -610,6 +615,25 @@ class TestKnownFreeformTags:
         target = _make_observation(scanner, session_id="s2")
 
         assert _load_known_freeform_tags(target.id, scanner.team_id) == ["search_error"]
+
+    @pytest.mark.asyncio
+    async def test_injection_is_gated_and_best_effort(self) -> None:
+        inputs = CallScannerProviderInputs(
+            team_id=1, observation_id=uuid.uuid4(), file_uri="gemini://files/x", mime_type="video/mp4"
+        )
+        monitor = MonitorScanner(prompt="x")
+        no_freeform = ClassifierScanner(prompt="x", tags=["a"])
+        with patch(
+            "products.replay_vision.backend.temporal.activities.call_scanner_provider._load_known_freeform_tags"
+        ) as mock_load:
+            # Non-classifiers and classifiers without freeform tags skip the lookup entirely.
+            assert await _inject_known_freeform_tags(monitor, inputs) is monitor
+            assert await _inject_known_freeform_tags(no_freeform, inputs) is no_freeform
+            mock_load.assert_not_called()
+            # A failing lookup must not fail the (expensive) scan; the prompt just stays unchanged.
+            mock_load.side_effect = RuntimeError("db down")
+            with_freeform = ClassifierScanner(prompt="x", tags=["a"], allow_freeform_tags=True)
+            assert await _inject_known_freeform_tags(with_freeform, inputs) is with_freeform
 
     @pytest.mark.asyncio
     async def test_scan_prompt_receives_previously_used_freeform_tags(self) -> None:
