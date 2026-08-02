@@ -91,6 +91,20 @@ impl LeaderHandoffHandler {
     pub fn owns_partition(&self, partition: u32) -> bool {
         self.cache.has_partition(partition)
     }
+    /// Stage the mark warming leaves behind. Warming itself needs a
+    /// broker, and what these tests pin is the mark's lifetime across the
+    /// convergences that follow, not how it comes to exist.
+    #[cfg(test)]
+    fn mark_freshly_fenced_for_test(&self, partition: u32) {
+        self.freshly_fenced.insert(partition);
+    }
+
+    /// Whether a resume would take the fence rather than trust an earlier
+    /// acquisition — the decision the mark exists to make.
+    #[cfg(test)]
+    fn would_reacquire_on_resume(&self, partition: u32) -> bool {
+        !self.freshly_fenced.contains(&partition)
+    }
 }
 
 #[async_trait]
@@ -102,6 +116,13 @@ impl HandoffHandler for LeaderHandoffHandler {
         // DrainedAck where a late write could advance the Kafka HWM past
         // the point warming snapshots.
         self.inflight.fence(partition);
+        // From here the partition is moving, so a fence taken by an
+        // earlier convergence stops counting as fresh: the incoming owner
+        // can take the epoch before the handoff is cancelled, and a
+        // resume that skipped its re-acquire on the strength of that
+        // stale mark would re-admit writes onto a producer the broker has
+        // already moved past.
+        self.freshly_fenced.remove(&partition);
         self.inflight
             .wait_until_empty(partition, DRAIN_POLL_INTERVAL)
             .await;
@@ -322,5 +343,41 @@ mod tests {
         // The protocol relies on this for partitions that never
         // received traffic between Freezing and the actual drain call.
         handler.drain_partition_inflight(7).await.unwrap();
+    }
+
+    /// A fence taken while warming only licenses skipping the re-acquire
+    /// for the convergence that took it. Once a handoff drains the
+    /// partition it is moving, and the incoming owner can take the epoch
+    /// before the handoff is cancelled — so a resume that still trusted
+    /// that mark would re-admit writes onto a producer the broker has
+    /// moved past, which is exactly what the re-acquire exists to stop.
+    #[tokio::test]
+    async fn a_handoff_drain_retires_an_earlier_convergences_fence() {
+        let handler = handler();
+        handler.mark_freshly_fenced_for_test(7);
+        assert!(
+            !handler.would_reacquire_on_resume(7),
+            "the convergence that just warmed holds a current fence"
+        );
+
+        handler.drain_partition_inflight(7).await.unwrap();
+
+        assert!(
+            handler.would_reacquire_on_resume(7),
+            "a resume after a handoff drain must take the fence again"
+        );
+    }
+
+    /// The mark is per partition: draining one must not force an unrelated
+    /// partition's resume to bump its own epoch out from under live writes.
+    #[tokio::test]
+    async fn a_drain_retires_only_its_own_partitions_fence() {
+        let handler = handler();
+        handler.mark_freshly_fenced_for_test(7);
+        handler.mark_freshly_fenced_for_test(8);
+
+        handler.drain_partition_inflight(7).await.unwrap();
+
+        assert!(!handler.would_reacquire_on_resume(8));
     }
 }
