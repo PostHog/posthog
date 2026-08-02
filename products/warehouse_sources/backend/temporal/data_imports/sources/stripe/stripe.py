@@ -887,6 +887,17 @@ class StripeAuthenticationError(Exception):
         super().__init__(stripe_message)
 
 
+class StripeTransientError(Exception):
+    """Raised when a credential probe fails because Stripe itself was unavailable (a 5xx APIError,
+    a connection failure, or a rate limit) rather than because the credentials are wrong. The key
+    may be perfectly valid, so callers surface a retry hint instead of Stripe's internal error text
+    (e.g. "Error while communicating with one of our backends")."""
+
+    def __init__(self, stripe_message: str):
+        self.stripe_message = stripe_message
+        super().__init__(stripe_message)
+
+
 class StripeValidationError(Exception):
     """Raised when one or more resources failed with a non-403 exception (network, schema, rate
     limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
@@ -927,6 +938,11 @@ def _probe_endpoint(resource: StripeResource) -> tuple[str | None, str | None]:
     except stripe_lib.PermissionError as e:
         raw = getattr(e, "user_message", None) or str(e)
         return _clean_stripe_error_message(raw), None
+    except (stripe_lib.APIError, stripe_lib.APIConnectionError, stripe_lib.RateLimitError) as e:
+        # Stripe was unreachable or returned a 5xx/rate-limit — transient and unrelated to the
+        # credentials. Fail fast with a distinct error so the caller can tell the user to retry
+        # rather than reporting Stripe's internal text as a validation failure.
+        raise StripeTransientError(_clean_stripe_error_message(str(e))) from e
     except Exception as e:
         return None, _clean_stripe_error_message(str(e))
 

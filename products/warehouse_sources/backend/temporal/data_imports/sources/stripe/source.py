@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
+    StripeTransientError,
     StripeValidationError,
     _all_known_webhook_events,
     check_endpoint_permissions as check_stripe_endpoint_permissions,
@@ -386,6 +387,13 @@ If automatic creation failed due to a permissions error and you're using a restr
             return (
                 False,
                 f"Stripe credentials lack permissions for {', '.join(e.missing_permissions.keys())}",
+            )
+        except StripeTransientError:
+            # Stripe was unreachable or 5xx'd during the probe. The key may be fine, so don't echo
+            # Stripe's internal text as a validation failure — point the user at a retry.
+            return (
+                False,
+                "Couldn't reach Stripe to validate your credentials. This is usually temporary. Please try again in a few minutes.",
             )
         except StripeValidationError as e:
             # Non-403 failures (network, schema, rate limit, etc.) are not configuration issues, so
