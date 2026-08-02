@@ -94,13 +94,16 @@ jobs:
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.filter.outputs.backend || 'true' }}
+            # desktop_agent_packages ORs in because it cannot live inside the backend
+            # filter: excludes there apply to every glob, so `!products/desktop/**`
+            # would swallow it.
+            backend: ${{ steps.filter.outputs.desktop_agent_packages == 'true' && 'true' || steps.filter.outputs.backend || 'true' }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             persons_sql: ${{ steps.filter.outputs.persons_sql || 'true' }}
-            tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
+            tasks_temporal: ${{ steps.filter.outputs.desktop_agent_packages == 'true' && 'true' || steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
             schema: ${{ steps.filter.outputs.schema || 'true' }}
@@ -289,6 +292,14 @@ jobs:
                         - '.github/scripts/turbo-discover.js'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      desktop_agent_packages:
+                        # Django's products/tasks tests exercise the local @posthog/agent
+                        # overlay built from these desktop packages (local_packages.py),
+                        # so changes here must run the backend suite despite the blanket
+                        # products/desktop exclude above.
+                        - 'products/desktop/packages/agent/**'
+                        - 'products/desktop/packages/shared/**'
+                        - 'products/desktop/packages/git/**'
                       product_yamls:
                         # Validates owner team slugs against PostHog/posthog collaborator teams,
                         # and lints the distributed owners.yaml files (schema, conflicts, dead
