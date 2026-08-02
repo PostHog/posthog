@@ -403,9 +403,8 @@ jobs:
                     echo "OK: codex-acp/$f"
                   }
 
-            - name: Install Playwright
-              run: pnpm --filter code exec playwright install
-
+            # No `playwright install`: the smoke test launches the packaged
+            # PostHog.exe via Playwright's Electron API, no managed browsers.
             - name: Smoke test packaged app
               env:
                   CI: true
