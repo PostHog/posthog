@@ -1064,13 +1064,9 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
 
     events(({ actions, values }) => ({
         afterMount: () => {
-            if (values.featureFlags[FEATURE_FLAGS.PRODUCT_AUTONOMY]) {
-                // The condition allows us to safely mount this logic for user without the product autonomy feature flag
-                // without needlessly loading the source configs
-                actions.loadSourceConfigs()
-                if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
-                    actions.loadCiSignalsConfig()
-                }
+            actions.loadSourceConfigs()
+            if (values.featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                actions.loadCiSignalsConfig()
             }
         },
     })),

@@ -53,7 +53,6 @@ export const SIDEBAR_CUSTOMIZABLE_SECTIONS: SidebarCustomizableSection[] = [
                 label: 'Inbox',
                 description: 'Reports and signals that need your attention.',
                 icon: <IconNotification />,
-                flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
             },
             {
                 label: 'Activity',

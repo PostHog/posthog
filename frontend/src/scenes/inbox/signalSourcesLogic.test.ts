@@ -61,7 +61,7 @@ describe('signalSourcesLogic', () => {
     let logic: ReturnType<typeof signalSourcesLogic.build>
     let warehouseSources: ExternalDataSource[]
 
-    beforeEach(() => {
+    beforeEach(async () => {
         warehouseSources = []
         useMocks({
             get: {
@@ -84,10 +84,15 @@ describe('signalSourcesLogic', () => {
         initKeaTests()
         logic = signalSourcesLogic()
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {
         logic?.unmount()
+    })
+
+    it('loads source configs without the product autonomy feature flag', () => {
+        expect(logic.values.sourceConfigs).toEqual([])
     })
 
     // The cached sources list is null right after mount (loadSources is debounced). Reading it

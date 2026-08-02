@@ -7435,6 +7435,20 @@
         },
         "feature_flag": "engineering-analytics"
     },
+    "products-enable": {
+        "description": "Enable selected PostHog products for the current project using conservative defaults.\nSession Replay and Support may require project admin access.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Enable products",
+        "title": "Enable products",
+        "required_scopes": ["product_enablement:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "project-get": {
         "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
         "category": "Core",

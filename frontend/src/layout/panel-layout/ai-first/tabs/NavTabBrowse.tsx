@@ -25,7 +25,6 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -177,7 +176,6 @@ export function NavTabBrowse(): JSX.Element {
         pathname,
     } = useValues(panelLayoutLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
     const { isSidebarSectionShown, isSidebarItemShown, uiCustomizationEnabled } = useValues(uiCustomizationLogic)
     const { enabledToolPaths } = useValues(customProductsLogic)
@@ -242,7 +240,7 @@ export function NavTabBrowse(): JSX.Element {
                         />
                     )}
 
-                    {isProductAutonomyEnabled && isSidebarItemShown('inbox') && (
+                    {isSidebarItemShown('inbox') && (
                         <NavLink
                             to={urls.inbox()}
                             label="Inbox"

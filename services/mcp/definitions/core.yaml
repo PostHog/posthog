@@ -265,9 +265,19 @@ tools:
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
-    product-enablement-create:
+    products-enable:
         operation: product_enablement_create
-        enabled: false
+        enabled: true
+        scopes:
+            - product_enablement:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Enable products
+        description: |
+            Enable selected PostHog products for the current project using conservative defaults.
+            Session Replay and Support may require project admin access.
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
