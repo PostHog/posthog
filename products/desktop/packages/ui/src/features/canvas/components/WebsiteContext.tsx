@@ -1,5 +1,4 @@
 import {
-  ArrowsClockwiseIcon,
   FileTextIcon,
   GitBranchIcon,
   GithubLogoIcon,
@@ -9,13 +8,6 @@ import {
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
-  Combobox,
-  ComboboxContent,
-  ComboboxEmpty,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-  ComboboxTrigger,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -41,6 +33,7 @@ import {
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -65,7 +58,7 @@ import {
   Text,
   TextArea,
 } from "@radix-ui/themes";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Mode = "rendered" | "edit";
 
@@ -506,119 +499,22 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
             </span>
           </Tooltip>
         ) : (
-          <AddRepositoryButton
-            available={available}
+          <GitHubRepoPicker
+            value={null}
+            onChange={addRepository}
+            repositories={available}
             isLoading={isLoadingRepos}
             isRefreshing={isRefreshingRepos}
             onRefresh={() => void refreshRepositories()}
-            onAdd={addRepository}
-            label={selected.length > 0 ? "Add" : "Add a repository"}
+            placeholder={selected.length > 0 ? "Add" : "Add a repository…"}
+            size="1"
+            // Multi-add strip: never auto-select the lone remaining repo, or
+            // deleting down to one addable repo would immediately re-add it.
+            autoSelectSingle={false}
           />
         )}
       </Flex>
     </Flex>
-  );
-}
-
-// A compact "Add repository" menu: a single-select quill Combobox with a button
-// trigger and a searchable list. Unlike the shared GitHubRepoPicker it never
-// auto-selects a lone option — auto-selection there re-adds a just-removed repo
-// and loops — so this is a deliberately minimal picker for the multi-add strip.
-function AddRepositoryButton({
-  available,
-  isLoading,
-  isRefreshing,
-  onRefresh,
-  onAdd,
-  label,
-}: {
-  available: string[];
-  isLoading: boolean;
-  isRefreshing: boolean;
-  onRefresh: () => void;
-  onAdd: (repository: string) => void;
-  label: string;
-}) {
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-
-  return (
-    <Combobox<string>
-      items={available}
-      value={null}
-      onValueChange={(repository) => {
-        if (repository) onAdd(repository as string);
-        setOpen(false);
-      }}
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setQuery("");
-      }}
-      inputValue={query}
-      onInputValueChange={setQuery}
-    >
-      <ComboboxTrigger
-        render={
-          <QuillButton
-            ref={triggerRef}
-            variant="outline"
-            size="sm"
-            aria-label="Add repository"
-          >
-            <GithubLogoIcon size={14} className="shrink-0" />
-            {label}
-          </QuillButton>
-        }
-      />
-      <ComboboxContent
-        anchor={triggerRef}
-        side="bottom"
-        sideOffset={6}
-        align="start"
-        className="min-w-[280px]"
-      >
-        <div className="flex min-w-0 items-center gap-1 pe-2">
-          <div className="min-w-0 flex-1">
-            <ComboboxInput placeholder="Search repositories…" />
-          </div>
-          <QuillButton
-            variant="outline"
-            size="sm"
-            disabled={isRefreshing}
-            aria-label="Refresh repositories"
-            onMouseDown={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onRefresh();
-            }}
-          >
-            <ArrowsClockwiseIcon
-              size={14}
-              className={isRefreshing ? "animate-spin" : undefined}
-            />
-          </QuillButton>
-        </div>
-        <ComboboxEmpty>
-          {isLoading ? "Loading repositories…" : "No repositories found."}
-        </ComboboxEmpty>
-        <ComboboxList>
-          {(repository: string) => (
-            <ComboboxItem key={repository} value={repository}>
-              <Flex align="center" gap="2">
-                <GithubLogoIcon size={14} className="shrink-0 text-gray-11" />
-                {repository}
-              </Flex>
-            </ComboboxItem>
-          )}
-        </ComboboxList>
-      </ComboboxContent>
-    </Combobox>
   );
 }
 

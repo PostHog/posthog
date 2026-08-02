@@ -27,6 +27,12 @@ interface GitHubRepoPickerProps {
   anchor?: RefObject<HTMLElement | null>;
   /** When false, the list is shown without a filter field (e.g. short lists in modals). */
   showSearchInput?: boolean;
+  /**
+   * When true (default), a list of exactly one repo auto-selects it. Multi-add
+   * callers that re-render the picker with a shrinking list must pass false —
+   * otherwise auto-select re-adds a just-removed repo and loops.
+   */
+  autoSelectSingle?: boolean;
   onRefresh?: () => void;
   isRefreshing?: boolean;
   open?: boolean;
@@ -47,6 +53,7 @@ export function GitHubRepoPicker({
   disabled = false,
   anchor,
   showSearchInput = true,
+  autoSelectSingle = true,
   onRefresh,
   isRefreshing = false,
   open: controlledOpen,
@@ -71,7 +78,9 @@ export function GitHubRepoPicker({
     onLoadMore !== undefined;
   const showInlineLoadingState = remoteMode && open && isLoading;
   const onlyRepo =
-    !remoteMode && repositories.length === 1 ? repositories[0] : null;
+    autoSelectSingle && !remoteMode && repositories.length === 1
+      ? repositories[0]
+      : null;
   const trimmedSearchQuery = searchQuery.trim();
   const filteredRepositoryCount = useMemo(() => {
     if (!trimmedSearchQuery) {
