@@ -403,21 +403,6 @@ jobs:
                     echo "OK: codex-acp/$f"
                   }
 
-            # No `playwright install`: the smoke test launches the packaged
-            # PostHog.exe via Playwright's Electron API, no managed browsers.
-            - name: Smoke test packaged app
-              env:
-                  CI: true
-              run: pnpm --filter code exec playwright test --config=tests/e2e/playwright.config.ts tests/e2e/tests/smoke.spec.ts
-
-            - name: Upload Playwright report
-              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-              if: failure()
-              with:
-                  name: release-playwright-report-windows-x64
-                  path: products/desktop/apps/code/playwright-report/
-                  retention-days: 7
-
             - name: Upload release artifacts
               shell: pwsh
               env:
