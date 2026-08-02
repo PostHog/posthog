@@ -204,11 +204,11 @@ export function GitHubRepoPicker({
         className="min-w-[280px]"
       >
         {showSearchInput ? (
-          <div className="flex min-w-0 items-center gap-1 pe-2">
-            <div className="min-w-0 flex-1">
-              <ComboboxInput placeholder="Search repositories..." />
-            </div>
-            {onRefresh ? (
+          onRefresh ? (
+            <div className="flex min-w-0 items-center gap-1 pe-2">
+              <div className="min-w-0 flex-1">
+                <ComboboxInput placeholder="Search repositories..." />
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -229,8 +229,10 @@ export function GitHubRepoPicker({
                   className={isRefreshing ? "animate-spin" : undefined}
                 />
               </Button>
-            ) : null}
-          </div>
+            </div>
+          ) : (
+            <ComboboxInput placeholder="Search repositories..." />
+          )
         ) : null}
         <ComboboxEmpty>
           {showInlineLoadingState
