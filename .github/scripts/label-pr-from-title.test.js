@@ -136,3 +136,9 @@ for (const scope of ['flag', 'feature-flag', 'feature_flags', 'feature_flag']) {
         assert.ok(labelsForTitle(`feat(${scope}): x`, loadRules()).length > 0, `${scope} scope maps to no labels`)
     })
 }
+
+// Desktop PRs rely on this rule for the `feature/desktop` label; bind the scope
+// to the shipped config so an edit that drops it regresses loudly here.
+test('the shipped config maps the desktop scope to labels', () => {
+    assert.ok(labelsForTitle('feat(desktop): x', loadRules()).length > 0, 'desktop scope maps to no labels')
+})
