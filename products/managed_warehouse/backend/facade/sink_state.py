@@ -9,6 +9,7 @@ from django.db.models import Model
 from products.managed_warehouse.backend import sink_state
 from products.managed_warehouse.backend.facade.contracts import (
     DuckgresSinkBackfillPlanInput,
+    DuckgresSinkBackfillRunReference,
     DuckgresSinkStateCreateInput,
     DuckgresSinkStateGaugeStats,
     DuckgresSinkStateRecord,
@@ -34,7 +35,7 @@ __all__ = [
     "list_pending_sink_states",
     "list_primed_schema_ids",
     "list_reconciling_backfill_states",
-    "list_sink_states",
+    "list_sink_backfill_run_references",
     "list_sink_states_for_team",
     "mark_backfill_completed",
     "mark_backfill_superseded",
@@ -60,8 +61,8 @@ def get_sink_state(schema_id: str | UUID) -> DuckgresSinkStateRecord | None:
     return sink_state.get_sink_state(schema_id)
 
 
-def list_sink_states(team_ids: list[int] | None) -> list[DuckgresSinkStateRecord]:
-    return sink_state.list_sink_states(team_ids)
+def list_sink_backfill_run_references(team_ids: list[int] | None) -> list[DuckgresSinkBackfillRunReference]:
+    return sink_state.list_sink_backfill_run_references(team_ids)
 
 
 def list_sink_states_for_team(team_id: int) -> list[DuckgresSinkStateRecord]:

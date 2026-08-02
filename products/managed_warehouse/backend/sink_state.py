@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from products.managed_warehouse.backend.facade.contracts import (
     DuckgresSinkBackfillPlanInput,
+    DuckgresSinkBackfillRunReference,
     DuckgresSinkState,
     DuckgresSinkStateCreateInput,
     DuckgresSinkStateGaugeStats,
@@ -96,11 +97,14 @@ def list_sink_states_for_team(team_id: int) -> list[DuckgresSinkStateRecord]:
     ]
 
 
-def list_sink_states(team_ids: list[int] | None) -> list[DuckgresSinkStateRecord]:
+def list_sink_backfill_run_references(team_ids: list[int] | None) -> list[DuckgresSinkBackfillRunReference]:
     states = DuckgresSinkSchemaState.objects.all()
     if team_ids is not None:
         states = states.filter(team_id__in=team_ids)
-    return [_to_record(state) for state in states]
+    return [
+        DuckgresSinkBackfillRunReference(schema_id=schema_id, backfill_run_uuid=backfill_run_uuid)
+        for schema_id, backfill_run_uuid in states.values_list("schema_id", "backfill_run_uuid")
+    ]
 
 
 def list_primed_schema_ids(team_ids: list[int] | None) -> list[str]:

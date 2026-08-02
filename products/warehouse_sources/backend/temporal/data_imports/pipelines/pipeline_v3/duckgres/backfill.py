@@ -634,7 +634,7 @@ def _purge_deleted_schema_states(conn: psycopg.Connection[Any], team_ids: list[i
     Deleting the row is safe: bootstrap re-creates PENDING_BACKFILL if the
     schema ever comes back.
     """
-    states = sink_state.list_sink_states(team_ids)
+    states = sink_state.list_sink_backfill_run_references(team_ids)
     run_by_schema = {state.schema_id: state.backfill_run_uuid for state in states}
     if not run_by_schema:
         return

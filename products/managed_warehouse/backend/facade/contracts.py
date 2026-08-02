@@ -22,6 +22,7 @@ __all__ = [
     "CPUnavailableError",
     "DuckgresQueryServerConfig",
     "DuckgresSinkBackfillPlanInput",
+    "DuckgresSinkBackfillRunReference",
     "DuckgresSinkState",
     "DuckgresSinkStateCreateInput",
     "DuckgresSinkStateGaugeStats",
@@ -170,6 +171,12 @@ class DuckgresSinkBackfillPlanInput:
     snapshot_version: int
     backfill_run_uuid: str
     chunk_count: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class DuckgresSinkBackfillRunReference:
+    schema_id: UUID
+    backfill_run_uuid: str | None
 
 
 @dataclass(frozen=True, kw_only=True)
