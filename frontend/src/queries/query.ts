@@ -1,4 +1,4 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -279,17 +279,22 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        // Raw error detail/message can echo query fragments, so telemetry only gets status and code
-        const error = e as (Error & { status?: number; code?: string | null }) | null
-        posthog.capture('query failed', {
-            query: queryNode,
-            queryId,
-            duration: performance.now() - startTime,
-            error_status: error?.status ?? null,
-            error_code: error?.code ?? null,
-            uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
-            ...logParams,
-        })
+        // Aborts happen whenever a query is superseded or the user navigates away mid-request —
+        // they're not failures, and capturing them here drowns out genuine server errors in the
+        // 'query failed' metric that alerts key off.
+        if (!isAbortError(e)) {
+            // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+            const error = e as (Error & { status?: number; code?: string | null }) | null
+            posthog.capture('query failed', {
+                query: queryNode,
+                queryId,
+                duration: performance.now() - startTime,
+                error_status: error?.status ?? null,
+                error_code: error?.code ?? null,
+                uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                ...logParams,
+            })
+        }
         throw e
     }
 }

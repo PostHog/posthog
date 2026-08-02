@@ -162,6 +162,21 @@ describe('query', () => {
         expect(queryFailedCalls[0][1]).not.toHaveProperty('error_message')
     })
 
+    it('does not emit a query failed event when the request is aborted', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const q: HogQLQuery = setLatestVersionsOnQuery({
+            kind: NodeKind.HogQLQuery,
+            query: 'select * from events',
+        })
+        captureSpy.mockClear()
+        const controller = new AbortController()
+        controller.abort()
+        await expect(performQuery(q, { signal: controller.signal })).rejects.toThrow()
+
+        const queryFailedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query failed')
+        expect(queryFailedCalls).toHaveLength(0)
+    })
+
     describe('waitForPageVisible', () => {
         const originalVisibilityState = document.visibilityState
 
