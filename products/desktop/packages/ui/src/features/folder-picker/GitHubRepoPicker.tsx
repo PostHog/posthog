@@ -27,12 +27,6 @@ interface GitHubRepoPickerProps {
   anchor?: RefObject<HTMLElement | null>;
   /** When false, the list is shown without a filter field (e.g. short lists in modals). */
   showSearchInput?: boolean;
-  /**
-   * When true (default), a list of exactly one repo auto-selects it. Multi-add
-   * callers that re-render the picker with a shrinking list must pass false —
-   * otherwise auto-select re-adds a just-removed repo and loops.
-   */
-  autoSelectSingle?: boolean;
   onRefresh?: () => void;
   isRefreshing?: boolean;
   open?: boolean;
@@ -53,7 +47,6 @@ export function GitHubRepoPicker({
   disabled = false,
   anchor,
   showSearchInput = true,
-  autoSelectSingle = true,
   onRefresh,
   isRefreshing = false,
   open: controlledOpen,
@@ -78,9 +71,7 @@ export function GitHubRepoPicker({
     onLoadMore !== undefined;
   const showInlineLoadingState = remoteMode && open && isLoading;
   const onlyRepo =
-    autoSelectSingle && !remoteMode && repositories.length === 1
-      ? repositories[0]
-      : null;
+    !remoteMode && repositories.length === 1 ? repositories[0] : null;
   const trimmedSearchQuery = searchQuery.trim();
   const filteredRepositoryCount = useMemo(() => {
     if (!trimmedSearchQuery) {
@@ -204,11 +195,11 @@ export function GitHubRepoPicker({
         className="min-w-[280px]"
       >
         {showSearchInput ? (
-          onRefresh ? (
-            <div className="flex min-w-0 items-center gap-1 pe-2">
-              <div className="min-w-0 flex-1">
-                <ComboboxInput placeholder="Search repositories..." />
-              </div>
+          <div className="flex min-w-0 items-center gap-1 pe-2">
+            <div className="min-w-0 flex-1">
+              <ComboboxInput placeholder="Search repositories..." />
+            </div>
+            {onRefresh ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -229,10 +220,8 @@ export function GitHubRepoPicker({
                   className={isRefreshing ? "animate-spin" : undefined}
                 />
               </Button>
-            </div>
-          ) : (
-            <ComboboxInput placeholder="Search repositories..." />
-          )
+            ) : null}
+          </div>
         ) : null}
         <ComboboxEmpty>
           {showInlineLoadingState

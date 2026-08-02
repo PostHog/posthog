@@ -8,6 +8,10 @@ import {
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -33,7 +37,6 @@ import {
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
-import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -497,17 +500,30 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
             </span>
           </Tooltip>
         ) : (
-          <GitHubRepoPicker
-            value={null}
-            onChange={addRepository}
-            repositories={available}
-            isLoading={isLoadingRepos}
-            placeholder={selected.length > 0 ? "Add" : "Add a repository…"}
-            size="1"
-            // Multi-add strip: never auto-select the lone remaining repo, or
-            // deleting down to one addable repo would immediately re-add it.
-            autoSelectSingle={false}
-          />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <QuillButton variant="outline" size="sm">
+                  <GithubLogoIcon size={14} />
+                  {selected.length > 0 ? "Add…" : "Add repository…"}
+                </QuillButton>
+              }
+            />
+            <DropdownMenuContent
+              align="start"
+              className="max-h-72 min-w-56 overflow-y-auto"
+            >
+              {available.map((repository) => (
+                <DropdownMenuItem
+                  key={repository}
+                  onClick={() => addRepository(repository)}
+                >
+                  <GithubLogoIcon size={14} className="shrink-0" />
+                  <span className="truncate">{repository}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </Flex>
     </Flex>
