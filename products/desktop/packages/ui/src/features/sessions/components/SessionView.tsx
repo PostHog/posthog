@@ -78,6 +78,13 @@ import {
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+export function getNewAttachments(
+  previousIds: ReadonlySet<string>,
+  attachments: FileAttachment[],
+): FileAttachment[] {
+  return attachments.filter(({ id }) => !previousIds.has(id));
+}
+
 interface SessionViewProps {
   events: AcpMessage[];
   taskId?: string;
@@ -295,8 +302,9 @@ export function SessionView({
   const handleAttachmentsChange = useCallback(
     (attachments: FileAttachment[]) => {
       const attachmentIds = new Set(attachments.map(({ id }) => id));
-      const addedAttachments = attachments.filter(
-        ({ id }) => !attachmentIdsRef.current.has(id),
+      const addedAttachments = getNewAttachments(
+        attachmentIdsRef.current,
+        attachments,
       );
       attachmentIdsRef.current = attachmentIds;
 
