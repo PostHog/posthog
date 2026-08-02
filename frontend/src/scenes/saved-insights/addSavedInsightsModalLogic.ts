@@ -365,15 +365,21 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         addInsightToDashboard: async ({ insight, dashboardId }) => {
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
+                // `insight.dashboards` is deprecated and no longer served to session-authenticated
+                // requests, so it's always undefined here - derive the current set from
+                // `dashboard_tiles` instead, or this PATCH would detach the insight from every
+                // dashboard it's already on.
+                const currentDashboardIds = (insight.dashboard_tiles || [])
+                    .filter((tile) => !tile.deleted)
+                    .map((tile) => tile.dashboard_id)
                 const response = await insightsApi.update(insight.id, {
-                    dashboards: [...(insight.dashboards || []), dashboardId],
+                    dashboards: Array.from(new Set([...currentDashboardIds, dashboardId])),
                 })
                 if (response) {
                     actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
-                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    logic.unmount()
+                    dashboardLogic
+                        .findMounted({ id: dashboardId })
+                        ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
                     lemonToast.success('Insight added to dashboard')
                 }
             } catch (e) {
@@ -388,16 +394,17 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         removeInsightFromDashboard: async ({ insight, dashboardId }) => {
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
+                const currentDashboardIds = (insight.dashboard_tiles || [])
+                    .filter((tile) => !tile.deleted)
+                    .map((tile) => tile.dashboard_id)
                 const response = await insightsApi.update(insight.id, {
-                    dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
-                    dashboard_tiles: (insight.dashboard_tiles || []).filter((dt) => dt.dashboard_id !== dashboardId),
+                    dashboards: currentDashboardIds.filter((id) => id !== dashboardId),
                 })
                 if (response) {
                     actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
-                    logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    logic.unmount()
+                    dashboardLogic
+                        .findMounted({ id: dashboardId })
+                        ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
                     lemonToast.success('Insight removed from dashboard')
                 }
             } catch (e) {

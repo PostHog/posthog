@@ -263,4 +263,49 @@ describe('addSavedInsightsModalLogic', () => {
             expect(apiCallCount).toBe(1)
         })
     })
+
+    describe('addInsightToDashboard / removeInsightFromDashboard', () => {
+        // `dashboards` is deprecated and no longer served to session-authenticated requests, so it's
+        // always undefined here - the listener must derive the current set from `dashboard_tiles`
+        // instead, or the PATCH silently detaches the insight from dashboards 6 and 9 (and drops the
+        // soft-deleted tile for dashboard 7 back in).
+        const insightOnDashboards6And9 = {
+            id: 1,
+            dashboards: undefined,
+            dashboard_tiles: [
+                { id: 10, dashboard_id: 6, deleted: false },
+                { id: 11, dashboard_id: 7, deleted: true },
+                { id: 12, dashboard_id: 9, deleted: false },
+            ],
+        } as any as QueryBasedInsightModel
+
+        it.each([
+            ['addInsightToDashboard', 8, [6, 9, 8]],
+            ['removeInsightFromDashboard', 6, [9]],
+        ])('%s keeps the insight on its other dashboards', async (actionName, dashboardId, expectedDashboards) => {
+            let capturedPayload: Record<string, any> | null = null
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { count: 0, results: [] }],
+                },
+                patch: {
+                    '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                        capturedPayload = await request.json()
+                        return [200, { id: 1, dashboard_tiles: [] }]
+                    },
+                },
+            })
+            initKeaTests()
+            const logic = addSavedInsightsModalLogic()
+            logic.mount()
+
+            logic.actions[actionName as 'addInsightToDashboard'](insightOnDashboards6And9, dashboardId)
+
+            await expectLogic(logic).toDispatchActions(['updateInsight'])
+
+            expect(capturedPayload!.dashboards.slice().sort()).toEqual(expectedDashboards.slice().sort())
+
+            logic.unmount()
+        })
+    })
 })
