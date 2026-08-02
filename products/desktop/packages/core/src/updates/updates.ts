@@ -481,10 +481,11 @@ export class UpdatesService extends TypedEventEmitter<UpdatesEvents> {
     }
 
     // Strictly newer only: a manifest rollback must not downgrade what is
-    // already staged. A pulled release is recovered by fix-forward or the
-    // no-update fallback, never by re-staging an older signed build.
+    // already staged, regardless of state — an offer accepted while
+    // "available" or "downloading" would still re-stage over the download.
+    // A pulled release is recovered by fix-forward or the no-update
+    // fallback, never by re-staging an older signed build.
     if (
-      this.state === "ready" &&
       this.downloadedVersion !== null &&
       !isVersionNewer(info.version, this.downloadedVersion)
     ) {

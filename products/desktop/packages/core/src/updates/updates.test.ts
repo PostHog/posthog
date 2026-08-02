@@ -1419,6 +1419,35 @@ describe("UpdatesService", () => {
       });
     });
 
+    it("ignores a feed rollback while a newer offer is pending", async () => {
+      await initializeService(service);
+
+      updaterHandlers.updateDownloaded?.("v2.0.0");
+
+      service.checkForUpdates("periodic");
+      updaterHandlers.updateAvailable?.({
+        version: "v3.0.0",
+        releaseNotes: null,
+      });
+      expect(service.getStatus()).toMatchObject({
+        available: true,
+        availableVersion: "v3.0.0",
+      });
+
+      mockUpdater.download.mockClear();
+      service.checkForUpdates("periodic");
+      updaterHandlers.updateAvailable?.({
+        version: "v1.5.0",
+        releaseNotes: null,
+      });
+
+      expect(mockUpdater.download).not.toHaveBeenCalled();
+      expect(service.getStatus()).toMatchObject({
+        available: true,
+        availableVersion: "v3.0.0",
+      });
+    });
+
     it("falls back to the staged update when a user re-check errors while a newer version is available", async () => {
       await initializeService(service);
 
