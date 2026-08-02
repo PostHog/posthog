@@ -414,8 +414,6 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
     repositories,
     getIntegrationIdForRepo,
     isLoadingRepos,
-    isRefreshingRepos,
-    refreshRepositories,
     hasGithubIntegration,
   } = useRepositoryIntegration();
   const update = useUpdateTaskChannelRepositories();
@@ -504,8 +502,6 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
             onChange={addRepository}
             repositories={available}
             isLoading={isLoadingRepos}
-            isRefreshing={isRefreshingRepos}
-            onRefresh={() => void refreshRepositories()}
             placeholder={selected.length > 0 ? "Add" : "Add a repository…"}
             size="1"
             // Multi-add strip: never auto-select the lone remaining repo, or
