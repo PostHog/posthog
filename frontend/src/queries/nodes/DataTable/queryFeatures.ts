@@ -3,6 +3,7 @@ import {
     isAccountsQuery,
     isActorsQuery,
     isEndpointsUsageTableQuery,
+    isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLQuery,
@@ -147,6 +148,10 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.columnConfigurator)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.tracesSearch)
+    }
+
+    if (isErrorTrackingQuery(query)) {
+        features.add(QueryFeature.displayResponseError)
     }
 
     if (isEndpointsUsageTableQuery(query)) {
