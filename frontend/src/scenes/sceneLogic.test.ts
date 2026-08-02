@@ -5,11 +5,19 @@ describe('sceneLogic', () => {
         // Regression guard: mid-onboarding users hitting auth/account round-trips (email-change
         // confirmation, credential/passkey review) must not be bounced to /onboarding before the
         // scene's own logic can run, or the flow is swallowed and never completes.
+        //
+        // Also guards every Activity tab: urls.activity() only returns the explore tab's URL, so
+        // matching on that literal string previously left /activity/live and /activity/sessions
+        // gated while /activity/explore was exempt.
         it.each<[string, boolean]>([
             ['/verify_email/some-uuid/some-token', true],
             ['/project/492200/verify_email/some-uuid/some-token', true],
             ['/account/credential-review', true],
             ['/project/492200/account/credential-review', true],
+            ['/activity/explore', true],
+            ['/activity/live', true],
+            ['/activity/sessions', true],
+            ['/project/492200/activity/live', true],
             ['/project/492200/dashboard/1', false],
         ])('isOnboardingNotRequiredForPath(%s) === %s', (path, expected) => {
             expect(isOnboardingNotRequiredForPath(path)).toBe(expected)

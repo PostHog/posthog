@@ -222,6 +222,7 @@ function ProductSelectionStep(): JSX.Element {
                             type="primary"
                             status="alt"
                             data-attr="onboarding-continue"
+                            disabledReason={!firstProductOnboarding ? 'Select a product to start with' : undefined}
                         >
                             Go
                         </LemonButton>

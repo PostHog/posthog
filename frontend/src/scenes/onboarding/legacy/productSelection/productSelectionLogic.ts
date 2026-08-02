@@ -197,6 +197,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
     reducers({
         currentStep: [
             'choose_path' as OnboardingStep,
+            { persist: true },
             {
                 setStep: (_, { step }) => step,
             },
@@ -389,7 +390,8 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 actions.setOnCompleteOnboardingRedirectUrl(nextUrl)
             }
 
-            if (!values.firstProductOnboarding) {
+            const firstProduct = values.firstProductOnboarding ?? values.selectedProducts[0]
+            if (!firstProduct) {
                 return
             }
 
@@ -397,23 +399,21 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             const requiresFurtherSetup = [ProductKey.ERROR_TRACKING, ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS]
 
             const secondStepKey =
-                values.firstProductOnboarding === ProductKey.WEB_ANALYTICS
+                firstProduct === ProductKey.WEB_ANALYTICS
                     ? OnboardingStepKey.AUTHORIZED_DOMAINS
                     : OnboardingStepKey.PRODUCT_CONFIGURATION
 
             const stepKey =
-                values.firstProductOnboarding === ProductKey.DATA_WAREHOUSE
+                firstProduct === ProductKey.DATA_WAREHOUSE
                     ? OnboardingStepKey.LINK_DATA
-                    : isFromWizard && !requiresFurtherSetup.includes(values.firstProductOnboarding)
+                    : isFromWizard && !requiresFurtherSetup.includes(firstProduct)
                       ? secondStepKey
                       : OnboardingStepKey.INSTALL
 
-            const secondaryProducts = values.selectedProducts.filter(
-                (k) => k !== values.firstProductOnboarding
-            ) as string[]
+            const secondaryProducts = values.selectedProducts.filter((k) => k !== firstProduct) as string[]
             router.actions.push(
                 urls.onboarding({
-                    productKey: values.firstProductOnboarding,
+                    productKey: firstProduct,
                     stepKey,
                     withProducts: secondaryProducts,
                 })
@@ -423,7 +423,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 actions.addProductIntent({
                     product_type: productKey,
                     intent_context:
-                        values.firstProductOnboarding === productKey
+                        firstProduct === productKey
                             ? ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_PRIMARY
                             : ProductIntentContext.ONBOARDING_PRODUCT_SELECTED_SECONDARY,
                 })
@@ -433,7 +433,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             window.posthog?.capture('onboarding_products_confirmed', {
                 recommendation_source: values.recommendationSource,
                 selected_products: values.selectedProducts,
-                first_product: values.firstProductOnboarding,
+                first_product: firstProduct,
                 browsing_history: values.browsingHistory,
             })
         },

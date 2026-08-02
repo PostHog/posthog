@@ -113,7 +113,9 @@ const pathPrefixesOnboardingNotRequiredFor = [
     urls.unsubscribe(),
     urls.debugHog(),
     urls.debugQuery(),
-    urls.activity(),
+    // '/activity' covers every Activity tab (explore/live/sessions). urls.activity() only
+    // returns the explore tab's URL, which would leave the other tabs gated.
+    '/activity',
     // /integrations/* — OAuth + third-party round-trips: must complete (callback/landing effects)
     // even when onboarding is incomplete, else /onboarding swallows the response. E.g.
     // /integrations/<kind>/callback (urls.integrationsRedirect), stripe confirm-install, vercel link-error.
@@ -863,6 +865,9 @@ export const sceneLogic = kea<sceneLogicType>([
                             return
                         }
 
+                        lemonToast.info("Let's finish setting up your product before you continue", {
+                            toastId: 'onboarding-required',
+                        })
                         router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
                         return
                     }
