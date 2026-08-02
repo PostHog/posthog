@@ -1,6 +1,9 @@
 import pytest
 
-from products.ai_observability.backend.models.evaluation_configs import validate_target_config
+from products.ai_observability.backend.models.evaluation_configs import (
+    validate_evaluation_configs,
+    validate_target_config,
+)
 
 
 class TestValidateTargetConfig:
@@ -48,3 +51,24 @@ class TestValidateTargetConfig:
 
     def test_generation_strips_config(self):
         assert validate_target_config("generation", {"strategy": "inactivity"}) == {}
+
+
+class TestBooleanOutputConfigPolarity:
+    """A detector-style judge prompt ("return true when the agent struggled") has `true`
+    as the bad outcome, so reports need to know that polarity to label it "fail" and not
+    "pass". Missing/omitted config must keep today's default so existing evaluations are
+    unaffected."""
+
+    def test_polarity_defaults_to_true_is_pass(self):
+        _, output_config = validate_evaluation_configs("llm_judge", "boolean", {"prompt": "is this correct?"}, {})
+        assert output_config["polarity"] == "true_is_pass"
+
+    def test_polarity_true_is_fail_is_accepted(self):
+        _, output_config = validate_evaluation_configs(
+            "llm_judge", "boolean", {"prompt": "did the agent struggle?"}, {"polarity": "true_is_fail"}
+        )
+        assert output_config["polarity"] == "true_is_fail"
+
+    def test_invalid_polarity_rejected(self):
+        with pytest.raises(ValueError):
+            validate_evaluation_configs("llm_judge", "boolean", {"prompt": "x"}, {"polarity": "inverted"})

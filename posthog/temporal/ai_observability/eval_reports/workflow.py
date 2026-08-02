@@ -329,6 +329,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
                 evaluation_prompt=context.evaluation_prompt,
                 evaluation_type=context.evaluation_type,
                 output_type=context.output_type,
+                output_polarity=context.output_polarity,
                 period_start=context.period_start,
                 period_end=context.period_end,
                 previous_period_start=context.previous_period_start,

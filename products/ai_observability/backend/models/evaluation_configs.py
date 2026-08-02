@@ -51,6 +51,12 @@ class BooleanOutputConfig(BaseModel):
     """Configuration for boolean output type"""
 
     allows_na: bool = False
+    # Some judge prompts are framed as detectors ("return true when the agent struggled")
+    # rather than success checks ("return true when the response is correct"). For a
+    # detector prompt, `true` is the bad outcome, so it must be reported as "fail" — not
+    # "pass" — to match what the prompt itself means. Defaults to "true_is_pass" so
+    # existing evaluations keep their current behavior.
+    polarity: Literal["true_is_pass", "true_is_fail"] = "true_is_pass"
 
 
 class SentimentEvalConfig(BaseModel):

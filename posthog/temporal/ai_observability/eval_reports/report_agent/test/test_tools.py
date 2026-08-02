@@ -29,6 +29,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
     _execute_ch_query_with_retry,
     _is_retriable_ch_error,
+    _outcome_for_result as _outcome_for_result_fn,
     _widened_ts_window,
     add_citation,
     add_section,
@@ -418,6 +419,31 @@ class TestUuidRegex(SimpleTestCase):
 
     def test_rejects_extra_chars(self):
         self.assertIsNone(_UUID_RE.fullmatch("12345678-1234-1234-1234-123456789abc-extra"))
+
+
+class TestOutcomeForResultPolarity(SimpleTestCase):
+    """A detector-style eval ("returns true when the agent struggled") has `true` as the
+    bad outcome. `_outcome_for_result` must flip which outcome label a raw boolean maps to
+    when the evaluation's polarity says so, or its reports label struggles as "pass"."""
+
+    @parameterized.expand(
+        [
+            (None, True, "pass"),
+            (None, False, "fail"),
+            ("true_is_pass", True, "pass"),
+            ("true_is_pass", False, "fail"),
+            ("true_is_fail", True, "fail"),
+            ("true_is_fail", False, "pass"),
+        ]
+    )
+    def test_boolean_outcome_tracks_polarity(self, polarity, result, expected_outcome):
+        self.assertEqual(_outcome_for_result_fn("boolean", result, None, polarity), expected_outcome)
+
+    def test_not_applicable_wins_regardless_of_polarity(self):
+        self.assertEqual(_outcome_for_result_fn("boolean", True, False, "true_is_fail"), "na")
+
+    def test_sentiment_outcome_ignores_polarity(self):
+        self.assertEqual(_outcome_for_result_fn("sentiment", "negative", None, "true_is_fail"), "negative")
 
 
 class TestSetTitle(SimpleTestCase):

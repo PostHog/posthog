@@ -34,6 +34,9 @@ export interface ModelConfiguration {
 
 export interface EvaluationOutputConfig {
     allows_na?: boolean
+    /** For boolean evals: whether `true` is the success outcome (default) or the failure
+     * outcome (a detector-style prompt, e.g. "return true when the agent struggled"). */
+    polarity?: 'true_is_pass' | 'true_is_fail'
 }
 
 /** Settle config for aggregate targets. Rows saved before strategies existed have no

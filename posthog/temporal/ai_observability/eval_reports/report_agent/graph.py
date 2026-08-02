@@ -12,7 +12,7 @@ from langgraph.prebuilt import create_react_agent
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from posthog.llm.gateway_client import resolve_ai_gateway_config
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.output_types import DEFAULT_BOOLEAN_POLARITY, get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.prompts import build_eval_report_system_prompt
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MAX_REPORT_SECTIONS,
@@ -42,6 +42,7 @@ def _compute_metrics(
     period_end: str,
     previous_period_start: str,
     output_type: str = "boolean",
+    output_polarity: str = DEFAULT_BOOLEAN_POLARITY,
     evaluation_target: str = GENERATION_TARGET,
 ) -> EvalReportMetrics | None:
     """Compute report metrics directly via HogQL (independent of agent state).
@@ -54,7 +55,7 @@ def _compute_metrics(
         ts_start = _ch_ts(period_start)
         ts_end = _ch_ts(period_end)
         ts_prev_start = _ch_ts(previous_period_start)
-        definition = get_outcome_definition(output_type)
+        definition = get_outcome_definition(output_type, output_polarity)
 
         result_counts, total = _fetch_period_summary(
             team_id, evaluation_id, ts_start, ts_end, definition, evaluation_target
@@ -213,6 +214,7 @@ def run_eval_report_agent(
     previous_period_start: str,
     report_prompt_guidance: str = "",
     output_type: str = "boolean",
+    output_polarity: str = DEFAULT_BOOLEAN_POLARITY,
     evaluation_target: str = "generation",
 ) -> EvalReportContent:
     """Run the evaluation report agent and return the generated content.
@@ -236,6 +238,7 @@ def run_eval_report_agent(
         period_end,
         previous_period_start,
         output_type=output_type,
+        output_polarity=output_polarity,
         evaluation_target=evaluation_target,
     )
 
@@ -262,6 +265,7 @@ def run_eval_report_agent(
         evaluation_target=evaluation_target,
         evaluation_prompt=evaluation_prompt,
         output_type=output_type,
+        output_polarity=output_polarity,
         period_start=period_start,
         period_end=period_end,
         report_prompt_guidance=report_prompt_guidance,
@@ -287,6 +291,7 @@ def run_eval_report_agent(
         "evaluation_type": evaluation_type,
         "evaluation_target": evaluation_target,
         "output_type": output_type,
+        "output_polarity": output_polarity,
         "period_start": period_start,
         "period_end": period_end,
         "previous_period_start": previous_period_start,

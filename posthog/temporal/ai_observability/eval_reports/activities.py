@@ -16,7 +16,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.client.connection import Workload
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import COUNT_TRIGGER_QUERY_WIDTH
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.output_types import DEFAULT_BOOLEAN_POLARITY, get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.targets import (
     GENERATION_TARGET,
     resolve_evaluation_target,
@@ -560,6 +560,7 @@ async def prepare_report_context_activity(
             evaluation_prompt=evaluation.evaluation_config.get("prompt", ""),
             evaluation_type=evaluation.evaluation_type,
             output_type=evaluation.output_type,
+            output_polarity=evaluation.output_config.get("polarity", DEFAULT_BOOLEAN_POLARITY),
             period_start=period_start.isoformat(),
             period_end=period_end.isoformat(),
             previous_period_start=previous_period_start.isoformat(),
@@ -597,6 +598,7 @@ async def run_eval_report_agent_activity(
                     evaluation_type=inputs.evaluation_type,
                     evaluation_target=evaluation_target,
                     output_type=inputs.output_type,
+                    output_polarity=inputs.output_polarity,
                     period_start=inputs.period_start,
                     period_end=inputs.period_end,
                     previous_period_start=inputs.previous_period_start,

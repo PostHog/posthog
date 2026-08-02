@@ -119,7 +119,17 @@ class _EvaluationConfigField(serializers.JSONField):
                 "type": "boolean",
                 "description": "Whether the evaluation can return N/A for non-applicable generations.",
                 "default": False,
-            }
+            },
+            "polarity": {
+                "type": "string",
+                "enum": ["true_is_pass", "true_is_fail"],
+                "description": (
+                    "For boolean evaluations: whether `true` is the success outcome (default) or the "
+                    "failure outcome — set 'true_is_fail' for detector-style prompts where true is the "
+                    "bad outcome, e.g. 'return true when the agent struggled'."
+                ),
+                "default": "true_is_pass",
+            },
         },
         "additionalProperties": False,
     }

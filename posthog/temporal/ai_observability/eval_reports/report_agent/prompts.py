@@ -1,6 +1,6 @@
 """System prompt construction for the evaluation report agent."""
 
-from posthog.temporal.ai_observability.eval_reports.output_types import get_outcome_definition
+from posthog.temporal.ai_observability.eval_reports.output_types import DEFAULT_BOOLEAN_POLARITY, get_outcome_definition
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import MAX_REPORT_SECTIONS
 
 EVAL_REPORT_SYSTEM_PROMPT = """You are an evaluation report agent for PostHog's AI observability platform. Your job is to analyze results from an LLM evaluation and produce a concise, grounded, example-backed report.
@@ -67,9 +67,10 @@ def build_eval_report_system_prompt(
     period_start: str,
     period_end: str,
     evaluation_target: str = "generation",
+    output_polarity: str = DEFAULT_BOOLEAN_POLARITY,
     report_prompt_guidance: str = "",
 ) -> str:
-    definition = get_outcome_definition(output_type)
+    definition = get_outcome_definition(output_type, output_polarity)
     description_section = f"Description: {evaluation_description}\n" if evaluation_description else ""
     prompt_section = f"Evaluation prompt/criteria:\n```\n{evaluation_prompt}\n```\n" if evaluation_prompt else ""
     guidance_section = ""
