@@ -1120,10 +1120,26 @@ describe('insightLogic', () => {
             expect(seenRefreshParams).toEqual(['async_except_on_cache_miss'])
         })
 
-        it('treats empty overrides as no overrides', async () => {
+        it('blocks on a cache miss for a dashboard-opened insight even with empty overrides', async () => {
+            // Regression: nearly every dashboard tile link sends filters_override={} etc.
+            // (urls.insightView filters params by truthiness, and `{}` is truthy), so treating
+            // an empty override as "no override" left dashboard-opened insights on the plain
+            // `async` path with no self-heal, dead-ending on "Chart data didn't load" whenever
+            // the insight's own saved-query cache happened to be cold.
             logic = insightLogic({
                 dashboardItemId: Insight42,
                 dashboardId: 33,
+                filtersOverride: {},
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightSuccess'])
+
+            expect(seenRefreshParams).toEqual(['async_except_on_cache_miss'])
+        })
+
+        it('still uses async for empty overrides outside dashboard context', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
                 filtersOverride: {},
             })
             logic.mount()

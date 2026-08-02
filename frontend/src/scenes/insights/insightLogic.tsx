@@ -633,6 +633,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         // context the data node won't load on its own — the scene dead-ends on
                         // "Chart data didn't load". Block on a genuine miss instead; warm and stale
                         // keys behave exactly as before.
+                        //
+                        // Escalate for any dashboard-opened insight, not just when overrides are
+                        // non-empty: a saved insight's own cache key can be cold too (e.g. it isn't
+                        // on any dashboard's scheduled refresh yet), and outside `hasOverrides` the
+                        // scene has no other way to recover from a `result: null` response.
                         const hasOverrides = insightOverridesPresent(
                             filtersOverride,
                             variablesOverride,
@@ -641,7 +646,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                         const insight = await insightsApi.getByShortId(
                             shortId,
                             undefined,
-                            hasOverrides ? 'async_except_on_cache_miss' : 'async',
+                            hasOverrides || props.dashboardId != null ? 'async_except_on_cache_miss' : 'async',
                             filtersOverride,
                             variablesOverride,
                             tileFiltersOverride
