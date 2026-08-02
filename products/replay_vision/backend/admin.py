@@ -26,6 +26,8 @@ class ReplayScannerAdmin(admin.ModelAdmin):
 @admin.register(ReplayObservation)
 class ReplayObservationAdmin(admin.ModelAdmin):
     list_display = ("scanner", "session_id", "status", "triggered_by", "created_at", "completed_at")
+    # The product's largest table: without this the changelist runs a query per row for the FK columns.
+    list_select_related = ("scanner", "team")
     list_filter = ("status", "triggered_by")
     search_fields = ("session_id", "workflow_id")
     # Observations are workflow-created and immutable post-create except for status/error_reason.
@@ -80,6 +82,7 @@ class VisionActionAdmin(admin.ModelAdmin):
         "next_run_at",
         "created_at",
     )
+    list_select_related = ("team", "scanner")
     list_filter = ("trigger_type", "mode", "enabled")
     search_fields = ("name",)
     raw_id_fields = ("team", "scanner", "hog_flow", "created_by")
@@ -89,6 +92,7 @@ class VisionActionAdmin(admin.ModelAdmin):
 @admin.register(VisionActionRun)
 class VisionActionRunAdmin(admin.ModelAdmin):
     list_display = ("id", "vision_action", "team", "status", "observation_count", "scheduled_at", "created_at")
+    list_select_related = ("vision_action", "team")
     list_filter = ("status",)
     search_fields = ("idempotency_key", "temporal_workflow_id")
     raw_id_fields = ("vision_action", "team")

@@ -152,6 +152,9 @@ jobs:
                         # (skills/, scripts/). Catch any .py change so the
                         # backend job triggers when only those files move.
                         - 'products/**/*.py'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
@@ -829,7 +832,7 @@ jobs:
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv

@@ -1751,6 +1751,13 @@ h3.MarkdownNotebook__text-block--heading {
     border-top: 0;
 }
 
+.MarkdownNotebook__component-custom-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    padding: 0.25rem 0.5rem 0.5rem;
+}
+
 .MarkdownNotebook__component-mode-actions,
 .MarkdownNotebook__component-actions,
 .MarkdownNotebook__component-edit-footer {
@@ -1945,6 +1952,14 @@ button.MarkdownNotebook__component-title:focus-visible {
     flex-direction: column;
     min-height: var(--markdown-notebook-real-node-min-height, 8rem);
     background: var(--markdown-notebook-component-background);
+}
+
+.MarkdownNotebook__real-node--settings-only {
+    min-height: 0;
+
+    .MarkdownNotebook__real-node-settings {
+        border-bottom: 0;
+    }
 }
 
 .MarkdownNotebook__real-node-settings {

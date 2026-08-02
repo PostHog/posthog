@@ -317,13 +317,19 @@ class TestRollupSources(SimpleTestCase):
         assert summary["last_synced_at"] == newer
         assert summary["last_applied_at"] == newer
 
-    def test_a_paused_schema_outranks_up_to_date_but_not_a_real_problem(self) -> None:
-        # A source where some schemas aren't being kept current at all shouldn't read as fully
-        # healthy, but an active problem elsewhere in the same source still has to win.
+    def test_a_paused_schema_is_deprioritized_below_healthy_active_schemas(self) -> None:
+        # Users often sync only a subset of a source, so an intentional pause should not mask the
+        # health of schemas that are actively syncing. A source with only paused schemas stays paused.
         source_id = str(uuid4())
+        paused = _table(
+            source_id=source_id,
+            source_name="Stripe",
+            table_name="invoices",
+            readiness_state="sync_paused",
+        )
         mostly_healthy = [
             _table(source_id=source_id, source_name="Stripe", table_name="charges", readiness_state="up_to_date"),
-            _table(source_id=source_id, source_name="Stripe", table_name="invoices", readiness_state="sync_paused"),
+            paused,
         ]
         with_a_real_problem = [
             *mostly_healthy,
@@ -331,9 +337,11 @@ class TestRollupSources(SimpleTestCase):
         ]
 
         [healthy_summary] = _rollup_sources(mostly_healthy)
+        [paused_summary] = _rollup_sources([paused])
         [problem_summary] = _rollup_sources(with_a_real_problem)
 
-        assert healthy_summary["readiness_state"] == "sync_paused"
+        assert healthy_summary["readiness_state"] == "up_to_date"
+        assert paused_summary["readiness_state"] == "sync_paused"
         assert problem_summary["readiness_state"] == "needs_attention"
 
     def test_a_paused_schema_still_counts_toward_backfilled(self) -> None:
