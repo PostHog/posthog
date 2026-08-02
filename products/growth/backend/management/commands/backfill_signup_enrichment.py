@@ -14,8 +14,8 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.temporal.signup_enrichment.inputs import SignupEnrichmentInputs
 from posthog.temporal.signup_enrichment.trigger import dispatch_signup_enrichment, domain_from_email
-from posthog.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 from posthog.utils import GenericEmails, get_instance_region
 
 _generic_emails = GenericEmails()

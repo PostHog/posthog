@@ -9,7 +9,6 @@ block or fail signup — see posthog/temporal/signup_enrichment/trigger.py.
 import json
 import typing
 import datetime as dt
-import dataclasses
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -19,6 +18,7 @@ from posthog.ph_client import get_client
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.signup_enrichment.inputs import SignupEnrichmentInputs
 
 from products.growth.backend.enrichment.core import enrich_organization
 from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider
@@ -45,20 +45,6 @@ MAX_ENRICH_ATTEMPTS = 3
 # delayed recheck, run unconditionally for every org, recovers late-indexed companies and
 # rescores against Clay's columns alike, without polling.
 RECHECK_DELAY = dt.timedelta(hours=4)
-
-
-@dataclasses.dataclass
-class SignupEnrichmentInputs:
-    organization_id: str
-    distinct_id: str
-    domain: str
-    # The signup's own role answer, passed at dispatch rather than re-read org-side. Defaulted so
-    # workflows already sleeping through the recheck delay at deploy still deserialize.
-    role_at_organization: typing.Optional[str] = None
-    # The signup request's GeoIP country (ISO alpha-2), the score's country fallback when the
-    # provider has none — mirroring the incumbent icp_country merge order. Defaulted for the
-    # same deserialization reason as role_at_organization.
-    geoip_country_code: typing.Optional[str] = None
 
 
 def _deterministic_company_type(organization_id: str) -> typing.Optional[str]:

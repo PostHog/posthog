@@ -150,7 +150,7 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep import (
     SURFACING_SCORING_SWEEP_ACTIVITIES,
     SURFACING_SCORING_SWEEP_WORKFLOWS,
 )
-from posthog.temporal.signup_enrichment import (
+from posthog.temporal.signup_enrichment.registry import (
     ACTIVITIES as SIGNUP_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SIGNUP_ENRICHMENT_WORKFLOWS,
 )
