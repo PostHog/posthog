@@ -157,6 +157,12 @@
                     "default": false,
                     "description": "Whether the evaluation can return N/A for non-applicable generations.",
                     "type": "boolean"
+                },
+                "polarity": {
+                    "default": "true_is_pass",
+                    "description": "For boolean evaluations: whether `true` is the success outcome (default) or the failure outcome — set 'true_is_fail' for detector-style prompts where true is the bad outcome, e.g. 'return true when the agent struggled'.",
+                    "enum": ["true_is_pass", "true_is_fail"],
+                    "type": "string"
                 }
             },
             "type": "object"
