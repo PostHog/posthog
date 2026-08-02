@@ -1279,7 +1279,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         clone_ms: int | None = None
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            clone_ms = 0
+            clone_durations: list[int] = []
             for repository in repositories_to_clone:
                 clone_output = await workflow.execute_activity(
                     clone_repository_in_sandbox,
@@ -1293,7 +1293,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     start_to_close_timeout=timedelta(minutes=5),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                clone_ms += getattr(clone_output, "clone_ms", 0) or 0
+                if (duration := getattr(clone_output, "clone_ms", None)) is not None:
+                    clone_durations.append(duration)
+            clone_ms = sum(clone_durations) if clone_durations else None
             clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
             await self._emit_progress("clone", "completed", clone_label, "setup")
 

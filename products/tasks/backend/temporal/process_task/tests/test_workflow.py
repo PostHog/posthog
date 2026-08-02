@@ -1431,9 +1431,10 @@ class TestProcessTaskWorkflowUnit:
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
 
-        await workflow._get_sandbox_for_repository()
+        result = await workflow._get_sandbox_for_repository()
 
         assert cloned == ["posthog/posthog", "posthog/code"]
+        assert result.clone_ms is None
 
     @pytest.mark.parametrize(
         "custom_image_name, expected_image_source, expected_image_source_label",
