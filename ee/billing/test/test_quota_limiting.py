@@ -2194,6 +2194,36 @@ class TestQuotaLimiting(BaseTest):
 
         mock_update_remote_config.apply_async.assert_not_called()
 
+    @patch("posthoganalytics.capture")
+    @patch("ee.billing.quota_limiting.capture_exception")
+    @freeze_time("2021-01-25T00:00:00Z")
+    def test_update_all_orgs_billing_quotas_survives_recording_count_query_failure(
+        self, mock_capture_exception, patch_capture
+    ) -> None:
+        """A ClickHouse error in the recordings-count query used to propagate out of
+        update_all_orgs_billing_quotas and abort the whole sweep before any org's quota was
+        evaluated. It should now be swallowed for that one metric (treated as 0 recordings for
+        this run) while every other resource's quota decision still runs."""
+        with self.settings(USE_TZ=False):
+            self.organization.usage = {
+                "events": {"usage": 120, "limit": 100, "todays_usage": 0},
+                "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+            self.organization.customer_trust_scores = zero_trust_scores()
+            self.organization.save()
+
+            with patch(
+                "ee.billing.quota_limiting.get_teams_with_recording_count_in_period",
+                side_effect=Exception("ClickHouse error while executing query."),
+            ):
+                update_all_orgs_billing_quotas()
+
+        mock_capture_exception.assert_called_once()
+        assert list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY) == [
+            self.team.api_token
+        ]
+
     @parameterized.expand(
         [
             ("active_member_becomes_unlimited", 10_000, 1, 1, False, 1, False),

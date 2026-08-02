@@ -936,6 +936,21 @@ def _timed_query(name, fn, *args, **kwargs):
     return result
 
 
+def _timed_query_non_fatal(name, fn, *args, **kwargs):
+    """Like _timed_query, but a failure here shouldn't abort the whole quota-limiting sweep.
+
+    The Temporal activity that runs this has maximum_attempts=1, so one query blowing up
+    (e.g. a transient ClickHouse error) would otherwise leave every org's quota unevaluated
+    for this run instead of just this one metric.
+    """
+    try:
+        return _timed_query(name, fn, *args, **kwargs)
+    except Exception as e:
+        logger.warning("quota_limiting_run", phase="query", status="error", query=name, error=str(e))
+        capture_exception(e)
+        return []
+
+
 def update_all_orgs_billing_quotas(
     dry_run: bool = False,
     progress_callback: Callable[[str, str, str], None] | None = None,
@@ -969,7 +984,7 @@ def update_all_orgs_billing_quotas(
         ),
         "teams_with_exceptions_captured_in_period": convert_team_usage_rows_to_dict(exception_metrics),
         "teams_with_recording_count_in_period": convert_team_usage_rows_to_dict(
-            _timed_query("recordings", get_teams_with_recording_count_in_period, period_start, period_end)
+            _timed_query_non_fatal("recordings", get_teams_with_recording_count_in_period, period_start, period_end)
         ),
         "teams_with_rows_synced_in_period": convert_team_usage_rows_to_dict(
             _timed_query("rows_synced", get_teams_with_rows_synced_in_period, period_start, period_end)
