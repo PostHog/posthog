@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { getEventsQueriesForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
+import { applyEventsViewPreset, getEventsQueriesForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
 import { DataTableNode, EventsQuery } from '~/queries/schema/schema-general'
 
 interface SavedQueriesProps {
@@ -20,7 +20,8 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
     }
 
     const eventsQueries = getEventsQueriesForTeam(currentTeam)
-    const { filterTestAccounts, ...sourceForComparison } = query.source as EventsQuery
+    const currentSource = query.source as EventsQuery
+    const { filterTestAccounts, ...sourceForComparison } = currentSource
     let selectedTitle = Object.keys(eventsQueries).find((key) => equal(eventsQueries[key], sourceForComparison))
 
     if (!selectedTitle) {
@@ -48,10 +49,7 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
                         onClick={() =>
                             setQuery?.({
                                 ...query,
-                                source:
-                                    filterTestAccounts !== undefined
-                                        ? { ...eventsQuery, filterTestAccounts }
-                                        : eventsQuery,
+                                source: applyEventsViewPreset(eventsQuery, currentSource),
                             })
                         }
                     >

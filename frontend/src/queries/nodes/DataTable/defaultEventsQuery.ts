@@ -49,6 +49,24 @@ export function getDefaultEventsQueryForTeam(team: Partial<TeamType>): EventsQue
         : null
 }
 
+/**
+ * Build the query for a view the user just picked, keeping the parts of their current query that
+ * describe how they are looking at events rather than which view they are in: the date range and
+ * the test-account toggle. Each preset carries its own `after`, so without this a view switch
+ * would silently drag the user back to the preset's window.
+ *
+ * These are the same fields `SavedQueries` leaves out when working out which view is active, since
+ * changing them does not move you off a view.
+ */
+export function applyEventsViewPreset(preset: EventsQuery, current: EventsQuery): EventsQuery {
+    return {
+        ...preset,
+        ...('filterTestAccounts' in current ? { filterTestAccounts: current.filterTestAccounts } : {}),
+        ...('after' in current ? { after: current.after } : {}),
+        ...('before' in current ? { before: current.before } : {}),
+    }
+}
+
 export function getEventsQueriesForTeam(team: Partial<TeamType>): Record<string, EventsQuery> {
     const projectDefault = getDefaultEventsQueryForTeam(team)
     return {
