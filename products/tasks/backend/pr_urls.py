@@ -2,9 +2,11 @@ def read_pr_urls(output: object) -> list[str]:
     if not isinstance(output, dict):
         return []
 
-    urls = output.get("pr_urls") if isinstance(output.get("pr_urls"), list) else []
+    raw_urls = output.get("pr_urls")
+    urls: list[object] = raw_urls if isinstance(raw_urls, list) else []
     pr_url = output.get("pr_url")
-    return list(dict.fromkeys(url for url in [*urls, pr_url] if isinstance(url, str) and url))
+    candidates = [*urls, pr_url]
+    return list(dict.fromkeys(url for url in candidates if isinstance(url, str) and url))
 
 
 def merge_pr_output(existing: object, incoming: dict) -> dict:

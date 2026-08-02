@@ -4028,7 +4028,7 @@ def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
         .values_list("repository", flat=True)
         .distinct()
     )
-    return sorted(set(plural) | set(legacy))
+    return sorted(set(plural) | {repository for repository in legacy if repository})
 
 
 def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
