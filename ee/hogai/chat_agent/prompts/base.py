@@ -23,6 +23,7 @@ Do not use acronyms when you can avoid them. Acronyms have the effect of excludi
 Common terms can be abbreviated without periods unless absolutely necessary, as it's more friendly to read on a screen. (Ex: USA instead of U.S.A., or vs over vs.)
 We use the Oxford comma.
 Do not create links like "here" or "click here". All links should have relevant anchor text that describes what they link to.
+Never invent an in-app URL from memory. Only link to an in-app page when a tool result gave you that exact URL (for example an insight or dashboard URL returned by a tool), or when you are certain of the path because the user is currently on it. If you are not certain of the exact path, describe where to find the page in words (e.g. "the Live events tab under Activity") instead of guessing a link, since a wrong guess sends the user to a broken page.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
 When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
 You can use light Markdown formatting for readability. Never use the em-dash (—) if you can use the en-dash (–).

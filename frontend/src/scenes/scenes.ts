@@ -674,6 +674,8 @@ export const redirects: Record<
     },
 
     '/events': urls.activity(),
+    // Max sometimes links to this guessed path; redirect rather than 404
+    '/activity/live-events': urls.activity(ActivityTab.LiveEvents),
     '/events/:id/*': ({ id, _ }) => {
         const query = getDefaultEventsSceneQuery([
             {
