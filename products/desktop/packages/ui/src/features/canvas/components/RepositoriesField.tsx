@@ -27,18 +27,20 @@ function RepoChip({
   onRemove: () => void;
 }) {
   return (
-    <span className="group/chip inline-flex items-center gap-1 rounded-(--radius-1) bg-(--gray-a3) py-0.5 pr-2 pl-1.5 font-medium text-(--gray-11) text-[12px] transition-colors hover:bg-(--gray-a4)">
+    // h-6 + rounded-md matches the sm "Add…" button beside it, so chips and the
+    // add control line up as one row.
+    <span className="group/chip inline-flex h-6 items-center gap-1.5 rounded-md bg-(--gray-a3) pr-2.5 pl-2 font-medium text-(--gray-11) text-[12px] transition-colors hover:bg-(--gray-a4)">
       <button
         type="button"
         aria-label={`Remove ${repository}`}
-        className="relative inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0"
+        className="relative inline-flex size-4 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0"
         onClick={onRemove}
       >
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none">
-          <GithubLogoIcon size={13} />
+          <GithubLogoIcon size={14} />
         </span>
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100 motion-reduce:transition-none">
-          <XIcon size={12} weight="bold" />
+          <XIcon size={13} weight="bold" />
         </span>
       </button>
       <span className="max-w-[200px] truncate">{repository}</span>
