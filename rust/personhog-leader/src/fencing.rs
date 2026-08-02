@@ -58,8 +58,18 @@ pub enum FencedProduceError {
     /// was never taken or was released.
     NotAcquired,
     /// The broker fenced this producer: a newer owner has initialized
-    /// the partition's transactional id. This pod's claim is stale.
+    /// the partition's transactional id. This pod's claim is stale, and
+    /// the records demonstrably never became visible.
     Fenced,
+    /// Fenced, but the window's own outcome was never settled — so the
+    /// partition has moved *and* whether these records landed is unknown.
+    ///
+    /// The two are independent facts and the caller needs both: the
+    /// router still wants the ownership answer, while the version must
+    /// stay spent because a commit that was re-issued may have succeeded
+    /// on an earlier attempt. Collapsing this into `Fenced` is what let a
+    /// committed record's version be handed back for reuse.
+    FencedUncertain(String),
     /// Send or commit failed for an ordinary, retryable reason; the
     /// window was aborted and no record became visible.
     Failed(String),
@@ -82,6 +92,10 @@ impl fmt::Display for FencedProduceError {
             FencedProduceError::Fenced => {
                 write!(f, "producer fenced by a newer owner of the partition")
             }
+            FencedProduceError::FencedUncertain(e) => write!(
+                f,
+                "producer fenced by a newer owner; this window's outcome is unknown: {e}"
+            ),
             FencedProduceError::Failed(e) => write!(f, "fenced produce failed: {e}"),
             FencedProduceError::Indeterminate(e) => {
                 write!(f, "changelog commit outcome unknown: {e}")
@@ -632,7 +646,10 @@ impl FencedChangelogProducers {
                 // producer stays installed, later writes discover the
                 // fence one failed `begin_transaction` at a time, and
                 // `holds()` reports authority this pod no longer has.
-                if matches!(e, FencedProduceError::Fenced) {
+                if matches!(
+                    e,
+                    FencedProduceError::Fenced | FencedProduceError::FencedUncertain(_)
+                ) {
                     self.forget_fence(partition, &fence);
                 }
                 Err(e)
@@ -717,25 +734,31 @@ enum CommitOutcome {
 enum WindowVerdict {
     /// A newer owner holds the partition; the records never landed.
     Fenced,
+    /// A newer owner holds the partition and the records' fate is
+    /// unknown — both facts, because they answer different questions.
+    FencedUncertain,
     /// The window aborted for an ordinary reason; safe to retry.
     Aborted,
     /// Whether the records landed is unknown.
     Indeterminate,
 }
 
-/// A fence only settles the records when the window is *also* known to
-/// have aborted.
+/// Whether the partition moved and whether the records landed are
+/// independent, so the verdict carries both.
 ///
-/// The two facts are independent: a commit can time out, be re-issued,
-/// and only then discover the fence — by which point the first attempt
-/// may already have landed. Reporting that as a plain fence tells the
-/// caller the record does not exist, which frees its version and puts a
-/// second record at the same number behind one that may be committed.
+/// A commit can time out, be re-issued by librdkafka itself, and only
+/// then report the fence — by which point an earlier attempt may already
+/// have succeeded. Reporting that as a plain fence tells the caller the
+/// record does not exist, which frees its version and puts a second
+/// record at the same number behind one that may be committed. Reporting
+/// it as merely indeterminate throws away the ownership answer the router
+/// bounces on. `FencedUncertain` is both.
 fn window_verdict(outcome: CommitOutcome, fenced: bool) -> WindowVerdict {
     match (outcome.is_aborted(), fenced) {
         (true, true) => WindowVerdict::Fenced,
+        (false, true) => WindowVerdict::FencedUncertain,
         (true, false) => WindowVerdict::Aborted,
-        (false, _) => WindowVerdict::Indeterminate,
+        (false, false) => WindowVerdict::Indeterminate,
     }
 }
 
@@ -868,16 +891,9 @@ async fn commit_window_after(
             // is issued; anything else leaves the fate of the records in
             // doubt, which is a distinct answer from "failed".
             let mut attempt = producer.commit_transaction(timeout);
-            // Whether an attempt was ever re-issued decides what a later
-            // failure means. Only a re-issue creates the possibility that
-            // an earlier attempt landed while this pod stopped waiting
-            // for it; without one, whatever the broker says about this
-            // commit is the whole story.
-            let mut retried = false;
             for _ in 0..COMMIT_RETRIES {
                 match &attempt {
                     Err(KafkaError::Transaction(e)) if e.is_retriable() => {
-                        retried = true;
                         counter!("personhog_leader_fence_commit_retries_total").increment(1);
                         warn!(error = %e, "changelog commit failed; retrying");
                         attempt = producer.commit_transaction(timeout);
@@ -895,20 +911,18 @@ async fn commit_window_after(
                         Err(abort_err) => Err((abort_err, CommitOutcome::Unknown)),
                     }
                 }
-                // A fence on the very first attempt settles the records
-                // as well as the producer: the successor's
-                // `init_transactions` is what fenced us, and it aborts
-                // the transaction it takes the epoch from, so nothing
-                // this window held became visible. Reporting that as
-                // merely unknown would give up the ownership answer the
-                // router bounces on and hand the client an error for a
-                // partition that simply moved.
-                Err(e) if !retried && (is_fenced(&e) || producer_fenced(&producer)) => {
-                    Err((e, CommitOutcome::AbortedProducerDead))
-                }
-                // Otherwise the transaction is left open with its fate
-                // unknown, and this producer has no way back to a state
-                // where it can begin another.
+                // Neither retriable nor abort-requiring is librdkafka's
+                // fatal class, which includes the fence. The transaction
+                // is left open with its fate unknown and this producer
+                // has no way back to a state where it can begin another;
+                // whether it was *also* fenced is answered separately,
+                // by the verdict, because the two facts serve different
+                // callers.
+                //
+                // Deliberately not inferring "the first attempt cannot
+                // have landed" from this loop never re-issuing:
+                // `commit_transaction` re-sends EndTxn internally, so one
+                // call here is not one round trip at the broker.
                 Err(e) => Err((e, CommitOutcome::Unknown)),
             }
         }
@@ -935,7 +949,21 @@ async fn commit_window_after(
                 );
             }
             let fenced_now = is_fenced(&e) || producer_fenced(fence.producer.inner());
-            if window_verdict(outcome, fenced_now) == WindowVerdict::Fenced {
+            let verdict = window_verdict(outcome, fenced_now);
+            if verdict == WindowVerdict::FencedUncertain {
+                counter!(
+                    "personhog_leader_produce_fenced_total",
+                    "partition" => partition.to_string()
+                )
+                .increment(1);
+                error!(
+                    partition,
+                    topic,
+                    error = %e,
+                    "changelog window fenced by a newer owner, with its own outcome unknown"
+                );
+                Err(FencedProduceError::FencedUncertain(e.to_string()))
+            } else if verdict == WindowVerdict::Fenced {
                 // A poisoned window's fence was already classified and
                 // counted where the send failed; counting again here
                 // would report two fences for one event.
@@ -953,7 +981,7 @@ async fn commit_window_after(
                     "changelog window fenced by a newer owner — this pod's claim is stale"
                 );
                 Err(FencedProduceError::Fenced)
-            } else if window_verdict(outcome, fenced_now) == WindowVerdict::Aborted {
+            } else if verdict == WindowVerdict::Aborted {
                 counter!(
                     "personhog_leader_fence_aborts_total",
                     "partition" => partition.to_string()
@@ -1034,6 +1062,9 @@ fn clone_outcome(outcome: &Result<(), FencedProduceError>) -> Result<(), FencedP
         Ok(()) => Ok(()),
         Err(FencedProduceError::NotAcquired) => Err(FencedProduceError::NotAcquired),
         Err(FencedProduceError::Fenced) => Err(FencedProduceError::Fenced),
+        Err(FencedProduceError::FencedUncertain(e)) => {
+            Err(FencedProduceError::FencedUncertain(e.clone()))
+        }
         Err(FencedProduceError::Failed(e)) => Err(FencedProduceError::Failed(e.clone())),
         Err(FencedProduceError::Indeterminate(e)) => {
             Err(FencedProduceError::Indeterminate(e.clone()))
@@ -1078,13 +1109,13 @@ mod tests {
     /// The verdict the caller acts on, as a truth table over the two
     /// independent facts it combines.
     ///
-    /// The cell that matters is (unknown, fenced): a commit that timed
-    /// out, was re-issued, and only then discovered the fence may already
-    /// have landed on its first attempt. Calling that a fence tells the
-    /// caller the record does not exist, which frees its version — and a
-    /// later write then puts a second record at that number behind one
-    /// that may be committed, which the writer's strict guard resolves by
-    /// discarding whichever arrived second.
+    /// The cell that matters is (unknown, fenced). A commit that timed
+    /// out, was re-issued — by librdkafka itself, not just by this loop —
+    /// and only then discovered the fence may already have landed. Its
+    /// own verdict keeps both facts: the router still gets the ownership
+    /// answer it bounces on, and the version stays spent. Collapsing it
+    /// into `Fenced` frees a version whose record may be committed, and
+    /// collapsing it into `Indeterminate` throws away the bounce.
     #[test]
     fn a_fence_only_settles_the_records_when_the_window_also_aborted() {
         for (outcome, fenced, expected) in [
@@ -1100,7 +1131,7 @@ mod tests {
                 false,
                 WindowVerdict::Aborted,
             ),
-            (CommitOutcome::Unknown, true, WindowVerdict::Indeterminate),
+            (CommitOutcome::Unknown, true, WindowVerdict::FencedUncertain),
             (CommitOutcome::Unknown, false, WindowVerdict::Indeterminate),
         ] {
             assert_eq!(

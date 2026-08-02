@@ -1068,7 +1068,19 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
     let result = response.into_inner();
     assert!(result.updated);
-    assert_eq!(result.person.unwrap().version, 2);
+    // Three, not two: the failed write's version is spent. The produce
+    // path cannot tell an enqueue that never left the client from a
+    // delivery that timed out after the broker appended it, and
+    // idempotence is off by default — so reusing that number would put a
+    // second record behind one that may be in the log, and the writer's
+    // strict guard keeps whichever arrived first. Burning a version on a
+    // write that genuinely never landed is the cheap side of that trade:
+    // versions are a monotonic counter with no meaning attached to gaps.
+    assert_eq!(
+        result.person.unwrap().version,
+        3,
+        "a version put on the wire must not be reused, even when the write failed"
+    );
 
     cancel.cancel();
 }
@@ -2522,5 +2534,99 @@ async fn an_unresolved_version_is_never_reused() {
         spent + 1,
         "the write must derive past every version this pod already emitted, \
          not merely past the one its cache happens to hold"
+    );
+}
+
+// ============================================================
+// The fenced write path, driven through the RPC
+// ============================================================
+
+/// Nothing constructed the service with fencing on, so its entire fenced
+/// arm was unreachable: a `panic!` at the top of it left the whole suite
+/// green. That arm decides, for every failure mode, whether the write's
+/// version is handed back for reuse — and handing back a version whose
+/// record may be on the changelog is the acked-write loss the floors
+/// exist to prevent.
+///
+/// This drives the real RPC against a real broker with fencing enabled,
+/// and asserts the two answers that matter: a fenced partition bounces,
+/// and the version it consumed is *not* reused afterwards.
+#[tokio::test]
+async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
+    let topic = format!("fenced_svc_{}", uuid::Uuid::new_v4().simple());
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let fenced = Arc::new(common::fenced_producers_for(&topic));
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer.clone(),
+        topic.clone(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Some(Arc::clone(&fenced)),
+    );
+
+    cache.create_partition(0);
+    let person = test_cached_person();
+    let base_version = person.version;
+    seed_person(&cache, 0, person);
+    fenced.acquire(0).await.expect("take the partition's fence");
+
+    // Each call must change something, or the handler takes its
+    // no-change fast path and never reaches the produce at all.
+    let update = |n: i64| {
+        let mut request = Request::new(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"n": n})).unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        request
+    };
+
+    // A healthy fenced write goes through the transaction window.
+    let first = service
+        .update_person_properties(update(1))
+        .await
+        .expect("a fenced write with a held fence must succeed");
+    assert_eq!(first.into_inner().person.unwrap().version, base_version + 1);
+
+    // Give the fence up beneath the service: the next write has no
+    // producer and must answer as unowned so the router re-resolves.
+    fenced.release(0);
+    let bounced = service
+        .update_person_properties(update(2))
+        .await
+        .expect_err("a write with no fence must not be acked");
+    assert_eq!(
+        bounced.code(),
+        tonic::Code::FailedPrecondition,
+        "an unowned partition is the router's bounce class, not a retryable failure"
+    );
+
+    // The bounced write never reached the broker, so its version is free
+    // to derive again — the next successful write must land exactly one
+    // past the first, not two.
+    fenced.acquire(0).await.expect("re-take the fence");
+    let third = service
+        .update_person_properties(update(3))
+        .await
+        .expect("a re-acquired fence writes again");
+    assert_eq!(
+        third.into_inner().person.unwrap().version,
+        base_version + 2,
+        "a write that provably never left the pod must not burn its version"
     );
 }

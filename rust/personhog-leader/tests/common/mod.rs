@@ -583,3 +583,27 @@ pub async fn start_leader_with_pg_fallback(
 
     (addr, cache, mock_cluster)
 }
+
+/// Comfortably above the test config's `message.timeout.ms`, which
+/// librdkafka requires the broker bound to cover.
+pub const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Fenced producers pointed at the local broker.
+///
+/// Lives here rather than beside the fencing tests because the *service*
+/// needs it too: without a way to build `PersonHogLeaderService` with
+/// fencing on, its entire fenced write arm — the version settlement, the
+/// cache eviction, the four-way error mapping — is unreachable from any
+/// test.
+pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedChangelogProducers {
+    let mut kafka = test_kafka_config();
+    kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
+    personhog_leader::fencing::FencedChangelogProducers::new(
+        kafka,
+        topic.to_string(),
+        Duration::from_secs(10),
+        Duration::from_secs(10),
+        BROKER_TXN_TIMEOUT,
+        Duration::from_millis(5),
+    )
+}
