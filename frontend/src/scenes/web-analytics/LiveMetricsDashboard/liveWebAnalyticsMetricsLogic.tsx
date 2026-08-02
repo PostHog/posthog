@@ -62,6 +62,7 @@ import {
 const ERROR_TOAST_ID = 'live-pageviews-error'
 const RECONNECT_TOAST_ID = 'live-pageviews-reconnect'
 const PARTIAL_FAILURE_TOAST_ID = 'live-pageviews-partial-failure'
+const INITIAL_LOAD_ERROR_TOAST_ID = 'live-pageviews-initial-load-error'
 const BUCKET_WINDOW_MINUTES = 30
 const FLUSH_INTERVAL_MS = 300
 const COOKIELESS_TRANSFORM_PREFIX = 'cookieless_transform'
@@ -73,7 +74,7 @@ const LIVE_QUERY_CONCURRENCY = 4
 const LIVE_QUERY_MAX_ATTEMPTS = 3
 const LIVE_QUERY_RETRY_DELAY_MS = 250
 const RELOAD_DEBOUNCE_MS = 300
-const TRANSIENT_QUERY_STATUSES = new Set([502, 503, 504])
+const TRANSIENT_QUERY_STATUSES = new Set([429, 502, 503, 504])
 
 // Bound live-dashboard query fan-out to protect ClickHouse capacity.
 const liveQueryConcurrency = new ConcurrencyController(LIVE_QUERY_CONCURRENCY)
@@ -608,7 +609,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 }
 
                 if (data.allFailed) {
-                    lemonToast.error('Failed to load initial data')
+                    lemonToast.error('Failed to load initial data', { toastId: INITIAL_LOAD_ERROR_TOAST_ID })
                     return
                 }
 
@@ -636,7 +637,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             } catch (error) {
                 if (!isAbortedRequest(error)) {
                     console.error('Failed to load initial live pageview data:', error)
-                    lemonToast.error('Failed to load initial data')
+                    lemonToast.error('Failed to load initial data', { toastId: INITIAL_LOAD_ERROR_TOAST_ID })
                 }
             } finally {
                 if (cache.loadAbortController === abortController) {
