@@ -181,7 +181,7 @@ The agent has requested help:
 """.strip()
 
 ITERATION_LIMIT_PROMPT = """
-The tool has reached the maximum number of iterations, a security measure to prevent infinite loops. To create this insight, you must request additional information from the user, such as specific events, properties, or property values.
+The tool has reached the maximum number of iterations, a security measure to prevent infinite loops. Before giving up, make sure you tried `search_properties` to look for the concept by keyword across persons, sessions, groups, and events - a property not found by name may still exist under different wording. If it's still not found, tell the user this specifically (rather than a generic "be more specific") and request additional information, such as the exact property/event name, a related value to filter on instead, or confirmation that the concept isn't tracked yet.
 """.strip()
 
 ACTIONS_EXPLANATION_PROMPT = """

@@ -69,6 +69,17 @@ class retrieve_entity_property_values(BaseModel):
     property_name: str = Field(..., description="The name of the property that you want to retrieve values for.")
 
 
+class search_properties(BaseModel):
+    """
+    Use this tool to search property names and descriptions for a keyword across persons, sessions, groups, and
+    events in one call. Use this when you know the concept you're looking for (e.g. "internal user", "subscription
+    plan") but don't know which entity or event it lives on, instead of guessing an entity and dumping its whole
+    property list.
+    """
+
+    term: str = Field(..., description="Keyword or short phrase to search for, e.g. 'internal user' or 'plan'.")
+
+
 class ask_user_for_help(BaseModel):
     """
     Use this tool to ask a question to the user. Your question must be concise and clear.
@@ -132,6 +143,7 @@ DefaultTaxonomyToolArgumentsType = Union[
     retrieve_entity_properties,
     retrieve_entity_property_values,
     retrieve_event_property_values,
+    search_properties,
     ask_user_for_help,
 ]
 

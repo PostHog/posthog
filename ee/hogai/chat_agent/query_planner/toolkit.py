@@ -3,6 +3,8 @@ from collections.abc import Iterable
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
+from django.db.models import Q
+
 from pydantic import BaseModel, field_validator
 
 from posthog.schema import (
@@ -36,6 +38,7 @@ from ee.hogai.chat_agent.taxonomy.tools import (
     retrieve_entity_property_values,
     retrieve_event_properties,
     retrieve_event_property_values,
+    search_properties as search_properties_tool,
 )
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
@@ -80,6 +83,7 @@ TaxonomyAgentToolUnion = Union[
     retrieve_event_property_values,
     retrieve_action_property_values,
     retrieve_entity_property_values,
+    search_properties_tool,
     ask_user_for_help,
     final_answer,
 ]
@@ -212,14 +216,13 @@ class TaxonomyAgentToolkit:
         if entity not in ("person", "session", *[g["group_type"] for g in self._groups]):
             return f"Entity {entity} does not exist in the taxonomy."
 
+        truncated = False
         if entity == "person":
             restricted = self._restricted_property_names(PropertyDefinition.Type.PERSON)
+            person_qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON)
+            truncated = person_qs.count() > max_properties
             stored_props = [
-                p
-                for p in PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.PERSON
-                ).values_list("name", "property_type")
-                if p[0] not in restricted
+                p for p in person_qs.values_list("name", "property_type")[:max_properties] if p[0] not in restricted
             ]
             stored_props += list_virtual_properties(
                 "person_properties", exclude={name for name, _ in stored_props} | restricted
@@ -244,12 +247,12 @@ class TaxonomyAgentToolkit:
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             restricted = self._restricted_property_names(PropertyDefinition.Type.GROUP)
+            group_qs = PropertyDefinition.objects.filter(
+                team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
+            )
+            truncated = group_qs.count() > max_properties
             stored_props = [
-                p
-                for p in PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-                ).values_list("name", "property_type")[:max_properties]
-                if p[0] not in restricted
+                p for p in group_qs.values_list("name", "property_type")[:max_properties] if p[0] not in restricted
             ]
             stored_props += list_virtual_properties("groups", exclude={name for name, _ in stored_props} | restricted)
             stored_descriptions = self._get_stored_property_descriptions(
@@ -262,7 +265,113 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
-        return format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
+        result = format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
+        if truncated:
+            result += (
+                f"\n\nNOTE: This entity has more than {max_properties} properties, and the list above was cut off "
+                "at that limit. A property not listed here may still exist — use the `search_properties` query kind "
+                "to look for it by name or description instead of concluding it's missing."
+            )
+        return result
+
+    def search_properties(self, term: str, max_results: int = 25) -> str:
+        """
+        Search property names and descriptions for a keyword across persons, sessions, groups, and events.
+
+        Use this when you know the concept you're looking for (e.g. "internal user", "subscription plan")
+        but don't know which entity or event it lives on, instead of guessing an entity and dumping its
+        whole property list.
+        """
+        term = term.strip()
+        if not term:
+            return "Provide a non-empty search term."
+
+        matches: list[tuple[str, str, str | None]] = []  # (scope, name, description)
+
+        restricted_person = self._restricted_property_names(PropertyDefinition.Type.PERSON)
+        matches += [
+            ("person", name, description)
+            for name, description in self._search_property_definitions(
+                PropertyDefinition.Type.PERSON, term, exclude=restricted_person
+            )
+        ]
+
+        for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items():
+            haystack = f"{prop_name} {prop.get('label') or ''} {prop.get('description') or ''}".lower()
+            if term.lower() in haystack:
+                matches.append(("session", prop_name, prop.get("description")))
+
+        restricted_group = self._restricted_property_names(PropertyDefinition.Type.GROUP)
+        for group in self._groups:
+            group_type_index = group["group_type_index"]
+            matches += [
+                (group["group_type"], name, description)
+                for name, description in self._search_property_definitions(
+                    PropertyDefinition.Type.GROUP, term, exclude=restricted_group, group_type_index=group_type_index
+                )
+            ]
+
+        restricted_event = self._restricted_property_names(PropertyDefinition.Type.EVENT)
+        matches += [
+            ("event", name, description)
+            for name, description in self._search_property_definitions(
+                PropertyDefinition.Type.EVENT, term, exclude=restricted_event
+            )
+        ]
+
+        if not matches:
+            return (
+                f'No property names or descriptions matched "{term}" across persons, sessions, groups, or events. '
+                "This doesn't necessarily mean the concept isn't tracked: it may be captured under a differently "
+                "worded property, computed from other properties, or not instrumented at all. Consider asking the "
+                "user for the exact property name, filtering by a related value (e.g. an email domain), or checking "
+                "if it's covered by an existing cohort."
+            )
+
+        truncated = len(matches) > max_results
+        matches = matches[:max_results]
+
+        output_parts = [f'Properties matching "{term}":']
+        for scope, name, description in matches:
+            suffix = f" – {description.replace(chr(10), ' ')}" if description else ""
+            output_parts.append(f"- [{scope}] {name}{suffix}")
+        if truncated:
+            output_parts.append(f"\n...and more matches were cut off at {max_results} results. Narrow your term.")
+
+        return "\n".join(output_parts)
+
+    def _search_property_definitions(
+        self,
+        property_type: "PropertyDefinition.Type",
+        term: str,
+        exclude: set[str],
+        group_type_index: int | None = None,
+    ) -> list[tuple[str, str | None]]:
+        """Search stored property names/descriptions for a team by keyword, name matches first."""
+        qs = PropertyDefinition.objects.filter(team=self._team, type=property_type)
+        if group_type_index is not None:
+            qs = qs.filter(group_type_index=group_type_index)
+        name_matches = list(qs.filter(name__icontains=term).values_list("name", flat=True))
+
+        description_matches: list[str] = []
+        if EE_AVAILABLE:
+            from ee.models.property_definition import (
+                EnterprisePropertyDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
+            )
+
+            desc_qs = EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type).filter(
+                Q(description__icontains=term)
+            )
+            if group_type_index is not None:
+                desc_qs = desc_qs.filter(group_type_index=group_type_index)
+            description_matches = list(desc_qs.exclude(name__in=name_matches).values_list("name", flat=True))
+
+        names = [name for name in [*name_matches, *description_matches] if name not in exclude]
+        if not names:
+            return []
+
+        descriptions = self._get_stored_property_descriptions(property_type, names, group_type_index)
+        return [(name, descriptions.get(name)) for name in names]
 
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)

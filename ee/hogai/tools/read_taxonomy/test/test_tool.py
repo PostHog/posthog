@@ -14,6 +14,7 @@ from ee.hogai.tools.read_taxonomy.core import (
     ReadEntityProperties,
     ReadEventProperties,
     ReadEvents,
+    SearchTaxonomyProperties,
     execute_taxonomy_query,
 )
 from ee.hogai.tools.read_taxonomy.tool import ReadTaxonomyTool
@@ -132,6 +133,18 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         result = execute_taxonomy_query(ReadEntityProperties(entity="session"), mock_toolkit, self.team, self.user)
 
         self.assertNotIn(DYNAMIC_PERSON_PROPERTIES_HINT, result)
+
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_search_properties_dispatches_to_toolkit(self, mock_toolkit_class):
+        # Guards the match/case wiring: forgetting to add a branch for the new query kind would
+        # fall through to the `_` case and raise ValueError instead of running the search.
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.search_properties.return_value = 'Properties matching "internal":\n- [person] is_internal_user'
+
+        result = execute_taxonomy_query(SearchTaxonomyProperties(term="internal"), mock_toolkit, self.team, self.user)
+
+        mock_toolkit.search_properties.assert_called_once_with("internal")
+        self.assertIn("is_internal_user", result)
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     def test_event_properties_include_dynamic_hint(self, mock_toolkit_class):

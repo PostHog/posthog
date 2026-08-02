@@ -86,12 +86,14 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ("retrieve_entity_property_values", {"entity": "person", "property_name": "email"}, "mocked"),
             ("retrieve_event_properties", {"event_name": "test_event"}, "mocked"),
             ("retrieve_event_property_values", {"event_name": "test_event", "property_name": "$browser"}, "mocked"),
+            ("search_properties", {"term": "internal"}, "mocked"),
         ]
     )
     @patch.object(DummyToolkit, "retrieve_entity_properties_parallel", return_value={"person": "mocked"})
     @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value={"person": ["mocked"]})
     @patch.object(DummyToolkit, "retrieve_event_or_action_properties_parallel", return_value={"test_event": "mocked"})
     @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value={"test_event": ["mocked"]})
+    @patch.object(DummyToolkit, "search_properties", return_value="mocked")
     async def test_handle_tools(self, tool_name, tool_args, expected_result, *mocks):
         class Arguments(BaseModel):
             pass

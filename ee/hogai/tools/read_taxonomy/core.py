@@ -63,6 +63,15 @@ class ReadActionSamplePropertyValues(BaseModel):
     property_name: str = Field(description="Verified property name of an action.")
 
 
+class SearchTaxonomyProperties(BaseModel):
+    """Searches property names and descriptions for a keyword across persons, sessions, groups, and events in one call.
+    Use this when you know the concept you're looking for (e.g. "internal user", "subscription plan") but don't know
+    which entity or event it lives on, instead of guessing an entity and dumping its whole property list."""
+
+    kind: Literal["search_properties"] = "search_properties"
+    term: str = Field(description="Keyword or short phrase to search for, e.g. 'internal user' or 'plan'.")
+
+
 ReadTaxonomyQuery = Union[
     ReadEvents,
     ReadEventProperties,
@@ -71,6 +80,7 @@ ReadTaxonomyQuery = Union[
     ReadEntitySamplePropertyValues,
     ReadActionProperties,
     ReadActionSamplePropertyValues,
+    SearchTaxonomyProperties,
 ]
 
 
@@ -122,5 +132,7 @@ def execute_taxonomy_query(query: ReadTaxonomyQuery, toolkit: TaxonomyAgentToolk
             return result
         case ReadEntitySamplePropertyValues():
             return toolkit.retrieve_entity_property_values(query.entity, query.property_name)
+        case SearchTaxonomyProperties():
+            return toolkit.search_properties(query.term)
         case _:
             raise ValueError(f"Invalid query type: The query structure '{type(query).__name__}' is not recognized.")

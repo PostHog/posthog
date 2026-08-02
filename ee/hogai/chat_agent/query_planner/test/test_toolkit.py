@@ -481,6 +481,97 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         result = toolkit.retrieve_event_or_action_property_values("event1", "$browser")
         self.assertIn("does not exist", result)
 
+    def test_retrieve_entity_properties_marks_truncation_for_person_and_group(self):
+        # Regression guard: the group branch sliced on `max_properties` and the person branch didn't,
+        # and neither told the model the list was cut off, so a property past the slice looked like it
+        # didn't exist rather than "there's more, go search for it".
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="prop_a", property_type="String"
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="prop_b", property_type="String"
+        )
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="prop_a",
+            property_type="String",
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="prop_b",
+            property_type="String",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        truncated_person = toolkit.retrieve_entity_properties("person", max_properties=1)
+        self.assertIn("search_properties", truncated_person)
+
+        truncated_group = toolkit.retrieve_entity_properties("group", max_properties=1)
+        self.assertIn("search_properties", truncated_group)
+
+        full_person = toolkit.retrieve_entity_properties("person", max_properties=500)
+        self.assertNotIn("search_properties", full_person)
+
+    def test_search_properties_matches_by_name_across_entities(self):
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="is_internal_user", property_type="Boolean"
+        )
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="organization"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="is_internal_org",
+            property_type="Boolean",
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, type=PropertyDefinition.Type.EVENT, name="internal_flag", property_type="Boolean"
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.search_properties("internal")
+
+        self.assertIn("[person] is_internal_user", result)
+        self.assertIn("[organization] is_internal_org", result)
+        self.assertIn("[event] internal_flag", result)
+
+    def test_search_properties_matches_by_description(self):
+        # A property named without the searched-for word is still findable if a human documented it,
+        # matching the read_taxonomy tool's ability to search descriptions, not just names.
+        from ee.models.property_definition import EnterprisePropertyDefinition
+
+        EnterprisePropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="staff_flag",
+            property_type="Boolean",
+            description="Marks internal PostHog employees",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.search_properties("internal")
+
+        self.assertIn("[person] staff_flag", result)
+
+    def test_search_properties_no_match_offers_next_steps(self):
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.search_properties("no_such_concept_anywhere")
+
+        self.assertIn("No property names or descriptions matched", result)
+        self.assertIn("cohort", result)
+
 
 class TestFinalAnswerTool(BaseTest):
     def test_normalize_plan(self):

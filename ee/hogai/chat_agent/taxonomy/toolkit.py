@@ -4,6 +4,8 @@ from functools import cached_property
 from typing import Optional, Union, cast
 from uuid import uuid4
 
+from django.db.models import Q
+
 from langchain_core.agents import AgentAction
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
@@ -64,6 +66,7 @@ from .tools import (
     get_dynamic_entity_tools,
     retrieve_event_properties,
     retrieve_event_property_values,
+    search_properties,
 )
 
 
@@ -342,6 +345,100 @@ class TaxonomyAgentToolkit:
         """
         return response.model_dump_json()
 
+    @database_sync_to_async(thread_sensitive=False)
+    def _search_property_definitions(
+        self,
+        property_type: PropertyDefinition.Type,
+        term: str,
+        exclude: set[str],
+        group_type_index: int | None = None,
+    ) -> list[str]:
+        """Search stored property names/descriptions for a team by keyword, name matches first."""
+        qs = PropertyDefinition.objects.filter(team=self._team, type=property_type)
+        if group_type_index is not None:
+            qs = qs.filter(group_type_index=group_type_index)
+        name_matches = list(qs.filter(name__icontains=term).values_list("name", flat=True))
+
+        description_matches: list[str] = []
+        if EE_AVAILABLE:
+            from ee.models.property_definition import (
+                EnterprisePropertyDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
+            )
+
+            desc_qs = EnterprisePropertyDefinition.objects.filter(team=self._team, type=property_type).filter(
+                Q(description__icontains=term)
+            )
+            if group_type_index is not None:
+                desc_qs = desc_qs.filter(group_type_index=group_type_index)
+            description_matches = list(desc_qs.exclude(name__in=name_matches).values_list("name", flat=True))
+
+        return [name for name in [*name_matches, *description_matches] if name not in exclude]
+
+    async def search_properties(self, term: str, max_results: int = 25) -> str:
+        """
+        Search property names and descriptions for a keyword across persons, sessions, groups, and events.
+
+        Use this when you know the concept you're looking for (e.g. "internal user", "subscription plan")
+        but don't know which entity or event it lives on, instead of guessing an entity and dumping its
+        whole property list.
+        """
+        term = term.strip()
+        if not term:
+            return "Provide a non-empty search term."
+
+        matches: list[tuple[str, str, str | None]] = []
+
+        restricted_person = await self._restricted_property_names(PropertyDefinition.Type.PERSON)
+        person_names = await self._search_property_definitions(PropertyDefinition.Type.PERSON, term, restricted_person)
+        if person_names:
+            descriptions = await self._get_stored_property_descriptions(PropertyDefinition.Type.PERSON, person_names)
+            matches += [("person", name, descriptions.get(name)) for name in person_names]
+
+        for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"].items():
+            haystack = f"{prop_name} {prop.get('label') or ''} {prop.get('description') or ''}".lower()
+            if term.lower() in haystack:
+                matches.append(("session", prop_name, prop.get("description")))
+
+        restricted_group = await self._restricted_property_names(PropertyDefinition.Type.GROUP)
+        groups = await self._get_groups()
+        for group in groups:
+            group_type_index = group["group_type_index"]
+            group_names = await self._search_property_definitions(
+                PropertyDefinition.Type.GROUP, term, restricted_group, group_type_index
+            )
+            if group_names:
+                descriptions = await self._get_stored_property_descriptions(
+                    PropertyDefinition.Type.GROUP, group_names, group_type_index
+                )
+                matches += [(group["group_type"], name, descriptions.get(name)) for name in group_names]
+
+        restricted_event = await self._restricted_property_names(PropertyDefinition.Type.EVENT)
+        event_names = await self._search_property_definitions(PropertyDefinition.Type.EVENT, term, restricted_event)
+        if event_names:
+            descriptions = await self._get_stored_property_descriptions(PropertyDefinition.Type.EVENT, event_names)
+            matches += [("event", name, descriptions.get(name)) for name in event_names]
+
+        if not matches:
+            return (
+                f'No property names or descriptions matched "{term}" across persons, sessions, groups, or events. '
+                "This doesn't necessarily mean the concept isn't tracked: it may be captured under a differently "
+                "worded property, computed from other properties, or not instrumented at all. Consider asking the "
+                "user for the exact property name, filtering by a related value (e.g. an email domain), or checking "
+                "if it's covered by an existing cohort."
+            )
+
+        truncated = len(matches) > max_results
+        matches = matches[:max_results]
+
+        output_parts = [f'Properties matching "{term}":']
+        for scope, name, description in matches:
+            suffix = f" – {description.replace(chr(10), ' ')}" if description else ""
+            output_parts.append(f"- [{scope}] {name}{suffix}")
+        if truncated:
+            output_parts.append(f"\n...and more matches were cut off at {max_results} results. Narrow your term.")
+
+        return "\n".join(output_parts)
+
     def get_tools(self) -> list:
         """Get all tools (default + custom). Override in subclasses to add custom tools."""
         try:
@@ -361,6 +458,7 @@ class TaxonomyAgentToolkit:
             dynamic_retrieve_entity_properties,
             retrieve_event_property_values,
             dynamic_retrieve_entity_property_values,
+            search_properties,
             ask_user_for_help,
         ]
 
@@ -916,6 +1014,7 @@ class TaxonomyAgentToolkit:
             "entity_mapping": {},  # entity -> [tool_call_id]
             "event_prop_mapping": {},  # (event, property) -> [tool_call_id]
             "event_mapping": {},  # event -> [tool_call_id]
+            "search_properties": [],  # [(term, tool_call_id)]
         }
 
         for tool_name, tool_inputs in tool_metadata.items():
@@ -945,6 +1044,10 @@ class TaxonomyAgentToolkit:
                     event_name = tool_input.arguments.event_name  # type: ignore
                     result["event_properties"].append(event_name)
                     result["event_mapping"].setdefault(event_name, []).append(tool_call_id)
+
+                elif tool_name == "search_properties":
+                    term = tool_input.arguments.term  # type: ignore
+                    result["search_properties"].append((term, tool_call_id))
                 else:
                     raise TaxonomyToolNotFoundError(f"Tool {tool_name} not found in taxonomy toolkit.")
 
@@ -995,6 +1098,13 @@ class TaxonomyAgentToolkit:
             for event_name, result in event_properties.items():
                 for tool_call_id in collected_tools["event_mapping"].get(event_name, []):
                     results[tool_call_id] = result
+
+        if collected_tools["search_properties"]:
+            search_results = await asyncio.gather(
+                *[self.search_properties(term) for term, _ in collected_tools["search_properties"]]
+            )
+            for (_, tool_call_id), result in zip(collected_tools["search_properties"], search_results):
+                results[tool_call_id] = result
 
         return results
 

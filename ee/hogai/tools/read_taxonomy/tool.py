@@ -20,6 +20,7 @@ from .core import (
     ReadEvents,
     ReadEventSamplePropertyValues,
     ReadTaxonomyToolArgs,
+    SearchTaxonomyProperties,
     execute_taxonomy_query,
 )
 
@@ -41,6 +42,7 @@ Use exact `kind` values and field names as shown below:
 - kind: "entity_property_values" — sample values for an entity property. Required: `entity`, `property_name`.
 - kind: "action_properties" — properties for an action. Required: `action_id`.
 - kind: "action_property_values" — sample values for an action property. Required: `action_id`, `property_name`.
+- kind: "search_properties" — search property names and descriptions for a keyword across persons, sessions, groups, and events in one call. Required: `term`. Use this when you know the concept (e.g. "internal user", "subscription plan") but don't know which entity or event it lives on, instead of guessing an entity and dumping its whole property list.
 
 # Examples of when to use the read_taxonomy tool
 
@@ -141,6 +143,7 @@ class ReadTaxonomyTool(MaxTool):
             ReadEntitySamplePropertyValuesWithGroups,  # type: ignore[valid-type]
             ReadActionProperties,
             ReadActionSamplePropertyValues,
+            SearchTaxonomyProperties,
         ]
 
         class ReadTaxonomyToolArgsWithGroups(BaseModel):

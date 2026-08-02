@@ -70,6 +70,7 @@ TAXONOMY_TOOL_USAGE_PROMPT = """
 3. **Tool Workflow**:
    - **For ENTITY properties** (person, session, organization, groups): Use `retrieve_entity_properties` and `retrieve_entity_property_values`
    - **For EVENT properties** (properties of specific events like pageview, signup, etc.): Use `retrieve_event_properties` and `retrieve_event_property_values`
+   - **When you know the concept but not which entity or event it lives on** (e.g. "internal user", "subscription plan"): Use `search_properties` with a keyword instead of guessing an entity and dumping its whole property list.
    - Use `ask_user_for_help` when you need clarification
    - Use `final_answer` only when you have complete information
    - *CRITICAL*: NEVER use entity tools for event properties. NEVER use event tools for entity properties.
@@ -113,6 +114,10 @@ The action input you previously provided didn't pass the validation and raised a
 You must fix the exception and try again.
 """.strip()
 
-ITERATION_LIMIT_PROMPT = """I've tried several approaches but haven't been able to find the right options. Could you please be more specific about what kind of properties you're looking for? For example:
-- What type of events or actions are you interested in?
-- Are you looking for specific values or ranges?"""
+ITERATION_LIMIT_PROMPT = """I looked through the events, entities, and properties available in your project (including a keyword search) but couldn't confidently match what you're asking for to something that's tracked. This could mean the concept isn't captured yet, or it's just named differently than I guessed.
+
+Here's what would help me move forward:
+- Give me the exact property or event name, if you know it
+- Describe a related value I could filter on instead (e.g. an email domain or account ID)
+- Point me to an existing cohort that already captures this group
+- If it's genuinely not tracked yet, it may need to be instrumented before it can be used in an insight"""

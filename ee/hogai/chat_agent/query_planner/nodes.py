@@ -50,6 +50,7 @@ from .toolkit import (
     retrieve_action_property_values,
     retrieve_event_properties,
     retrieve_event_property_values,
+    search_properties_tool,
 )
 
 
@@ -163,6 +164,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
                 retrieve_event_property_values,
                 retrieve_action_property_values,
                 dynamic_retrieve_entity_property_values,
+                search_properties_tool,
                 ask_user_for_help,
                 final_answer,
             ],
@@ -318,6 +320,8 @@ class QueryPlannerToolsNode(AssistantNode, ABC):
             output = toolkit.retrieve_entity_properties(input.arguments.entity)  # type: ignore
         elif input.name == "retrieve_entity_property_values":
             output = toolkit.retrieve_entity_property_values(input.arguments.entity, input.arguments.property_name)  # type: ignore
+        elif input.name == "search_properties":
+            output = toolkit.search_properties(input.arguments.term)  # type: ignore
         else:
             output = toolkit.handle_incorrect_response(input)
         return output
