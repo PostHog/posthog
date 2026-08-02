@@ -244,7 +244,7 @@ mod tests {
             },
             pools,
             None,
-            Arc::new(EmittedVersions::new()),
+            Arc::new(EmittedVersions::new(1_000_000)),
         )
     }
 

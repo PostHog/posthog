@@ -138,6 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let metrics_router = setup_metrics_routes(health_router);
     preregister_metrics();
     counter!("personhog_leader_unresolved_versions_total").increment(0);
+    counter!("personhog_leader_unresolved_versions_spilled_total").increment(0);
     gauge!("personhog_leader_unresolved_versions").set(0.0);
 
     tokio::spawn(async move {

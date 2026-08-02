@@ -108,6 +108,10 @@ impl PersonHogLeaderService {
         warnings: WarningsProducer,
         fenced: Option<Arc<FencedChangelogProducers>>,
     ) -> Self {
+        // The same bound the dirty index uses: both hold one entry per
+        // person written but not yet settled, and both are attackable the
+        // same way.
+        let emitted_capacity = dirty_index.max_entries();
         Self {
             cache,
             locks,
@@ -121,7 +125,7 @@ impl PersonHogLeaderService {
             size_limits,
             warnings,
             fenced,
-            emitted_versions: Arc::new(EmittedVersions::new()),
+            emitted_versions: Arc::new(EmittedVersions::new(emitted_capacity)),
         }
     }
 

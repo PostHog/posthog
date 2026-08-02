@@ -30,24 +30,68 @@ use crate::cache::PersonCacheKey;
 #[derive(Default)]
 pub struct EmittedVersions {
     floors: DashMap<(u32, PersonCacheKey), i64>,
+    /// The coarse fallback once `floors` is full: one spent version per
+    /// partition rather than per person.
+    ///
+    /// A floor is only ever cleared by a later successful write for the
+    /// same person, so persons written once and abandoned leave entries
+    /// nothing collects — and a client can manufacture exactly that by
+    /// updating unique persons while produce latency sits above its own
+    /// deadline. Refusing writes at the bound would answer a memory
+    /// exhaustion with an availability one, and these entries do not
+    /// drain, so the refusal would never lift.
+    ///
+    /// Spilling keeps the safety property and gives up only precision:
+    /// every person in the partition derives past the spilled version, so
+    /// versions jump once and stay monotonic. Nothing reads a version as
+    /// an update count, and the writer's guard only cares that it
+    /// increases.
+    partition_floors: DashMap<u32, i64>,
+    capacity: usize,
 }
 
 impl EmittedVersions {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            ..Default::default()
+        }
     }
 
     /// The version a write for this person must exceed: whatever the
     /// caller derived from cached or recovered state, or an unresolved
     /// emission, whichever is further ahead.
     pub fn floor_for(&self, partition: u32, key: &PersonCacheKey, known: i64) -> i64 {
-        self.floors
+        let per_key = self
+            .floors
             .get(&(partition, key.clone()))
-            .map(|floor| known.max(*floor))
-            .unwrap_or(known)
+            .map(|floor| *floor)
+            .unwrap_or(known);
+        let per_partition = self
+            .partition_floors
+            .get(&partition)
+            .map(|floor| *floor)
+            .unwrap_or(known);
+        known.max(per_key).max(per_partition)
     }
 
     fn raise(&self, partition: u32, key: PersonCacheKey, version: i64) {
+        // At the bound, spill to the partition rather than admit an entry
+        // nothing will collect. Keys already tracked keep their precise
+        // floor, so the degradation only reaches persons arriving after
+        // the map is full.
+        if self.floors.len() >= self.capacity
+            && !self.floors.contains_key(&(partition, key.clone()))
+        {
+            {
+                let mut entry = self.partition_floors.entry(partition).or_insert(version);
+                if *entry < version {
+                    *entry = version;
+                }
+            }
+            counter!("personhog_leader_unresolved_versions_spilled_total").increment(1);
+            return;
+        }
         // The entry guard holds a write lock on its shard, and `len`
         // walks every shard — including that one. Anything that reads the
         // map as a whole has to wait until the guard is gone.
@@ -79,6 +123,7 @@ impl EmittedVersions {
     /// is the authority these floors stand in for.
     pub fn clear_partition(&self, partition: u32) {
         self.floors.retain(|(owner, _), _| *owner != partition);
+        self.partition_floors.remove(&partition);
         gauge!("personhog_leader_unresolved_versions").set(self.floors.len() as f64);
     }
 
@@ -172,7 +217,7 @@ mod tests {
     /// version, so the next write derives past it instead of colliding.
     #[test]
     fn an_unanswered_emission_raises_the_floor() {
-        let versions = Arc::new(EmittedVersions::new());
+        let versions = Arc::new(EmittedVersions::new(8));
         let mut guard = EmittedVersionGuard::new(Arc::clone(&versions), 0, key(1), 5);
         guard.emitting();
         drop(guard);
@@ -184,7 +229,7 @@ mod tests {
     /// the ordinary derivation already accounts for it.
     #[test]
     fn a_resolved_emission_leaves_no_floor() {
-        let versions = Arc::new(EmittedVersions::new());
+        let versions = Arc::new(EmittedVersions::new(8));
         let mut guard = EmittedVersionGuard::new(Arc::clone(&versions), 0, key(1), 5);
         guard.emitting();
         guard.resolved();
@@ -197,7 +242,7 @@ mod tests {
     /// retryable failures do not march the counter forward.
     #[test]
     fn a_discarded_emission_leaves_no_floor() {
-        let versions = Arc::new(EmittedVersions::new());
+        let versions = Arc::new(EmittedVersions::new(8));
         let mut guard = EmittedVersionGuard::new(Arc::clone(&versions), 0, key(1), 5);
         guard.emitting();
         guard.discarded();
@@ -209,7 +254,7 @@ mod tests {
     /// could reach the broker.
     #[test]
     fn an_unarmed_guard_records_nothing() {
-        let versions = Arc::new(EmittedVersions::new());
+        let versions = Arc::new(EmittedVersions::new(8));
         drop(EmittedVersionGuard::new(
             Arc::clone(&versions),
             0,
@@ -220,11 +265,73 @@ mod tests {
         assert_eq!(versions.floor_for(0, &key(1), 4), 4);
     }
 
+    /// A floor is only cleared by a later successful write for the same
+    /// person, so persons written once and abandoned leave entries
+    /// nothing collects — and a client can manufacture exactly that by
+    /// updating unique persons while produce latency sits above its own
+    /// deadline, one entry per person, indefinitely.
+    ///
+    /// At the bound the state stops growing, and the safety property
+    /// survives the degradation: a version spilled to the partition is
+    /// still a version no later write can reuse.
+    #[test]
+    fn unresolved_versions_stop_growing_at_the_bound() {
+        let versions = Arc::new(EmittedVersions::new(4));
+        for person_id in 0..64 {
+            let mut guard =
+                EmittedVersionGuard::new(Arc::clone(&versions), 0, key(person_id), 100 + person_id);
+            guard.emitting();
+        }
+        assert!(
+            versions.len() <= 4,
+            "unresolved versions grew to {} against a bound of 4",
+            versions.len()
+        );
+
+        // Every spilled version is still refused to a later write, for
+        // every person in the partition — that is what makes shedding
+        // safe rather than a silent reopening of the collision.
+        let highest = 100 + 63;
+        for person_id in 0..64 {
+            assert!(
+                versions.floor_for(0, &key(person_id), 0) >= highest,
+                "person {person_id} could reuse a version the pod already emitted"
+            );
+        }
+    }
+
+    /// The spill is scoped to its partition: an unrelated one must not
+    /// inherit a floor, or one attacked partition would inflate versions
+    /// across the whole pod.
+    #[test]
+    fn a_spilled_floor_does_not_cross_partitions() {
+        let versions = Arc::new(EmittedVersions::new(1));
+        for person_id in 0..8 {
+            let mut guard = EmittedVersionGuard::new(Arc::clone(&versions), 0, key(person_id), 500);
+            guard.emitting();
+        }
+        assert_eq!(versions.floor_for(1, &key(0), 3), 3);
+    }
+
+    /// Releasing a partition drops its coarse floor as well as its
+    /// precise ones, or a re-acquisition would derive past a version the
+    /// changelog has already settled.
+    #[test]
+    fn releasing_a_partition_drops_its_spilled_floor() {
+        let versions = Arc::new(EmittedVersions::new(1));
+        for person_id in 0..8 {
+            let mut guard = EmittedVersionGuard::new(Arc::clone(&versions), 0, key(person_id), 500);
+            guard.emitting();
+        }
+        versions.clear_partition(0);
+        assert_eq!(versions.floor_for(0, &key(0), 3), 3);
+    }
+
     /// Later state supersedes the floor; an older confirmation must not
     /// clear a newer doubt.
     #[test]
     fn only_a_version_that_covers_the_floor_clears_it() {
-        let versions = Arc::new(EmittedVersions::new());
+        let versions = Arc::new(EmittedVersions::new(8));
         let mut guard = EmittedVersionGuard::new(Arc::clone(&versions), 0, key(1), 9);
         guard.emitting();
         drop(guard);

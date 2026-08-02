@@ -359,7 +359,7 @@ pub async fn start_leader_pod(
         warming,
         pools,
         None,
-        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new()),
+        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
     let pod = PodHandle::new(
         store,
@@ -442,7 +442,7 @@ pub async fn start_leader_pod_with_lease_ttl(
         warming,
         pools,
         None,
-        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new()),
+        std::sync::Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
     );
     let pod = PodHandle::new(
         store,
