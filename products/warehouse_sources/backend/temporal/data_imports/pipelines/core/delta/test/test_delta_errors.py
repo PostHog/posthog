@@ -86,7 +86,7 @@ class TestIsTransientDeltaMaintenanceError:
             ("wrong_exception_type", RuntimeError("Optimize selected-file scan failed"), False),
         ]
     )
-    def test_matches_only_the_racy_optimize_scan_signature(self, _name: str, error: Exception, expected: bool):
+    def test_classifies_transient_delta_maintenance_errors(self, _name: str, error: Exception, expected: bool):
         assert is_transient_delta_maintenance_error(error) is expected
 
 
