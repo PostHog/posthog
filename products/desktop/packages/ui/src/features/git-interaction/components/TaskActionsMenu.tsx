@@ -7,8 +7,12 @@ import {
   GitCommit,
   GitFork,
   GitPullRequest,
+  PushPin,
 } from "@phosphor-icons/react";
-import { getPrVisualConfig } from "@posthog/core/git-interaction/prStatus";
+import {
+  getPrVisualConfig,
+  parsePrNumber,
+} from "@posthog/core/git-interaction/prStatus";
 import { parseGithubUrl } from "@posthog/git/utils";
 import {
   ButtonGroup,
@@ -22,6 +26,7 @@ import type { PrActionType } from "@posthog/shared";
 import { ChevronDownIcon } from "@radix-ui/react-icons";
 import { Button, DropdownMenu, Flex, Spinner, Text } from "@radix-ui/themes";
 import { ChevronDown } from "lucide-react";
+import type { SyntheticEvent } from "react";
 import { Tooltip } from "../../../primitives/Tooltip";
 import { toast } from "../../../primitives/toast";
 import { useLocalRepoPath } from "../../workspace/useLocalRepoPath";
@@ -74,7 +79,10 @@ const NO_WORK_SLOTS = new Set<GitMenuActionId>([
  *
  * Trigger is the PR badge when a PR exists (click → GitHub), otherwise the
  * primary git action button (click → execute). Chevron opens the full action
- * list. Cloud tasks without a PR render nothing.
+ * list; when the task has several PRs (multi-repository tasks) the badge
+ * carries a "+N" count and the menu lists every PR — click opens it on
+ * GitHub, the pin swaps which one the badge shows. Cloud tasks without a PR
+ * render nothing.
  */
 export function TaskActionsMenu({ taskId, isCloud }: TaskActionsMenuProps) {
   // Git state (skipped for cloud — useGitInteraction handles undefined repo).
@@ -123,8 +131,8 @@ export function TaskActionsMenu({ taskId, isCloud }: TaskActionsMenuProps) {
             merged={merged}
             draft={draft}
             branchName={headRefName}
-            otherPrs={buildOtherPrItems(
-              pr.url,
+            prItems={buildPrMenuItems(
+              { url: pr.url, state: pr.state, merged, draft },
               otherUrls,
               prSummaries,
               otherPrDetails,
@@ -133,7 +141,7 @@ export function TaskActionsMenu({ taskId, isCloud }: TaskActionsMenuProps) {
             gitItems={gitItems}
             onGitSelect={gitActions.openAction}
             onPrSelect={executePrAction}
-            onOtherPrSelect={setPrimaryPr}
+            onPinPr={setPrimaryPr}
           />
         ) : (
           <GitActionControl
@@ -226,37 +234,55 @@ export function TaskActionsMenu({ taskId, isCloud }: TaskActionsMenuProps) {
 
 // --- Trigger when a PR exists: colored badge link + combined dropdown ---
 
-interface OtherPrItem {
+interface PrMenuItem {
   url: string;
   label: string;
   summary: string | null;
   repoLabel: string | null;
   visual: ReturnType<typeof getPrVisualConfig> | null;
+  isPrimary: boolean;
 }
 
-function buildOtherPrItems(
-  primaryUrl: string,
+interface PrimaryPrDetails {
+  url: string;
+  state: string;
+  merged: boolean;
+  draft: boolean;
+}
+
+/**
+ * Every PR the task has, primary first. Repo labels only appear when the PRs
+ * span more than one repo (multi-repository tasks) — for single-repo tasks
+ * the number alone is unambiguous.
+ */
+function buildPrMenuItems(
+  primary: PrimaryPrDetails,
   otherUrls: string[],
   summaries: Record<string, string>,
   details: Record<string, PrStateDetails>,
-): OtherPrItem[] {
-  const primary = parseGithubUrl(primaryUrl);
-  return otherUrls.map((url) => {
-    const parsed = parseGithubUrl(url);
-    const sameRepo =
-      !!parsed &&
-      !!primary &&
-      parsed.owner.toLowerCase() === primary.owner.toLowerCase() &&
-      parsed.repo.toLowerCase() === primary.repo.toLowerCase();
-    const detail = details[url];
+): PrMenuItem[] {
+  const urls = [primary.url, ...otherUrls];
+  const parsedByUrl = new Map(urls.map((url) => [url, parseGithubUrl(url)]));
+  const repoKeys = new Set(
+    urls.map((url) => {
+      const parsed = parsedByUrl.get(url);
+      return parsed ? `${parsed.owner}/${parsed.repo}`.toLowerCase() : url;
+    }),
+  );
+  const multiRepo = repoKeys.size > 1;
+  return urls.map((url) => {
+    const parsed = parsedByUrl.get(url);
+    const isPrimary = url === primary.url;
+    const detail = isPrimary ? primary : details[url];
     return {
       url,
       label: parsed?.kind === "pr" ? `#${parsed.number}` : url,
       summary: summaries[url] ?? null,
-      repoLabel: parsed && !sameRepo ? `${parsed.owner}/${parsed.repo}` : null,
+      repoLabel: multiRepo && parsed ? `${parsed.owner}/${parsed.repo}` : null,
       visual: detail
         ? getPrVisualConfig(detail.state, detail.merged, detail.draft)
         : null,
+      isPrimary,
     };
   });
 }
@@ -267,12 +293,12 @@ interface PrBadgeControlProps {
   merged: boolean;
   draft: boolean;
   branchName: string | null;
-  otherPrs: OtherPrItem[];
+  prItems: PrMenuItem[];
   isPrPending: boolean;
   gitItems: GitMenuAction[];
   onGitSelect: (id: GitMenuActionId) => void;
   onPrSelect: (action: PrActionType) => void;
-  onOtherPrSelect: (url: string) => void;
+  onPinPr: (url: string) => void;
 }
 
 function PrBadgeControl({
@@ -281,17 +307,21 @@ function PrBadgeControl({
   merged,
   draft,
   branchName,
-  otherPrs,
+  prItems,
   isPrPending,
   gitItems,
   onGitSelect,
   onPrSelect,
-  onOtherPrSelect,
+  onPinPr,
 }: PrBadgeControlProps) {
   const config = getPrVisualConfig(prState, merged, draft);
   const lifecycleItems = config.actions;
+  const hasMultiplePrs = prItems.length > 1;
+  const mergedCount = prItems.filter(
+    (item) => item.visual?.label === "Merged",
+  ).length;
   const hasMenuItems = gitItems.length + lifecycleItems.length > 0;
-  const hasDropdown = hasMenuItems || !!branchName || otherPrs.length > 0;
+  const hasDropdown = hasMenuItems || !!branchName || hasMultiplePrs;
 
   const copyBranchName = async () => {
     if (!branchName) return;
@@ -312,6 +342,7 @@ function PrBadgeControl({
         draft={draft}
         isPrPending={isPrPending}
         attachedRight={hasDropdown}
+        otherCount={prItems.length - 1}
       />
       {hasDropdown && (
         <DropdownMenu.Root>
@@ -332,7 +363,22 @@ function PrBadgeControl({
               <ChevronDownIcon />
             </Button>
           </DropdownMenu.Trigger>
-          <DropdownMenu.Content size="1" align="end">
+          <DropdownMenu.Content size="1" align="end" className="max-w-[320px]">
+            {hasMultiplePrs && (
+              <>
+                <DropdownMenu.Label>
+                  Pull requests
+                  {mergedCount > 0 &&
+                    ` · ${mergedCount} of ${prItems.length} merged`}
+                </DropdownMenu.Label>
+                {prItems.map((item) => (
+                  <PrMenuRow key={item.url} item={item} onPin={onPinPr} />
+                ))}
+              </>
+            )}
+            {hasMultiplePrs && gitItems.length > 0 && (
+              <DropdownMenu.Separator />
+            )}
             {gitItems.map((item) => (
               <GitDropdownItem
                 key={item.id}
@@ -341,8 +387,14 @@ function PrBadgeControl({
                 renderAs="radix"
               />
             ))}
-            {gitItems.length > 0 && lifecycleItems.length > 0 && (
-              <DropdownMenu.Separator />
+            {(gitItems.length > 0 || hasMultiplePrs) &&
+              lifecycleItems.length > 0 && <DropdownMenu.Separator />}
+            {/* With several PRs, scope the lifecycle actions to the badge's PR
+                so "Close PR" can't read as closing all of them. */}
+            {hasMultiplePrs && lifecycleItems.length > 0 && (
+              <DropdownMenu.Label>
+                {parsePrNumber(prUrl) ? `#${parsePrNumber(prUrl)}` : "This PR"}
+              </DropdownMenu.Label>
             )}
             {lifecycleItems.map((action) => (
               <DropdownMenu.Item
@@ -355,49 +407,9 @@ function PrBadgeControl({
                 </Flex>
               </DropdownMenu.Item>
             ))}
-            {otherPrs.length > 0 && (
-              <>
-                {hasMenuItems && <DropdownMenu.Separator />}
-                <DropdownMenu.Sub>
-                  <DropdownMenu.SubTrigger>
-                    <Flex align="center" gap="2">
-                      <GitPullRequest size={12} weight="bold" />
-                      <Text size="1">Other PRs</Text>
-                    </Flex>
-                  </DropdownMenu.SubTrigger>
-                  <DropdownMenu.SubContent>
-                    {otherPrs.map((otherPr) => (
-                      <DropdownMenu.Item
-                        key={otherPr.url}
-                        onSelect={() => onOtherPrSelect(otherPr.url)}
-                      >
-                        <Flex align="center" gap="2">
-                          <OtherPrStateIcon visual={otherPr.visual} />
-                          <Text size="1">
-                            {otherPr.label}
-                            {otherPr.summary && <Text> {otherPr.summary}</Text>}
-                            {otherPr.visual && (
-                              <Text color={otherPr.visual.color}>
-                                {" "}
-                                · {otherPr.visual.label}
-                              </Text>
-                            )}
-                            {otherPr.repoLabel && (
-                              <Text color="gray"> · {otherPr.repoLabel}</Text>
-                            )}
-                          </Text>
-                        </Flex>
-                      </DropdownMenu.Item>
-                    ))}
-                  </DropdownMenu.SubContent>
-                </DropdownMenu.Sub>
-              </>
-            )}
             {branchName && (
               <>
-                {(hasMenuItems || otherPrs.length > 0) && (
-                  <DropdownMenu.Separator />
-                )}
+                {(hasMenuItems || hasMultiplePrs) && <DropdownMenu.Separator />}
                 <DropdownMenu.Item onSelect={copyBranchName}>
                   <Flex align="center" gap="2">
                     <Copy size={12} weight="bold" />
@@ -413,7 +425,87 @@ function PrBadgeControl({
   );
 }
 
-function OtherPrStateIcon({ visual }: { visual: OtherPrItem["visual"] }) {
+/**
+ * One PR in the dropdown's pull-request list. The row is a link (click →
+ * GitHub); the trailing pin swaps which PR the header badge shows. The
+ * primary row wears a filled pin, others reveal theirs on hover.
+ */
+function PrMenuRow({
+  item,
+  onPin,
+}: {
+  item: PrMenuItem;
+  onPin: (url: string) => void;
+}) {
+  // Swallow the full pointer sequence so pinning neither follows the link
+  // nor lets the menu treat it as selecting the row.
+  const interceptPointer = (e: SyntheticEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  return (
+    <DropdownMenu.Item asChild>
+      <a
+        href={item.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group h-auto py-1"
+      >
+        <Flex align="center" gap="2" className="min-w-0 flex-1">
+          <PrStateIcon visual={item.visual} />
+          <Flex direction="column" className="min-w-0 flex-1">
+            <Flex align="center" gap="1" className="min-w-0">
+              <Text size="1" weight="medium" className="shrink-0">
+                {item.label}
+              </Text>
+              {item.visual && (
+                <Text size="1" color={item.visual.color} className="shrink-0">
+                  {item.visual.label}
+                </Text>
+              )}
+              {item.repoLabel && (
+                <Text size="1" color="gray" className="truncate">
+                  {item.repoLabel}
+                </Text>
+              )}
+            </Flex>
+            {item.summary && (
+              <Text size="1" color="gray" className="truncate">
+                {item.summary}
+              </Text>
+            )}
+          </Flex>
+          {item.isPrimary ? (
+            <PushPin
+              size={12}
+              weight="fill"
+              className="shrink-0 text-(--gray-9)"
+              aria-label="Shown in the task header"
+            />
+          ) : (
+            <button
+              type="button"
+              title={`Show ${item.label} in the task header`}
+              aria-label={`Show ${item.label} in the task header`}
+              className="shrink-0 rounded p-0.5 text-(--gray-11) opacity-0 transition-opacity hover:bg-(--gray-a4) focus-visible:opacity-100 group-hover:opacity-100"
+              onPointerDown={interceptPointer}
+              onPointerUp={interceptPointer}
+              onClick={(e) => {
+                interceptPointer(e);
+                onPin(item.url);
+              }}
+            >
+              <PushPin size={12} />
+            </button>
+          )}
+        </Flex>
+      </a>
+    </DropdownMenu.Item>
+  );
+}
+
+function PrStateIcon({ visual }: { visual: PrMenuItem["visual"] }) {
   if (!visual) return <GitPullRequest size={12} weight="bold" />;
   const StateIcon = getPrVisualIcon(visual.icon);
   return (

@@ -23,6 +23,11 @@ interface PRBadgeLinkProps {
    * Radix Button.
    */
   compact?: boolean;
+  /**
+   * How many further PRs the task has beyond this one — rendered as a "+N"
+   * suffix so multi-repo tasks signal their other PRs at a glance.
+   */
+  otherCount?: number;
 }
 
 const COMPACT_COLOR_CLASSES: Record<PrVisualConfig["color"], string> = {
@@ -46,6 +51,7 @@ export function PRBadgeLink({
   isPrPending = false,
   attachedRight = false,
   compact = false,
+  otherCount = 0,
 }: PRBadgeLinkProps) {
   const config = getPrVisualConfig(prState, merged, draft);
   const PrIcon = getPrVisualIcon(config.icon);
@@ -69,6 +75,7 @@ export function PRBadgeLink({
           {config.label}
           {prNumber && ` #${prNumber}`}
         </span>
+        {otherCount > 0 && <span className="opacity-70">+{otherCount}</span>}
       </a>
     );
   }
@@ -96,6 +103,9 @@ export function PRBadgeLink({
           <Text size="1">
             {config.label}
             {prNumber && ` #${prNumber}`}
+            {otherCount > 0 && (
+              <span className="ml-1 opacity-60">+{otherCount}</span>
+            )}
           </Text>
         </Flex>
       </a>
