@@ -1047,15 +1047,26 @@ export const TaskChannelsFeedCreateBody = /* @__PURE__ */ zod
  */
 export const taskChannelsPartialUpdateBodyNameMax = 128
 
-export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        name: zod
-            .string()
-            .max(taskChannelsPartialUpdateBodyNameMax)
-            .optional()
-            .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
-    })
-    .describe('Request body for creating (resolve-or-create) or renaming a public channel.')
+export const taskChannelsPartialUpdateBodyRepositoriesItemMax = 255
+
+export const taskChannelsPartialUpdateBodyRepositoriesMax = 10
+
+export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(taskChannelsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Channel name, rendered as #<name>. Normalized to lowercase-dashed.'),
+    github_integration: zod
+        .number()
+        .nullish()
+        .describe('Team GitHub integration used for repositories linked to this channel.'),
+    repositories: zod
+        .array(zod.string().max(taskChannelsPartialUpdateBodyRepositoriesItemMax))
+        .max(taskChannelsPartialUpdateBodyRepositoriesMax)
+        .optional()
+        .describe('GitHub repositories inherited by new tasks in this channel.'),
+})
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.

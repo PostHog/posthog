@@ -1128,6 +1128,9 @@ export interface ChannelDTOApi {
     id: string
     name: string
     channel_type: string
+    /** @nullable */
+    github_integration: number | null
+    repositories: string[]
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
 }
@@ -1203,15 +1206,23 @@ export interface ChannelFeedMessageWriteApi {
     created_at?: string
 }
 
-/**
- * Request body for creating (resolve-or-create) or renaming a public channel.
- */
-export interface PatchedChannelWriteApi {
+export interface PatchedChannelUpdateApi {
     /**
      * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
      * @maxLength 128
      */
     name?: string
+    /**
+     * Team GitHub integration used for repositories linked to this channel.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * GitHub repositories inherited by new tasks in this channel.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
 }
 
 /**

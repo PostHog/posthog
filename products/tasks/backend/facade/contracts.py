@@ -176,6 +176,8 @@ class ChannelDTO:
     id: UUID
     name: str
     channel_type: str
+    github_integration: int | None
+    repositories: list[str]
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
 

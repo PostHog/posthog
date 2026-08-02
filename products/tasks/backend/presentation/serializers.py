@@ -1450,7 +1450,15 @@ class ChannelSerializer(DataclassSerializer):
 
     class Meta:
         dataclass = ChannelDTO
-        fields = ["id", "name", "channel_type", "created_at", "created_by"]
+        fields = [
+            "id",
+            "name",
+            "channel_type",
+            "github_integration",
+            "repositories",
+            "created_at",
+            "created_by",
+        ]
 
 
 class ChannelWriteSerializer(serializers.Serializer):
@@ -1459,6 +1467,56 @@ class ChannelWriteSerializer(serializers.Serializer):
     name = serializers.CharField(
         max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
     )
+
+
+class ChannelUpdateSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=128,
+        required=False,
+        help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
+    )
+    github_integration = serializers.PrimaryKeyRelatedField(
+        queryset=Integration.objects.filter(kind="github"),
+        required=False,
+        allow_null=True,
+        help_text="Team GitHub integration used for repositories linked to this channel.",
+    )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=10,
+        help_text="GitHub repositories inherited by new tasks in this channel.",
+    )
+
+    def validate_github_integration(self, value):
+        if value is not None and value.team_id != self.context["team_id"]:
+            raise serializers.ValidationError("GitHub integration must belong to this project")
+        return value
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        repositories = [TaskWriteSerializer().validate_repository(repository) for repository in value]
+        if len(set(repositories)) != len(repositories):
+            raise serializers.ValidationError("Repositories must be unique")
+        return repositories
+
+    def validate(self, attrs: dict) -> dict:
+        repositories = attrs.get("repositories")
+        integration = attrs.get("github_integration")
+        if repositories is None:
+            if "github_integration" in attrs:
+                raise serializers.ValidationError({"repositories": "Required when changing the GitHub integration"})
+            return attrs
+        if repositories and integration is None:
+            raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
+        if repositories and integration:
+            inaccessible = inaccessible_repositories_via_integration(
+                self.context["team_id"], integration.id, repositories
+            )
+            if inaccessible:
+                raise serializers.ValidationError(
+                    {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
+                )
+        return attrs
 
 
 class TaskThreadMessageSerializer(DataclassSerializer):

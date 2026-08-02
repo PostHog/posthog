@@ -380,6 +380,7 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
+  private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
   private readonly evaluatedPrUrls = new Set<string>();
@@ -1574,6 +1575,9 @@ export class AgentServer {
         return null;
       }),
     ]);
+    this.taskRepositories =
+      preTask?.repositories ??
+      (preTask?.repository ? [preTask.repository] : []);
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
@@ -3681,6 +3685,35 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
 `;
     }
 
+    if (this.taskRepositories.length > 1) {
+      const repositoryList = this.taskRepositories
+        .map(
+          (repository) =>
+            `- ${repository}: /tmp/workspace/repos/${repository.toLowerCase()}`,
+        )
+        .join("\n");
+      const publishing =
+        this.config.createPr === false
+          ? "Do not create branches, commits, push changes, or open pull requests in this run."
+          : shouldAutoCreatePr
+            ? "After completing code changes, create a verified commit and draft pull request in every repository you changed."
+            : "Do not create branches, commits, push changes, or open pull requests unless the user explicitly asks.";
+      return `${identityInstructions}
+# Cloud task execution
+
+The task workspace contains these repositories:
+${repositoryList}
+
+- Start from /tmp/workspace and run repository-specific commands from the matching path.
+- Treat every repository as an equal part of the task. Do not infer priority from list order.
+- Keep branches, commits, diffs, and pull requests separate for each repository.
+- ${publishing}
+${publicRepoSafetyInstruction}
+${prMentionSafetyInstruction}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
+`;
+    }
+
     if (!this.config.repositoryPath) {
       const publishInstructions =
         this.config.createPr === false
@@ -4677,7 +4710,7 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
   private async captureCheckpointState(
     localGitState?: HandoffLocalGitState,
   ): Promise<void> {
-    if (!this.session || !this.config.repositoryPath) {
+    if (!this.session) {
       return;
     }
     if (!this.posthogAPI) {
@@ -4686,38 +4719,57 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${
       );
       return;
     }
+    const session = this.session;
 
-    const tracker = new HandoffCheckpointTracker({
-      repositoryPath: this.config.repositoryPath ?? "/tmp/workspace",
-      taskId: this.session.payload.task_id,
-      runId: this.session.payload.run_id,
-      apiClient: this.posthogAPI,
-      logger: this.logger.child("HandoffCheckpoint"),
-    });
+    const repositories =
+      this.taskRepositories.length > 1
+        ? this.taskRepositories.map((repository) => ({
+            repository,
+            path: `/tmp/workspace/repos/${repository.toLowerCase()}`,
+          }))
+        : this.config.repositoryPath
+          ? [
+              {
+                repository: this.taskRepositories[0],
+                path: this.config.repositoryPath,
+              },
+            ]
+          : [];
 
-    const checkpoint = await tracker.captureForHandoff(localGitState);
-    if (!checkpoint) return;
+    await Promise.all(
+      repositories.map(async ({ repository, path }) => {
+        const tracker = new HandoffCheckpointTracker({
+          repositoryPath: path,
+          taskId: session.payload.task_id,
+          runId: session.payload.run_id,
+          apiClient: this.posthogAPI,
+          logger: this.logger.child("HandoffCheckpoint"),
+        });
+        const checkpoint = await tracker.captureForHandoff(
+          repositories.length === 1 ? localGitState : undefined,
+        );
+        if (!checkpoint) return;
 
-    const checkpointWithDevice: GitCheckpointEvent = {
-      ...checkpoint,
-      device: this.session.deviceInfo,
-    };
-
-    const notification = {
-      jsonrpc: "2.0" as const,
-      method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
-      params: checkpointWithDevice,
-    };
-
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification,
-    });
-
-    this.session.logWriter.appendRawLine(
-      this.session.payload.run_id,
-      JSON.stringify(notification),
+        const checkpointWithDevice: GitCheckpointEvent = {
+          ...checkpoint,
+          repository,
+          device: session.deviceInfo,
+        };
+        const notification = {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
+          params: checkpointWithDevice,
+        };
+        this.broadcastEvent({
+          type: "notification",
+          timestamp: new Date().toISOString(),
+          notification,
+        });
+        session.logWriter.appendRawLine(
+          session.payload.run_id,
+          JSON.stringify(notification),
+        );
+      }),
     );
   }
 

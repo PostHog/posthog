@@ -21,6 +21,9 @@ function makeDeps() {
     getRepositoryByRemoteUrl: vi.fn().mockResolvedValue(null),
     selectDirectory: vi.fn().mockResolvedValue(null),
     addFolder: vi.fn().mockResolvedValue(undefined),
+    getWorktreeLocation: vi.fn().mockResolvedValue("/worktrees"),
+    cloneRepository: vi.fn().mockResolvedValue(undefined),
+    addAdditionalDirectory: vi.fn().mockResolvedValue(undefined),
   };
 
   const dialog: LocalHandoffDialog = {
@@ -114,6 +117,7 @@ describe("LocalHandoffService.afterCommit", () => {
     expect(deps.sessionService.handoffToLocal).toHaveBeenCalledWith(
       "task-1",
       "/repo",
+      undefined,
     );
   });
 
@@ -161,6 +165,7 @@ describe("LocalHandoffService.start", () => {
     expect(deps.sessionService.handoffToLocal).toHaveBeenCalledWith(
       "task-1",
       "/repo",
+      { "https://example.com/repo.git": "/repo" },
     );
   });
 
@@ -180,7 +185,48 @@ describe("LocalHandoffService.start", () => {
 
     expect(deps.dialog.openDirtyTreeForPendingHandoff).toHaveBeenCalledWith(
       [{ path: "a.ts" }],
-      { taskId: "task-1", repoPath: "/repo", branchName: "main" },
+      {
+        taskId: "task-1",
+        repoPath: "/repo",
+        branchName: "main",
+        repositoryPaths: { "https://example.com/repo.git": "/repo" },
+      },
+    );
+  });
+
+  it("reuses local repositories and clones missing ones before handoff", async () => {
+    const deps = makeDeps();
+    const multiRepoTask = {
+      repositories: ["posthog/posthog", "posthog/posthog-js"],
+    } as Task;
+    deps.host.getRepositoryByRemoteUrl = vi
+      .fn()
+      .mockResolvedValueOnce({ path: "/repos/posthog" })
+      .mockResolvedValueOnce(null);
+    deps.sessionService.preflightToLocal.mockResolvedValue({
+      canHandoff: true,
+    });
+
+    await deps.service.start("task-1", multiRepoTask);
+
+    expect(deps.host.cloneRepository).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoUrl: "posthog/posthog-js",
+        targetPath: "/worktrees/linked-repositories/posthog/posthog-js",
+      }),
+    );
+    expect(deps.host.addAdditionalDirectory).toHaveBeenCalledWith({
+      taskId: "task-1",
+      path: "/worktrees/linked-repositories/posthog/posthog-js",
+    });
+    expect(deps.sessionService.handoffToLocal).toHaveBeenCalledWith(
+      "task-1",
+      "/repos/posthog",
+      {
+        "posthog/posthog": "/repos/posthog",
+        "posthog/posthog-js":
+          "/worktrees/linked-repositories/posthog/posthog-js",
+      },
     );
   });
 });

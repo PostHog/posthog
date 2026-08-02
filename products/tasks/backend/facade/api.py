@@ -4105,6 +4105,10 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    channel = validated_data.get("channel")
+    if channel is not None and "repositories" not in validated_data and "repository" not in validated_data:
+        validated_data["repositories"] = channel.repositories
+        validated_data["github_integration"] = channel.github_integration
     if "repositories" in validated_data:
         repositories = validated_data["repositories"]
         validated_data["repository"] = repositories[0] if repositories else None
@@ -5357,6 +5361,8 @@ def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
         id=channel.id,
         name=channel.name,
         channel_type=channel.channel_type,
+        github_integration=channel.github_integration_id,
+        repositories=channel.repositories,
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
     )
@@ -5451,20 +5457,35 @@ def resolve_channel(team_id: int, user_id: int | None, *, name: str) -> contract
     return _channel_to_dto(channel)
 
 
-def rename_channel(channel_id: str | UUID, team_id: int, *, name: str) -> contracts.ChannelDTO | str:
-    """Rename a public channel. Returns the DTO, or an error kind: ``not_found`` /
-    ``invalid_name`` / ``personal`` / ``name_taken``."""
+def update_channel(
+    channel_id: str | UUID,
+    team_id: int,
+    *,
+    name: str | None = None,
+    github_integration: Integration | None = None,
+    repositories: list[str] | None = None,
+) -> contracts.ChannelDTO | str:
+    """Update a channel. Personal channels allow repository configuration but not renaming."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
-    if channel.channel_type == Channel.ChannelType.PERSONAL:
+    if channel.channel_type == Channel.ChannelType.PERSONAL and name is not None:
         return "personal"
-    normalized = normalize_channel_name(name)
-    if not normalized:
-        return "invalid_name"
-    channel.name = normalized
+    update_fields: list[str] = []
+    if name is not None:
+        normalized = normalize_channel_name(name)
+        if not normalized:
+            return "invalid_name"
+        channel.name = normalized
+        update_fields.append("name")
+    if repositories is not None:
+        channel.repositories = repositories
+        channel.github_integration = github_integration if repositories else None
+        update_fields.extend(["repositories", "github_integration"])
+    if not update_fields:
+        return _channel_to_dto(channel)
     try:
-        channel.save(update_fields=["name", "updated_at"])
+        channel.save(update_fields=[*update_fields, "updated_at"])
     except IntegrityError:
         return "name_taken"
     return _channel_to_dto(channel)

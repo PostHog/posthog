@@ -167,6 +167,9 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
     task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+    claimed_pr_urls = (
+        read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
+    )
 
     logger.info(
         "github_pr_webhook_processed",
@@ -202,8 +205,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
         # same-branch webhook for a different PR from marking this run's PR as merged.
-        run_output = task_run.output if isinstance(task_run.output, dict) else {}
-        if run_output.get("pr_url") == pr_url:
+        if pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
         # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
         # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
@@ -214,8 +216,7 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
 
     if task_run and action == "closed" and not merged:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
-        run_output = task_run.output if isinstance(task_run.output, dict) else {}
-        if run_output.get("pr_url") == pr_url:
+        if pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
         # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
         # archives (suppresses) its report so it leaves the inbox instead of lingering.

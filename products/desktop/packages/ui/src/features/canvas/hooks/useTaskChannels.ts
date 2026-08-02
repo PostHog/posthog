@@ -62,6 +62,31 @@ export function useTaskChannels(options?: { enabled?: boolean }): {
   return { channels, personalChannel, isLoading: query.isLoading };
 }
 
+export function useUpdateTaskChannelRepositories() {
+  const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      channelId: string;
+      githubIntegration: number | null;
+      repositories: string[];
+    }) => {
+      if (!client) throw new Error("Not authenticated");
+      return client.updateTaskChannel(input.channelId, {
+        github_integration: input.githubIntegration,
+        repositories: input.repositories,
+      });
+    },
+    onSuccess: (channel) => {
+      queryClient.setQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+        (channels) =>
+          channels?.map((item) => (item.id === channel.id ? channel : item)),
+      );
+    },
+  });
+}
+
 /**
  * Map a folder channel (by display name) onto its backend channel. The "me"
  * folder is the bridge for the personal channel; any other name resolves (or

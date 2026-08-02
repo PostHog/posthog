@@ -1,4 +1,9 @@
-import { FileTextIcon, SparkleIcon } from "@phosphor-icons/react";
+import {
+  FileTextIcon,
+  GitBranchIcon,
+  SparkleIcon,
+  XIcon,
+} from "@phosphor-icons/react";
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
@@ -11,6 +16,7 @@ import {
   Button as QuillButton,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import type { TaskChannel } from "@posthog/shared/domain-types";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
@@ -21,7 +27,13 @@ import {
   useFolderInstructionsMutations,
   useFolderInstructionsVersions,
 } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
+import {
+  useBackendChannel,
+  useUpdateTaskChannelRepositories,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
+import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
   PageHeader,
@@ -68,6 +80,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const channelName =
     channels.find((c) => c.id === channelId)?.name ??
     (spacesLayout ? "Space" : "Channel");
+  const { channel: backendChannel } = useBackendChannel(channelName);
 
   const {
     data: latest,
@@ -346,9 +359,141 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
               className="font-[var(--code-font-family)]"
             />
           )}
+          {spacesLayout && backendChannel ? (
+            <SpaceRepositories channel={backendChannel} />
+          ) : null}
         </Box>
       </ScrollArea>
     </Flex>
+  );
+}
+
+function SpaceRepositories({ channel }: { channel: TaskChannel }) {
+  const {
+    repositories,
+    getIntegrationIdForRepo,
+    isLoadingRepos,
+    isRefreshingRepos,
+    refreshRepositories,
+    hasGithubIntegration,
+  } = useRepositoryIntegration();
+  const update = useUpdateTaskChannelRepositories();
+  const [selected, setSelected] = useState(channel.repositories ?? []);
+  const [integrationId, setIntegrationId] = useState<number | null>(
+    channel.github_integration ?? null,
+  );
+
+  useEffect(() => {
+    setSelected(channel.repositories ?? []);
+    setIntegrationId(channel.github_integration ?? null);
+  }, [channel.github_integration, channel.repositories]);
+
+  const available = repositories.filter((repository) => {
+    const repositoryIntegration = getIntegrationIdForRepo(repository);
+    return (
+      !selected.includes(repository) &&
+      (integrationId === null || repositoryIntegration === integrationId)
+    );
+  });
+
+  const addRepository = (repository: string | null) => {
+    if (!repository) return;
+    const repositoryIntegration = getIntegrationIdForRepo(repository);
+    if (repositoryIntegration == null) return;
+    setIntegrationId(repositoryIntegration);
+    setSelected((current) => [...current, repository]);
+  };
+
+  const removeRepository = (repository: string) => {
+    setSelected((current) => {
+      const next = current.filter((item) => item !== repository);
+      if (next.length === 0) setIntegrationId(null);
+      return next;
+    });
+  };
+
+  const changed =
+    integrationId !== (channel.github_integration ?? null) ||
+    selected.length !== (channel.repositories ?? []).length ||
+    selected.some(
+      (repository, index) => repository !== channel.repositories?.[index],
+    );
+
+  return (
+    <Box className="mt-8 border-gray-6 border-t pt-5">
+      <Flex align="center" gap="2" mb="1">
+        <GitBranchIcon size={16} />
+        <Text size="3" weight="medium">
+          Repositories
+        </Text>
+      </Flex>
+      <Text size="2" color="gray">
+        New tasks in this space can work across these repositories.
+      </Text>
+      <Flex direction="column" gap="3" mt="3" maxWidth="520px">
+        {selected.map((repository) => (
+          <Flex
+            key={repository}
+            align="center"
+            justify="between"
+            className="rounded border border-gray-6 px-3 py-2"
+          >
+            <Text size="2">{repository}</Text>
+            <Button
+              size="1"
+              variant="ghost"
+              color="gray"
+              aria-label={`Remove ${repository}`}
+              disabled={update.isPending}
+              onClick={() => removeRepository(repository)}
+            >
+              <XIcon size={14} />
+            </Button>
+          </Flex>
+        ))}
+        <GitHubRepoPicker
+          value={null}
+          onChange={addRepository}
+          repositories={available}
+          isLoading={isLoadingRepos}
+          isRefreshing={isRefreshingRepos}
+          onRefresh={() => void refreshRepositories()}
+          placeholder={
+            hasGithubIntegration
+              ? "Add repository..."
+              : "Connect GitHub to add repositories"
+          }
+          size="2"
+          disabled={
+            !hasGithubIntegration || selected.length >= 10 || update.isPending
+          }
+        />
+        {update.error ? (
+          <Callout.Root color="red" size="1">
+            <Callout.Text>
+              Couldn't save repositories. Check your GitHub access and try
+              again.
+            </Callout.Text>
+          </Callout.Root>
+        ) : null}
+        <Flex justify="end">
+          <Button
+            size="2"
+            disabled={!changed || update.isPending}
+            onClick={() =>
+              update.mutate({
+                channelId: channel.id,
+                githubIntegration: integrationId,
+                repositories: selected,
+              })
+            }
+          >
+            {update.isPending ? <Spinner size="1" /> : null}
+            Save repositories
+          </Button>
+        </Flex>
+      </Flex>
+    </Box>
   );
 }
 

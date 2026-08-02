@@ -9,7 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
@@ -97,6 +97,33 @@ class ChannelsAPITestCase(TestCase):
         other_client.force_authenticate(self.other_user)
         listed = other_client.get(self._tasks_url(), {"channel": channel_id}).json()["results"]
         self.assertEqual([t["id"] for t in listed], [created.json()["id"]])
+
+    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    def test_new_tasks_inherit_channel_repositories(self, list_repositories):
+        list_repositories.return_value = [
+            {"full_name": "posthog/posthog"},
+            {"full_name": "posthog/posthog-js"},
+        ]
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        configured = self.client.patch(
+            f"{self._channels_url()}{channel_id}/",
+            {
+                "github_integration": integration.id,
+                "repositories": ["posthog/posthog", "posthog/posthog-js"],
+            },
+            format="json",
+        )
+        self.assertEqual(configured.status_code, status.HTTP_200_OK, configured.content)
+
+        created = self.client.post(
+            self._tasks_url(),
+            {"title": "Ship it", "description": "Do the thing", "channel": channel_id},
+        )
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.content)
+        self.assertEqual(created.json()["repositories"], ["posthog/posthog", "posthog/posthog-js"])
+        self.assertEqual(created.json()["github_integration"], integration.id)
 
     def test_public_channel_task_is_readable_but_not_controllable_by_teammates(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
