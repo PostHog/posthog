@@ -73,6 +73,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     _is_truncated_stripe_list_response,
     _RateLimitRetryingRequestsClient,
     _scrub_client_secrets,
+    check_endpoint_permissions,
     get_rows,
     validate_credentials as validate_stripe_credentials,
 )
@@ -438,6 +439,18 @@ class TestValidateCredentialsTransientClassification:
         with patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
             with pytest.raises(StripeTransientError):
                 validate_stripe_credentials("rk_live_x", endpoints=None)
+
+    def test_check_endpoint_permissions_records_transient_without_raising(self):
+        # The schema-selection permissions map must stay whole during a Stripe outage: a transient
+        # error is recorded as the endpoint's reason, not raised out of check_endpoint_permissions.
+        def boom(params=None):
+            raise stripe_lib.APIError("Error while communicating with one of our backends. Sorry about that!")
+
+        resource = StripeResource(method=boom)
+        with patch.object(stripe_module, "_build_resources", return_value={CUSTOMER_RESOURCE_NAME: resource}):
+            results = check_endpoint_permissions("rk_live_x", [CUSTOMER_RESOURCE_NAME])
+
+        assert results[CUSTOMER_RESOURCE_NAME] is not None
 
 
 class TestStripeNestedResourceGetRows:

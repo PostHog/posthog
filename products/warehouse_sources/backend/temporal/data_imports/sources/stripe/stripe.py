@@ -899,10 +899,12 @@ class StripeTransientError(Exception):
 
 
 class StripeValidationError(Exception):
-    """Raised when one or more resources failed with a non-403 exception (network, schema, rate
-    limit, etc.) during credential validation. Distinct from StripePermissionError so callers can
-    decide whether to surface the verbose underlying message — permission errors are
-    self-explanatory from the resource name, but unknown errors need the raw detail."""
+    """Raised when one or more resources failed with a non-403, non-transient exception (e.g. an
+    unexpected response or schema error) during credential validation. Transient Stripe-side
+    failures (5xx, connection, rate limit) raise StripeTransientError instead. Distinct from
+    StripePermissionError so callers can decide whether to surface the verbose underlying message —
+    permission errors are self-explanatory from the resource name, but unknown errors need the raw
+    detail."""
 
     def __init__(self, errors: dict[str, str], missing_permissions: Optional[dict[str, str]] = None):
         self.errors = errors
@@ -1031,7 +1033,13 @@ def check_endpoint_permissions(
             continue
 
         _, probe_resource = _resolve_to_flat(name, all_resources)
-        permission_msg, error_msg = _probe_endpoint(probe_resource)
+        try:
+            permission_msg, error_msg = _probe_endpoint(probe_resource)
+        except StripeTransientError as e:
+            # A transient Stripe outage isn't a per-endpoint verdict, but this function must return
+            # the full picture rather than raise (401 aside), so record it as this endpoint's reason.
+            results[name] = e.stripe_message
+            continue
         results[name] = permission_msg or error_msg
 
     return results

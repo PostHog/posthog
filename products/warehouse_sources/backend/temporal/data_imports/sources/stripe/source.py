@@ -396,11 +396,12 @@ If automatic creation failed due to a permissions error and you're using a restr
                 "Couldn't reach Stripe to validate your credentials. This is usually temporary. Please try again in a few minutes.",
             )
         except StripeValidationError as e:
-            # Non-403 failures (network, schema, rate limit, etc.) are not configuration issues, so
-            # surface the underlying Stripe message verbatim — the cause isn't obvious from the
-            # resource name. Fold any 403s collected before the unknown error into the same toast.
-            # Guard against empty / whitespace-only error strings so we never crash the response
-            # path while reporting a different error.
+            # Non-403, non-transient failures (e.g. an unexpected schema or response error) are not
+            # configuration issues, so surface the underlying Stripe message verbatim — the cause
+            # isn't obvious from the resource name. Transient 5xx/connection/rate-limit failures are
+            # handled by the StripeTransientError branch above. Fold any 403s collected before the
+            # unknown error into the same toast. Guard against empty / whitespace-only error strings
+            # so we never crash the response path while reporting a different error.
             def _first_line(msg: str) -> str:
                 lines = (msg or "").splitlines()
                 return lines[0][:200] if lines else "(no detail)"
