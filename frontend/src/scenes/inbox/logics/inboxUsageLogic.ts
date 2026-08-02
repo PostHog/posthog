@@ -294,7 +294,13 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             submit: ({ prs }) => {
                 const { product, pricePerPrUsd, freePrs } = values
                 if (!product || pricePerPrUsd == null || prs == null) {
-                    return
+                    // Surface this as a submission failure rather than returning silently — kea-forms
+                    // treats a normal return as success and would close the modal without ever
+                    // sending the PATCH, leaving the user believing the limit saved when it didn't.
+                    actions.setLimitFormManualErrors({
+                        prs: 'Could not save the limit — pricing is unavailable. Please try again.',
+                    })
+                    throw new Error('Cannot submit inbox PR limit: missing product or pricing data')
                 }
                 const usd = Math.max(0, prs - freePrs) * pricePerPrUsd
                 actions.updateBillingLimits({ [product.type]: usd })
@@ -384,7 +390,13 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                     return null
                 }
                 const limit = billing?.custom_limits_usd?.[product.type]
-                return limit === 0 || limit ? Number(limit) : null
+                if (limit === 0 || limit) {
+                    return Number(limit)
+                }
+                // Billing can echo the saved limit back under the product's usage key instead of
+                // its type — the billing page's own customLimitUsd selector falls back the same way.
+                const usageKeyLimit = product.usage_key ? billing?.custom_limits_usd?.[product.usage_key] : null
+                return usageKeyLimit === 0 || usageKeyLimit ? Number(usageKeyLimit) : null
             },
         ],
         // The effective monthly PR cap: a user-set custom limit takes precedence, otherwise the

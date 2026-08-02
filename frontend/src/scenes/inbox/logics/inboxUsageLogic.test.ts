@@ -135,4 +135,52 @@ describe('inboxUsageLogic', () => {
         // reading usedPrs, which depends on both.
         expect(logic.values.usedPrs).toBe(1)
     })
+
+    // Billing can echo a saved limit back keyed by the product's usage_key instead of its type —
+    // the billing page's own customLimitUsd selector already falls back to usage_key, and the inbox
+    // widget must match it or it silently reads no limit and falls back to the much higher default.
+    it('reads the custom limit from usage_key when not present under the product type', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    {
+                        custom_limits_usd: { signals_credits: 30 },
+                        products: [
+                            {
+                                type: 'inbox',
+                                usage_key: 'signals_credits',
+                                display_divisor: CREDITS_PER_PR,
+                                current_usage: 0,
+                                tiers: [{ unit_amount_usd: '0.01', up_to: null }],
+                            },
+                        ],
+                    },
+                ],
+            },
+        })
+        featureFlagLogic.mount()
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.customLimitUsd).toBe(30)
+        expect(logic.values.limitPrs).toBe(2)
+    })
+
+    // The submit handler used to return silently when pricing data was unavailable, but kea-forms
+    // treats a plain return as success — closing the modal and reporting a save that never sent a
+    // PATCH. The user believed a spend cap was in place while none had been written.
+    it('fails the submission instead of closing the modal when pricing is unavailable', async () => {
+        logic = await mountWithUsage(0, { period_billable_credits: 0, credited_credits: 0 })
+        expect(logic.values.pricePerPrUsd).toBeNull()
+
+        logic.actions.openModal()
+        logic.actions.setLimitFormValue('prs', 5)
+        logic.actions.submitLimitForm()
+        await expectLogic(logic).toDispatchActions(['submitLimitFormFailure'])
+
+        expect(logic.values.isModalOpen).toBe(true)
+        expect(logic.values.limitFormManualErrors.prs).toBeTruthy()
+    })
 })
