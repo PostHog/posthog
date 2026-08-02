@@ -1,13 +1,23 @@
 import {
+  ArrowsClockwiseIcon,
   FileTextIcon,
   GitBranchIcon,
   GithubLogoIcon,
   SparkleIcon,
-  XIcon,
 } from "@phosphor-icons/react";
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxListFooter,
+  ComboboxValue,
   Empty,
   EmptyContent,
   EmptyDescription,
@@ -33,7 +43,6 @@ import {
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
-import { GitHubRepoPicker } from "@posthog/ui/features/folder-picker/GitHubRepoPicker";
 import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -57,25 +66,9 @@ import {
   Text,
   TextArea,
 } from "@radix-ui/themes";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Mode = "rendered" | "edit";
-
-// The anchor nav on the left of the spaces layout: one row per configurable
-// section on this screen. Future sources (Slack channels, PostHog events, …)
-// get a row here plus a section in the pane.
-const NAV_SECTIONS = [
-  {
-    id: "context-md",
-    label: "CONTEXT.md",
-    icon: <FileTextIcon size={16} />,
-  },
-  {
-    id: "repositories",
-    label: "Repositories",
-    icon: <GitBranchIcon size={16} />,
-  },
-];
 
 // Initial markdown shown when a folder has no instructions yet — gives both
 // humans and agents a structural starting point instead of a blank screen.
@@ -174,20 +167,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
     return versions.find((v) => v.id === selectedVersionId) ?? null;
   }, [selectedVersionId, versions]);
 
-  const sectionIds = useMemo(
-    () =>
-      spacesLayout && backendChannel
-        ? ["context-md", "repositories"]
-        : ["context-md"],
-    [spacesLayout, backendChannel],
-  );
-  const [activeSection, setActiveSection] = useState("context-md");
-  // If the repositories section vanishes (channel row still loading), fall
-  // back to the document rather than an empty pane.
-  const resolvedSection = sectionIds.includes(activeSection)
-    ? activeSection
-    : "context-md";
-
   if (isLoadingLatest) {
     return (
       <Flex align="center" justify="center" className="h-full">
@@ -232,218 +211,180 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
-      <div className="flex min-h-0 flex-1">
-        {sectionIds.length > 1 && (
-          <nav
-            aria-label="Context sections"
-            className="w-52 shrink-0 overflow-y-auto border-gray-5 border-r py-3"
-          >
-            {NAV_SECTIONS.filter((section) =>
-              sectionIds.includes(section.id),
-            ).map((section) => (
-              <button
-                key={section.id}
-                type="button"
-                data-active={resolvedSection === section.id || undefined}
-                onClick={() => setActiveSection(section.id)}
-                className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-4 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3 data-[active]:bg-accent-4 data-[active]:text-gray-12"
-              >
-                <span className="text-gray-10">{section.icon}</span>
-                <span>{section.label}</span>
-              </button>
-            ))}
-          </nav>
-        )}
-        {resolvedSection === "context-md" ? (
-          <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 px-6 py-5">
-            <Flex align="center" justify="between" gap="3" wrap="wrap">
-              <Flex align="center" gap="2">
-                <FileTextIcon size={15} className="text-gray-11" />
-                <Text size="2" weight="medium">
-                  CONTEXT.md
-                </Text>
-                {latest?.version != null && (
-                  <PageHeaderChip
-                    icon={channelPageIcon("context", { size: 12 })}
-                  >
-                    v{latest.version}
-                  </PageHeaderChip>
-                )}
-                {/* Background-refetch indicator: the initial load uses the
-                      full-screen spinner; this only fires on revalidations so
-                      the user knows the view is live, not stale cache. */}
-                {isFetchingLatest && !isLoadingLatest ? (
-                  <Flex align="center" gap="1">
-                    <Spinner size="1" />
-                    <Text className="text-[12px] text-gray-10">
-                      Refreshing…
-                    </Text>
-                  </Flex>
-                ) : null}
-              </Flex>
-              <Flex align="center" gap="2">
-                {versions.length > 0 ? (
-                  <Select.Root
-                    size="1"
-                    value={selectedVersionId ?? "latest"}
-                    onValueChange={(value) => {
-                      if (value === "latest") {
-                        setSelectedVersionId(null);
-                      } else {
-                        setSelectedVersionId(value);
-                        setMode("rendered");
-                      }
-                    }}
-                    disabled={isLoadingVersions}
-                  >
-                    <Select.Trigger />
-                    <Select.Content>
-                      <Select.Item value="latest">
-                        Latest (v{latest?.version ?? "—"})
-                      </Select.Item>
-                      {versions
-                        .filter((v) => !v.is_latest)
-                        .map((v) => (
-                          <Select.Item key={v.id} value={v.id}>
-                            v{v.version} · {formatTimestamp(v.created_at)}
-                          </Select.Item>
-                        ))}
-                    </Select.Content>
-                  </Select.Root>
-                ) : null}
-                <SegmentedControl.Root
-                  value={mode}
-                  onValueChange={(value) => setMode(value as Mode)}
-                  size="1"
-                >
-                  <SegmentedControl.Item value="rendered">
-                    Rendered
-                  </SegmentedControl.Item>
-                  <SegmentedControl.Item value="edit">
-                    Edit
-                  </SegmentedControl.Item>
-                </SegmentedControl.Root>
-                {mode === "edit" ? (
-                  <>
-                    {hasDraft ? (
-                      <Button
-                        size="1"
-                        variant="soft"
-                        color="gray"
-                        onClick={() => {
-                          setDraft(latest?.content ?? "");
-                          setHasDraft(false);
-                        }}
-                        disabled={isPublishing}
-                      >
-                        Discard
-                      </Button>
-                    ) : null}
-                    <Button
-                      size="1"
-                      variant="solid"
-                      onClick={onSave}
-                      disabled={
-                        isPublishing ||
-                        (hasInstructions
-                          ? !hasDraft
-                          : draft.trim().length === 0)
-                      }
-                    >
-                      {isPublishing ? <Spinner size="1" /> : null}
-                      Save new version
-                    </Button>
-                  </>
-                ) : null}
-              </Flex>
-            </Flex>
+      {spacesLayout && backendChannel ? (
+        <div className="shrink-0 border-gray-5 border-b px-6 py-3">
+          <SpaceRepositories channel={backendChannel} />
+        </div>
+      ) : null}
 
-            {publishError ? (
-              <Callout.Root color={isConflict ? "amber" : "red"} size="1">
-                <Callout.Text>
-                  {isConflict
-                    ? "Someone else saved a newer version. Reload to merge your changes."
-                    : `Save failed: ${publishError.message}`}
-                </Callout.Text>
-              </Callout.Root>
-            ) : null}
-
-            {selectedVersion ? (
-              <Callout.Root color="gray" size="1">
-                <Callout.Text>
-                  Viewing v{selectedVersion.version} metadata. Past content is
-                  not fetched today — switch to "Latest" to read or edit current
-                  content.
-                </Callout.Text>
-              </Callout.Root>
-            ) : mode === "rendered" ? (
-              hasInstructions ? (
-                <ScrollArea
-                  type="auto"
-                  scrollbars="vertical"
-                  className="scroll-area-constrain-width min-h-0 flex-1"
-                >
-                  <Box className="rounded-lg border border-gray-5 bg-gray-2 px-6 py-5 text-[13px]">
-                    <MarkdownRenderer content={renderedContent} />
-                  </Box>
-                </ScrollArea>
-              ) : (
-                <Flex
-                  align="center"
-                  justify="center"
-                  className="min-h-0 flex-1"
-                >
-                  <EmptyState
-                    channelId={channelId}
-                    channelName={channelName}
-                    onCreate={() => {
-                      setDraft(emptyTemplate);
-                      setHasDraft(true);
-                      setMode("edit");
-                    }}
-                  />
-                </Flex>
-              )
-            ) : (
-              <TextArea
-                value={draft}
-                onChange={(e) => {
-                  setDraft(e.target.value);
-                  setHasDraft(true);
-                }}
-                size="2"
-                placeholder={
-                  spacesLayout
-                    ? "# Space context\n\nWrite markdown describing this space…"
-                    : "# Channel context\n\nWrite markdown describing this channel…"
-                }
-                className="min-h-0 flex-1 font-[var(--code-font-family)]"
-              />
+      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 px-6 py-4">
+        <Flex align="center" justify="between" gap="3" wrap="wrap">
+          <Flex align="center" gap="2">
+            <FileTextIcon size={15} className="text-gray-11" />
+            <Text size="2" weight="medium">
+              CONTEXT.md
+            </Text>
+            {latest?.version != null && (
+              <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
+                v{latest.version}
+              </PageHeaderChip>
             )}
-          </div>
+            {/* Background-refetch indicator: the initial load uses the
+                full-screen spinner; this only fires on revalidations so the
+                user knows the view is live, not stale cache. */}
+            {isFetchingLatest && !isLoadingLatest ? (
+              <Flex align="center" gap="1">
+                <Spinner size="1" />
+                <Text className="text-[12px] text-gray-10">Refreshing…</Text>
+              </Flex>
+            ) : null}
+          </Flex>
+          <Flex align="center" gap="2">
+            {versions.length > 0 ? (
+              <Select.Root
+                size="1"
+                value={selectedVersionId ?? "latest"}
+                onValueChange={(value) => {
+                  if (value === "latest") {
+                    setSelectedVersionId(null);
+                  } else {
+                    setSelectedVersionId(value);
+                    setMode("rendered");
+                  }
+                }}
+                disabled={isLoadingVersions}
+              >
+                <Select.Trigger />
+                <Select.Content>
+                  <Select.Item value="latest">
+                    Latest (v{latest?.version ?? "—"})
+                  </Select.Item>
+                  {versions
+                    .filter((v) => !v.is_latest)
+                    .map((v) => (
+                      <Select.Item key={v.id} value={v.id}>
+                        v{v.version} · {formatTimestamp(v.created_at)}
+                      </Select.Item>
+                    ))}
+                </Select.Content>
+              </Select.Root>
+            ) : null}
+            <SegmentedControl.Root
+              value={mode}
+              onValueChange={(value) => setMode(value as Mode)}
+              size="1"
+            >
+              <SegmentedControl.Item value="rendered">
+                Rendered
+              </SegmentedControl.Item>
+              <SegmentedControl.Item value="edit">Edit</SegmentedControl.Item>
+            </SegmentedControl.Root>
+            {mode === "edit" ? (
+              <>
+                {hasDraft ? (
+                  <Button
+                    size="1"
+                    variant="soft"
+                    color="gray"
+                    onClick={() => {
+                      setDraft(latest?.content ?? "");
+                      setHasDraft(false);
+                    }}
+                    disabled={isPublishing}
+                  >
+                    Discard
+                  </Button>
+                ) : null}
+                <Button
+                  size="1"
+                  variant="solid"
+                  onClick={onSave}
+                  disabled={
+                    isPublishing ||
+                    (hasInstructions ? !hasDraft : draft.trim().length === 0)
+                  }
+                >
+                  {isPublishing ? <Spinner size="1" /> : null}
+                  Save new version
+                </Button>
+              </>
+            ) : null}
+          </Flex>
+        </Flex>
+
+        {publishError ? (
+          <Callout.Root color={isConflict ? "amber" : "red"} size="1">
+            <Callout.Text>
+              {isConflict
+                ? "Someone else saved a newer version. Reload to merge your changes."
+                : `Save failed: ${publishError.message}`}
+            </Callout.Text>
+          </Callout.Root>
+        ) : null}
+
+        {selectedVersion ? (
+          <Callout.Root color="gray" size="1">
+            <Callout.Text>
+              Viewing v{selectedVersion.version} metadata. Past content is not
+              fetched today — switch to "Latest" to read or edit current
+              content.
+            </Callout.Text>
+          </Callout.Root>
+        ) : mode === "rendered" ? (
+          hasInstructions ? (
+            <ScrollArea
+              type="auto"
+              scrollbars="vertical"
+              className="scroll-area-constrain-width min-h-0 flex-1"
+            >
+              <Box className="rounded-lg border border-gray-5 bg-gray-2 px-6 py-5 text-[13px]">
+                <MarkdownRenderer content={renderedContent} />
+              </Box>
+            </ScrollArea>
+          ) : (
+            <Flex align="center" justify="center" className="min-h-0 flex-1">
+              <EmptyState
+                channelId={channelId}
+                channelName={channelName}
+                onCreate={() => {
+                  setDraft(emptyTemplate);
+                  setHasDraft(true);
+                  setMode("edit");
+                }}
+              />
+            </Flex>
+          )
         ) : (
-          <ScrollArea
-            type="auto"
-            scrollbars="vertical"
-            className="scroll-area-constrain-width min-h-0 flex-1"
-          >
-            <div className="mx-auto w-full max-w-3xl px-6 py-5">
-              {backendChannel ? (
-                <SpaceRepositories channel={backendChannel} />
-              ) : null}
-            </div>
-          </ScrollArea>
+          <TextArea
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setHasDraft(true);
+            }}
+            size="2"
+            placeholder={
+              spacesLayout
+                ? "# Space context\n\nWrite markdown describing this space…"
+                : "# Channel context\n\nWrite markdown describing this channel…"
+            }
+            className="min-h-0 flex-1 font-[var(--code-font-family)]"
+          />
         )}
       </div>
     </Flex>
   );
 }
 
+const MAX_REPOSITORIES = 10;
+
+// The space's repositories rendered as a subtle inline chip picker: a single
+// row of removable chips with an inline "add" input, driven entirely by the
+// quill Combobox. Selected repos must all belong to one GitHub integration,
+// so the add list is scoped to the active integration once one is chosen.
 function SpaceRepositories({ channel }: { channel: TaskChannel }) {
   const {
     repositories,
     getIntegrationIdForRepo,
-    isLoadingRepos,
     isRefreshingRepos,
     refreshRepositories,
     hasGithubIntegration,
@@ -453,34 +394,37 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
   const [integrationId, setIntegrationId] = useState<number | null>(
     channel.github_integration ?? null,
   );
+  const anchorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSelected(channel.repositories ?? []);
     setIntegrationId(channel.github_integration ?? null);
   }, [channel.github_integration, channel.repositories]);
 
-  const available = repositories.filter((repository) => {
-    const repositoryIntegration = getIntegrationIdForRepo(repository);
-    return (
-      !selected.includes(repository) &&
-      (integrationId === null || repositoryIntegration === integrationId)
-    );
-  });
+  const atLimit = selected.length >= MAX_REPOSITORIES;
+  const available = atLimit
+    ? []
+    : repositories.filter((repository) => {
+        const repositoryIntegration = getIntegrationIdForRepo(repository);
+        return (
+          !selected.includes(repository) &&
+          repositoryIntegration != null &&
+          (integrationId === null || repositoryIntegration === integrationId)
+        );
+      });
 
-  const addRepository = (repository: string | null) => {
-    if (!repository) return;
-    const repositoryIntegration = getIntegrationIdForRepo(repository);
-    if (repositoryIntegration == null) return;
-    setIntegrationId(repositoryIntegration);
-    setSelected((current) => [...current, repository]);
-  };
-
-  const removeRepository = (repository: string) => {
-    setSelected((current) => {
-      const next = current.filter((item) => item !== repository);
-      if (next.length === 0) setIntegrationId(null);
-      return next;
-    });
+  // The combobox hands back the full next selection. Adopt the added repo's
+  // integration when we're starting fresh; drop back to "any" once emptied.
+  const changeSelection = (next: string[]) => {
+    const added = next.find((repository) => !selected.includes(repository));
+    if (added) {
+      const repositoryIntegration = getIntegrationIdForRepo(added);
+      if (repositoryIntegration == null) return;
+      setIntegrationId(repositoryIntegration);
+    } else if (next.length === 0) {
+      setIntegrationId(null);
+    }
+    setSelected(next);
   };
 
   const changed =
@@ -491,90 +435,102 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
     );
 
   return (
-    <Flex direction="column" gap="3">
-      <Flex direction="column" gap="1">
-        <Flex align="center" gap="2">
-          <GitBranchIcon size={15} className="shrink-0 text-gray-11" />
-          <Text size="2" weight="medium">
-            Repositories
-          </Text>
-          {selected.length > 0 ? (
-            <Text size="1" color="gray">
-              {selected.length}/10
-            </Text>
-          ) : null}
-        </Flex>
-        <Text size="1" color="gray">
-          New tasks in this space can work across these repositories.
+    <Flex align="center" gap="3" wrap="wrap">
+      <Flex align="center" gap="2" className="shrink-0">
+        <GitBranchIcon size={15} className="text-gray-11" />
+        <Text size="2" weight="medium">
+          Repositories
         </Text>
       </Flex>
-      <Flex direction="column" gap="3" maxWidth="480px">
-        {selected.length > 0 ? (
-          <div className="flex flex-col divide-y divide-(--gray-4) overflow-hidden rounded-md border border-gray-5">
-            {selected.map((repository) => (
-              <Flex key={repository} align="center" gap="2" px="3" py="2">
-                <GithubLogoIcon size={14} className="shrink-0 text-gray-11" />
-                <Text size="2" className="min-w-0 flex-1 truncate">
+
+      <Combobox<string, true>
+        multiple
+        items={available}
+        value={selected}
+        onValueChange={(next) => changeSelection(next ?? [])}
+        itemToStringLabel={(repository) => repository}
+      >
+        <ComboboxChips
+          ref={anchorRef}
+          className="flex min-h-8 min-w-64 max-w-full flex-1 flex-wrap items-center gap-1 rounded-(--radius-2) border border-border bg-(--color-panel-solid) px-1.5 py-1"
+        >
+          <ComboboxValue>
+            {(repos: string[]) =>
+              repos.map((repository) => (
+                <ComboboxChip key={repository} showRemove title={repository}>
+                  <GithubLogoIcon size={12} className="shrink-0" />
                   {repository}
-                </Text>
-                <Button
-                  size="1"
-                  variant="ghost"
-                  color="gray"
-                  aria-label={`Remove ${repository}`}
-                  disabled={update.isPending}
-                  onClick={() => removeRepository(repository)}
-                >
-                  <XIcon size={14} />
-                </Button>
-              </Flex>
-            ))}
-          </div>
-        ) : null}
-        <GitHubRepoPicker
-          value={null}
-          onChange={addRepository}
-          repositories={available}
-          isLoading={isLoadingRepos}
-          isRefreshing={isRefreshingRepos}
-          onRefresh={() => void refreshRepositories()}
-          placeholder={
-            hasGithubIntegration
-              ? "Add repository..."
-              : "Connect GitHub to add repositories"
-          }
-          size="1"
-          disabled={
-            !hasGithubIntegration || selected.length >= 10 || update.isPending
-          }
-        />
-        {update.error ? (
-          <Callout.Root color="red" size="1">
-            <Callout.Text>
-              Couldn't save repositories. Check your GitHub access and try
-              again.
-            </Callout.Text>
-          </Callout.Root>
-        ) : null}
-        {changed ? (
-          <Flex justify="end">
-            <Button
-              size="1"
-              disabled={update.isPending}
-              onClick={() =>
-                update.mutate({
-                  channelId: channel.id,
-                  githubIntegration: integrationId,
-                  repositories: selected,
-                })
-              }
+                </ComboboxChip>
+              ))
+            }
+          </ComboboxValue>
+          <ComboboxChipsInput
+            aria-label="Add repository"
+            disabled={!hasGithubIntegration || atLimit}
+            placeholder={
+              selected.length > 0
+                ? ""
+                : hasGithubIntegration
+                  ? "Add a repository…"
+                  : "Connect GitHub to add repositories"
+            }
+            className="min-w-24 flex-1 bg-transparent text-[13px] text-gray-12 outline-none placeholder:text-gray-10"
+          />
+        </ComboboxChips>
+        <ComboboxContent anchor={anchorRef} align="start" sideOffset={4}>
+          <ComboboxEmpty>
+            {atLimit ? "Repository limit reached" : "No repositories"}
+          </ComboboxEmpty>
+          <ComboboxList>
+            {(repository: string) => (
+              <ComboboxItem key={repository} value={repository}>
+                <Flex align="center" gap="2">
+                  <GithubLogoIcon size={14} className="shrink-0 text-gray-11" />
+                  {repository}
+                </Flex>
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+          <ComboboxListFooter>
+            <QuillButton
+              variant="link-muted"
+              size="sm"
+              className="w-full justify-start"
+              disabled={isRefreshingRepos}
+              onClick={() => void refreshRepositories()}
             >
-              {update.isPending ? <Spinner size="1" /> : null}
-              Save repositories
-            </Button>
-          </Flex>
-        ) : null}
-      </Flex>
+              <ArrowsClockwiseIcon
+                size={12}
+                className={isRefreshingRepos ? "animate-spin" : undefined}
+              />
+              Refresh repositories
+            </QuillButton>
+          </ComboboxListFooter>
+        </ComboboxContent>
+      </Combobox>
+
+      {update.error ? (
+        <Text size="1" color="red" className="shrink-0">
+          Couldn't save. Check GitHub access.
+        </Text>
+      ) : null}
+      {changed ? (
+        <Button
+          size="1"
+          className="shrink-0"
+          disabled={update.isPending}
+          onClick={() =>
+            update.mutate({
+              channelId: channel.id,
+              githubIntegration: integrationId,
+              repositories: selected,
+            })
+          }
+        >
+          {update.isPending ? <Spinner size="1" /> : null}
+          Save
+        </Button>
+      ) : null}
     </Flex>
   );
 }
