@@ -59,7 +59,14 @@ The tree is a verbatim copy of the source at the pinned SHA except:
   monorepo-only removal. `README.md` and `CONTRIBUTING.md` carry a short "this lives at
   products/desktop inside posthog/posthog" note, and `docs/LOCAL-DEVELOPMENT.md` step 3
   gains a monorepo branch (skip the clone, `cd products/desktop`, Node 22 caveat) ahead
-  of the standalone-clone instructions.
+  of the standalone-clone instructions. `.claude/skills/quill-code/SKILL.md` is
+  rewritten for the monorepo: quill's source is now in-repo at `packages/quill` (the
+  source text says it is not), and its pack step anchored on
+  `git rev-parse --show-toplevel`, which here is the monorepo root, so the tarball
+  landed outside the workspace. `.claude/settings.json` is deleted: its only content
+  denied access to `./apps/cli/**`, which does not exist. Upstream both to
+  PostHog/code where they apply (the toplevel anchor bug does not; the source repo's
+  toplevel is the workspace root).
 - `mprocs.yaml` and `pnpm-workspace.yaml` are oxfmt-formatted (yaml only; see the
   `.oxfmtrc.json` entry below for the reapply command).
 - Local security patches (reapply on resync until the pin includes the upstream fix):
