@@ -363,7 +363,11 @@ function PrBadgeControl({
               <ChevronDownIcon />
             </Button>
           </DropdownMenu.Trigger>
-          <DropdownMenu.Content size="1" align="end" className="max-w-[320px]">
+          <DropdownMenu.Content
+            size="1"
+            align="end"
+            className="min-w-[240px] max-w-[320px]"
+          >
             {hasMultiplePrs && (
               <>
                 <DropdownMenu.Label>
@@ -426,9 +430,11 @@ function PrBadgeControl({
 }
 
 /**
- * One PR in the dropdown's pull-request list. The row is a link (click →
- * GitHub); the trailing pin swaps which PR the header badge shows. The
- * primary row wears a filled pin, others reveal theirs on hover.
+ * One PR in the dropdown's pull-request list, stack-navigator style: state
+ * icon, number, repo, and a right-aligned state column so several rows scan
+ * as a group. The whole row is a link (click → GitHub); the agent's PR
+ * summary rides in the tooltip. The trailing pin swaps which PR the header
+ * badge shows — filled on the primary row, revealed on hover elsewhere.
  */
 function PrMenuRow({
   item,
@@ -450,55 +456,49 @@ function PrMenuRow({
         href={item.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="group h-auto py-1"
+        title={item.summary ?? undefined}
+        className="group"
       >
         <Flex align="center" gap="2" className="min-w-0 flex-1">
           <PrStateIcon visual={item.visual} />
-          <Flex direction="column" className="min-w-0 flex-1">
-            <Flex align="center" gap="1" className="min-w-0">
-              <Text size="1" weight="medium" className="shrink-0">
-                {item.label}
-              </Text>
-              {item.visual && (
-                <Text size="1" color={item.visual.color} className="shrink-0">
-                  {item.visual.label}
-                </Text>
-              )}
-              {item.repoLabel && (
-                <Text size="1" color="gray" className="truncate">
-                  {item.repoLabel}
-                </Text>
-              )}
-            </Flex>
-            {item.summary && (
-              <Text size="1" color="gray" className="truncate">
-                {item.summary}
+          <Text size="1" className="shrink-0">
+            {item.label}
+          </Text>
+          {item.repoLabel && (
+            <Text size="1" color="gray" className="min-w-0 truncate">
+              {item.repoLabel}
+            </Text>
+          )}
+          <Flex align="center" gap="2" className="ml-auto shrink-0 pl-3">
+            {item.visual && (
+              <Text size="1" color={item.visual.color}>
+                {item.visual.label}
               </Text>
             )}
+            {item.isPrimary ? (
+              <PushPin
+                size={12}
+                weight="fill"
+                className="shrink-0 text-(--gray-9)"
+                aria-label="Shown in the task header"
+              />
+            ) : (
+              <button
+                type="button"
+                title={`Show ${item.label} in the task header`}
+                aria-label={`Show ${item.label} in the task header`}
+                className="shrink-0 rounded p-0.5 text-(--gray-11) opacity-0 transition-opacity hover:bg-(--gray-a4) focus-visible:opacity-100 group-hover:opacity-100"
+                onPointerDown={interceptPointer}
+                onPointerUp={interceptPointer}
+                onClick={(e) => {
+                  interceptPointer(e);
+                  onPin(item.url);
+                }}
+              >
+                <PushPin size={12} />
+              </button>
+            )}
           </Flex>
-          {item.isPrimary ? (
-            <PushPin
-              size={12}
-              weight="fill"
-              className="shrink-0 text-(--gray-9)"
-              aria-label="Shown in the task header"
-            />
-          ) : (
-            <button
-              type="button"
-              title={`Show ${item.label} in the task header`}
-              aria-label={`Show ${item.label} in the task header`}
-              className="shrink-0 rounded p-0.5 text-(--gray-11) opacity-0 transition-opacity hover:bg-(--gray-a4) focus-visible:opacity-100 group-hover:opacity-100"
-              onPointerDown={interceptPointer}
-              onPointerUp={interceptPointer}
-              onClick={(e) => {
-                interceptPointer(e);
-                onPin(item.url);
-              }}
-            >
-              <PushPin size={12} />
-            </button>
-          )}
         </Flex>
       </a>
     </DropdownMenu.Item>

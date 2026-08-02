@@ -1,3 +1,4 @@
+import { StackSimple } from "@phosphor-icons/react";
 import {
   getPrVisualConfig,
   type PrVisualConfig,
@@ -37,6 +38,14 @@ const COMPACT_COLOR_CLASSES: Record<PrVisualConfig["color"], string> = {
   purple: "bg-(--purple-3) text-(--purple-11) hover:bg-(--purple-4)",
 };
 
+// Divider ahead of the stack-count chip, tinted to the badge's own color.
+const STACK_DIVIDER_CLASSES: Record<PrVisualConfig["color"], string> = {
+  gray: "border-(--gray-a6)",
+  green: "border-(--green-a6)",
+  red: "border-(--red-a6)",
+  purple: "border-(--purple-a6)",
+};
+
 /**
  * The colored "open this PR on GitHub" badge — styled by the PR's lifecycle
  * state (open / draft / closed / merged) and rendered as an external anchor.
@@ -57,6 +66,10 @@ export function PRBadgeLink({
   const PrIcon = getPrVisualIcon(config.icon);
   const prNumber = parsePrNumber(prUrl);
 
+  const totalCount = otherCount + 1;
+  const stackTitle =
+    otherCount > 0 ? `${totalCount} pull requests on this task` : undefined;
+
   if (compact) {
     return (
       <a
@@ -64,6 +77,7 @@ export function PRBadgeLink({
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
+        title={stackTitle}
         className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] no-underline ${COMPACT_COLOR_CLASSES[config.color]}`}
       >
         {isPrPending ? (
@@ -75,7 +89,12 @@ export function PRBadgeLink({
           {config.label}
           {prNumber && ` #${prNumber}`}
         </span>
-        {otherCount > 0 && <span className="opacity-70">+{otherCount}</span>}
+        {otherCount > 0 && (
+          <span className="ml-0.5 inline-flex items-center gap-0.5">
+            <StackSimple size={10} weight="bold" />
+            {totalCount}
+          </span>
+        )}
       </a>
     );
   }
@@ -93,6 +112,7 @@ export function PRBadgeLink({
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}
+        title={stackTitle}
       >
         <Flex align="center" gap="2">
           {isPrPending ? (
@@ -103,10 +123,17 @@ export function PRBadgeLink({
           <Text size="1">
             {config.label}
             {prNumber && ` #${prNumber}`}
-            {otherCount > 0 && (
-              <span className="ml-1 opacity-60">+{otherCount}</span>
-            )}
           </Text>
+          {otherCount > 0 && (
+            <Flex
+              align="center"
+              gap="1"
+              className={`border-l pl-2 ${STACK_DIVIDER_CLASSES[config.color]}`}
+            >
+              <StackSimple size={11} weight="bold" />
+              <Text size="1">{totalCount}</Text>
+            </Flex>
+          )}
         </Flex>
       </a>
     </Button>
