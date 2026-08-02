@@ -6,7 +6,6 @@ import {
   Scroll,
 } from "@phosphor-icons/react";
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
-import type { ContextUsage } from "@posthog/core/sessions/contextUsage";
 import { useService } from "@posthog/di/react";
 import {
   Button,
@@ -907,7 +906,7 @@ function ThreadScrollBody({
   items: ConversationItem[];
   rows: TurnRow[];
   renderItem: (item: ConversationItem) => ReactNode;
-  /** Status row (duration / context usage) pinned as the last item in the thread. */
+  /** Status row (duration / diff stats) pinned as the last item in the thread. */
   footer?: ReactNode;
   keyboardFocusedMessageId?: string | null;
   /** Clears keyboard-focused message state on any pointer interaction with the thread. */
@@ -924,10 +923,12 @@ function ThreadScrollBody({
   }, [rows]);
 
   // `group/thread` so the footer's hover-reveal (opacity-50 → 100 on group-hover) tracks the thread,
-  // mirroring the legacy ConversationView container.
+  // mirroring the legacy ConversationView container. `@container/thread` makes the thread's own
+  // width the query basis for everything inside it — the panel is resizable and splittable, so the
+  // viewport says nothing useful about how much room a row actually has.
   return (
     <ChatMessageScroller
-      className="group/thread"
+      className="@container/thread group/thread"
       onPointerDownCapture={onUserInteract}
     >
       <MessageMinimap items={items} />
@@ -1041,7 +1042,6 @@ interface SharedChatThreadProps {
   repoPath?: string | null;
   task?: Task;
   taskId?: string;
-  usage?: ContextUsage | null;
   footerState?: Omit<BuildResult, "items">;
 }
 
@@ -1114,7 +1114,6 @@ function ChatThreadRenderer({
   repoPath,
   task,
   taskId,
-  usage,
   footerState,
   promptRecallRef,
 }: ChatThreadRendererProps) {
@@ -1241,7 +1240,6 @@ function ChatThreadRenderer({
         promptStartedAt={promptStartedAt}
         task={task}
         taskId={taskId}
-        usage={usage}
         footerState={footerState}
       />
     </>

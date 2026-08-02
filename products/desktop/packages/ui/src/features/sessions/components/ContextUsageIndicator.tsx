@@ -6,7 +6,7 @@ import {
   getOverallUsageColor,
 } from "@posthog/ui/features/sessions/contextColors";
 import type { ContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
-import { Flex, Popover, Text } from "@radix-ui/themes";
+import { Flex, Popover } from "@radix-ui/themes";
 import { ContextBreakdownPopover } from "./ContextBreakdownPopover";
 
 const CIRCLE_SIZE = 20;
@@ -30,13 +30,6 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
   const strokeDashoffset = CIRCUMFERENCE - (percentage / 100) * CIRCUMFERENCE;
   const color = getOverallUsageColor(percentage);
   const showCost = costEnabled && cost !== null;
-  const tokenLabel = hasSize
-    ? `${formatTokensCompact(used)}/${formatTokensCompact(size)} · ${percentage}%`
-    : formatTokensCompact(used);
-  const label = showCost
-    ? `${tokenLabel} · ${formatCostUsd(cost.amount)}`
-    : tokenLabel;
-
   return (
     <Popover.Root>
       <Popover.Trigger>
@@ -45,8 +38,10 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
           className="flex cursor-pointer select-none items-center gap-1 bg-transparent"
           aria-label={
             hasSize
-              ? `Context usage: ${percentage}%`
-              : `Context usage: ${formatTokensCompact(used)} tokens`
+              ? `Context usage: ${percentage}%` +
+                (showCost ? ` · ${formatCostUsd(cost.amount)}` : "")
+              : `Context usage: ${formatTokensCompact(used)} tokens` +
+                (showCost ? ` · ${formatCostUsd(cost.amount)}` : "")
           }
         >
           <Flex align="center" gap="1">
@@ -77,9 +72,6 @@ export function ContextUsageIndicator({ usage }: ContextUsageIndicatorProps) {
                 strokeLinecap="round"
               />
             </svg>
-            <Text className="text-[13px] text-muted-foreground tabular-nums">
-              {label}
-            </Text>
           </Flex>
         </button>
       </Popover.Trigger>

@@ -416,7 +416,7 @@ export function VirtualThreadScrollBody({
   return (
     <>
       <ChatMessageScroller
-        className="group/thread"
+        className="@container/thread group/thread"
         onPointerDownCapture={onUserInteract}
       >
         <MessageMinimap

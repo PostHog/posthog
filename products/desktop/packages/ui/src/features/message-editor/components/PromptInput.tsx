@@ -2,7 +2,12 @@ import "./message-editor.css";
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { ArrowUp, StopCircle } from "@phosphor-icons/react";
 import type { FileAttachment } from "@posthog/core/message-editor/content";
-import { InputGroup, InputGroupAddon, InputGroupButton } from "@posthog/quill";
+import {
+  Button,
+  InputGroup,
+  InputGroupAddon,
+  TooltipProvider,
+} from "@posthog/quill";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import { cycleModeOption } from "@posthog/ui/features/sessions/sessionStore";
@@ -66,6 +71,18 @@ export interface PromptInputProps {
   reasoningSelector?: React.ReactElement | null | false;
   messagingModeToggle?: React.ReactNode;
   historyButton?: React.ReactNode;
+  /**
+   * Rendered in the attachments row at the top of the composer, ahead of the
+   * attachments themselves — for context the prompt carries that the user did
+   * not attach by hand (e.g. a channel's CONTEXT.md).
+   */
+  attachmentsPrefix?: React.ReactNode;
+  /**
+   * Pushed to the far end of the toolbar under the composer — for read-only
+   * status about the session the prompt goes to (e.g. context usage), as
+   * opposed to the controls on the left that change what sending does.
+   */
+  toolbarEndSlot?: React.ReactNode;
   /**
    * Rendered inside the composer box, above the editor — for mode chrome
    * that must read as part of the input itself (e.g. autoresearch controls)
@@ -131,6 +148,8 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       reasoningSelector,
       messagingModeToggle,
       historyButton,
+      attachmentsPrefix,
+      toolbarEndSlot,
       headerAddon,
       hideDefaultToolbar = false,
       getPromptHistory,
@@ -363,21 +382,25 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
     // Stop takes priority over everything: you cancel a run, you don't gamble
     // on it. With slot machine mode on, the send affordance moves out to the
     // pull-lever mounted beside the composer, so the toolbar slot is empty.
+    // A real quill Button, not InputGroupButton: this is the composer's primary
+    // action and should carry the design system's raised primary treatment
+    // rather than the flat in-field styling. Stop shares the slot, so it uses
+    // the same component — otherwise the button would change shape mid-run.
     const inStopMode = isLoading && !!onCancel;
     const submitButton = inStopMode ? (
       <Tooltip content="Stop">
-        <InputGroupButton
+        <Button
           variant="destructive"
           size="icon-sm"
           onClick={onCancel}
           aria-label="Stop"
         >
           <StopCircle size={14} weight="fill" />
-        </InputGroupButton>
+        </Button>
       </Tooltip>
     ) : slotMachineMode ? null : (
       <Tooltip content={submitTooltip}>
-        <InputGroupButton
+        <Button
           variant="primary"
           size="icon-sm"
           onClick={handleSubmitClick}
@@ -386,8 +409,42 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
           {...(tourTarget && { "data-tour": `${tourTarget}-submit` })}
         >
           <ArrowUp size={14} weight="bold" />
-        </InputGroupButton>
+        </Button>
       </Tooltip>
+    );
+
+    // The left-hand controls sit under the composer rather than inside it, so the
+    // box holds only what you are writing. Mirrors the block-end addon's own
+    // flex/gap/padding so the controls keep their spacing and left inset, and
+    // carries the addon's muted colour, which they no longer inherit out here.
+    const toolbar = hideDefaultToolbar ? null : (
+      <div className="flex select-none items-center gap-1 whitespace-nowrap p-1 text-muted-foreground">
+        <AttachmentMenu
+          disabled={disabled}
+          repoPath={repoPath}
+          taskId={taskId}
+          onAddAttachment={addAttachment}
+          onAttachFiles={onAttachFiles}
+          onInsertChip={insertChip}
+          onRemoveChip={removeChipById}
+        />
+        {onModeChange && (
+          <ModeSelector
+            modeOption={modeOption}
+            onChange={onModeChange}
+            allowBypassPermissions={allowBypassPermissions}
+            disabled={disabled}
+            autoresearch={autoresearch}
+            canvas={canvas}
+          />
+        )}
+        {modelSelector && <span>{modelSelector}</span>}
+        {reasoningSelector && <span>{reasoningSelector}</span>}
+        {isBashMode && (
+          <Text className="font-mono text-(--blue-9) text-[13px]">! bash</Text>
+        )}
+        {toolbarEndSlot && <span className="ml-auto">{toolbarEndSlot}</span>}
+      </div>
     );
 
     return (
@@ -407,13 +464,18 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
                 {headerAddon}
               </InputGroupAddon>
             )}
-            {attachments.length > 0 && (
+            {(attachmentsPrefix || attachments.length > 0) && (
               <InputGroupAddon align="block-start">
-                <AttachmentsBar
-                  attachments={attachments}
-                  onRemove={removeAttachment}
-                  uploadStatuses={attachmentUploadStatuses}
-                />
+                {/* One provider for the row: moving between squares reuses the
+                    open delay instead of re-waiting it per attachment. */}
+                <TooltipProvider>
+                  {attachmentsPrefix}
+                  <AttachmentsBar
+                    attachments={attachments}
+                    onRemove={removeAttachment}
+                    uploadStatuses={attachmentUploadStatuses}
+                  />
+                </TooltipProvider>
               </InputGroupAddon>
             )}
             <div
@@ -424,42 +486,14 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
             >
               <EditorContent editor={editor} />
             </div>
+            {/* Submit stays in the box even with a blank toolbar; only the
+                left-side addons are suppressed. Steer/queue sits beside it
+                rather than down in the toolbar: it decides what the send button
+                does, so it belongs within reach of it. */}
             <InputGroupAddon align="block-end" className="p-1">
-              {!hideDefaultToolbar && (
-                <>
-                  <AttachmentMenu
-                    disabled={disabled}
-                    repoPath={repoPath}
-                    taskId={taskId}
-                    onAddAttachment={addAttachment}
-                    onAttachFiles={onAttachFiles}
-                    onInsertChip={insertChip}
-                    onRemoveChip={removeChipById}
-                  />
-                  {onModeChange && (
-                    <ModeSelector
-                      modeOption={modeOption}
-                      onChange={onModeChange}
-                      allowBypassPermissions={allowBypassPermissions}
-                      disabled={disabled}
-                      autoresearch={autoresearch}
-                      canvas={canvas}
-                    />
-                  )}
-                  {modelSelector && <span>{modelSelector}</span>}
-                  {reasoningSelector && <span>{reasoningSelector}</span>}
-                  {messagingModeToggle && <span>{messagingModeToggle}</span>}
-                  {isBashMode && (
-                    <Text className="font-mono text-(--blue-9) text-[13px]">
-                      ! bash
-                    </Text>
-                  )}
-                </>
-              )}
-              {/* Submit stays even with a blank toolbar; only the left-side
-                  addons are suppressed. */}
               <span className="ml-auto flex items-center gap-1">
                 {!hideDefaultToolbar && historyButton}
+                {messagingModeToggle}
                 {submitButton}
               </span>
             </InputGroupAddon>
@@ -472,6 +506,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
             />
           )}
         </Flex>
+        {toolbar}
       </Flex>
     );
   },
