@@ -51,7 +51,7 @@ register_pr() {
 
 run_detector() {
     (cd "$repo" && PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" REPOSITORY="PostHog/posthog" \
-        GITHUB_OUTPUT=/dev/stdout \
+        GITHUB_OUTPUT=/dev/stdout UPDATE_FEED_URL="${TEST_FEED_URL:-file://$workdir/no-feed.yml}" \
         CURRENT_TAG="${CURRENT_TAG:-}" CURRENT_SHA="$(git -C "$repo" rev-parse HEAD)" "$detector")
 }
 
@@ -108,7 +108,8 @@ pretag=$(git -C "$repo" rev-parse HEAD)
 posttag=$(commit "coupled after tag" products/desktop/apps/late.ts posthog/late.py)
 export CURRENT_TAG=""
 output=$(cd "$repo" && PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" REPOSITORY="PostHog/posthog" \
-    GITHUB_OUTPUT=/dev/stdout RANGE_START_SHA="$pretag" CURRENT_SHA="$posttag" "$detector")
+    GITHUB_OUTPUT=/dev/stdout UPDATE_FEED_URL="file://$workdir/no-feed.yml" \
+    RANGE_START_SHA="$pretag" CURRENT_SHA="$posttag" "$detector")
 actual=$(sed -n 's/^required_shas=//p' <<<"$output")
 if [ "$actual" != "$posttag" ]; then
     echo "FAIL: explicit range override walks only start..end"
@@ -116,6 +117,16 @@ if [ "$actual" != "$posttag" ]; then
     exit 1
 fi
 echo "ok: explicit range override walks only start..end"
+
+assert_required "tag fallback sees only commits after the previous tag" "$posttag"
+
+echo "version: 0.1.0" >"$workdir/feed.yml"
+TEST_FEED_URL="file://$workdir/feed.yml" \
+    assert_required "feed anchor recovers an unpublished predecessor's requirements" "$coupled $backend_dep $merged_dep $posttag"
+
+echo "version: 9.9.9" >"$workdir/feed-untagged.yml"
+TEST_FEED_URL="file://$workdir/feed-untagged.yml" \
+    assert_required "unknown feed version falls back to the previous tag" "$posttag"
 
 first_repo="$workdir/first-release"
 mkdir -p "$first_repo"
@@ -128,7 +139,7 @@ echo x >"$first_repo/posthog/models.py"
 git -C "$first_repo" add . && git -C "$first_repo" commit -qm "initial import"
 root_sha=$(git -C "$first_repo" rev-parse HEAD)
 output=$(cd "$first_repo" && PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" REPOSITORY="PostHog/posthog" \
-    GITHUB_OUTPUT=/dev/stdout CURRENT_SHA="$root_sha" "$detector")
+    GITHUB_OUTPUT=/dev/stdout UPDATE_FEED_URL="file://$workdir/no-feed.yml" CURRENT_SHA="$root_sha" "$detector")
 actual=$(sed -n 's/^required_shas=//p' <<<"$output")
 if [ "$actual" != "$root_sha" ]; then
     echo "FAIL: first release includes the root desktop commit"

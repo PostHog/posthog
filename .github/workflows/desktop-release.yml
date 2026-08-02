@@ -638,7 +638,12 @@ jobs:
     # polls the GitHub Deployments that PostHog/charts records for prod-us/prod-eu
     # until every required SHA is part of a successful deploy. Both run in parallel
     # with the platform builds, so a release with no backend dependency pays no
-    # extra latency.
+    # extra latency. The range is anchored at the version last published to the
+    # update feed, not the previous tag: releases are cumulative, so if a gated
+    # predecessor never published (failed, timed out, dropped from the queue),
+    # its backend requirements carry into this release instead of vanishing.
+    # Runs in this concurrency group queue and never cancel an in-progress
+    # release, which also keeps publishes ordered.
     check-backend-deps:
         runs-on: ubuntu-latest
         timeout-minutes: 10
@@ -661,6 +666,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
                   CURRENT_TAG: ${{ github.ref_name }}
+                  UPDATE_FEED_URL: https://desktop-releases.posthog.com/stable/latest.yml
               run: .github/scripts/desktop/detect-backend-coupling.sh
 
     wait-for-backend:
