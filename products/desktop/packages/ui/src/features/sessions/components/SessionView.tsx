@@ -23,7 +23,6 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
-import { getAddedAttachments } from "@posthog/ui/features/sessions/components/attachmentUploads";
 import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
@@ -296,9 +295,8 @@ export function SessionView({
   const handleAttachmentsChange = useCallback(
     (attachments: FileAttachment[]) => {
       const attachmentIds = new Set(attachments.map(({ id }) => id));
-      const addedAttachments = getAddedAttachments(
-        attachmentIdsRef.current,
-        attachments,
+      const addedAttachments = attachments.filter(
+        ({ id }) => !attachmentIdsRef.current.has(id),
       );
       attachmentIdsRef.current = attachmentIds;
 
