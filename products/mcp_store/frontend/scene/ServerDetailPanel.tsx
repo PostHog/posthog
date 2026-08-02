@@ -217,7 +217,7 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
                             key: 'read',
                             header: (
                                 <div className="flex items-center gap-2">
-                                    <span>Read tools</span>
+                                    <span>Read-only tools</span>
                                     <LemonSnack>{readTools.length}</LemonSnack>
                                 </div>
                             ),
