@@ -183,4 +183,78 @@ describe('inboxUsageLogic', () => {
         expect(logic.values.isModalOpen).toBe(true)
         expect(logic.values.limitFormManualErrors.prs).toBeTruthy()
     })
+
+    // The submit handler used to dispatch the billing-limit PATCH and immediately report success,
+    // without waiting for the request to actually land — so a real save failure (network error, 5xx)
+    // still closed the modal as if the limit had been saved.
+    it('fails the submission instead of closing the modal when the billing-limit PATCH fails', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    {
+                        products: [
+                            {
+                                type: 'inbox',
+                                display_divisor: CREDITS_PER_PR,
+                                current_usage: 0,
+                                tiers: [{ unit_amount_usd: '0.01', up_to: null }],
+                            },
+                        ],
+                    },
+                ],
+            },
+            patch: {
+                '/api/billing': () => [500, { detail: 'Internal server error' }],
+            },
+        })
+        featureFlagLogic.mount()
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.pricePerPrUsd).not.toBeNull()
+
+        logic.actions.openModal()
+        logic.actions.setLimitFormValue('prs', 5)
+        logic.actions.submitLimitForm()
+        await expectLogic(logic).toDispatchActions(['submitLimitFormFailure'])
+
+        expect(logic.values.isModalOpen).toBe(true)
+    })
+
+    // The new success/failure wait wiring could regress into never resolving (a stuck-open modal
+    // forever) just as easily as it could regress into resolving too early — pins the happy path.
+    it('closes the modal once the billing-limit PATCH succeeds', async () => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    {
+                        products: [
+                            {
+                                type: 'inbox',
+                                display_divisor: CREDITS_PER_PR,
+                                current_usage: 0,
+                                tiers: [{ unit_amount_usd: '0.01', up_to: null }],
+                            },
+                        ],
+                    },
+                ],
+            },
+            patch: {
+                '/api/billing': () => [200, { custom_limits_usd: { inbox: 45 } }],
+            },
+        })
+        featureFlagLogic.mount()
+        logic = inboxUsageLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openModal()
+        logic.actions.setLimitFormValue('prs', 5)
+        logic.actions.submitLimitForm()
+        await expectLogic(logic).toDispatchActions(['submitLimitFormSuccess'])
+
+        expect(logic.values.isModalOpen).toBe(false)
+    })
 })
