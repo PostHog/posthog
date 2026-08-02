@@ -97,6 +97,11 @@ def _empty_repository_response() -> mock.Mock:
     response.text = json.dumps({"message": "Git Repository is empty."})
     response.json.return_value = {"message": "Git Repository is empty."}
     response.request = None
+    # If the empty-repo 409 check ever regresses, this must raise instead of silently falling
+    # through to a passing empty page list, so the test actually fails on that regression.
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "409 Client Error: Conflict for url", response=response
+    )
     return response
 
 
