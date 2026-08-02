@@ -268,6 +268,7 @@ function FieldValueEditor({
     if (kind === 'length') {
         return (
             <LemonSegmentedButton
+                className="max-w-full overflow-x-auto"
                 options={SUMMARIZER_LENGTH_OPTIONS}
                 value={value as SummarizerScannerConfig['length']}
                 onChange={onChange}

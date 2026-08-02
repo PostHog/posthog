@@ -231,7 +231,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
 
     return (
         <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3 lg:flex-nowrap">
                 <h3 className="font-semibold text-base m-0">Observation history</h3>
                 <span className="text-muted text-sm lg:whitespace-nowrap">
                     {observationStats.total.toLocaleString()} total ·{' '}
@@ -240,8 +240,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     </span>{' '}
                     · {observationStats.inFlight.toLocaleString()} in flight
                 </span>
-                <div className="ml-auto flex flex-wrap items-center gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
+                <div className="ml-auto flex flex-wrap items-center gap-3 lg:flex-nowrap">
+                    <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
                             <>
                                 <LemonInput
