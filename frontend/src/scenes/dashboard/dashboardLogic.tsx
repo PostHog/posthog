@@ -840,6 +840,9 @@ export interface dashboardLogicActions {
     tileStreamingFailure: (error: any) => {
         error: any
     }
+    tileStreamCancelled: () => {
+        value: true
+    }
     toggleAddWidgetCollapsedGroup: (groupId: string) => {
         groupId: string
     }
@@ -1173,6 +1176,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         tileStreamingComplete: true,
         /** Tile streaming failed. */
         tileStreamingFailure: (error: any) => ({ error }),
+        /** The in-flight tile stream was cancelled (e.g. a refresh superseded it) before it completed. */
+        tileStreamCancelled: true,
         /** A non-404 stream failure left no dashboard to render — show a load error, not "not found". */
         setDashboardStreamFailed: true,
         /** Expose additional information about the current dashboard load in dashboardLoadData. */
@@ -1387,8 +1392,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await breakpoint(200)
                     actions.resetIntermittentFilters()
 
+                    // A previous stream (e.g. from an earlier load) may still be delivering tiles -
+                    // cancel it so its late, stale-filtered results can't land after this one's.
+                    cache.cancelTileStream?.()
+                    const generation = (cache.tileStreamGeneration = (cache.tileStreamGeneration ?? 0) + 1)
+
                     // Start unified streaming - metadata followed by tiles
-                    api.dashboards.streamTiles(
+                    cache.cancelTileStream = await api.dashboards.streamTiles(
                         props.id,
                         {
                             layoutSize: values.currentLayoutSize,
@@ -1397,6 +1407,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         },
                         // onMessage callback - handles both metadata and tiles
                         (data) => {
+                            if (generation !== cache.tileStreamGeneration) {
+                                return // Superseded by a newer load/refresh - drop the stale message
+                            }
                             if (data.type === 'metadata') {
                                 actions.loadDashboardMetadataSuccess(
                                     getQueryBasedDashboard(data.dashboard as DashboardType<InsightModel>)
@@ -1407,10 +1420,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         },
                         // onComplete callback
                         () => {
+                            if (generation !== cache.tileStreamGeneration) {
+                                return
+                            }
                             actions.tileStreamingComplete()
                         },
                         // onError callback
                         (error) => {
+                            if (generation !== cache.tileStreamGeneration) {
+                                return
+                            }
                             console.error('❌ Tile streaming error:', error)
                             actions.tileStreamingFailure(error)
                         }
@@ -1733,6 +1752,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardStreaming: () => true,
                 tileStreamingComplete: () => false,
                 tileStreamingFailure: () => false,
+                tileStreamCancelled: () => false,
             },
         ],
         loadingPreview: [
@@ -1971,7 +1991,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         ...(tile.insight != null ? { insight: getQueryBasedInsightModel(tile.insight) } : {}),
                     }
 
-                    let newTiles = [...state.tiles, transformedTile]
+                    // Overlapping streams (or a stream re-delivering a tile) should replace the
+                    // existing entry rather than append a duplicate for the same tile id.
+                    const existingIndex = state.tiles.findIndex((t) => t.id === transformedTile.id)
+                    const newTiles =
+                        existingIndex >= 0
+                            ? state.tiles.map((t, i) => (i === existingIndex ? transformedTile : t))
+                            : [...state.tiles, transformedTile]
 
                     return {
                         ...state,
@@ -4117,6 +4143,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (cache.abortController) {
                 cache.abortController.abort()
                 cache.abortController = null
+            }
+            if (cache.cancelTileStream) {
+                // Bump the generation first so any tile the stream already had in flight is
+                // dropped by the loader's guard, then tear down the connection itself.
+                cache.tileStreamGeneration = (cache.tileStreamGeneration ?? 0) + 1
+                cache.cancelTileStream()
+                cache.cancelTileStream = null
+                actions.tileStreamCancelled()
             }
         },
         cancelDashboardRefresh: () => {

@@ -1245,6 +1245,77 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('tile stream cancellation and staleness', () => {
+        // Regression coverage for tiles reverting to stale data: a refresh used to leave the
+        // initial tile stream running, so a tile it delivered after the refresh silently
+        // overwrote the fresh result with data computed against the old filters.
+        it('replaces an existing tile instead of appending a duplicate for the same tile id', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const existingTileId = logic.values.tiles[0].id
+            const tileCountBefore = logic.values.tiles.length
+
+            await expectLogic(logic, () => {
+                logic.actions.receiveTileFromStream({
+                    order: 0,
+                    tile: { id: existingTileId, layouts: {}, color: null },
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.tiles).toHaveLength(tileCountBefore)
+            expect(logic.values.tiles.filter((t) => t.id === existingTileId)).toHaveLength(1)
+        })
+
+        it('cancels the in-flight tile stream on refresh so a tile it delivers afterwards is dropped', async () => {
+            const originalEventSource = (global as any).EventSource
+            ;(global as any).EventSource = (global as any).EventSource ?? class {}
+
+            const cancelStreamSpy = jest.fn()
+            let capturedOnMessage: ((data: any) => void) | undefined
+            const streamTilesSpy = jest
+                .spyOn(api.dashboards, 'streamTiles')
+                .mockImplementation(async (_id, _params, onMessage) => {
+                    capturedOnMessage = onMessage
+                    return cancelStreamSpy
+                })
+
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+            })
+
+            try {
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(streamTilesSpy).toHaveBeenCalled()
+                expect(capturedOnMessage).not.toBeUndefined()
+
+                const tileCountBefore = logic.values.tiles.length
+
+                // Simulate the user hitting Refresh while the initial stream is still delivering tiles -
+                // refreshDashboardItems calls this before fetching, same as a real refresh would.
+                await expectLogic(logic, () => {
+                    logic.actions.abortAnyRunningQuery()
+                }).toFinishAllListeners()
+
+                expect(cancelStreamSpy).toHaveBeenCalled()
+
+                // A tile computed before the refresh, delivered late by the cancelled stream, must not land.
+                capturedOnMessage?.({ type: 'tile', order: 0, tile: { id: 99999, layouts: {}, color: null } })
+
+                expect(logic.values.tiles).toHaveLength(tileCountBefore)
+                expect(logic.values.tiles.find((t) => t.id === 99999)).toBeUndefined()
+            } finally {
+                streamTilesSpy.mockRestore()
+                ;(global as any).EventSource = originalEventSource
+            }
+        })
+    })
+
     describe('when a dashboard item API errors', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 8 })
