@@ -1,6 +1,7 @@
 import {
   FileTextIcon,
   GitBranchIcon,
+  GithubLogoIcon,
   SparkleIcon,
   XIcon,
 } from "@phosphor-icons/react";
@@ -210,7 +211,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
         align="center"
         justify="between"
         gap="3"
-        px="4"
+        px="6"
         py="2"
         className="shrink-0 border-b border-b-(--gray-5)"
       >
@@ -301,7 +302,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
       </Flex>
 
       {publishError ? (
-        <Box px="4" pt="3">
+        <Box px="6" pt="3">
           <Callout.Root color={isConflict ? "amber" : "red"} size="1">
             <Callout.Text>
               {isConflict
@@ -317,52 +318,61 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
         scrollbars="vertical"
         className="scroll-area-constrain-width min-h-0 flex-1"
       >
-        <Box p="4">
-          {selectedVersion ? (
-            <Callout.Root color="gray" size="1">
-              <Callout.Text>
-                Viewing v{selectedVersion.version} metadata. Past content is not
-                fetched today — switch to "Latest" to read or edit current
-                content.
-              </Callout.Text>
-            </Callout.Root>
-          ) : mode === "rendered" ? (
-            hasInstructions ? (
-              <Box className="text-[13px]">
-                <MarkdownRenderer content={renderedContent} />
-              </Box>
-            ) : (
-              <EmptyState
-                channelId={channelId}
-                channelName={channelName}
-                onCreate={() => {
-                  setDraft(emptyTemplate);
-                  setHasDraft(true);
-                  setMode("edit");
-                }}
-              />
-            )
-          ) : (
-            <TextArea
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setHasDraft(true);
-              }}
-              size="2"
-              rows={24}
-              placeholder={
-                spacesLayout
-                  ? "# Space context\n\nWrite markdown describing this space…"
-                  : "# Channel context\n\nWrite markdown describing this channel…"
-              }
-              className="font-[var(--code-font-family)]"
-            />
-          )}
-          {spacesLayout && backendChannel ? (
-            <SpaceRepositories channel={backendChannel} />
-          ) : null}
-        </Box>
+        <div className="mx-auto w-full max-w-6xl px-6 py-5">
+          <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
+            <div className="flex min-w-0 max-w-[84ch] flex-1 flex-col">
+              {selectedVersion ? (
+                <Callout.Root color="gray" size="1">
+                  <Callout.Text>
+                    Viewing v{selectedVersion.version} metadata. Past content is
+                    not fetched today — switch to "Latest" to read or edit
+                    current content.
+                  </Callout.Text>
+                </Callout.Root>
+              ) : mode === "rendered" ? (
+                hasInstructions ? (
+                  <Box className="rounded-lg border border-gray-5 bg-gray-2 px-6 py-5 text-[13px]">
+                    <MarkdownRenderer content={renderedContent} />
+                  </Box>
+                ) : (
+                  <EmptyState
+                    channelId={channelId}
+                    channelName={channelName}
+                    onCreate={() => {
+                      setDraft(emptyTemplate);
+                      setHasDraft(true);
+                      setMode("edit");
+                    }}
+                  />
+                )
+              ) : (
+                <TextArea
+                  value={draft}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    setHasDraft(true);
+                  }}
+                  size="2"
+                  rows={24}
+                  placeholder={
+                    spacesLayout
+                      ? "# Space context\n\nWrite markdown describing this space…"
+                      : "# Channel context\n\nWrite markdown describing this channel…"
+                  }
+                  className="font-[var(--code-font-family)]"
+                />
+              )}
+            </div>
+            {/* Sources rail: cards configuring what agents can reach from this
+                space. Repositories today; future sources (Slack channels,
+                PostHog events, …) stack as sibling cards here. */}
+            {spacesLayout && backendChannel ? (
+              <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-80">
+                <SpaceRepositories channel={backendChannel} />
+              </aside>
+            ) : null}
+          </div>
+        </div>
       </ScrollArea>
     </Flex>
   );
@@ -420,37 +430,50 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
     );
 
   return (
-    <Box className="mt-8 border-gray-6 border-t pt-5">
-      <Flex align="center" gap="2" mb="1">
-        <GitBranchIcon size={16} />
-        <Text size="3" weight="medium">
+    <section className="overflow-hidden rounded-lg border border-gray-5">
+      <Flex
+        align="center"
+        gap="2"
+        px="4"
+        py="3"
+        className="border-gray-5 border-b bg-gray-2"
+      >
+        <GitBranchIcon size={15} className="shrink-0 text-gray-11" />
+        <Text size="2" weight="medium">
           Repositories
         </Text>
+        {selected.length > 0 ? (
+          <Text size="1" color="gray" className="ml-auto">
+            {selected.length}/10
+          </Text>
+        ) : null}
       </Flex>
-      <Text size="2" color="gray">
-        New tasks in this space can work across these repositories.
-      </Text>
-      <Flex direction="column" gap="3" mt="3" maxWidth="520px">
-        {selected.map((repository) => (
-          <Flex
-            key={repository}
-            align="center"
-            justify="between"
-            className="rounded border border-gray-6 px-3 py-2"
-          >
-            <Text size="2">{repository}</Text>
-            <Button
-              size="1"
-              variant="ghost"
-              color="gray"
-              aria-label={`Remove ${repository}`}
-              disabled={update.isPending}
-              onClick={() => removeRepository(repository)}
-            >
-              <XIcon size={14} />
-            </Button>
-          </Flex>
-        ))}
+      <Flex direction="column" gap="3" p="4">
+        <Text size="1" color="gray">
+          New tasks in this space can work across these repositories.
+        </Text>
+        {selected.length > 0 ? (
+          <div className="flex flex-col divide-y divide-(--gray-4) overflow-hidden rounded-md border border-gray-5">
+            {selected.map((repository) => (
+              <Flex key={repository} align="center" gap="2" px="3" py="2">
+                <GithubLogoIcon size={14} className="shrink-0 text-gray-11" />
+                <Text size="2" className="min-w-0 flex-1 truncate">
+                  {repository}
+                </Text>
+                <Button
+                  size="1"
+                  variant="ghost"
+                  color="gray"
+                  aria-label={`Remove ${repository}`}
+                  disabled={update.isPending}
+                  onClick={() => removeRepository(repository)}
+                >
+                  <XIcon size={14} />
+                </Button>
+              </Flex>
+            ))}
+          </div>
+        ) : null}
         <GitHubRepoPicker
           value={null}
           onChange={addRepository}
@@ -463,7 +486,7 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
               ? "Add repository..."
               : "Connect GitHub to add repositories"
           }
-          size="2"
+          size="1"
           disabled={
             !hasGithubIntegration || selected.length >= 10 || update.isPending
           }
@@ -476,10 +499,10 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
             </Callout.Text>
           </Callout.Root>
         ) : null}
-        <Flex justify="end">
+        {changed ? (
           <Button
-            size="2"
-            disabled={!changed || update.isPending}
+            size="1"
+            disabled={update.isPending}
             onClick={() =>
               update.mutate({
                 channelId: channel.id,
@@ -491,9 +514,9 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
             {update.isPending ? <Spinner size="1" /> : null}
             Save repositories
           </Button>
-        </Flex>
+        ) : null}
       </Flex>
-    </Box>
+    </section>
   );
 }
 
