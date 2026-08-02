@@ -89,7 +89,7 @@ Use your account's **read-only API key**, created under [Integrations & API](htt
             # AUTH_ERROR_PREFIX above and instead raises via response.raise_for_status()). Match the
             # stable domain, not the per-request method in the URL path. Retrying can't grant a scoped
             # key access it was never issued.
-            "403 Client Error: Forbidden for url: https://api.uptimerobot.com": "Your UptimeRobot API key doesn't have permission to sync this table. Monitor-specific API keys only grant access to a single monitor, so alert contacts, maintenance windows, and status pages won't sync with one — reconnect with a full-account read-only API key under Integrations & API in your UptimeRobot dashboard.",
+            "403 Client Error: Forbidden for url: https://api.uptimerobot.com": "Your UptimeRobot API key doesn't have permission to sync this table. Monitor-specific API keys only grant access to a single monitor, so alert contacts, maintenance windows, and status pages won't sync with one. Reconnect with a full-account read-only API key under Integrations & API in your UptimeRobot dashboard.",
         }
 
     def get_retryable_errors(self) -> set[str]:

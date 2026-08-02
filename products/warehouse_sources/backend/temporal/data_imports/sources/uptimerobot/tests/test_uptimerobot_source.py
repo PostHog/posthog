@@ -3,6 +3,7 @@ from unittest import mock
 
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.uptimerobot import (
     UptimerobotSourceConfig,
 )
@@ -61,8 +62,9 @@ class TestUptimerobotSource:
         ],
     )
     def test_non_retryable_errors_match_credential_failures(self, observed_error):
+        # Mirrors the production matcher (`error_message_matches`), which is case-insensitive.
         non_retryable_errors = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
+        assert error_message_matches(observed_error, non_retryable_errors)
 
     @pytest.mark.parametrize(
         "other_error",
