@@ -35,21 +35,25 @@ class InternalCHQueryError(ServerException):
         super().__init__(message, code, nested)
 
 
+def _trim_ch_message(message: str) -> str:
+    "Strip the DB::Exception/stack-trace noise ClickHouse wraps its message in."
+    try:
+        start_index = message.index("DB::Exception:") + len("DB::Exception:")
+    except ValueError:
+        start_index = 0
+    try:
+        end_index = message.index("Stack trace:")
+    except ValueError:
+        end_index = len(message)
+    return message[start_index:end_index].strip()
+
+
 class ExposedCHQueryError(InternalCHQueryError):
     """User-safe ClickHouse query error. Subclasses have user_safe=True in ErrorCodeMeta,
     which classify_query_error() uses to categorize them as USER_ERROR."""
 
     def __str__(self) -> str:
-        message: str = str(self.message)
-        try:
-            start_index = message.index("DB::Exception:") + len("DB::Exception:")
-        except ValueError:
-            start_index = 0
-        try:
-            end_index = message.index("Stack trace:")
-        except ValueError:
-            end_index = len(message)
-        return message[start_index:end_index].strip()
+        return _trim_ch_message(str(self.message))
 
 
 @dataclass
@@ -190,6 +194,19 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
     elif name == "UNKNOWN_TABLE":
         return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
 
+    # Resource-limit errors (too many rows/bytes/columns, AST too big, etc.) are tagged
+    # QUERY_PERFORMANCE_ERROR for observability but, unlike TOO_SLOW/MEMORY_LIMIT_EXCEEDED
+    # above, don't have a dedicated branch here - without this they fall through to the
+    # generic "all other errors" case below as an unexposed InternalCHQueryError, which
+    # the API flattens into an opaque "ClickHouse error while executing query." with no
+    # hint that narrowing the query (e.g. the date range) would fix it.
+    elif meta.get_category() == QueryErrorCategory.QUERY_PERFORMANCE_ERROR and not meta.user_safe:
+        return CHQueryErrorResourceLimitExceeded(
+            f"{_trim_ch_message(err.message)} Try reducing its scope by changing the time range.",
+            code=err.code,
+            code_name=meta.name.lower(),
+        )
+
     # all other errors
     else:
         name = f"CHQueryError{meta.label}"
@@ -243,6 +260,13 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorResourceLimitExceeded(ExposedCHQueryError):
+    """A ClickHouse resource limit (rows, bytes, columns, AST size, etc.) was exceeded while
+    executing the query."""
+
     pass
 
 

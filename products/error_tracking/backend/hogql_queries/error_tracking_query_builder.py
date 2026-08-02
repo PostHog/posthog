@@ -13,6 +13,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.property import property_to_expr
 
 from posthog.models.team.team import Team
@@ -105,6 +106,12 @@ class ErrorTrackingQueryBuilder:
       mixed-OR semantics across the events/issue boundary.
     """
 
+    # Without an explicit cap, a wide date range (e.g. 7d+) lets this scan an unbounded slice
+    # of the events table before ClickHouse ever gets a chance to reject it cheaply. Bounding
+    # bytes read turns that into a fast, actionable TOO_MANY_BYTES error instead of an
+    # open-ended scan that eats cluster resources for minutes before timing out.
+    MAX_BYTES_TO_READ = 50_000_000_000
+
     def __init__(self, query: ErrorTrackingQuery, team: Team, date_from: datetime.datetime, date_to: datetime.datetime):
         self.query = query
         self.team = team
@@ -112,9 +119,12 @@ class ErrorTrackingQueryBuilder:
         self.date_to = date_to
 
     def build_query(self) -> ast.SelectQuery:
-        if self._needs_legacy_shape():
-            return self._build_query_legacy()
-        return self._build_query_optimized()
+        query = self._build_query_legacy() if self._needs_legacy_shape() else self._build_query_optimized()
+        query.settings = self.query_settings()
+        return query
+
+    def query_settings(self) -> HogQLQuerySettings:
+        return HogQLQuerySettings(max_bytes_to_read=self.MAX_BYTES_TO_READ, read_overflow_mode="throw")
 
     def hogql_filters(self) -> HogQLFilters:
         # User-supplied properties are handled directly in the per-shape

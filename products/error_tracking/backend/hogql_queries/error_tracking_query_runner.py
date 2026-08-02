@@ -132,28 +132,31 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         uuids = {str(row[index]) for row in results for index in uuid_indexes if row[index] is not None}
         events: dict[str, tuple] = {}
         if uuids:
+            event_fetch_query = parse_select(
+                # The explicit LIMIT matters: without one, execute_hogql_query applies
+                # the default 100-row limit and silently drops payloads beyond it.
+                """
+                SELECT uuid, distinct_id, timestamp, properties
+                FROM events
+                WHERE event = '$exception'
+                    AND uuid IN {uuids}
+                    AND timestamp >= toDateTime({date_from})
+                    AND timestamp <= toDateTime({date_to})
+                LIMIT 1 BY uuid
+                LIMIT {event_limit}
+                """,
+                placeholders={
+                    "uuids": ast.Constant(value=sorted(uuids)),
+                    "date_from": ast.Constant(value=self.date_from),
+                    "date_to": ast.Constant(value=self.date_to),
+                    "event_limit": ast.Constant(value=len(uuids)),
+                },
+            )
+            assert isinstance(event_fetch_query, ast.SelectQuery)
+            event_fetch_query.settings = self._builder.query_settings()
             with self.timings.measure("error_tracking_query_event_fetch"):
                 event_result = execute_hogql_query(
-                    query=parse_select(
-                        # The explicit LIMIT matters: without one, execute_hogql_query applies
-                        # the default 100-row limit and silently drops payloads beyond it.
-                        """
-                        SELECT uuid, distinct_id, timestamp, properties
-                        FROM events
-                        WHERE event = '$exception'
-                            AND uuid IN {uuids}
-                            AND timestamp >= toDateTime({date_from})
-                            AND timestamp <= toDateTime({date_to})
-                        LIMIT 1 BY uuid
-                        LIMIT {event_limit}
-                        """,
-                        placeholders={
-                            "uuids": ast.Constant(value=sorted(uuids)),
-                            "date_from": ast.Constant(value=self.date_from),
-                            "date_to": ast.Constant(value=self.date_to),
-                            "event_limit": ast.Constant(value=len(uuids)),
-                        },
-                    ),
+                    query=event_fetch_query,
                     team=self.team,
                     query_type="ErrorTrackingEventFetchQuery",
                     timings=self.timings,
