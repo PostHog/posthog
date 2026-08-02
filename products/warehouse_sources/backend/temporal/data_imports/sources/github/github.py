@@ -1032,11 +1032,11 @@ def get_rows(
             logger.debug(f"Github: statistics not ready yet, syncing zero rows: url={url}")
             break
 
-        # A 204 No Content has an empty body — GitHub answers it on the /stats/* endpoints for a
+        # A 204 No Content has an empty body, which GitHub returns on the /stats/* endpoints for a
         # repository with no commit activity. There is nothing to parse, so sync zero rows rather
-        # than crashing on response.json() (an empty body raises a JSONDecodeError).
+        # than crashing on response.json(), because an empty body raises a JSONDecodeError.
         if response.status_code == 204:
-            logger.debug(f"Github: statistics have no content, syncing zero rows: url={url}")
+            logger.debug(f"Github: 204 no content, syncing zero rows: url={url}")
             break
 
         data = response.json()
