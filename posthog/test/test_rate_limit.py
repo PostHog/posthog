@@ -37,6 +37,25 @@ from products.feature_flags.backend.api.feature_flag import (
 )
 
 
+class TestIsRateLimitEnabled(SimpleTestCase):
+    def setUp(self) -> None:
+        rate_limit.is_rate_limit_enabled.cache_clear()
+
+    def tearDown(self) -> None:
+        rate_limit.is_rate_limit_enabled.cache_clear()
+
+    @patch("posthog.rate_limit.capture_exception")
+    @patch("posthog.rate_limit.get_instance_setting", side_effect=Exception("cache lookup failed for function 481"))
+    def test_fails_open_when_the_instance_setting_lookup_raises(
+        self, _get_instance_setting: Mock, capture_exception_mock: Mock
+    ) -> None:
+        # Regression guard: this call happens outside the try/except in allow_request,
+        # so an unhandled exception here used to 500 every throttled request instead
+        # of falling back to "rate limiting disabled".
+        self.assertFalse(rate_limit.is_rate_limit_enabled(0))
+        capture_exception_mock.assert_called_once()
+
+
 class TestUserAPI(APIBaseTest):
     def setUp(self):
         super().setUp()

@@ -43,6 +43,12 @@ RATE_LIMIT_BYPASSED_COUNTER = Counter(
     labelnames=[LABEL_TEAM_ID, LABEL_PATH, LABEL_ROUTE],
 )
 
+RATE_LIMIT_FAIL_OPEN_COUNTER = Counter(
+    "rate_limit_fail_open_total",
+    "Requests allowed through without rate-limiting because checking the limit raised an exception.",
+    labelnames=["scope", "exception"],
+)
+
 
 @lru_cache(maxsize=1)
 def get_team_allow_list(_ttl: int) -> list[str]:
@@ -67,7 +73,15 @@ def is_rate_limit_enabled(_ttl: int) -> bool:
     The setting will change way less frequently than it will be called
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
     """
-    return get_instance_setting("RATE_LIMIT_ENABLED")
+    try:
+        return get_instance_setting("RATE_LIMIT_ENABLED")
+    except Exception as e:
+        # This used to propagate straight through allow_request (called outside any
+        # try/except there), turning a transient DB blip into a 500 on every throttled
+        # request instead of the fail-open behavior the rest of this file uses.
+        capture_exception(e)
+        RATE_LIMIT_FAIL_OPEN_COUNTER.labels(scope="is_rate_limit_enabled", exception=type(e).__name__).inc()
+        return False
 
 
 path_by_env_pattern = re.compile(r"^/api/environments/(\d+)/")
@@ -236,6 +250,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
             return False
         except Exception as e:
             capture_exception(e)
+            RATE_LIMIT_FAIL_OPEN_COUNTER.labels(scope=self.scope, exception=type(e).__name__).inc()
             return True
 
     def allow_request(self, request, view):
@@ -1244,6 +1259,7 @@ class _OrganizationInviteRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
             return True
         except Exception as e:
             capture_exception(e)
+            RATE_LIMIT_FAIL_OPEN_COUNTER.labels(scope=self.scope, exception=type(e).__name__).inc()
             return True
 
 
