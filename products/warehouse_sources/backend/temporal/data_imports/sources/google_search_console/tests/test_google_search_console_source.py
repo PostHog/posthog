@@ -302,10 +302,10 @@ def test_validate_credentials_handles_missing_integration():
     assert "reconnect your Google Search Console account" in (message or "")
 
 
-def _http_error(status_code: int) -> requests.HTTPError:
+def _http_error(status_code: int, message: str = "") -> requests.HTTPError:
     response = mock.MagicMock()
     response.status_code = status_code
-    return requests.HTTPError(response=response)
+    return requests.HTTPError(message, response=response)
 
 
 def test_validate_credentials_unexpected_load_error_stays_generic():
@@ -323,13 +323,13 @@ def test_validate_credentials_unexpected_load_error_stays_generic():
 
 
 @pytest.mark.parametrize(
-    "error",
+    "error,secret",
     [
-        pytest.param(_http_error(500), id="http_500"),
-        pytest.param(Exception("boom refresh_token=secret-xyz789"), id="unexpected"),
+        pytest.param(_http_error(500, "boom access_token=secret-http500"), "secret-http500", id="http_500"),
+        pytest.param(Exception("boom refresh_token=secret-xyz789"), "secret-xyz789", id="unexpected"),
     ],
 )
-def test_validate_credentials_unexpected_list_sites_error_stays_generic(error):
+def test_validate_credentials_unexpected_list_sites_error_stays_generic(error, secret):
     # A non-auth failure listing sites must fall back to a generic message, not leak the raw error.
     with (
         mock.patch(
@@ -344,4 +344,4 @@ def test_validate_credentials_unexpected_list_sites_error_stays_generic(error):
 
     assert ok is False
     assert "couldn't reach Google Search Console" in (message or "")
-    assert "secret-xyz789" not in (message or "")
+    assert secret not in (message or "")
