@@ -20,6 +20,10 @@ describe('propertyDefinitionsTableLogic', () => {
             get: {
                 '/api/projects/:team/property_definitions/': ({ request }) => {
                     const url = new URL(request.url)
+                    // Stand in for a project where nothing has been marked verified yet.
+                    if (url.searchParams.get('verified') === 'true') {
+                        return [200, { results: [], count: 0, previous: null, next: null }]
+                    }
                     if (url.searchParams.get('limit') === '50' && !url.searchParams.get('offset')) {
                         return [
                             200,
@@ -151,6 +155,30 @@ describe('propertyDefinitionsTableLogic', () => {
                     }),
                 })
             expect(api.get).toHaveBeenCalledTimes(2)
+        })
+    })
+
+    describe('showVerifiedFilter', () => {
+        // The control is the only way to set `verified`, so hiding it on an empty result set leaves
+        // the user filtered down to nothing with no way back to "All" except reloading the page.
+        it('stays visible when filtering by verified returns no rows', async () => {
+            const url = urls.propertyDefinitions()
+            router.actions.push(url)
+            await expectLogic(logic).toDispatchActions([
+                router.actionCreators.push(url),
+                'loadPropertyDefinitions',
+                'loadPropertyDefinitionsSuccess',
+            ])
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ verified: true })
+            })
+                .delay(600)
+                .toDispatchActions(['loadPropertyDefinitions', 'loadPropertyDefinitionsSuccess'])
+                .toMatchValues({
+                    propertyDefinitions: partial({ results: [], count: 0 }),
+                    showVerifiedFilter: true,
+                })
         })
     })
 })

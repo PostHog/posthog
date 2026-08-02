@@ -128,7 +128,7 @@ export interface propertyDefinitionsTableLogicMeta {
             groupTypes: Map<GroupTypeIndex, GroupType>,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
         ) => LemonSelectOption<string>[]
-        showVerifiedFilter: (propertyDefinitions: PropertyDefinitionsPaginatedResponse) => boolean
+        showVerifiedFilter: (propertyDefinitions: PropertyDefinitionsPaginatedResponse, filters: Filters) => boolean
     }
 }
 
@@ -257,9 +257,13 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
     })),
     selectors(() => ({
         showVerifiedFilter: [
-            (s) => [s.propertyDefinitions],
-            (propertyDefinitions: PropertyDefinitionsPaginatedResponse): boolean =>
-                propertyDefinitions.results.length > 0 && 'verified' in propertyDefinitions.results[0],
+            (s) => [s.propertyDefinitions, s.filters],
+            (propertyDefinitions: PropertyDefinitionsPaginatedResponse, filters: Filters): boolean =>
+                // Keep the control visible whenever it is filtering, even if that filter matched
+                // nothing. Hiding it on an empty result set strands the user on a filtered view
+                // with no way back to "All" short of reloading the page.
+                filters.verified !== undefined ||
+                (propertyDefinitions.results.length > 0 && 'verified' in propertyDefinitions.results[0]),
         ],
     })),
     listeners(({ actions, values, cache }) => ({

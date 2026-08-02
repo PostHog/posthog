@@ -107,3 +107,24 @@ export const FilteredUnverifiedOnly: Story = {
         pageUrl: urls.propertyDefinitions() + '?verified=false',
     },
 }
+
+// A project where nothing has been verified yet, filtered to verified only. The table is empty,
+// and the status dropdown still has to be there — it is the only way back to "All".
+export const FilteredVerifiedOnlyWithNoMatches: Story = {
+    parameters: {
+        pageUrl: urls.propertyDefinitions() + '?verified=true',
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/property_definitions/': ({ request }) => {
+                    const verified = new URL(request.url).searchParams.get('verified')
+                    const results = MOCK_PROPERTY_DEFINITIONS.results
+                        .filter((p) => !p.verified)
+                        .filter(() => verified !== 'true')
+                    return [200, { ...MOCK_PROPERTY_DEFINITIONS, results, count: results.length }]
+                },
+            },
+        }),
+    ],
+}
