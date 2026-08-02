@@ -82,7 +82,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Rename a public channel",
     )
     def partial_update(self, request, pk=None, **kwargs):
-        serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id})
+        serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
         result = tasks_facade.update_channel(pk, self.team_id, **serializer.validated_data)
         if result == "not_found":
