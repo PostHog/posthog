@@ -101,7 +101,19 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = TABOOLA_ENDPOINTS[endpoint]
     session = _get_session(client_secret)
-    token = _mint_token(session, client_id, client_secret)
+
+    # The initial mint below and the mid-sync re-mint on 401 (inside `fetch`) share this
+    # retry so a transient token-endpoint failure backs off instead of failing the sync.
+    @retry(
+        retry=retry_if_exception_type(TaboolaRetryableError),
+        stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
+        wait=wait_exponential_jitter(initial=2, max=90),
+        reraise=True,
+    )
+    def mint_token() -> str:
+        return _mint_token(session, client_id, client_secret)
+
+    token = mint_token()
     account_base = f"{TABOOLA_API_BASE_URL}/{_encode_path_segment(account_id)}"
 
     @retry(
@@ -116,7 +128,7 @@ def get_rows(
 
         # Access tokens are short-lived; re-mint once if one expires mid-sync.
         if response.status_code == 401:
-            token = _mint_token(session, client_id, client_secret)
+            token = mint_token()
             response = session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
 
         if response.status_code == 429 or response.status_code >= 500:
