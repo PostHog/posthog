@@ -531,15 +531,25 @@ def _truncate(rows: list[dict[str, Any]], limit: int) -> dict[str, Any]:
 def _fetch_summary(
     team: Team, email: str, from_dt: datetime.datetime, to_dt: datetime.datetime, product: str
 ) -> dict[str, Any]:
+    # `{product_filter}` is read into `is_scoped` once in the inner subquery rather than being
+    # inlined twice (in `countIf` and `sumIf`) against the outer aggregate. Duplicating a
+    # property-read expression like that across sibling aggregate clauses has caused ClickHouse
+    # to lose track of the projected column ("Not found column in block") once optimizations like
+    # PREWHERE pushdown treat the two textually-identical occurrences differently.
     query = parse_select(
         """
         SELECT
-            countIf({product_filter}) AS scoped_event_count,
-            round(sumIf(toFloat(properties.$ai_total_cost_usd), {product_filter}), 6) AS scoped_cost_usd,
+            countIf(is_scoped) AS scoped_event_count,
+            round(sumIf(cost_usd, is_scoped), 6) AS scoped_cost_usd,
             count() AS event_count,
-            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS total_cost_usd
-        FROM events
-        WHERE {event_in} AND {email_filter} AND {timestamp_filter}
+            round(sum(cost_usd), 6) AS total_cost_usd
+        FROM (
+            SELECT
+                toFloat(properties.$ai_total_cost_usd) AS cost_usd,
+                {product_filter} AS is_scoped
+            FROM events
+            WHERE {event_in} AND {email_filter} AND {timestamp_filter}
+        )
         """
     )
     result = execute_hogql_query(
@@ -615,18 +625,30 @@ def _fetch_by_tool(
     # generation (e.g. "Bash,Read"). Split it so multi-tool generations contribute to
     # each individual tool row. nullIf restores the no-tool case (where the property
     # is NULL and coalesce produces an empty string) to a NULL bucket.
+    #
+    # The arrayJoin runs in an inner subquery, projecting the raw numeric columns
+    # alongside it, and the aggregates run outside. ClickHouse evaluates arrayJoin
+    # before aggregation, and mixing it into the same SELECT as an aggregate over a
+    # materialized property column has caused the materialized projection to go
+    # missing from the post-array-join block ("Not found column in block").
     query = parse_select(
         """
         SELECT
-            nullIf(arrayJoin(splitByChar(',', coalesce(properties.$ai_tools_called, ''))), '') AS tool,
+            tool,
             count() AS generation_count,
-            round(sum(toFloat(properties.$ai_total_cost_usd)), 6) AS cost_usd,
-            round(avg(toFloat(properties.$ai_input_tokens)), 0) AS avg_input_tokens
-        FROM events
-        WHERE equals(event, '$ai_generation')
-            AND {product_filter}
-            AND {email_filter}
-            AND {timestamp_filter}
+            round(sum(cost_usd), 6) AS cost_usd,
+            round(avg(input_tokens), 0) AS avg_input_tokens
+        FROM (
+            SELECT
+                nullIf(arrayJoin(splitByChar(',', coalesce(properties.$ai_tools_called, ''))), '') AS tool,
+                toFloat(properties.$ai_total_cost_usd) AS cost_usd,
+                toFloat(properties.$ai_input_tokens) AS input_tokens
+            FROM events
+            WHERE equals(event, '$ai_generation')
+                AND {product_filter}
+                AND {email_filter}
+                AND {timestamp_filter}
+        )
         GROUP BY tool
         ORDER BY cost_usd DESC
         LIMIT {limit}
