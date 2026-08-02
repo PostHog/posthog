@@ -2558,6 +2558,7 @@ export interface CredentialApi {
  * * `Odoo` - Odoo
  * * `Airbridge` - Airbridge
  * * `Snovio` - Snovio
+ * * `GoogleMerchantCenter` - GoogleMerchantCenter
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3839,6 +3840,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Odoo: 'Odoo',
     Airbridge: 'Airbridge',
     Snovio: 'Snovio',
+    GoogleMerchantCenter: 'GoogleMerchantCenter',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
