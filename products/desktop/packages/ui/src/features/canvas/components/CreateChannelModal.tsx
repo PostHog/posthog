@@ -29,7 +29,7 @@ import { type CSSProperties, useRef, useState } from "react";
 const MAX_CONTEXT_NAME_LENGTH = 80;
 
 const DESCRIPTION_PLACEHOLDER =
-  "Grab all files relating to X feature, get all relevant pull requests, in this X repo(s)";
+  "e.g. The mobile app: screens live in app/screens, we use Redux for state, and we run the E2E suite before every release.";
 
 interface CreateChannelModalProps {
   open: boolean;
