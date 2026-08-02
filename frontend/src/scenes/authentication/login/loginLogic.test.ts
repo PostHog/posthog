@@ -56,6 +56,33 @@ describe('loginLogic', () => {
         }
     })
 
+    describe('sessionExpiredRedirectPath', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+
+        beforeEach(() => {
+            initKeaTests()
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        const cases: [string, string | null][] = [
+            ['/login?next=/settings/user-api-keys', '/settings/user-api-keys'],
+            // The session-risk banner already explains the redirect, so don't show both
+            ['/login?next=/settings/user-api-keys&reason=session_risk', null],
+            // No next param means the user didn't get here via a login_required bounce
+            ['/login', null],
+            // Sanitized away by getRelativeNextPath - must not leak into the banner
+            ['/login?next=//evil.com', null],
+        ]
+
+        for (const [url, expected] of cases) {
+            it(`for "${url}" it returns ${expected}`, () => {
+                router.actions.push(url)
+                expect(logic.values.sessionExpiredRedirectPath).toEqual(expected)
+            })
+        }
+    })
+
     describe('parseLoginRedirectURL', () => {
         let logic: ReturnType<typeof loginLogic.build>
 

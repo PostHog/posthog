@@ -148,11 +148,29 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 if (now - 10000 > (cache.lastUnauthorizedCheck ?? 0)) {
                     cache.lastUnauthorizedCheck = Date.now()
 
-                    await api.get('api/users/@me/').catch((error: any) => {
-                        if (error.status === 401) {
+                    const isStillUnauthorized = async (): Promise<boolean> => {
+                        try {
+                            await api.get('api/users/@me/')
+                            return false
+                        } catch (error: any) {
+                            return error.status === 401
+                        }
+                    }
+
+                    if (await isStillUnauthorized()) {
+                        // A single 401 can be a transient blip (e.g. a load balancer hiccup or a race
+                        // during token rotation) rather than a truly expired session. Give it a moment
+                        // and check again before ejecting a live session.
+                        //
+                        // A plain timer (not kea's `breakpoint`) is used deliberately: the recheck
+                        // itself calls the API, which re-triggers this same `onApiResponse` listener
+                        // re-entrantly (see api.ts's own onApiResponse call), which would otherwise
+                        // invalidate `breakpoint`'s cancellation counter and abort this check.
+                        await new Promise<void>((resolve) => setTimeout(resolve, 2000))
+                        if (await isStillUnauthorized()) {
                             userLogic.findMounted()?.actions.logout(true)
                         }
-                    })
+                    }
                 }
             }
         },

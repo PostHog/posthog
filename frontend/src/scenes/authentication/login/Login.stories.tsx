@@ -157,6 +157,20 @@ export const SSOError: Story = {
     },
 }
 
+export const SessionExpired: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': preflightJson,
+            },
+        })
+
+        useDelayedOnMountEffect(() => router.actions.push(`${urls.login()}?next=/settings/user-api-keys`))
+
+        return <Login />
+    },
+}
+
 export const SecondFactor: Story = {
     render: () => {
         useDelayedOnMountEffect(() => router.actions.push(urls.login2FA()))

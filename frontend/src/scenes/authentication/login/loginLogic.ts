@@ -132,6 +132,7 @@ export interface loginLogicValues {
         success: boolean
     } | null
     resendResponseLoading: boolean
+    sessionExpiredRedirectPath: string | null
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
     signupUrl: string
@@ -279,6 +280,7 @@ export interface loginLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
+        sessionExpiredRedirectPath: (searchParams: Record<string, any>) => string | null
     }
 }
 
@@ -385,6 +387,25 @@ export const loginLogic = kea<loginLogicType>([
         wasSignedOutForSessionRisk: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, string>): boolean => searchParams['reason'] === 'session_risk',
+        ],
+        sessionExpiredRedirectPath: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, string>): string | null => {
+                // The session-risk banner already explains why the user landed here, so don't
+                // also show a generic "session expired" message in that case.
+                if (searchParams['reason'] === 'session_risk') {
+                    return null
+                }
+                const nextPath = getRelativeNextPath(searchParams['next'], location)
+                if (!nextPath) {
+                    return null
+                }
+                try {
+                    return new URL(location.origin + nextPath).pathname
+                } catch {
+                    return null
+                }
+            },
         ],
     })),
     forms(({ actions, values }) => ({

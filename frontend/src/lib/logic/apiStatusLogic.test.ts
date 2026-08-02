@@ -78,6 +78,36 @@ describe('apiStatusLogic', () => {
             logoutSpy.mockRestore()
             submitSpy.mockRestore()
         })
+
+        it('tolerates a transient 401 that clears on recheck', async () => {
+            let callCount = 0
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => {
+                        callCount += 1
+                        // First recheck still 401 (the blip), second recheck succeeds
+                        return callCount === 1 ? [401, {}] : [200, MOCK_DEFAULT_USER]
+                    },
+                },
+            })
+            initKeaTests()
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+
+            logic = apiStatusLogic()
+            logic.mount()
+
+            const logoutSpy = jest.spyOn(userLogic.actions, 'logout')
+
+            const mockResponse = { status: 401, ok: false } as Response
+
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(mockResponse)
+            }).toFinishAllListeners()
+
+            expect(logoutSpy).not.toHaveBeenCalled()
+            logoutSpy.mockRestore()
+        })
     })
 
     describe('read-only impersonation 403 handling', () => {
