@@ -1,3 +1,6 @@
+from typing import Any
+
+from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.utils import UUIDTModel
@@ -11,11 +14,11 @@ class TicketAssignment(UUIDTModel):
 
     class Meta:
         db_table = "posthog_conversations_ticket_assignment"
-        constraints = [
-            models.CheckConstraint(
-                condition=(
-                    models.Q(user__isnull=False, role__isnull=True) | models.Q(user__isnull=True, role__isnull=False)
-                ),
-                name="exactly_one_assignee_type",
-            ),
-        ]
+
+    def clean(self) -> None:
+        if (self.user_id is None) == (self.role_id is None):
+            raise ValidationError("Exactly one of user or role must be set")
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        self.clean()
+        super().save(*args, **kwargs)
