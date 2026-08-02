@@ -834,14 +834,14 @@ export interface dashboardLogicActions {
     setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => {
         results: Record<number, DashboardWidgetRunResultApi>
     }
+    tileStreamCancelled: () => {
+        value: true
+    }
     tileStreamingComplete: () => {
         value: true
     }
     tileStreamingFailure: (error: any) => {
         error: any
-    }
-    tileStreamCancelled: () => {
-        value: true
     }
     toggleAddWidgetCollapsedGroup: (groupId: string) => {
         groupId: string
