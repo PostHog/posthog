@@ -139,7 +139,7 @@ for (const scope of ['flag', 'feature-flag', 'feature_flags', 'feature_flag']) {
 
 // Desktop PRs rely on these scopes for the `feature/desktop` label; bind each
 // to the shipped config so an edit that drops one regresses loudly here.
-for (const scope of ['desktop', 'tasks']) {
+for (const scope of ['desktop', 'tasks', 'agent-proxy']) {
     test(`the shipped config maps the ${scope} scope to labels`, () => {
         assert.ok(labelsForTitle(`feat(${scope}): x`, loadRules()).length > 0, `${scope} scope maps to no labels`)
     })
