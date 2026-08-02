@@ -110,10 +110,12 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     @cached_property
     def _use_property_values_table(self) -> bool:
         # Column and virtual lookups stay on the events scan: the table only
-        # holds keys from the properties blob. event_names is deliberately not
-        # a fallback: the table has no event dimension, so flagged teams get
-        # event-agnostic value suggestions for event-scoped requests.
+        # holds keys from the properties blob. event_names requests also stay
+        # on the events scan: the table has no event dimension, so it can't
+        # scope suggestions to the requested events.
         if self.query.is_column or self.query.property_key.startswith("$virt_"):
+            return False
+        if self.query.event_names:
             return False
         team_id = str(self.team.pk)
         if not posthoganalytics.feature_enabled(

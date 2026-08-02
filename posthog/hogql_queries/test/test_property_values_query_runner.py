@@ -396,15 +396,18 @@ class TestPropertyValuesQueryRunnerAggregatedTable(ClickhouseTestMixin, APIBaseT
             results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="tags"))
         assert {r.name for r in results} == {"python", "django"}
 
-    def test_event_scoped_request_is_served_unscoped_from_table(self):
+    def test_event_scoped_request_falls_back_to_events_scan(self):
+        # The table has no event dimension, so an event_names request must skip it
+        # rather than serve values scoped to the wrong (or no) event.
         self._insert_rows([(self.team.pk, "event", "browser", "TableValue", 3, datetime.now())])
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "EventScopedValue"})
+        flush_persons_and_events()
 
         with self._flag_on():
             results = self._run(
                 PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser", event_names=["$pageview"])
             )
-        assert {r.name for r in results} == {"TableValue"}
+        assert {r.name for r in results} == {"EventScopedValue"}
 
     def test_restricted_property_key_is_not_served(self):
         self._insert_rows([(self.team.pk, "event", "browser", "TableOnly", 3, datetime.now())])
