@@ -46,9 +46,10 @@ commit() {
 }
 
 register_pr() {
-    local sha="$1" number="$2" body="$3" labels="$4"
+    local sha="$1" number="$2" body="$3" labels="$4" assoc="${5:-MEMBER}"
     echo "[{\"number\": $number}]" >"$fixtures/repos_PostHog_posthog_commits_${sha}_pulls.json"
-    jq -n --arg body "$body" --argjson labels "$labels" '{body: $body, labels: $labels}' \
+    jq -n --arg body "$body" --argjson labels "$labels" --arg assoc "$assoc" \
+        '{body: $body, labels: $labels, author_association: $assoc}' \
         >"$fixtures/repos_PostHog_posthog_pulls_${number}.json"
 }
 
@@ -104,7 +105,7 @@ assert_required "skip label suppresses the gate" "$coupled $backend_dep $merged_
 
 git -C "$repo" tag desktop-v0.2.0
 export CURRENT_TAG="desktop-v0.2.0"
-assert_required "range excludes commits at or before the previous tag" "$coupled $backend_dep $merged_dep"
+assert_required "missing feed walks the full desktop history" "$coupled $backend_dep $merged_dep"
 
 pretag=$(git -C "$repo" rev-parse HEAD)
 posttag=$(commit "coupled after tag" products/desktop/apps/late.ts posthog/late.py)
@@ -120,7 +121,9 @@ if [ "$actual" != "$posttag" ]; then
 fi
 echo "ok: explicit range override walks only start..end"
 
-assert_required "tag fallback sees only commits after the previous tag" "$posttag"
+echo "version: 0.2.0" >"$workdir/feed-latest.yml"
+TEST_FEED_URL="file://$workdir/feed-latest.yml" \
+    assert_required "feed anchor at the newest tag limits the range" "$posttag"
 
 echo "version: 0.1.0" >"$workdir/feed.yml"
 TEST_FEED_URL="file://$workdir/feed.yml" \
@@ -128,7 +131,7 @@ TEST_FEED_URL="file://$workdir/feed.yml" \
 
 echo "version: 9.9.9" >"$workdir/feed-untagged.yml"
 TEST_FEED_URL="file://$workdir/feed-untagged.yml" \
-    assert_required "unknown feed version falls back to the previous tag" "$posttag"
+    assert_required "unknown feed version walks the full history, not a tag" "$coupled $backend_dep $merged_dep $posttag"
 
 assert_fails() {
     local name="$1" needle="$2" output status
@@ -162,6 +165,12 @@ apifail_sha=$(commit "desktop with api failure" products/desktop/apps/apifail.ts
 touch "$fixtures/repos_PostHog_posthog_commits_${apifail_sha}_pulls.fail"
 assert_fails "API failure fails the gate instead of dropping deps" "GitHub API request failed"
 rm "$fixtures/repos_PostHog_posthog_commits_${apifail_sha}_pulls.fail"
+
+# PR bodies are editable after merge by anyone who authored a PR, so a
+# declaration from an untrusted author must not block (or gate) a release.
+untrusted_sha=$(commit "desktop with untrusted trailer" products/desktop/apps/untrusted.ts)
+register_pr "$untrusted_sha" 46 "Requires-Backend: #98" "[]" "CONTRIBUTOR"
+assert_required "untrusted author trailers are ignored" "$coupled $backend_dep $merged_dep $posttag"
 
 classifier_repo="$workdir/classifier"
 mkdir -p "$classifier_repo"

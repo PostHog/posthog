@@ -10,7 +10,7 @@ on:
     workflow_dispatch:
         inputs:
             range_start_sha:
-                description: 'Range start (exclusive). Empty: previous desktop-v* tag, or full desktop history.'
+                description: 'Range start (exclusive). Empty: the published feed version, or full desktop history.'
                 required: false
                 default: ''
             range_end_sha:

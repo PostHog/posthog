@@ -53,29 +53,31 @@ fetch_api() {
 # The range must start at the last version users can actually receive, not the
 # last tag minted: releases are cumulative snapshots, and a predecessor release
 # that failed, timed out or was dropped from the concurrency queue leaves its
-# tag behind without publishing. Anchoring at the tag would silently drop that
+# tag behind without publishing. Anchoring at a tag would silently drop that
 # predecessor's backend requirements from the next release. The update feed's
-# published version is the source of truth; the previous tag is only a
-# fallback when the feed is unreachable or predates the tag namespace.
+# published version is the source of truth; when it cannot be resolved the
+# fallback is the FULL desktop history, never a tag: over-inclusion is safe
+# (already-deployed requirements pass the ancestry check instantly), a tag
+# anchor is not.
 published_anchor() {
     local version tag
     version=$(curl -fsSL --max-time 10 "$UPDATE_FEED_URL" 2>/dev/null | sed -n 's/^version:[[:space:]]*//p' | sed -n '1p') || true
     if [ -z "$version" ]; then
-        echo "::warning::Could not read the update feed ($UPDATE_FEED_URL); anchoring at the previous tag instead" >&2
+        echo "::warning::Could not read the update feed ($UPDATE_FEED_URL); walking the full desktop history instead" >&2
         return
     fi
     tag="desktop-v$version"
     if git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null; then
         echo "$tag"
     else
-        echo "::warning::Update feed version $version has no $tag tag in this repo; anchoring at the previous tag instead" >&2
+        echo "::warning::Update feed version $version has no $tag tag in this repo; walking the full desktop history instead" >&2
     fi
 }
 
 # Only commits touching products/desktop can couple or declare a dependency,
-# so the walk is path-limited. The first release has no anchor at all; walking
-# the full (path-limited) history keeps the very first desktop commit inside
-# the range, which an exclusive start..end would drop.
+# so the walk is path-limited. The full-history walk (first release, feed
+# unresolvable) has no range start, which also keeps the very first desktop
+# commit inside the range, where an exclusive start..end would drop it.
 range_commits() {
     if [ -n "${RANGE_START_SHA:-}" ]; then
         git rev-list --no-merges --reverse "$RANGE_START_SHA..$CURRENT_SHA" -- products/desktop
@@ -83,16 +85,11 @@ range_commits() {
     fi
     local anchor
     anchor=$(published_anchor)
-    if [ -z "$anchor" ]; then
-        anchor=$(git tag --list 'desktop-v*' --sort=-v:refname | grep -vFx -- "${CURRENT_TAG:-}" | sed -n '1p') || true
-    else
-        echo "Anchoring at published feed version: $anchor" >&2
-    fi
     if [ -n "$anchor" ]; then
-        echo "Release range: $anchor..$CURRENT_SHA" >&2
+        echo "Release range: $anchor..$CURRENT_SHA (anchored at the published feed version)" >&2
         git rev-list --no-merges --reverse "$anchor..$CURRENT_SHA" -- products/desktop
     else
-        echo "No published version or previous desktop-v* tag (first release); walking full desktop history" >&2
+        echo "Walking the full desktop history up to $CURRENT_SHA" >&2
         git rev-list --no-merges --reverse "$CURRENT_SHA" -- products/desktop
     fi
 }
@@ -126,6 +123,21 @@ while IFS= read -r sha; do
     if [ "$touched_backend" = true ]; then
         echo "Coupled commit $sha (PR #${pr_number:-unknown}) touches products/desktop and backend paths"
         REQUIRED+=("$sha")
+    fi
+
+    # PR bodies stay editable after merge, by external contributors too, so a
+    # Requires-Backend declaration is trusted input only when the author has
+    # write-side association. Anyone else's declarations are ignored loudly
+    # rather than allowed to block (or having ever gated) a release.
+    if [ -n "$pr_body" ] && grep -qiE '^requires-backend:' <<<"$pr_body"; then
+        author_assoc=$(jq -r '.author_association // ""' <<<"$pr_json")
+        case "$author_assoc" in
+            OWNER | MEMBER | COLLABORATOR) ;;
+            *)
+                echo "::warning::PR #${pr_number:-unknown} declares Requires-Backend but its author association '$author_assoc' is not trusted; ignoring the declaration"
+                pr_body=""
+                ;;
+        esac
     fi
 
     while IFS= read -r line; do
