@@ -152,6 +152,7 @@ class TaskDetailDTO:
     origin_product: str
     runtime: str
     repository: str | None
+    repositories: list[str]
     github_integration: int | None
     github_user_integration: UUID | None
     signal_report: UUID | None

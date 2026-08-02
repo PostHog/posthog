@@ -189,6 +189,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     repository = models.CharField(
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
+    repositories = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        blank=True,
+        help_text="GitHub repositories available to this task",
+    )
 
     # Channel this task was kicked off in. Legacy tasks (and tasks from non-channel
     # surfaces) stay NULL. SET_NULL so deleting a channel never deletes its tasks.
@@ -402,6 +408,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         state: dict = {} if self.runtime == Task.Runtime.PI else {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
+        state.setdefault("repositories", self.repositories or ([self.repository] if self.repository else []))
         # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
         if "use_dedicated_stream" not in state:
             distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"

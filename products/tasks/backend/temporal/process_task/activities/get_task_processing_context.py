@@ -126,6 +126,13 @@ class TaskProcessingContext:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 
     @property
+    def repositories(self) -> list[str]:
+        repositories = (self.state or {}).get("repositories")
+        if isinstance(repositories, list) and all(isinstance(repository, str) for repository in repositories):
+            return repositories
+        return [self.repository] if self.repository else []
+
+    @property
     def github_read_access(self) -> bool:
         """Repo-less run that asked for a read-only GitHub token (see Task.create_and_run)."""
         return (self.state or {}).get("github_read_access") is True

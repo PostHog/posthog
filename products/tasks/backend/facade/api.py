@@ -414,6 +414,7 @@ def _task_detail_to_dto(
         origin_product=task.origin_product,
         runtime=task.runtime,
         repository=task.repository,
+        repositories=task.repositories or ([task.repository] if task.repository else []),
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
         signal_report=task.signal_report_id,
@@ -1829,6 +1830,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "github_credential_source",
         "pr_authorship_mode",
+        "repositories",
         "sandbox_id",
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
@@ -4005,16 +4007,13 @@ def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[cont
 
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
-    repositories = (
+    tasks = (
         Task.objects.filter(team_id=team_id, deleted=False, internal=False)
         .filter(task_visibility_q(user_id))
-        .exclude(repository__isnull=True)
-        .exclude(repository__exact="")
-        .values_list("repository", flat=True)
-        .distinct()
-        .order_by("repository")
+        .values_list("repositories", "repository")
     )
-    return [repo for repo in repositories if repo is not None]
+    repositories = {repository for plural, legacy in tasks for repository in (plural or ([legacy] if legacy else []))}
+    return sorted(repositories)
 
 
 def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
@@ -4098,6 +4097,11 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
+    if "repositories" in validated_data:
+        repositories = validated_data["repositories"]
+        validated_data["repository"] = repositories[0] if repositories else None
+    elif "repository" in validated_data:
+        validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -4272,6 +4276,11 @@ def update_task(
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
     validated_data.pop("branch", None)
+    if "repositories" in validated_data:
+        repositories = validated_data["repositories"]
+        validated_data["repository"] = repositories[0] if repositories else None
+    elif "repository" in validated_data:
+        validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
     if "title" in validated_data and "title_manually_set" not in validated_data:
         validated_data["title_manually_set"] = True
     if "archived" in validated_data and validated_data["archived"] != task.archived:

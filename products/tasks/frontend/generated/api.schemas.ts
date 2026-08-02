@@ -1411,6 +1411,7 @@ export interface TaskDetailDTOApi {
     readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
+    repositories: string[]
     /** @nullable */
     github_integration: number | null
     /** @nullable */
@@ -1532,6 +1533,12 @@ export interface TaskCreateApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -1670,6 +1677,12 @@ export interface TaskWriteApi {
      */
     repository?: string | null
     /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
      * GitHub integration for this task.
      * @nullable
      */
@@ -1791,6 +1804,12 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable

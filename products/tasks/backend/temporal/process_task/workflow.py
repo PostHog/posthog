@@ -1264,7 +1264,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
+        repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
+        will_clone = bool(repositories_to_clone)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
@@ -1278,21 +1279,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         clone_ms: int | None = None
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            clone_output = await workflow.execute_activity(
-                clone_repository_in_sandbox,
-                CloneRepositoryInSandboxInput(
-                    context=self.context,
-                    sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
-                    github_token=prepared.github_token,
-                    shallow_clone=prepared.shallow_clone,
-                ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # Pre-rollout histories (and mocked tests) recorded a null result here.
-            clone_ms = getattr(clone_output, "clone_ms", None)
-            await self._emit_progress("clone", "completed", "Cloned repository", "setup")
+            clone_ms = 0
+            for repository in repositories_to_clone:
+                clone_output = await workflow.execute_activity(
+                    clone_repository_in_sandbox,
+                    CloneRepositoryInSandboxInput(
+                        context=self.context,
+                        sandbox_id=created.sandbox_id,
+                        repository=repository,
+                        github_token=prepared.github_token,
+                        shallow_clone=prepared.shallow_clone,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                clone_ms += getattr(clone_output, "clone_ms", 0) or 0
+            clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
+            await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
