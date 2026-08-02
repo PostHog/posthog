@@ -290,7 +290,7 @@ describe('addSavedInsightsModalLogic', () => {
                 },
                 patch: {
                     '/api/environments/:team_id/insights/:id': async ({ request }) => {
-                        capturedPayload = await request.json()
+                        capturedPayload = (await request.json()) as Record<string, any>
                         return [200, { id: 1, dashboard_tiles: [] }]
                     },
                 },
