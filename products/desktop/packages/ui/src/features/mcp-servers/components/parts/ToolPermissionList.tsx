@@ -14,6 +14,7 @@ import {
   countActiveTools,
   countToolsByApproval,
   filterToolsByName,
+  groupToolsByAccess,
   sortToolsForDisplay,
 } from "@posthog/core/mcp-servers/toolDerivation";
 import { ToolPolicyToggle } from "@posthog/ui/features/mcp-servers/components/parts/ToolPolicyToggle";
@@ -119,6 +120,10 @@ export function ToolPermissionList({
   const filteredTools = useMemo(
     () => filterToolsByName(visibleTools, toolSearch),
     [visibleTools, toolSearch],
+  );
+  const { readTools, writeTools } = useMemo(
+    () => groupToolsByAccess(filteredTools),
+    [filteredTools],
   );
 
   const bulkDisabled = disabled || bulk?.pending || filteredTools.length === 0;
@@ -294,15 +299,22 @@ export function ToolPermissionList({
               </Text>
             </Flex>
           ) : (
-            filteredTools.map((tool) => (
-              <ToolRow
-                key={tool.tool_name}
-                tool={tool}
-                onChange={(approval_state) =>
-                  onSetTool(tool.tool_name, approval_state)
-                }
-              />
-            ))
+            <Flex direction="column" gap="4">
+              {readTools.length > 0 && (
+                <ToolAccessGroup
+                  heading="Read tools"
+                  tools={readTools}
+                  onSetTool={onSetTool}
+                />
+              )}
+              {writeTools.length > 0 && (
+                <ToolAccessGroup
+                  heading="Write and delete tools"
+                  tools={writeTools}
+                  onSetTool={onSetTool}
+                />
+              )}
+            </Flex>
           )}
         </Flex>
       )}
@@ -318,6 +330,35 @@ export function ToolPermissionList({
           </button>
         </Flex>
       )}
+    </Flex>
+  );
+}
+
+function ToolAccessGroup({
+  heading,
+  tools,
+  onSetTool,
+}: {
+  heading: string;
+  tools: McpInstallationTool[];
+  onSetTool: ToolPermissionListProps["onSetTool"];
+}) {
+  return (
+    <Flex direction="column" gap="2">
+      <Text color="gray" className="font-medium text-xs uppercase tracking-wide">
+        {heading}
+      </Text>
+      <Flex direction="column" gap="2">
+        {tools.map((tool) => (
+          <ToolRow
+            key={tool.tool_name}
+            tool={tool}
+            onChange={(approval_state) =>
+              onSetTool(tool.tool_name, approval_state)
+            }
+          />
+        ))}
+      </Flex>
     </Flex>
   );
 }

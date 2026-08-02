@@ -7,6 +7,7 @@ import type {
   McpResolvedToolPolicy,
 } from "@posthog/api-client/posthog-client";
 import { formatRelativeTimeShort, getLocalDayDiff } from "@posthog/shared";
+import { isLikelyMutatingToolName } from "../mcp-servers/toolDerivation";
 
 /** The rail lists the servers the caller has connected, under the rail search. */
 export function railConnectedServers(
@@ -283,10 +284,7 @@ export const AUDIT_DECISION_LABELS: Record<McpAuditDecision, string> = {
 
 // Mirrors the backend's destructive-tool heuristic; only used to seed the
 // per-tool defaults when sharing a server with an agent.
-const DESTRUCTIVE_TOOL_RE =
-  /delete|update|post|write|create|run-migration|close|drop|send/;
-
 /** Default policy offered when granting an agent access to a tool. */
 export function defaultAgentGrantPolicy(toolName: string): AgentPolicyState {
-  return DESTRUCTIVE_TOOL_RE.test(toolName) ? "do_not_use" : "approved";
+  return isLikelyMutatingToolName(toolName) ? "do_not_use" : "approved";
 }

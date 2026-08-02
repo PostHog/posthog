@@ -27,6 +27,36 @@ export function sortToolsForDisplay(
   });
 }
 
+const MUTATING_TOOL_NAME_RE =
+  /delete|update|post|write|create|run-migration|close|drop|send/;
+
+/**
+ * MCP tool catalogs do not expose a machine-readable access level. Keep this
+ * deliberately conservative and use the same naming signal as the default
+ * policy for agent grants.
+ */
+export function isLikelyMutatingToolName(toolName: string): boolean {
+  return MUTATING_TOOL_NAME_RE.test(toolName);
+}
+
+export function groupToolsByAccess(tools: McpInstallationTool[]): {
+  readTools: McpInstallationTool[];
+  writeTools: McpInstallationTool[];
+} {
+  const readTools: McpInstallationTool[] = [];
+  const writeTools: McpInstallationTool[] = [];
+
+  for (const tool of tools) {
+    if (isLikelyMutatingToolName(tool.tool_name)) {
+      writeTools.push(tool);
+    } else {
+      readTools.push(tool);
+    }
+  }
+
+  return { readTools, writeTools };
+}
+
 export function filterToolsByName(
   tools: McpInstallationTool[],
   term: string,
