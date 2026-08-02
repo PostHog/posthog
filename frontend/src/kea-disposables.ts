@@ -105,6 +105,18 @@ const detachGlobalVisibilityListener = (): void => {
     }
 }
 
+// Stand-in for `logic.cache.disposables` after unmount. Listeners can still fire post-unmount
+// (e.g. a queued EventSource error event dispatching after `eventSource.close()` already ran in
+// the same unmount pass), and without this they'd dereference `null` and throw. `add`/`dispose`
+// are no-ops here since there's nothing left to tear down.
+const noopDisposablesManager: DisposablesManager = {
+    add: () => {},
+    dispose: () => false,
+    registry: new Map(),
+    keyCounter: 0,
+    logicPath: '',
+}
+
 const initializeDisposablesManager = (logic: LogicWithCache): void => {
     if (logic.cache.disposables) {
         return
@@ -277,7 +289,7 @@ export const disposablesPlugin: KeaPlugin = {
                 typedLogic.cache.disposables.registry.forEach((entry) => {
                     safeCleanup(entry.cleanup, typedLogic.pathString)
                 })
-                typedLogic.cache.disposables = null
+                typedLogic.cache.disposables = noopDisposablesManager
 
                 // Detach global listener if no more managers
                 detachGlobalVisibilityListener()

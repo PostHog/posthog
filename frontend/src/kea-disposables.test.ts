@@ -1,4 +1,4 @@
-import { MakeLogicType, kea, path } from 'kea'
+import { MakeLogicType, actions, kea, listeners, path } from 'kea'
 
 import { initKeaTests } from '~/test/init'
 
@@ -197,6 +197,32 @@ describe('disposablesPlugin', () => {
             expect(setupCalls).toBe(expectedSetupCalls)
             expect(cleanupCalls).toBe(expectedCleanupCalls)
         })
+    })
+
+    it('a callback holding a raw cache reference can call disposables.add()/dispose() after unmount without throwing', () => {
+        // Regression: an EventSource's onerror handler closes over `cache` directly (as
+        // `listeners(({ cache }) => ...)` does) and can still fire after logic.unmount() — e.g. a
+        // queued error event dispatching after its own cleanup already ran in the same unmount
+        // pass. beforeUnmount used to null out cache.disposables, so that late call threw a
+        // TypeError instead of scheduling a reconnect.
+        type errorLogicType = MakeLogicType<{}, { triggerLateCallback: () => { value: true } }>
+        let rawCache: Record<string, any> | undefined
+        const errorLogic = kea<errorLogicType>([
+            path(['test', 'disposablesPluginErrorTest']),
+            actions({ triggerLateCallback: true }),
+            listeners(({ cache }) => ({
+                triggerLateCallback: () => {
+                    rawCache = cache
+                },
+            })),
+        ])
+        errorLogic.mount()
+        errorLogic.actions.triggerLateCallback()
+        errorLogic.unmount()
+
+        expect(() => rawCache!.disposables.add(makeSetup(), 'late')).not.toThrow()
+        expect(() => rawCache!.disposables.dispose('late')).not.toThrow()
+        expect(setupCalls).toBe(0)
     })
 
     it('logic.unmount() disposes all registered disposables (no leak when consumer omits beforeUnmount)', () => {
