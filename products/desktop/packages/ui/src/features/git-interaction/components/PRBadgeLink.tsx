@@ -1,4 +1,3 @@
-import { StackSimple } from "@phosphor-icons/react";
 import {
   getPrVisualConfig,
   type PrVisualConfig,
@@ -89,12 +88,7 @@ export function PRBadgeLink({
           {config.label}
           {prNumber && ` #${prNumber}`}
         </span>
-        {otherCount > 0 && (
-          <span className="ml-0.5 inline-flex items-center gap-0.5">
-            <StackSimple size={10} weight="bold" />
-            {totalCount}
-          </span>
-        )}
+        {otherCount > 0 && <span className="ml-0.5">{totalCount}</span>}
       </a>
     );
   }
@@ -129,10 +123,8 @@ export function PRBadgeLink({
           {otherCount > 0 && (
             <Flex
               align="center"
-              gap="1"
               className={`border-l pl-2 ${COUNT_DIVIDER_CLASSES[config.color]}`}
             >
-              <StackSimple size={11} weight="bold" />
               <Text size="1" className="text-[12px]">
                 {totalCount}
               </Text>
