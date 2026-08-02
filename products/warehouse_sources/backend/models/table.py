@@ -937,11 +937,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if not hasattr(err, "message"):
             raise err
 
-        # A cancelled query (code 394) reaching here is virtually always our own client giving up
-        # on a slow read - a read timeout closes the connection, which cancels the still-running
-        # query server-side (the same pattern documented in
-        # products/notebooks/backend/temporal/frame_materialize.py) - not anything wrong with the
-        # files themselves. Report it as a timeout instead of blaming credentials/URL/format.
+        # A cancelled query here means our own client timed out reading, not a bad file or bucket.
         if classify_query_error(err) == QueryErrorCategory.CANCELLED:
             raise Exception(
                 "Reading the files from your storage bucket took too long and the query was cancelled. "
