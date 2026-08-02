@@ -185,8 +185,8 @@ export interface insightVizDataLogicValues {
     detailedResultsAggregationType: AggregationType | undefined
     display: ChartDisplayType | null | undefined
     enabledIntervals: Intervals
-    erroredQueryId: any
     erroredQueryErrorCode: string | null
+    erroredQueryId: any
     formula: string | null | undefined
     formulaNodes: TrendsFormulaNode[]
     formulas: string[] | null | undefined
@@ -1126,7 +1126,7 @@ export interface insightVizDataLogicMeta {
             actions: import('~/types').ActionType[]
         ) => string[]
         theme: (
-            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
+            getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
             querySource:
                 | FunnelsQuery
                 | LifecycleQuery
