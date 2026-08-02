@@ -1,9 +1,7 @@
 import {
   FileTextIcon,
   GitBranchIcon,
-  GithubLogoIcon,
   SparkleIcon,
-  XIcon,
 } from "@phosphor-icons/react";
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
@@ -14,10 +12,6 @@ import {
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-  Input,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
   Button as QuillButton,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -25,6 +19,7 @@ import type { TaskChannel } from "@posthog/shared/domain-types";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
+import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -37,7 +32,6 @@ import {
   useUpdateTaskChannelRepositories,
 } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
-import { useRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
   PageHeader,
@@ -47,7 +41,6 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
-import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import {
   Box,
@@ -371,100 +364,12 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   );
 }
 
-const MAX_REPOSITORIES = 10;
-
-// The space's repositories rendered as a subtle inline chip picker: a single
-// row of removable chips with an inline "add" input, driven entirely by the
-// quill Combobox. Selected repos must all belong to one GitHub integration,
-// so the add list is scoped to the active integration once one is chosen.
-// A single repository, rendered as a subtle tag. The leading GitHub glyph
-// swaps to an X on hover so the whole chip is the remove target — no separate
-// delete button crowding the tag (mirrors the message editor's attachments).
-function RepoChip({
-  repository,
-  onRemove,
-}: {
-  repository: string;
-  onRemove: () => void;
-}) {
-  return (
-    <span className="group/chip inline-flex items-center gap-1 rounded-(--radius-1) bg-(--gray-a3) py-0.5 pr-2 pl-1.5 font-medium text-(--gray-11) text-[12px] transition-colors hover:bg-(--gray-a4)">
-      <button
-        type="button"
-        aria-label={`Remove ${repository}`}
-        className="relative inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0"
-        onClick={onRemove}
-      >
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none">
-          <GithubLogoIcon size={13} />
-        </span>
-        <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-150 group-hover/chip:opacity-100 motion-reduce:transition-none">
-          <XIcon size={12} weight="bold" />
-        </span>
-      </button>
-      <span className="max-w-[200px] truncate">{repository}</span>
-    </span>
-  );
-}
-
 // The space's connected repositories: a header row that matches the CONTEXT.md
-// header, then a row of tag chips plus an on-demand picker to add more. Reads
-// straight from the channel (the mutation applies each add/remove optimistically
-// to the cache), so there's no local mirror and no Save button. Selected repos
-// must share one GitHub integration, so the add list scopes to it.
+// header, then the shared chips + add-picker field. Reads straight from the
+// channel — the mutation applies each add/remove optimistically to the cache —
+// so there's no local mirror and no Save button.
 function SpaceRepositories({ channel }: { channel: TaskChannel }) {
-  const {
-    repositories,
-    getIntegrationIdForRepo,
-    isLoadingRepos,
-    hasGithubIntegration,
-  } = useRepositoryIntegration();
   const update = useUpdateTaskChannelRepositories();
-
-  const selected = channel.repositories ?? [];
-  const integrationId = channel.github_integration ?? null;
-  const atLimit = selected.length >= MAX_REPOSITORIES;
-
-  const available = repositories.filter((repository) => {
-    const repositoryIntegration = getIntegrationIdForRepo(repository);
-    return (
-      !selected.includes(repository) &&
-      repositoryIntegration != null &&
-      (integrationId === null || repositoryIntegration === integrationId)
-    );
-  });
-
-  const save = (nextSelected: string[], nextIntegration: number | null) =>
-    update.mutate({
-      channelId: channel.id,
-      githubIntegration: nextIntegration,
-      repositories: nextSelected,
-    });
-
-  const addRepository = (repository: string | null) => {
-    if (!repository || selected.includes(repository)) return;
-    const repositoryIntegration = getIntegrationIdForRepo(repository);
-    if (repositoryIntegration == null) return;
-    save([...selected, repository], repositoryIntegration);
-  };
-
-  const removeRepository = (repository: string) => {
-    const next = selected.filter((item) => item !== repository);
-    save(next, next.length === 0 ? null : integrationId);
-  };
-
-  const isLoadingList = isLoadingRepos && available.length === 0;
-  // When there's nothing to add, keep the button visible but disabled with a
-  // reason, rather than the picker's own "No GitHub repos" dead-end state.
-  const addDisabledReason = !hasGithubIntegration
-    ? "Connect GitHub in settings to add repositories"
-    : atLimit
-      ? `You can add up to ${MAX_REPOSITORIES} repositories`
-      : available.length === 0
-        ? selected.length > 0
-          ? "All accessible repositories are already added"
-          : "No repositories available"
-        : null;
 
   return (
     <Flex direction="column" gap="2">
@@ -482,123 +387,18 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
         ) : null}
       </Flex>
 
-      <Flex align="center" gap="2" wrap="wrap" className="min-h-7">
-        {selected.map((repository) => (
-          <RepoChip
-            key={repository}
-            repository={repository}
-            onRemove={() => removeRepository(repository)}
-          />
-        ))}
-
-        {isLoadingList && hasGithubIntegration ? (
-          <QuillButton variant="outline" size="sm" disabled>
-            <Spinner size="1" />
-            Loading repositories…
-          </QuillButton>
-        ) : addDisabledReason ? (
-          <Tooltip content={addDisabledReason}>
-            <span className="inline-flex">
-              <QuillButton variant="outline" size="sm" disabled>
-                <GithubLogoIcon size={14} />
-                Add repository
-              </QuillButton>
-            </span>
-          </Tooltip>
-        ) : (
-          <AddRepositoryPopover
-            available={available}
-            onAdd={addRepository}
-            label={selected.length > 0 ? "Add…" : "Add repository…"}
-          />
-        )}
-      </Flex>
-    </Flex>
-  );
-}
-
-// Show the filter field only once the list is long enough to warrant scanning.
-const REPO_SEARCH_THRESHOLD = 10;
-
-// The add-repository picker: a button that opens a popover listing the
-// addable repositories. A search field pins to the top once the list is long;
-// only the list scrolls, so there's a single scrollbar.
-function AddRepositoryPopover({
-  available,
-  onAdd,
-  label,
-}: {
-  available: string[];
-  onAdd: (repository: string) => void;
-  label: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-
-  const showSearch = available.length > REPO_SEARCH_THRESHOLD;
-  const trimmed = query.trim().toLowerCase();
-  const filtered = trimmed
-    ? available.filter((repository) =>
-        repository.toLowerCase().includes(trimmed),
-      )
-    : available;
-
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) setQuery("");
-      }}
-    >
-      <PopoverTrigger
-        render={
-          <QuillButton variant="outline" size="sm">
-            <GithubLogoIcon size={14} />
-            {label}
-          </QuillButton>
+      <RepositoriesField
+        selected={channel.repositories ?? []}
+        integrationId={channel.github_integration ?? null}
+        onChange={(repositories, githubIntegration) =>
+          update.mutate({
+            channelId: channel.id,
+            githubIntegration,
+            repositories,
+          })
         }
       />
-      <PopoverContent
-        align="start"
-        sideOffset={6}
-        className="flex max-h-72 w-64 flex-col p-0"
-      >
-        {showSearch ? (
-          <div className="shrink-0 border-gray-5 border-b p-1.5">
-            <Input
-              autoFocus
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search repositories…"
-              className="h-7"
-            />
-          </div>
-        ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto p-1">
-          {filtered.length === 0 ? (
-            <div className="px-2 py-1.5 text-[13px] text-gray-10">
-              No repositories found
-            </div>
-          ) : (
-            filtered.map((repository) => (
-              <button
-                key={repository}
-                type="button"
-                onClick={() => {
-                  onAdd(repository);
-                  setOpen(false);
-                }}
-                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px] hover:bg-[var(--fill-hover)]"
-              >
-                <GithubLogoIcon size={14} className="shrink-0" />
-                <span className="truncate">{repository}</span>
-              </button>
-            ))
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
+    </Flex>
   );
 }
 
