@@ -1,3 +1,4 @@
+import { StackSimple } from "@phosphor-icons/react";
 import {
   getPrVisualConfig,
   type PrVisualConfig,
@@ -89,7 +90,10 @@ export function PRBadgeLink({
           {prNumber && ` #${prNumber}`}
         </span>
         {otherCount > 0 && (
-          <span className="ml-0.5 opacity-90">· {totalCount} PRs</span>
+          <span className="ml-0.5 inline-flex items-center gap-0.5">
+            <StackSimple size={10} weight="bold" />
+            {totalCount}
+          </span>
         )}
       </a>
     );
@@ -116,16 +120,22 @@ export function PRBadgeLink({
           ) : (
             <PrIcon size={12} weight="bold" />
           )}
-          <Text size="1">
+          {/* 12px matches the quill size="sm" buttons this badge sits beside
+              in the task header (the app bumps Radix --font-size-1 to 13px). */}
+          <Text size="1" className="text-[12px]">
             {config.label}
             {prNumber && ` #${prNumber}`}
           </Text>
           {otherCount > 0 && (
             <Flex
               align="center"
+              gap="1"
               className={`border-l pl-2 ${COUNT_DIVIDER_CLASSES[config.color]}`}
             >
-              <Text size="1">{totalCount} PRs</Text>
+              <StackSimple size={11} weight="bold" />
+              <Text size="1" className="text-[12px]">
+                {totalCount}
+              </Text>
             </Flex>
           )}
         </Flex>
