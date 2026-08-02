@@ -1474,7 +1474,7 @@ class ChannelUpdateSerializer(serializers.Serializer):
         required=False,
         help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
     )
-    github_integration = serializers.PrimaryKeyRelatedField(
+    github_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.filter(kind="github"),
         required=False,
         allow_null=True,
