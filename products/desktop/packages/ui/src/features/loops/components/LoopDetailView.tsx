@@ -1,4 +1,4 @@
-import { ArrowLeftIcon } from "@phosphor-icons/react";
+import { ArrowLeftIcon, LinkIcon } from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -62,6 +62,7 @@ import {
 } from "../loopDisplay";
 import { formatLoopModel } from "../loopModels";
 import { loopSkillBundles, primaryLoopSkillBundle } from "../loopSkill";
+import { copyLoopLink } from "../utils/copyLoopLink";
 import { LoopLoadError } from "./LoopFallbacks";
 import { LoopHeaderTitle } from "./LoopHeaderTitle";
 import { LoopRunRow } from "./LoopRunRow";
@@ -256,6 +257,14 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
                 aria-label={loop.enabled ? "Pause loop" : "Enable loop"}
                 onCheckedChange={handleToggleEnabled}
               />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => copyLoopLink(loop)}
+              >
+                <LinkIcon size={14} />
+                Copy link
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
