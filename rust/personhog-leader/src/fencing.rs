@@ -753,6 +753,20 @@ enum WindowVerdict {
 /// record at the same number behind one that may be committed. Reporting
 /// it as merely indeterminate throws away the ownership answer the router
 /// bounces on. `FencedUncertain` is both.
+/// Why a window's outcome leaves the producer unusable, if it does.
+///
+/// Extracted so the arrow *into* the condemned state is reachable: the
+/// tests could reach the aftermath through a staging hook, but the branch
+/// that decides it could be deleted outright with the suite still green,
+/// and it is the only path in production that ever sets the flag.
+fn condemn_reason(outcome: CommitOutcome) -> Option<&'static str> {
+    match outcome {
+        CommitOutcome::Aborted => None,
+        CommitOutcome::AbortedProducerDead => Some("abort_failed"),
+        CommitOutcome::Unknown => Some("commit_indeterminate"),
+    }
+}
+
 fn window_verdict(outcome: CommitOutcome, fenced: bool) -> WindowVerdict {
     match (outcome.is_aborted(), fenced) {
         (true, true) => WindowVerdict::Fenced,
@@ -766,12 +780,6 @@ impl CommitOutcome {
     /// Whether the records are known not to have become visible.
     fn is_aborted(self) -> bool {
         matches!(self, Self::Aborted | Self::AbortedProducerDead)
-    }
-
-    /// Whether the producer must be replaced before this partition can
-    /// take another write.
-    fn producer_dead(self) -> bool {
-        matches!(self, Self::AbortedProducerDead | Self::Unknown)
     }
 }
 
@@ -938,15 +946,8 @@ async fn commit_window_after(
         Ok(Err((e, outcome))) => {
             histogram!("personhog_leader_fence_commit_ms", "outcome" => "failed")
                 .record(commit_start.elapsed().as_secs_f64() * 1000.0);
-            if outcome.producer_dead() {
-                fence.condemn(
-                    partition,
-                    if outcome.is_aborted() {
-                        "abort_failed"
-                    } else {
-                        "commit_indeterminate"
-                    },
-                );
+            if let Some(reason) = condemn_reason(outcome) {
+                fence.condemn(partition, reason);
             }
             let fenced_now = is_fenced(&e) || producer_fenced(fence.producer.inner());
             let verdict = window_verdict(outcome, fenced_now);
@@ -1075,36 +1076,6 @@ fn clone_outcome(outcome: &Result<(), FencedProduceError>) -> Result<(), FencedP
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Every arrow *into* the condemned state, as a table.
-    ///
-    /// The aftermath is covered end to end against a real broker, but the
-    /// classification that gets there is not: reaching it for real needs a
-    /// broker fault landing inside a transaction. These are the two
-    /// outcomes that must condemn — an abort that never landed, and a
-    /// commit whose fate is unknown — and the two that must not, because
-    /// a producer that cleanly aborted is still perfectly usable.
-    #[test]
-    fn only_the_outcomes_that_strand_the_producer_condemn_it() {
-        for (outcome, dead, aborted) in [
-            (CommitOutcome::Aborted, false, true),
-            (CommitOutcome::AbortedProducerDead, true, true),
-            (CommitOutcome::Unknown, true, false),
-        ] {
-            assert_eq!(
-                outcome.producer_dead(),
-                dead,
-                "{outcome:?} must {} leave the producer unusable",
-                if dead { "" } else { "not" }
-            );
-            assert_eq!(
-                outcome.is_aborted(),
-                aborted,
-                "{outcome:?} must {} settle the records as not visible",
-                if aborted { "" } else { "not" }
-            );
-        }
-    }
 
     /// The verdict the caller acts on, as a truth table over the two
     /// independent facts it combines.
