@@ -279,9 +279,8 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        // Aborts happen whenever a query is superseded or the user navigates away mid-request —
-        // they're not failures, and capturing them here drowns out genuine server errors in the
-        // 'query failed' metric that alerts key off.
+        // A superseded query or navigating away mid-request aborts, not fails — skip so the
+        // 'query failed' metric isn't drowned in cancellation noise.
         if (!isAbortError(e)) {
             // Raw error detail/message can echo query fragments, so telemetry only gets status and code
             const error = e as (Error & { status?: number; code?: string | null }) | null
