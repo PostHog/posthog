@@ -4008,9 +4008,7 @@ def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[cont
     return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
 
 
-def inaccessible_repositories_via_integration(
-    team_id: int, integration_id: int, repositories: list[str]
-) -> list[str]:
+def inaccessible_repositories_via_integration(team_id: int, integration_id: int, repositories: list[str]) -> list[str]:
     return _inaccessible_repositories_via_integration(team_id, integration_id, repositories)
 
 
