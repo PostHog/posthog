@@ -7332,73 +7332,83 @@ const api = {
         // If an external signal is provided, forward its abort to our controller
         signal?.addEventListener('abort', () => abortController.abort())
 
-        await fetchEventSource(url, {
-            method,
-            headers: {
-                ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
-                'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                ...tracingHeaders(),
-                ...objectClean(headers ?? {}),
-            },
-            body: data !== undefined ? JSON.stringify(data) : undefined,
-            signal: abortController.signal,
-            onopen: async (response) => {
-                // TEMPORARY: livestream SSE lifecycle tracking. Scoped to the two
-                // livestream endpoints so the generic stream helper stays quiet.
-                // Remove together with captureLivestream401Debug once root cause is known.
-                const isLivestreamUrl = /\/(notifications|events)(?:$|\?)/.test(url)
+        try {
+            await fetchEventSource(url, {
+                method,
+                headers: {
+                    ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+                    'X-CSRFToken': getCookie('posthog_csrftoken') || '',
+                    ...tracingHeaders(),
+                    ...objectClean(headers ?? {}),
+                },
+                body: data !== undefined ? JSON.stringify(data) : undefined,
+                signal: abortController.signal,
+                onopen: async (response) => {
+                    // TEMPORARY: livestream SSE lifecycle tracking. Scoped to the two
+                    // livestream endpoints so the generic stream helper stays quiet.
+                    // Remove together with captureLivestream401Debug once root cause is known.
+                    const isLivestreamUrl = /\/(notifications|events)(?:$|\?)/.test(url)
 
-                if (response.status === 429) {
-                    const retryAfter = response.headers.get('Retry-After')
-                    if (retryAfter) {
-                        onError(new RateLimitError(parseInt(retryAfter, 10)))
-                        abortController.abort()
-                    }
-                } else if (!response.ok) {
-                    let errorData: any = {}
-                    try {
-                        errorData = await response.json()
-                    } catch {
-                        // If JSON parsing fails, leave errorData empty
-                    }
-                    // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
-                    // identify which failure mode is producing the livestream auth baseline.
-                    // Remove once root cause is known.
-                    if (response.status === 401) {
-                        captureLivestream401Debug(url, headers?.Authorization, errorData)
-                    } else if (isLivestreamUrl) {
-                        posthog.capture('livestream_sse_non_ok_non_401', {
-                            url,
-                            status: response.status,
-                            server_message: errorData?.message || errorData?.error,
-                        })
-                    }
-                    onError(
-                        new ApiError(
-                            errorData.error || `Request failed with status ${response.status}`,
-                            response.status,
-                            response.headers,
-                            errorData
+                    if (response.status === 429) {
+                        const retryAfter = response.headers.get('Retry-After')
+                        if (retryAfter) {
+                            onError(new RateLimitError(parseInt(retryAfter, 10)))
+                            abortController.abort()
+                        }
+                    } else if (!response.ok) {
+                        let errorData: any = {}
+                        try {
+                            errorData = await response.json()
+                        } catch {
+                            // If JSON parsing fails, leave errorData empty
+                        }
+                        // TEMPORARY: capture 401s with decoded (masked) JWT claims so we can
+                        // identify which failure mode is producing the livestream auth baseline.
+                        // Remove once root cause is known.
+                        if (response.status === 401) {
+                            captureLivestream401Debug(url, headers?.Authorization, errorData)
+                        } else if (isLivestreamUrl) {
+                            posthog.capture('livestream_sse_non_ok_non_401', {
+                                url,
+                                status: response.status,
+                                server_message: errorData?.message || errorData?.error,
+                            })
+                        }
+                        onError(
+                            new ApiError(
+                                errorData.error || `Request failed with status ${response.status}`,
+                                response.status,
+                                response.headers,
+                                errorData
+                            )
                         )
-                    )
-                    abortController.abort()
-                } else {
-                    onOpen?.()
-                    if (isLivestreamUrl) {
-                        posthog.capture('livestream_sse_opened', {
-                            url,
-                            status: response.status,
-                        })
+                        abortController.abort()
+                    } else {
+                        onOpen?.()
+                        if (isLivestreamUrl) {
+                            posthog.capture('livestream_sse_opened', {
+                                url,
+                                status: response.status,
+                            })
+                        }
                     }
-                }
-            },
-            onmessage: onMessage,
-            onerror: onError,
-            onclose: onClose,
-            // By default fetch-event-source stops connection when document is no longer focused, but that is not how
-            // EventSource works normally, hence reverting (https://github.com/Azure/fetch-event-source/issues/36)
-            openWhenHidden: true,
-        })
+                },
+                onmessage: onMessage,
+                onerror: onError,
+                onclose: onClose,
+                // By default fetch-event-source stops connection when document is no longer focused, but that is not how
+                // EventSource works normally, hence reverting (https://github.com/Azure/fetch-event-source/issues/36)
+                openWhenHidden: true,
+            })
+        } catch (error) {
+            // Aborting mid-stream (e.g. the pause-on-hidden disposable, or an explicit stop)
+            // can surface as a native AbortError from the underlying fetch/stream reader rather
+            // than through `onerror` above — that's expected cancellation, not a failure.
+            if (isAbortError(error) || abortController.signal.aborted) {
+                return
+            }
+            throw error
+        }
     },
 
     async loadPaginatedResults<T extends Record<string, any>>(

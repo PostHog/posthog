@@ -19,6 +19,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DomainConnectBanner } from 'lib/components/DomainConnect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -413,7 +414,15 @@ function CreateRecordForm(): JSX.Element {
                                 achieve the intended effect if ad-blockers are blocking the domain.
                             </li>
                             <li>
-                                <strong>Use a generic subdomain</strong> such as <code>t.mydomain.com</code> instead.
+                                <strong>Use a generic subdomain</strong> such as{' '}
+                                <CopyToClipboardInline
+                                    description="suggested subdomain"
+                                    iconSize="xsmall"
+                                    className="font-mono"
+                                >
+                                    t.mydomain.com
+                                </CopyToClipboardInline>{' '}
+                                instead.
                             </li>
                         </ul>
                     </LemonBanner>

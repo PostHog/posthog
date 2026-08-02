@@ -1,3 +1,4 @@
+import * as FetchEventSource from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError, ApiRequest } from 'lib/api'
@@ -260,6 +261,26 @@ describe('API helper', () => {
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             fakeFetch.mockResolvedValue(fakeResponse({ text: () => Promise.reject(abortError) }))
             await expect(api.get('api/environments/2/insights')).rejects.toBe(abortError)
+        })
+    })
+
+    describe('stream', () => {
+        it('resolves cleanly when the underlying stream is aborted', async () => {
+            const abortError = new DOMException('signal is aborted without reason', 'AbortError')
+            jest.spyOn(FetchEventSource, 'fetchEventSource').mockRejectedValue(abortError)
+
+            await expect(
+                api.stream('/api/environments/2/notifications', { onMessage: jest.fn(), onError: jest.fn() })
+            ).resolves.toBeUndefined()
+        })
+
+        it('propagates a non-abort error from the underlying stream', async () => {
+            const networkError = new Error('boom')
+            jest.spyOn(FetchEventSource, 'fetchEventSource').mockRejectedValue(networkError)
+
+            await expect(
+                api.stream('/api/environments/2/notifications', { onMessage: jest.fn(), onError: jest.fn() })
+            ).rejects.toBe(networkError)
         })
     })
 
