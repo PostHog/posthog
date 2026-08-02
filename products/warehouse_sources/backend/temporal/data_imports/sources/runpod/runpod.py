@@ -135,14 +135,16 @@ def _normalize_billing_record(record: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(record)
     if "time" not in normalized and "startDate" in normalized:
         # RunPod's network volume billing has been observed returning the bucket start under
-        # `startDate` rather than the `time` field documented for every other billing endpoint —
-        # alias it so the schema's declared "time" incremental field stays valid.
+        # `startDate` rather than the `time` field documented for every other billing endpoint,
+        # so alias it here to keep the schema's declared "time" incremental field valid.
         normalized["time"] = normalized.pop("startDate")
     return {
+        **normalized,
+        # Set last so a record that happens to carry its own "id" key can never override the
+        # synthesized surrogate id merge relies on for dedup.
         "id": _row_id(
             normalized.get("time"), normalized.get("podId"), normalized.get("endpointId"), normalized.get("gpuTypeId")
         ),
-        **normalized,
     }
 
 

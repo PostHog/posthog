@@ -79,7 +79,7 @@ class TestNormalizeBillingRecord:
     def test_start_date_is_aliased_to_time_when_time_is_missing(self) -> None:
         # RunPod's network volume billing endpoint has been observed returning `startDate` instead
         # of the `time` field every other billing endpoint (and our declared incremental field)
-        # relies on — without this alias, `time` never lands in the yielded row.
+        # relies on, so without this alias `time` never lands in the yielded row.
         record = _normalize_billing_record({"startDate": "2025-08-01T00:00:00Z", "amount": 1.5})
         assert record["time"] == "2025-08-01T00:00:00Z"
         assert "startDate" not in record
