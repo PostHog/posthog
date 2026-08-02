@@ -196,7 +196,14 @@ export function RepositoriesField({
         : null;
 
   return (
-    <Flex align="center" gap="2" wrap="wrap" className="min-h-7">
+    // w-fit keeps the chips + add button as one tight cluster instead of
+    // stretching across the row, so the group doesn't float in empty space.
+    <Flex
+      align="center"
+      gap="2"
+      wrap="wrap"
+      className="min-h-7 w-fit max-w-full"
+    >
       {selected.map((repository) => (
         <RepoChip
           key={repository}

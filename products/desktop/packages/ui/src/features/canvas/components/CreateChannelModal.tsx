@@ -376,7 +376,11 @@ export function CreateChannelModal({
 
             <DialogBody viewportClassName="flex flex-col gap-4">
               {descriptionField}
-              <Field>
+              {/* Plain label + field rather than a quill Field: Field forces
+                  its children to w-full and tightens the label gap, which made
+                  the repositories row read differently here than on the space's
+                  own context page. */}
+              <div className="flex flex-col gap-2">
                 <FieldLabel>Repositories (optional)</FieldLabel>
                 <RepositoriesField
                   selected={repositories}
@@ -387,7 +391,7 @@ export function CreateChannelModal({
                     setRepoIntegration(nextIntegration);
                   }}
                 />
-              </Field>
+              </div>
             </DialogBody>
 
             <DialogFooter>
