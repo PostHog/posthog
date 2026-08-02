@@ -30,7 +30,12 @@ from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import CORRUPTED_PARQUET_METADATA_MESSAGE, wrap_clickhouse_query_error
+from posthog.errors import (
+    CORRUPTED_PARQUET_METADATA_MESSAGE,
+    QueryErrorCategory,
+    classify_query_error,
+    wrap_clickhouse_query_error,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.schema_enums import DatabaseSerializedFieldType
@@ -931,6 +936,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         # error (or an already user-safe one) behind a misleading user-facing message.
         if not hasattr(err, "message"):
             raise err
+
+        # A cancelled query (code 394) reaching here is virtually always our own client giving up
+        # on a slow read - a read timeout closes the connection, which cancels the still-running
+        # query server-side (the same pattern documented in
+        # products/notebooks/backend/temporal/frame_materialize.py) - not anything wrong with the
+        # files themselves. Report it as a timeout instead of blaming credentials/URL/format.
+        if classify_query_error(err) == QueryErrorCategory.CANCELLED:
+            raise Exception(
+                "Reading the files from your storage bucket took too long and the query was cancelled. "
+                "This is usually temporary - try again, or narrow the URL pattern if the dataset is very large."
+            )
 
         for key, value in ExtractErrors.items():
             if key in raw_message:
