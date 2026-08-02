@@ -1,4 +1,3 @@
-import { StackSimple } from "@phosphor-icons/react";
 import {
   getPrVisualConfig,
   type PrVisualConfig,
@@ -38,8 +37,8 @@ const COMPACT_COLOR_CLASSES: Record<PrVisualConfig["color"], string> = {
   purple: "bg-(--purple-3) text-(--purple-11) hover:bg-(--purple-4)",
 };
 
-// Divider ahead of the stack-count chip, tinted to the badge's own color.
-const STACK_DIVIDER_CLASSES: Record<PrVisualConfig["color"], string> = {
+// Divider ahead of the PR-count segment, tinted to the badge's own color.
+const COUNT_DIVIDER_CLASSES: Record<PrVisualConfig["color"], string> = {
   gray: "border-(--gray-a6)",
   green: "border-(--green-a6)",
   red: "border-(--red-a6)",
@@ -90,10 +89,7 @@ export function PRBadgeLink({
           {prNumber && ` #${prNumber}`}
         </span>
         {otherCount > 0 && (
-          <span className="ml-0.5 inline-flex items-center gap-0.5">
-            <StackSimple size={10} weight="bold" />
-            {totalCount}
-          </span>
+          <span className="ml-0.5 opacity-90">· {totalCount} PRs</span>
         )}
       </a>
     );
@@ -127,11 +123,9 @@ export function PRBadgeLink({
           {otherCount > 0 && (
             <Flex
               align="center"
-              gap="1"
-              className={`border-l pl-2 ${STACK_DIVIDER_CLASSES[config.color]}`}
+              className={`border-l pl-2 ${COUNT_DIVIDER_CLASSES[config.color]}`}
             >
-              <StackSimple size={11} weight="bold" />
-              <Text size="1">{totalCount}</Text>
+              <Text size="1">{totalCount} PRs</Text>
             </Flex>
           )}
         </Flex>
