@@ -11,6 +11,8 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from products.marketing_analytics.backend.max_tools import (
     MAX_LOOKBACK_DAYS,
     MarketingAuditUtmTool,
@@ -1024,12 +1026,26 @@ class TestMarketingAuditUtmTool(BaseTest):
         with patch(
             "products.marketing_analytics.backend.max_tools.run_utm_audit",
             return_value=mock_response,
-        ):
+        ) as mock_run_utm_audit:
             content, artifact = await tool._arun_impl()
 
         assert isinstance(content, str)
         assert isinstance(artifact, dict)
         assert "1 of 3" in content
+        mock_run_utm_audit.assert_called_once_with(self.team, user=self.user)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_arun_impl_reports_table_access_denied_instead_of_raising(self):
+        tool = self._setup_tool()
+        with patch(
+            "products.marketing_analytics.backend.max_tools.run_utm_audit",
+            side_effect=TableAccessDeniedError("googleads_campaign"),
+        ):
+            content, artifact = await tool._arun_impl()
+
+        assert "googleads_campaign" in content
+        assert artifact == {"error": "table_access_denied", "table_name": "googleads_campaign"}
 
 
 class TestMarketingSuggestConversionGoalsTool(BaseTest):

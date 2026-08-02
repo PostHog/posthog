@@ -17,6 +17,8 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import DateRange
 
+from posthog.hogql.errors import TableAccessDeniedError
+
 from posthog.models.team.team import Team
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
@@ -282,7 +284,13 @@ class MarketingAuditUtmTool(MaxTool):
 
     async def _arun_impl(self) -> tuple[str, dict[str, Any]]:
         # `run_utm_audit` is sync (legacy contract); wrap with the standard async helper.
-        response = await database_sync_to_async(run_utm_audit)(self._team)
+        try:
+            response = await database_sync_to_async(run_utm_audit)(self._team, user=self._user)
+        except TableAccessDeniedError as exc:
+            return (
+                f"You don't have access to `{exc.table_name}` in this project, so the UTM audit can't run.",
+                {"error": "table_access_denied", "table_name": exc.table_name},
+            )
         return _format_audit_utm_for_llm(response), asdict(response)
 
 
