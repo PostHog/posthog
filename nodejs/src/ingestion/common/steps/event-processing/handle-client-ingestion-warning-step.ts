@@ -86,11 +86,17 @@ function buildWarning(event: PluginEvent): IngestionWarning {
             rawDetails !== null && typeof rawDetails === 'object' && !Array.isArray(rawDetails) ? rawDetails : {}
         const { pipelineStep, ...restDetails } = detailsIn
         const source = props.$$client_ingestion_warning_source
+        // The envelope's own distinct_id is always the API token, never the
+        // offending event's (see rust/common/ingestion_warnings/src/serializer.rs),
+        // so it's only a safe default when a real one might still be supplied.
+        // `missing_distinct_id` never gets one — the offending event had none —
+        // so defaulting here would misreport the token as the distinct_id.
+        const defaultIds = structuredType === 'missing_distinct_id' ? {} : { distinctId: event.distinct_id }
         return {
             type: structuredType as IngestionWarningType,
             // Envelope ids are defaults; the producer's own ids (the offending
             // event, not the synthetic warning event) win when supplied.
-            details: { eventUuid: event.uuid, distinctId: event.distinct_id, ...restDetails },
+            details: { eventUuid: event.uuid, ...defaultIds, ...restDetails },
             pipelineStep: typeof pipelineStep === 'string' ? pipelineStep : undefined,
             source: typeof source === 'string' ? source : undefined,
             // Deliberately no alwaysSend: the per-(team,type) limiter is the

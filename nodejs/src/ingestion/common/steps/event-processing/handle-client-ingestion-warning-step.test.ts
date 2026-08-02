@@ -166,6 +166,33 @@ describe('handleClientIngestionWarningStep', () => {
             })
         })
 
+        it('omits distinctId for missing_distinct_id instead of defaulting to the envelope token', async () => {
+            // The envelope's distinct_id is always the API token (capture never has a real
+            // one to send for this type), so defaulting to it would misreport the token as
+            // the offending distinct_id in the warnings UI.
+            const step = createHandleClientIngestionWarningStep(mockOutputs)
+            const input: HandleClientIngestionWarningStepInput = {
+                ...baseInput,
+                event: {
+                    ...baseEvent,
+                    distinct_id: 'phc_project_token',
+                    event: '$$client_ingestion_warning',
+                    properties: {
+                        $$client_ingestion_warning_type: 'missing_distinct_id',
+                        $$client_ingestion_warning_source: 'capture',
+                        $$client_ingestion_warning_details: { pipelineStep: 'capture_validation' },
+                    },
+                },
+            }
+
+            const result = await step(input)
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            const warning = producedWarning()
+            expect(warning.type).toBe('missing_distinct_id')
+            expect(warning.details.distinctId).toBeUndefined()
+        })
+
         it('falls back to the client warning shape for an unrecognized structured type', async () => {
             const step = createHandleClientIngestionWarningStep(mockOutputs)
             const input: HandleClientIngestionWarningStepInput = {
