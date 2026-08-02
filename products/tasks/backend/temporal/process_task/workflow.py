@@ -1266,7 +1266,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
         will_clone = bool(repositories_to_clone)
-        will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
+        checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
+        will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
         boot_path = "overlap" if overlap else "classic"
@@ -1316,7 +1317,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 CheckoutBranchInSandboxInput(
                     context=self.context,
                     sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
+                    repository=checkout_repository,
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
