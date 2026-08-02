@@ -17,6 +17,7 @@ export class DesktopPiRuntimeFactory implements PiRuntimeFactory {
     cwd: string;
     model?: string;
     sessionFile?: string;
+    projectTrusted?: boolean;
   }): Promise<PiRuntime> {
     const client = await this.clientFactory.create(input);
     return new PiRuntime(client);

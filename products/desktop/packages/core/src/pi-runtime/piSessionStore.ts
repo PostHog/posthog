@@ -1,5 +1,6 @@
 import type {
   PiCommand,
+  PiExtensionUIRequest,
   PiNativeModelInfo,
   PiQueueSnapshot,
   PiSessionStats,
@@ -14,6 +15,32 @@ import type {
   TaskRunStatus,
 } from "@posthog/shared";
 import { createStore, type StoreApi } from "zustand/vanilla";
+
+export type PiExtensionDialogRequest = Extract<
+  PiExtensionUIRequest,
+  { method: "select" | "confirm" | "input" | "editor" }
+>;
+
+export interface PiExtensionNotification {
+  id: string;
+  message: string;
+  notifyType: "info" | "warning" | "error";
+}
+
+export interface PiExtensionWidget {
+  lines: string[];
+  placement: "aboveEditor" | "belowEditor";
+}
+
+export interface PiExtensionEditorText {
+  id: string;
+  text: string;
+}
+
+export interface PiProjectTrustState {
+  trusted: boolean;
+  hasProjectResources: boolean;
+}
 
 export interface PiSessionError {
   id: string;
@@ -41,6 +68,13 @@ export interface PiControllerSessionState {
   error?: PiSessionError;
   authRestoring: boolean;
   isBashRunning: boolean;
+  projectTrust?: PiProjectTrustState;
+  extensionDialogs: PiExtensionDialogRequest[];
+  extensionNotifications: PiExtensionNotification[];
+  extensionStatuses: Record<string, string>;
+  extensionWidgets: Record<string, PiExtensionWidget>;
+  extensionTitle?: string;
+  extensionEditorText?: PiExtensionEditorText;
 }
 
 export interface PiSessionState {
@@ -65,5 +99,9 @@ export function createEmptyPiControllerSession(): PiControllerSessionState {
     queue: { steering: [], followUp: [] },
     authRestoring: false,
     isBashRunning: false,
+    extensionDialogs: [],
+    extensionNotifications: [],
+    extensionStatuses: {},
+    extensionWidgets: {},
   };
 }

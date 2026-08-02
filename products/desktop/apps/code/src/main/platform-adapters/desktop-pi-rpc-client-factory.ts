@@ -28,6 +28,7 @@ export class DesktopPiRpcClientFactory implements PiRpcClientFactory {
     cwd: string;
     model?: string;
     sessionFile?: string;
+    projectTrusted?: boolean;
   }): Promise<PiRpcClient> {
     const credentials = await this.auth.getOAuthCredentials();
     if (!credentials) {

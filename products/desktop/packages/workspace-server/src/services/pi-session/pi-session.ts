@@ -1,3 +1,5 @@
+import { readFile, realpath, stat } from "node:fs/promises";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import {
   buildSessionContext,
   type FileEntry,
@@ -10,10 +12,20 @@ import type { RpcCommand, RpcResponse } from "@posthog/agent/pi/rpc-transport";
 import type { PiRuntime } from "@posthog/agent/pi/runtime";
 import {
   PI_THINKING_LEVELS,
+  type PiExtensionEvent,
+  type PiExtensionStateSnapshot,
+  type PiExtensionUIRequest,
+  type PiExtensionUIResponse,
+  type PiExtensionWireEvent,
   type PiPersistedSessionConfig,
   type PiQueueSnapshot,
 } from "@posthog/agent/pi/types";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
+import {
+  type PiProjectTrust,
+  readPiProjectTrust,
+  writePiProjectTrust,
+} from "@posthog/harness/project-trust";
 import {
   type AgentConversationEvent,
   type PiRuntimeHealth,
@@ -56,18 +68,138 @@ type PiSessionEvent = Parameters<Parameters<PiRpcClient["onEvent"]>[0]>[0];
 
 interface PiSessionEvents {
   event: { taskId: string; event: AgentConversationEvent };
+  extensionEvent: { taskId: string; event: PiExtensionEvent };
+}
+
+interface PiExtensionReplayState {
+  dialogs: Map<
+    string,
+    Extract<
+      PiExtensionUIRequest,
+      { method: "select" | "confirm" | "input" | "editor" }
+    >
+  >;
+  dialogTimeouts: Map<string, ReturnType<typeof setTimeout>>;
+  statuses: Map<string, Extract<PiExtensionUIRequest, { method: "setStatus" }>>;
+  widgets: Map<string, Extract<PiExtensionUIRequest, { method: "setWidget" }>>;
+  title?: Extract<PiExtensionUIRequest, { method: "setTitle" }>;
+  editorText?: Extract<PiExtensionUIRequest, { method: "set_editor_text" }>;
 }
 
 interface ManagedPiSession {
   client: PiRpcClient;
   runtime: PiRuntime;
+  cwd: string;
+  projectTrustPath: string;
   state: PiPoolSessionState;
   lastUsedAt: number;
   activeRequestCount: number;
+  extensionResponsesInFlight: Map<string, Promise<void>>;
+  completedExtensionResponseIds: Set<string>;
   pid?: number;
 }
 
 const DEFAULT_PI_HOT_POOL_SIZE = 4;
+
+interface GitRepositoryIdentity {
+  commonDir: string;
+  kind: "main" | "worktree";
+}
+
+async function resolveExistingPath(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return resolve(path);
+  }
+}
+
+async function resolveGitRepositoryIdentity(
+  repositoryPath: string,
+): Promise<GitRepositoryIdentity | null> {
+  const resolvedRepositoryPath = await resolveExistingPath(repositoryPath);
+  const gitMarker = join(resolvedRepositoryPath, ".git");
+
+  try {
+    const gitMarkerStat = await stat(gitMarker);
+    if (gitMarkerStat.isDirectory()) {
+      return {
+        commonDir: await resolveExistingPath(gitMarker),
+        kind: "main",
+      };
+    }
+    if (!gitMarkerStat.isFile()) {
+      return null;
+    }
+
+    const markerMatch = (await readFile(gitMarker, "utf8")).match(
+      /^gitdir:\s*(.+)$/m,
+    );
+    if (!markerMatch) {
+      return null;
+    }
+
+    const gitDir = await resolveExistingPath(
+      isAbsolute(markerMatch[1])
+        ? markerMatch[1]
+        : resolve(resolvedRepositoryPath, markerMatch[1]),
+    );
+    const commonDir = await resolveExistingPath(
+      resolve(
+        gitDir,
+        (await readFile(join(gitDir, "commondir"), "utf8")).trim(),
+      ),
+    );
+    const gitDirRelativeToCommon = relative(commonDir, gitDir);
+    if (
+      gitDirRelativeToCommon.startsWith("..") ||
+      isAbsolute(gitDirRelativeToCommon) ||
+      !gitDirRelativeToCommon.startsWith(`worktrees${sep}`)
+    ) {
+      return null;
+    }
+
+    const registeredMarker = await resolveExistingPath(
+      (await readFile(join(gitDir, "gitdir"), "utf8")).trim(),
+    );
+    if (registeredMarker !== (await resolveExistingPath(gitMarker))) {
+      return null;
+    }
+
+    return { commonDir, kind: "worktree" };
+  } catch {
+    return null;
+  }
+}
+
+async function assertProjectTrustAppliesToCwd(
+  projectTrustPath: string,
+  cwd: string,
+): Promise<void> {
+  const [resolvedProjectTrustPath, resolvedCwd] = await Promise.all([
+    resolveExistingPath(projectTrustPath),
+    resolveExistingPath(cwd),
+  ]);
+  if (resolvedProjectTrustPath === resolvedCwd) {
+    return;
+  }
+
+  const [trustedRepository, runtimeRepository] = await Promise.all([
+    resolveGitRepositoryIdentity(resolvedProjectTrustPath),
+    resolveGitRepositoryIdentity(resolvedCwd),
+  ]);
+  if (
+    trustedRepository?.kind === "main" &&
+    runtimeRepository?.kind === "worktree" &&
+    trustedRepository.commonDir === runtimeRepository.commonDir
+  ) {
+    return;
+  }
+
+  throw new Error(
+    "Pi project trust path must match the runtime repository or its registered Git worktree",
+  );
+}
 
 function readHotPoolSize(): number {
   const configured = Number.parseInt(
@@ -85,6 +217,7 @@ function readHotPoolSize(): number {
 @injectable()
 export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   private readonly sessions = new Map<string, ManagedPiSession>();
+  private readonly extensionReplay = new Map<string, PiExtensionReplayState>();
   private readonly lifecycleLocks = new Map<string, Promise<unknown>>();
   private readonly maxHotSessions = readHotPoolSize();
   private poolMaintenance: Promise<void> = Promise.resolve();
@@ -114,12 +247,21 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   ): Promise<{ sessionFile: string | null; sessionId: string }> {
     await this.stopLocked(input.taskId);
 
+    const projectTrustPath = input.projectTrustPath ?? input.cwd;
+    await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
+    const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
     const runtime = await this.runtimeFactory.create({
       cwd: input.cwd,
       model: input.model,
+      projectTrusted: projectTrust.trusted,
     });
     const client = runtime.client;
-    const session = this.registerSession(input.taskId, runtime);
+    const session = this.registerSession(
+      input.taskId,
+      runtime,
+      input.cwd,
+      projectTrustPath,
+    );
 
     return this.startSession(input.taskId, client, session, async () => {
       if (input.thinkingLevel) {
@@ -146,16 +288,26 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     });
   }
 
-  async resume(input: { taskId: string; cwd: string }): Promise<void> {
+  async resume(input: {
+    taskId: string;
+    cwd: string;
+    projectTrustPath?: string;
+  }): Promise<void> {
     await this.runExclusive(input.taskId, () => this.resumeLocked(input));
   }
 
   private async resumeLocked(input: {
     taskId: string;
     cwd: string;
+    projectTrustPath?: string;
   }): Promise<void> {
     const existingSession = this.sessions.get(input.taskId);
-    if (existingSession) {
+    const projectTrustPath = input.projectTrustPath ?? input.cwd;
+    if (
+      existingSession &&
+      existingSession.cwd === input.cwd &&
+      existingSession.projectTrustPath === projectTrustPath
+    ) {
       this.touchSession(existingSession);
       return;
     }
@@ -171,12 +323,20 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
 
     await this.stopLocked(input.taskId);
 
+    await assertProjectTrustAppliesToCwd(projectTrustPath, input.cwd);
+    const projectTrust = readPiProjectTrust(projectTrustPath, input.cwd);
     const runtime = await this.runtimeFactory.create({
       cwd: input.cwd,
       sessionFile,
+      projectTrusted: projectTrust.trusted,
     });
     const client = runtime.client;
-    const session = this.registerSession(input.taskId, runtime);
+    const session = this.registerSession(
+      input.taskId,
+      runtime,
+      input.cwd,
+      projectTrustPath,
+    );
 
     await this.startSession(input.taskId, client, session, async () => {});
   }
@@ -210,6 +370,73 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       session.runtime.clearPendingQueuedUserMessages();
       return queue;
     });
+  }
+
+  getProjectTrust(taskId: string): PiProjectTrust {
+    const session = this.requireSession(taskId);
+    return readPiProjectTrust(session.projectTrustPath, session.cwd);
+  }
+
+  async setProjectTrusted(taskId: string, trusted: boolean): Promise<void> {
+    await this.runExclusive(taskId, async () => {
+      const session = this.requireSession(taskId);
+      if (session.state !== "idle" || session.activeRequestCount > 0) {
+        throw new Error("Cannot change project trust while Pi is busy");
+      }
+      await this.stopLocked(taskId);
+      writePiProjectTrust(session.projectTrustPath, trusted);
+    });
+  }
+
+  respondToExtensionUI(
+    taskId: string,
+    response: PiExtensionUIResponse,
+  ): Promise<void> {
+    const session = this.requireSession(taskId);
+    if (session.completedExtensionResponseIds.has(response.id)) {
+      this.removeReplayDialog(taskId, response.id);
+      return Promise.resolve();
+    }
+    const existing = session.extensionResponsesInFlight.get(response.id);
+    if (existing) {
+      return existing;
+    }
+
+    const delivery = this.withActiveRequest(taskId, (activeSession) =>
+      activeSession.client.respondToExtensionUI(response),
+    )
+      .then(() => {
+        session.completedExtensionResponseIds.add(response.id);
+        if (this.sessions.get(taskId) === session) {
+          this.removeReplayDialog(taskId, response.id);
+        }
+      })
+      .finally(() => {
+        if (session.extensionResponsesInFlight.get(response.id) === delivery) {
+          session.extensionResponsesInFlight.delete(response.id);
+        }
+      });
+    session.extensionResponsesInFlight.set(response.id, delivery);
+    return delivery;
+  }
+
+  acknowledgeExtensionEditorText(taskId: string, id: string): void {
+    const state = this.extensionReplay.get(taskId);
+    if (state?.editorText?.id === id) {
+      state.editorText = undefined;
+    }
+  }
+
+  getExtensionStateSnapshot(taskId: string): PiExtensionStateSnapshot {
+    const state = this.extensionReplay.get(taskId);
+    return {
+      type: "extension_state_snapshot",
+      dialogs: state ? [...state.dialogs.values()] : [],
+      statuses: state ? [...state.statuses.values()] : [],
+      widgets: state ? [...state.widgets.values()] : [],
+      title: state?.title,
+      editorText: state?.editorText,
+    };
   }
 
   async readSessionConfig(
@@ -255,17 +482,25 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     const session = this.sessions.get(taskId);
 
     if (!session) {
+      this.clearExtensionReplayState(taskId);
       return;
     }
 
-    this.sessions.delete(taskId);
-
     try {
       await session.client.stop();
-    } finally {
-      if (session.pid) {
-        this.processTracking.unregister(session.pid, "pi-session-stopped");
+    } catch (error) {
+      if (this.sessions.get(taskId) === session) {
+        throw error;
       }
+      return;
+    }
+
+    if (this.sessions.get(taskId) === session) {
+      this.sessions.delete(taskId);
+      this.resetExtensionSession(taskId);
+    }
+    if (session.pid) {
+      this.processTracking.unregister(session.pid, "pi-session-stopped");
     }
   }
 
@@ -333,6 +568,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
 
       await this.cleanupFailedClient(taskId, client);
       this.sessions.delete(taskId);
+      this.resetExtensionSession(taskId);
 
       throw error;
     }
@@ -355,24 +591,146 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   private registerSession(
     taskId: string,
     runtime: PiRuntime,
+    cwd: string,
+    projectTrustPath: string,
   ): ManagedPiSession {
     const session: ManagedPiSession = {
       client: runtime.client,
       runtime,
+      cwd,
+      projectTrustPath,
       state: "starting",
       lastUsedAt: Date.now(),
       activeRequestCount: 0,
+      extensionResponsesInFlight: new Map(),
+      completedExtensionResponseIds: new Set(),
     };
 
     this.sessions.set(taskId, session);
+    this.clearExtensionReplayState(taskId);
+    this.extensionReplay.set(taskId, {
+      dialogs: new Map(),
+      dialogTimeouts: new Map(),
+      statuses: new Map(),
+      widgets: new Map(),
+    });
     runtime.onRuntimeEvent((event) =>
       this.handleSessionEvent(taskId, session, event),
     );
     runtime.onConversationEvent((event) =>
       this.emit("event", { taskId, event }),
     );
+    runtime.onExtensionEvent?.((event) => {
+      this.updateExtensionReplay(taskId, event);
+      this.emit("extensionEvent", { taskId, event });
+    });
 
     return session;
+  }
+
+  private updateExtensionReplay(
+    taskId: string,
+    event: PiExtensionWireEvent,
+  ): void {
+    if (event.type === "extension_error") {
+      return;
+    }
+
+    const state = this.extensionReplay.get(taskId);
+    if (!state) {
+      return;
+    }
+
+    switch (event.method) {
+      case "select":
+      case "confirm":
+      case "input":
+      case "editor":
+        if (state.dialogs.has(event.id)) {
+          return;
+        }
+        state.dialogs.set(event.id, event);
+        if ("timeout" in event && event.timeout && event.timeout > 0) {
+          state.dialogTimeouts.set(
+            event.id,
+            setTimeout(
+              () => this.expireReplayDialog(taskId, event.id, state),
+              event.timeout,
+            ),
+          );
+        }
+        return;
+      case "setStatus":
+        if (event.statusText === undefined) {
+          state.statuses.delete(event.statusKey);
+        } else {
+          state.statuses.set(event.statusKey, event);
+        }
+        return;
+      case "setWidget":
+        if (event.widgetLines === undefined) {
+          state.widgets.delete(event.widgetKey);
+        } else {
+          state.widgets.set(event.widgetKey, event);
+        }
+        return;
+      case "setTitle":
+        state.title = event;
+        return;
+      case "set_editor_text":
+        state.editorText = event;
+        return;
+      case "notify":
+        return;
+    }
+  }
+
+  private removeReplayDialog(taskId: string, id: string): void {
+    const state = this.extensionReplay.get(taskId);
+    if (!state) {
+      return;
+    }
+    state.dialogs.delete(id);
+    const timeout = state.dialogTimeouts.get(id);
+    if (timeout) {
+      clearTimeout(timeout);
+      state.dialogTimeouts.delete(id);
+    }
+  }
+
+  private expireReplayDialog(
+    taskId: string,
+    id: string,
+    expectedState: PiExtensionReplayState,
+  ): void {
+    if (this.extensionReplay.get(taskId) !== expectedState) {
+      return;
+    }
+    const expired = expectedState.dialogs.delete(id);
+    expectedState.dialogTimeouts.delete(id);
+    if (!expired) {
+      return;
+    }
+    this.emit("extensionEvent", {
+      taskId,
+      event: { type: "extension_dialog_expired", id },
+    });
+  }
+
+  private clearExtensionReplayState(taskId: string): void {
+    const state = this.extensionReplay.get(taskId);
+    for (const timeout of state?.dialogTimeouts.values() ?? []) {
+      clearTimeout(timeout);
+    }
+    this.extensionReplay.delete(taskId);
+  }
+
+  private resetExtensionSession(taskId: string): void {
+    this.clearExtensionReplayState(taskId);
+    this.emit("extensionEvent", {
+      taskId,
+      event: { type: "extension_session_reset" },
+    });
   }
 
   private trackProcess(taskId: string, session: ManagedPiSession): void {
@@ -399,6 +757,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       }
 
       this.sessions.delete(taskId);
+      this.resetExtensionSession(taskId);
       this.log.warn("Pi RPC process exited", { taskId, code, signal });
     });
   }

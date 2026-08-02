@@ -39,11 +39,21 @@ import { toast } from "@posthog/ui/primitives/toast";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 import { logger } from "@posthog/ui/shell/logger";
 import { Box, Flex } from "@radix-ui/themes";
-import { type ReactElement, useCallback, useEffect, useRef } from "react";
+import {
+  type ReactElement,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { useStore } from "zustand";
+import { PiExtensionDialog } from "./PiExtensionDialog";
+import { PiExtensionStatuses, PiExtensionWidgets } from "./PiExtensionSurfaces";
+import { PiProjectTrustBanner } from "./PiProjectTrustBanner";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
+import { piExtensionEditorTextToContent } from "./piExtensionEditorText";
 import {
   getPiPendingConfig,
   usePiPendingConfigStore,
@@ -85,6 +95,7 @@ export function PiSessionView({
   const { isOnline } = useConnectivity();
   const showUsageLimit = useUsageLimitStore((state) => state.show);
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
+  const [projectTrustPending, setProjectTrustPending] = useState(false);
   const handlePromptRecall = useCallback<PromptRecallHandler>(
     (direction) => promptRecallRef.current?.(direction) ?? null,
     [],
@@ -238,6 +249,25 @@ export function PiSessionView({
       .catch((error) => handleControllerError(error, "Failed to restart Pi"));
   }, [handleControllerError, piSessionController, taskId]);
 
+  const changeProjectTrust = useCallback(
+    async (trusted: boolean) => {
+      setProjectTrustPending(true);
+      try {
+        await piSessionController.setProjectTrusted(taskId, trusted);
+        toast.success(
+          trusted
+            ? "Repository trusted and Pi restarted"
+            : "Repository trust revoked and Pi restarted",
+        );
+      } catch (error) {
+        handleControllerError(error, "Failed to change repository trust");
+      } finally {
+        setProjectTrustPending(false);
+      }
+    },
+    [handleControllerError, piSessionController, taskId],
+  );
+
   const editQueuedMessage = useCallback(() => {
     void piSessionController
       .clearQueue(taskId)
@@ -267,6 +297,52 @@ export function PiSessionView({
         handleControllerError(error, "Failed to discard queued Pi message"),
       );
   }, [handleControllerError, piSessionController, taskId]);
+
+  const extensionNotification = isCloud
+    ? undefined
+    : session?.extensionNotifications[0];
+  useEffect(() => {
+    if (!extensionNotification) {
+      return;
+    }
+    toast[extensionNotification.notifyType]("Pi extension", {
+      description: extensionNotification.message,
+    });
+    piSessionController.acknowledgeExtensionNotification(
+      taskId,
+      extensionNotification.id,
+    );
+  }, [extensionNotification, piSessionController, taskId]);
+
+  const extensionEditorText = isCloud
+    ? undefined
+    : session?.extensionEditorText;
+  useEffect(() => {
+    if (!extensionEditorText) {
+      return;
+    }
+    draftActions.setPendingContent(
+      taskId,
+      piExtensionEditorTextToContent(extensionEditorText.text),
+    );
+    draftActions.requestFocus(taskId);
+    piSessionController.acknowledgeExtensionEditorText(
+      taskId,
+      extensionEditorText.id,
+    );
+  }, [draftActions, extensionEditorText, piSessionController, taskId]);
+
+  const extensionTitle = isCloud ? undefined : session?.extensionTitle;
+  useEffect(() => {
+    if (extensionTitle === undefined) {
+      return;
+    }
+    const previousTitle = document.title;
+    document.title = extensionTitle;
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [extensionTitle]);
 
   useEffect(() => {
     const failure = session?.error;
@@ -374,8 +450,22 @@ export function PiSessionView({
     );
   }
 
+  const extensionDialog = isCloud ? undefined : session.extensionDialogs[0];
+
   return (
     <Flex direction="column" height="100%">
+      {extensionDialog && (
+        <PiExtensionDialog
+          key={extensionDialog.id}
+          request={extensionDialog}
+          onRespond={(response) =>
+            piSessionController.respondToExtensionUI(taskId, response)
+          }
+          onCancel={() =>
+            piSessionController.cancelExtensionUI(taskId, extensionDialog.id)
+          }
+        />
+      )}
       {isAuthRestoring && (
         <CloudConnectionBanner message="Restoring authentication..." />
       )}
@@ -406,6 +496,26 @@ export function PiSessionView({
           onEdit={editQueuedMessage}
           onRemove={removeQueuedMessage}
         />
+        {!isCloud && (
+          <>
+            <PiExtensionStatuses statuses={session.extensionStatuses} />
+            <PiExtensionWidgets
+              widgets={session.extensionWidgets}
+              placement="aboveEditor"
+            />
+            {session.projectTrust?.hasProjectResources && (
+              <PiProjectTrustBanner
+                trusted={session.projectTrust.trusted}
+                disabled={
+                  controlsPending || session.connectionState !== "connected"
+                }
+                pending={projectTrustPending}
+                onTrust={() => changeProjectTrust(true)}
+                onRevoke={() => changeProjectTrust(false)}
+              />
+            )}
+          </>
+        )}
         <PromptInput
           sessionId={taskId}
           taskId={taskId}
@@ -449,6 +559,12 @@ export function PiSessionView({
           onBashCommand={runBashCommand}
           onCancel={cancelPrompt}
         />
+        {!isCloud && (
+          <PiExtensionWidgets
+            widgets={session.extensionWidgets}
+            placement="belowEditor"
+          />
+        )}
       </Box>
     </Flex>
   );
