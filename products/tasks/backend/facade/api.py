@@ -28,7 +28,7 @@ from uuid import UUID, uuid4
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
+from django.db.models import CharField, Count, Exists, F, Func, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -73,6 +73,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     TaskThreadMessageMention,
 )
+from products.tasks.backend.pr_urls import merge_pr_output
 from products.tasks.backend.prompts import build_wizard_pr_agent_prompt, generate_wizard_head_branch
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
 
@@ -2191,7 +2192,8 @@ def update_task_run(
                 existing_output = run.output if isinstance(run.output, dict) else {}
                 # Same attested-key policy as set_task_run_output — this PATCH surface is
                 # caller-controlled too, so it can't be a back door to output.pr_merged.
-                setattr(run, key, _apply_caller_output(existing_output, value, {**existing_output, **value}))
+                merged_output = merge_pr_output(existing_output, value)
+                setattr(run, key, _apply_caller_output(existing_output, value, merged_output))
                 update_fields.add(key)
                 continue
             if key == "state_remove_keys":
@@ -2305,9 +2307,7 @@ def set_task_run_output(
     # Preserve PR facts a webhook may have written concurrently: this assignment is wholesale,
     # so a bare `= output` would drop output.pr_url recorded out of band.
     existing = run.output if isinstance(run.output, dict) else {}
-    merged = {**output}
-    if not merged.get("pr_url") and existing.get("pr_url"):
-        merged["pr_url"] = existing["pr_url"]
+    merged = merge_pr_output(existing, output)
     run.output = _apply_caller_output(existing, output, merged)
     run.save(update_fields=["output", "updated_at"])
     if task.json_schema:
@@ -4007,13 +4007,21 @@ def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[cont
 
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
     """Distinct repositories used by non-deleted, non-internal visible tasks for the team."""
-    tasks = (
-        Task.objects.filter(team_id=team_id, deleted=False, internal=False)
-        .filter(task_visibility_q(user_id))
-        .values_list("repositories", "repository")
+    tasks = Task.objects.filter(team_id=team_id, deleted=False, internal=False).filter(task_visibility_q(user_id))
+    plural = (
+        tasks.exclude(repositories=[])
+        .annotate(repository_name=Func(F("repositories"), function="unnest", output_field=CharField()))
+        .values_list("repository_name", flat=True)
+        .distinct()
     )
-    repositories = {repository for plural, legacy in tasks for repository in (plural or ([legacy] if legacy else []))}
-    return sorted(repositories)
+    legacy = (
+        tasks.filter(repositories=[])
+        .exclude(repository__isnull=True)
+        .exclude(repository="")
+        .values_list("repository", flat=True)
+        .distinct()
+    )
+    return sorted(set(plural) | set(legacy))
 
 
 def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[contracts.TaskSummaryDTO]:
@@ -4110,6 +4118,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         warm_branch_provided
         and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
         and validated_data.get("repository")
+        and len(validated_data.get("repositories", [])) <= 1
         and user_id is not None
     ):
         warm_run = _find_idling_warm_run(
@@ -4280,7 +4289,10 @@ def update_task(
         repositories = validated_data["repositories"]
         validated_data["repository"] = repositories[0] if repositories else None
     elif "repository" in validated_data:
-        validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
+        if len(task.repositories) <= 1:
+            validated_data["repositories"] = [validated_data["repository"]] if validated_data["repository"] else []
+        else:
+            validated_data.pop("repository")
     if "title" in validated_data and "title_manually_set" not in validated_data:
         validated_data["title_manually_set"] = True
     if "archived" in validated_data and validated_data["archived"] != task.archived:

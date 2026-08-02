@@ -197,7 +197,16 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
 
         run.refresh_from_db()
-        self.assertEqual(run.output, {"pr_url": "https://github.com/posthog/posthog/pull/10"})
+        self.assertEqual(
+            run.output,
+            {
+                "pr_url": "https://github.com/posthog/posthog/pull/10",
+                "pr_urls": [
+                    "https://github.com/posthog/posthog/pull/10",
+                    "https://github.com/posthog/posthog/pull/11",
+                ],
+            },
+        )
 
     def _merged_pr_payload(self, pr_url: str) -> dict:
         return {
@@ -563,6 +572,10 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], existing)
+        self.assertEqual(
+            run.output["pr_urls"],
+            [existing, "https://github.com/posthog/posthog/pull/901"],
+        )
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_rejected(self, mock_get_secret):
@@ -1020,6 +1033,21 @@ class TestFindTaskRun(TestCase):
         )
         result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
         self.assertEqual(result, task_run)
+
+    def test_finds_multi_repository_run_from_snapshot(self):
+        self.task.repositories = ["posthog/posthog", "posthog/code"]
+        self.task.save(update_fields=["repositories"])
+        task_run = self.task.create_run(branch="feature/my-branch")
+        task_run.output = {"pr_urls": ["https://github.com/posthog/code/pull/123"]}
+        task_run.save(update_fields=["output"])
+
+        self.assertEqual(
+            find_task_run(
+                pr_url="https://github.com/posthog/code/pull/123",
+                repository="posthog/code",
+            ),
+            task_run,
+        )
 
     def test_pr_url_takes_priority_over_branch(self):
         pr_run = TaskRun.objects.create(

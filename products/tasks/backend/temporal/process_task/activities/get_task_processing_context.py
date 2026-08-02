@@ -805,12 +805,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 "falling back to the environment or default base image",
             )
 
+    repositories = state.get("repositories")
+    run_repository = repositories[0] if isinstance(repositories, list) and repositories else task.repository
+
     log_with_activity_context(
         "Task processing context created",
         task_id=str(task.id),
         run_id=run_id,
         team_id=task.team_id,
-        repository=task.repository,
+        repository=run_repository,
         origin_product=task.origin_product,
         environment=task_run.environment,
         distinct_id=distinct_id,
@@ -972,7 +975,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         organization_id=str(task.team.organization_id),
         github_integration_id=task.github_integration_id,
         github_user_integration_id=user_github_integration_id,
-        repository=task.repository,
+        repository=run_repository,
         distinct_id=distinct_id,
         origin_product=task.origin_product,
         task_runtime=task.runtime,

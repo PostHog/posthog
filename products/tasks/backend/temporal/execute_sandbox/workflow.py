@@ -1101,19 +1101,23 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
 
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            for repository in repositories_to_clone:
-                await workflow.execute_activity(
-                    clone_repository_in_sandbox,
-                    CloneRepositoryInSandboxInput(
-                        context=self.context,
-                        sandbox_id=created.sandbox_id,
-                        repository=repository,
-                        github_token=prepared.github_token,
-                        shallow_clone=prepared.shallow_clone,
-                    ),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(maximum_attempts=3),
+            await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        clone_repository_in_sandbox,
+                        CloneRepositoryInSandboxInput(
+                            context=self.context,
+                            sandbox_id=created.sandbox_id,
+                            repository=repository,
+                            github_token=prepared.github_token,
+                            shallow_clone=prepared.shallow_clone,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for repository in repositories_to_clone
                 )
+            )
             clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
             await self._emit_progress("clone", "completed", clone_label, "setup")
 

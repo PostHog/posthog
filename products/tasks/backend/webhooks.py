@@ -3,7 +3,7 @@ import uuid
 import hashlib
 
 from django.db import transaction
-from django.db.models import Case, IntegerField, Value, When
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import HttpResponse
 
 import structlog
@@ -18,6 +18,7 @@ from products.signals.backend.models import InvalidStatusTransition, SignalRepor
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +26,14 @@ logger = structlog.get_logger(__name__)
 TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
 
 _TERMINAL_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+
+def _run_repository_filter(repository: str) -> Q:
+    normalized = repository.strip().lower()
+    return Q(state__repositories__contains=[normalized]) | Q(
+        state__repositories__isnull=True,
+        task__repository__iexact=normalized,
+    )
 
 
 def find_task_run(
@@ -39,9 +48,9 @@ def find_task_run(
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = TaskRun.objects.filter(output__pr_url=pr_url)
+        runs = TaskRun.objects.filter(Q(output__pr_url=pr_url) | Q(output__pr_urls__contains=[pr_url]))
         if repository:
-            runs = runs.filter(task__repository__iexact=repository)
+            runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
         # variant that must not leak into the plain-queryset legs below.
         task_run: TaskRun | None = (
@@ -68,8 +77,8 @@ def find_task_run(
         # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
             TaskRun.objects.filter(
+                _run_repository_filter(repository),
                 branch=branch,
-                task__repository__iexact=repository,
                 state__wizard_head_branch__isnull=True,
             )
             .select_related(*TASK_RUN_SELECT_RELATED)
@@ -85,8 +94,8 @@ def find_task_run(
         if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
             task_run = (
                 TaskRun.objects.filter(
+                    _run_repository_filter(repository),
                     state__wizard_head_branch=branch,
-                    task__repository__iexact=repository,
                     task__deleted=False,
                 )
                 .exclude(status__in=_TERMINAL_RUN_STATUSES)
@@ -226,8 +235,8 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
     and later webhook lookups never resolve the PR.
     """
-    recorded = _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed")
-    if not recorded and not TaskRun.objects.filter(id=task_run.id, output__pr_url=pr_url).exists():
+    recorded = _append_run_pr_url(task_run, pr_url)
+    if not recorded and pr_url not in read_pr_urls(task_run.output):
         return
     post_pr_created_thread_update(task_run, pr_url)
     if not recorded:
@@ -244,6 +253,24 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
         task_run.publish_stream_state_event()
     except Exception:
         logger.warning("github_pr_webhook_pr_events_failed", run_id=str(task_run.id), exc_info=True)
+
+
+def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
+    if pr_url in read_pr_urls(task_run.output):
+        return False
+    try:
+        with transaction.atomic():
+            locked = TaskRun.objects.select_for_update().get(id=task_run.id)
+            if pr_url in read_pr_urls(locked.output):
+                task_run.output = locked.output
+                return False
+            locked.output = merge_pr_output(locked.output, {"pr_urls": [pr_url]})
+            locked.save(update_fields=["output", "updated_at"])
+        task_run.output = locked.output
+        return True
+    except Exception:
+        logger.warning("github_pr_webhook_record_pr_url_failed", run_id=str(task_run.id), exc_info=True)
+        return False
 
 
 def _record_run_pr_merged(task_run: TaskRun) -> None:

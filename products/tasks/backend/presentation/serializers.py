@@ -54,6 +54,7 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactType,
     get_reasoning_effort_error,
 )
+from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 
 logger = logging.getLogger(__name__)
 
@@ -661,24 +662,23 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict) -> dict:
         if "repository" in attrs and "repositories" in attrs:
-            legacy = attrs["repository"]
+            legacy = attrs["repository"] or None
             repositories = attrs["repositories"]
             if legacy != (repositories[0] if repositories else None):
                 raise serializers.ValidationError({"repositories": "Conflicts with repository"})
-        if attrs.get("repositories") and attrs.get("github_integration") is None:
+        repositories = attrs.get("repositories")
+        plural_repositories = repositories
+        if repositories is None and "repository" in attrs:
+            repositories = [attrs["repository"]] if attrs["repository"] else []
+        if plural_repositories and attrs.get("github_integration") is None:
             instance_integration = getattr(self.instance, "github_integration", None)
             if instance_integration is None:
                 raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
-        repositories = attrs.get("repositories")
         integration = attrs.get("github_integration") or getattr(self.instance, "github_integration", None)
         if repositories and integration:
-            from products.tasks.backend.facade.loops import repository_accessible_via_integration
-
-            inaccessible = [
-                repository
-                for repository in repositories
-                if not repository_accessible_via_integration(self.context["team"].id, integration.id, repository)
-            ]
+            inaccessible = inaccessible_repositories_via_integration(
+                self.context["team"].id, integration.id, repositories
+            )
             if inaccessible:
                 raise serializers.ValidationError(
                     {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}

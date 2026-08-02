@@ -12,13 +12,10 @@ class Migration(migrations.Migration):
             field=ArrayField(
                 base_field=models.CharField(max_length=255),
                 default=list,
+                db_default=[],
                 blank=True,
                 size=None,
                 help_text="GitHub repositories available to this task",
             ),
-        ),
-        migrations.RunSQL(
-            "UPDATE tasks_task SET repositories = ARRAY[repository] WHERE repository IS NOT NULL AND repository <> ''",
-            migrations.RunSQL.noop,
         ),
     ]

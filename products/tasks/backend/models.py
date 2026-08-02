@@ -192,6 +192,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     repositories = ArrayField(
         models.CharField(max_length=255),
         default=list,
+        db_default=[],
         blank=True,
         help_text="GitHub repositories available to this task",
     )
@@ -353,6 +354,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "description": self.description[:500] if self.description else "",
                 "origin_product": self.origin_product,
                 "repository": self.repository,
+                "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
             if properties:
                 all_properties.update(properties)
@@ -2045,6 +2047,9 @@ class TaskRun(models.Model):
                 "run_id": str(self.id),
                 "team_id": self.team_id,
                 "repository": self.task.repository,
+                "repositories": (self.state or {}).get("repositories")
+                or self.task.repositories
+                or ([self.task.repository] if self.task.repository else []),
                 "origin_product": self.task.origin_product,
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
