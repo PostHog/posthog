@@ -253,6 +253,29 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
 
+/**
+ * Matches a schema's table name against a required table name. Some sources (e.g. GitHub's
+ * multi-repo schemas) qualify table names with a prefix like `owner/repo.issues`, so a required
+ * table can legitimately match more than one schema (one per repo).
+ */
+export function matchesRequiredTable(schema: { table: string }, table: string): boolean {
+    return schema.table === table || schema.table.endsWith(`.${table}`)
+}
+
+/** Returns the schemas matching any required table, and the required tables with no match. */
+export function matchRequiredTableSchemas<T extends { table: string }>(
+    schemas: T[],
+    requiredTables: string[]
+): { matchedSchemas: T[]; missingTables: string[] } {
+    const matchedSchemas = schemas.filter((schema) =>
+        requiredTables.some((table) => matchesRequiredTable(schema, table))
+    )
+    const missingTables = requiredTables.filter(
+        (table) => !matchedSchemas.some((schema) => matchesRequiredTable(schema, table))
+    )
+    return { matchedSchemas, missingTables }
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -3440,11 +3463,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 // If required tables are specified (e.g. signals setup), skip the schema selection step
                 // entirely and create the source with only those tables, using their default sync settings
                 if (values.requiredTables) {
-                    const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
-                    if (requiredSchemas.length !== values.requiredTables.length) {
-                        const missingTables = values.requiredTables.filter(
-                            (table: string) => !requiredSchemas.some((schema) => schema.table === table)
-                        )
+                    const { matchedSchemas: requiredSchemas, missingTables } = matchRequiredTableSchemas(
+                        schemas,
+                        values.requiredTables
+                    )
+                    if (missingTables.length > 0) {
                         lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
                         actions.setIsLoading(false)
                         return

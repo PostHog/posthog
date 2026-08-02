@@ -10,6 +10,7 @@ import {
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
+    matchRequiredTableSchemas,
     mergeRestoredSourceFormValues,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
@@ -56,6 +57,30 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
+    describe('matchRequiredTableSchemas', () => {
+        it('matches repo-qualified schema names like `owner/repo.issues` against a bare required table', () => {
+            const schemas = [{ table: 'owner/repo-one.issues' }, { table: 'owner/repo-two.issues' }]
+
+            const { matchedSchemas, missingTables } = matchRequiredTableSchemas(schemas, ['issues'])
+
+            expect(matchedSchemas).toEqual(schemas)
+            expect(missingTables).toEqual([])
+        })
+
+        it('reports a required table as missing only when no schema matches it, exactly or by suffix', () => {
+            const schemas = [{ table: 'issues' }, { table: 'owner/repo.pull_requests' }]
+
+            const { matchedSchemas, missingTables } = matchRequiredTableSchemas(schemas, [
+                'issues',
+                'pull_requests',
+                'workflow_runs',
+            ])
+
+            expect(matchedSchemas).toEqual(schemas)
+            expect(missingTables).toEqual(['workflow_runs'])
+        })
     })
 
     describe('getDatabaseSchemaPayload', () => {
