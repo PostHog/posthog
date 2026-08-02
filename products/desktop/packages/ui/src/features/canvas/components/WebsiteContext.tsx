@@ -57,9 +57,25 @@ import {
   Text,
   TextArea,
 } from "@radix-ui/themes";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Mode = "rendered" | "edit";
+
+// The anchor nav on the left of the spaces layout: one row per configurable
+// section on this screen. Future sources (Slack channels, PostHog events, …)
+// get a row here plus a section in the pane.
+const NAV_SECTIONS = [
+  {
+    id: "context-md",
+    label: "CONTEXT.md",
+    icon: <FileTextIcon size={16} />,
+  },
+  {
+    id: "repositories",
+    label: "Repositories",
+    icon: <GitBranchIcon size={16} />,
+  },
+];
 
 // Initial markdown shown when a folder has no instructions yet — gives both
 // humans and agents a structural starting point instead of a blank screen.
@@ -158,6 +174,18 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
     return versions.find((v) => v.id === selectedVersionId) ?? null;
   }, [selectedVersionId, versions]);
 
+  const sectionIds = useMemo(
+    () =>
+      spacesLayout && backendChannel
+        ? ["context-md", "repositories"]
+        : ["context-md"],
+    [spacesLayout, backendChannel],
+  );
+  const { activeSection, registerSection, scrollToSection } = useSectionSpy(
+    sectionIds,
+    !isLoadingLatest && !latestError,
+  );
+
   if (isLoadingLatest) {
     return (
       <Flex align="center" justify="center" className="h-full">
@@ -193,11 +221,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           <PageHeaderHeading>
             <PageHeaderTitleRow>
               <PageHeaderTitle>Context</PageHeaderTitle>
-              {latest?.version != null && (
-                <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
-                  v{latest.version}
-                </PageHeaderChip>
-              )}
             </PageHeaderTitleRow>
             <PageHeaderDescription>
               Background every agent working in this{" "}
@@ -207,120 +230,150 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
-      <Flex
-        align="center"
-        justify="between"
-        gap="3"
-        px="6"
-        py="2"
-        className="shrink-0 border-b border-b-(--gray-5)"
-      >
-        <Flex align="center" gap="3">
-          <SegmentedControl.Root
-            value={mode}
-            onValueChange={(value) => setMode(value as Mode)}
-            size="1"
+      <div className="flex min-h-0 flex-1">
+        {sectionIds.length > 1 && (
+          <nav
+            aria-label="Context sections"
+            className="w-52 shrink-0 overflow-y-auto border-gray-5 border-r py-3"
           >
-            <SegmentedControl.Item value="rendered">
-              Rendered
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="edit">Edit</SegmentedControl.Item>
-          </SegmentedControl.Root>
-
-          {/* Background-refetch indicator: the initial load uses the full-screen
-              spinner below; this only fires on revalidations (every mount, plus
-              after publish/delete invalidations) so the user knows the view is
-              live and not just stale cache. */}
-          {isFetchingLatest && !isLoadingLatest ? (
-            <Flex align="center" gap="1">
-              <Spinner size="1" />
-              <Text className="text-[12px] text-gray-10">Refreshing…</Text>
-            </Flex>
-          ) : null}
-
-          {versions.length > 0 ? (
-            <Select.Root
-              size="1"
-              value={selectedVersionId ?? "latest"}
-              onValueChange={(value) => {
-                if (value === "latest") {
-                  setSelectedVersionId(null);
-                } else {
-                  setSelectedVersionId(value);
-                  setMode("rendered");
-                }
-              }}
-              disabled={isLoadingVersions}
-            >
-              <Select.Trigger />
-              <Select.Content>
-                <Select.Item value="latest">
-                  Latest (v{latest?.version ?? "—"})
-                </Select.Item>
-                {versions
-                  .filter((v) => !v.is_latest)
-                  .map((v) => (
-                    <Select.Item key={v.id} value={v.id}>
-                      v{v.version} · {formatTimestamp(v.created_at)}
-                    </Select.Item>
-                  ))}
-              </Select.Content>
-            </Select.Root>
-          ) : null}
-        </Flex>
-
-        {mode === "edit" ? (
-          <Flex align="center" gap="2">
-            {hasDraft ? (
-              <Button
-                size="1"
-                variant="soft"
-                color="gray"
-                onClick={() => {
-                  setDraft(latest?.content ?? "");
-                  setHasDraft(false);
-                }}
-                disabled={isPublishing}
+            {NAV_SECTIONS.filter((section) =>
+              sectionIds.includes(section.id),
+            ).map((section) => (
+              <button
+                key={section.id}
+                type="button"
+                data-active={activeSection === section.id || undefined}
+                onClick={() => scrollToSection(section.id)}
+                className="flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-4 py-1.5 text-left text-[13px] text-gray-11 transition-colors hover:bg-gray-3 data-[active]:bg-accent-4 data-[active]:text-gray-12"
               >
-                Discard
-              </Button>
-            ) : null}
-            <Button
-              size="1"
-              variant="solid"
-              onClick={onSave}
-              disabled={
-                isPublishing ||
-                (hasInstructions ? !hasDraft : draft.trim().length === 0)
-              }
+                <span className="text-gray-10">{section.icon}</span>
+                <span>{section.label}</span>
+              </button>
+            ))}
+          </nav>
+        )}
+        <ScrollArea
+          type="auto"
+          scrollbars="vertical"
+          className="scroll-area-constrain-width min-h-0 flex-1"
+        >
+          <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 py-5 pb-24">
+            <section
+              ref={registerSection("context-md")}
+              className="flex scroll-mt-4 flex-col gap-3"
             >
-              {isPublishing ? <Spinner size="1" /> : null}
-              Save new version
-            </Button>
-          </Flex>
-        ) : null}
-      </Flex>
+              <Flex align="center" justify="between" gap="3" wrap="wrap">
+                <Flex align="center" gap="2">
+                  <FileTextIcon size={15} className="text-gray-11" />
+                  <Text size="2" weight="medium">
+                    CONTEXT.md
+                  </Text>
+                  {latest?.version != null && (
+                    <PageHeaderChip
+                      icon={channelPageIcon("context", { size: 12 })}
+                    >
+                      v{latest.version}
+                    </PageHeaderChip>
+                  )}
+                  {/* Background-refetch indicator: the initial load uses the
+                      full-screen spinner; this only fires on revalidations so
+                      the user knows the view is live, not stale cache. */}
+                  {isFetchingLatest && !isLoadingLatest ? (
+                    <Flex align="center" gap="1">
+                      <Spinner size="1" />
+                      <Text className="text-[12px] text-gray-10">
+                        Refreshing…
+                      </Text>
+                    </Flex>
+                  ) : null}
+                </Flex>
+                <Flex align="center" gap="2">
+                  {versions.length > 0 ? (
+                    <Select.Root
+                      size="1"
+                      value={selectedVersionId ?? "latest"}
+                      onValueChange={(value) => {
+                        if (value === "latest") {
+                          setSelectedVersionId(null);
+                        } else {
+                          setSelectedVersionId(value);
+                          setMode("rendered");
+                        }
+                      }}
+                      disabled={isLoadingVersions}
+                    >
+                      <Select.Trigger />
+                      <Select.Content>
+                        <Select.Item value="latest">
+                          Latest (v{latest?.version ?? "—"})
+                        </Select.Item>
+                        {versions
+                          .filter((v) => !v.is_latest)
+                          .map((v) => (
+                            <Select.Item key={v.id} value={v.id}>
+                              v{v.version} · {formatTimestamp(v.created_at)}
+                            </Select.Item>
+                          ))}
+                      </Select.Content>
+                    </Select.Root>
+                  ) : null}
+                  <SegmentedControl.Root
+                    value={mode}
+                    onValueChange={(value) => setMode(value as Mode)}
+                    size="1"
+                  >
+                    <SegmentedControl.Item value="rendered">
+                      Rendered
+                    </SegmentedControl.Item>
+                    <SegmentedControl.Item value="edit">
+                      Edit
+                    </SegmentedControl.Item>
+                  </SegmentedControl.Root>
+                  {mode === "edit" ? (
+                    <>
+                      {hasDraft ? (
+                        <Button
+                          size="1"
+                          variant="soft"
+                          color="gray"
+                          onClick={() => {
+                            setDraft(latest?.content ?? "");
+                            setHasDraft(false);
+                          }}
+                          disabled={isPublishing}
+                        >
+                          Discard
+                        </Button>
+                      ) : null}
+                      <Button
+                        size="1"
+                        variant="solid"
+                        onClick={onSave}
+                        disabled={
+                          isPublishing ||
+                          (hasInstructions
+                            ? !hasDraft
+                            : draft.trim().length === 0)
+                        }
+                      >
+                        {isPublishing ? <Spinner size="1" /> : null}
+                        Save new version
+                      </Button>
+                    </>
+                  ) : null}
+                </Flex>
+              </Flex>
 
-      {publishError ? (
-        <Box px="6" pt="3">
-          <Callout.Root color={isConflict ? "amber" : "red"} size="1">
-            <Callout.Text>
-              {isConflict
-                ? "Someone else saved a newer version. Reload to merge your changes."
-                : `Save failed: ${publishError.message}`}
-            </Callout.Text>
-          </Callout.Root>
-        </Box>
-      ) : null}
+              {publishError ? (
+                <Callout.Root color={isConflict ? "amber" : "red"} size="1">
+                  <Callout.Text>
+                    {isConflict
+                      ? "Someone else saved a newer version. Reload to merge your changes."
+                      : `Save failed: ${publishError.message}`}
+                  </Callout.Text>
+                </Callout.Root>
+              ) : null}
 
-      <ScrollArea
-        type="auto"
-        scrollbars="vertical"
-        className="scroll-area-constrain-width min-h-0 flex-1"
-      >
-        <div className="mx-auto w-full max-w-6xl px-6 py-5">
-          <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:gap-10">
-            <div className="flex min-w-0 max-w-[84ch] flex-1 flex-col">
               {selectedVersion ? (
                 <Callout.Root color="gray" size="1">
                   <Callout.Text>
@@ -362,20 +415,82 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                   className="font-[var(--code-font-family)]"
                 />
               )}
-            </div>
-            {/* Sources rail: cards configuring what agents can reach from this
-                space. Repositories today; future sources (Slack channels,
-                PostHog events, …) stack as sibling cards here. */}
+            </section>
+
             {spacesLayout && backendChannel ? (
-              <aside className="flex w-full shrink-0 flex-col gap-4 lg:w-80">
-                <SpaceRepositories channel={backendChannel} />
-              </aside>
+              <>
+                <div className="border-gray-5 border-t" />
+                <section
+                  ref={registerSection("repositories")}
+                  className="scroll-mt-4"
+                >
+                  <SpaceRepositories channel={backendChannel} />
+                </section>
+              </>
             ) : null}
           </div>
-        </div>
-      </ScrollArea>
+        </ScrollArea>
+      </div>
     </Flex>
   );
+}
+
+/**
+ * Anchor-nav state for the sections pane: which section heading was last
+ * scrolled past (or clicked). Programmatic scrolls suppress the spy briefly
+ * so the highlight doesn't flicker through sections mid-animation. `ready`
+ * defers wiring until the sections actually rendered (the pane mounts after
+ * the instructions query resolves).
+ */
+function useSectionSpy(ids: string[], ready: boolean) {
+  const [activeSection, setActiveSection] = useState(ids[0] ?? "");
+  const sectionsRef = useRef(new Map<string, HTMLElement>());
+  const suppressUntilRef = useRef(0);
+
+  const registerSection = useCallback(
+    (id: string) => (el: HTMLElement | null) => {
+      if (el) {
+        sectionsRef.current.set(id, el);
+      } else {
+        sectionsRef.current.delete(id);
+      }
+    },
+    [],
+  );
+
+  const idsKey = ids.join("\n");
+  useEffect(() => {
+    const idList = idsKey.split("\n").filter(Boolean);
+    if (!ready || idList.length < 2) return;
+    const firstSection = sectionsRef.current.get(idList[0]);
+    const viewport = firstSection?.closest("[data-radix-scroll-area-viewport]");
+    if (!viewport) return;
+    const onScroll = () => {
+      if (Date.now() < suppressUntilRef.current) return;
+      const viewportTop = viewport.getBoundingClientRect().top;
+      let current = idList[0];
+      for (const id of idList) {
+        const el = sectionsRef.current.get(id);
+        // A section takes over once its heading crosses the upper band.
+        if (el && el.getBoundingClientRect().top - viewportTop < 96) {
+          current = id;
+        }
+      }
+      setActiveSection(current);
+    };
+    viewport.addEventListener("scroll", onScroll, { passive: true });
+    return () => viewport.removeEventListener("scroll", onScroll);
+  }, [idsKey, ready]);
+
+  const scrollToSection = useCallback((id: string) => {
+    setActiveSection(id);
+    suppressUntilRef.current = Date.now() + 700;
+    sectionsRef.current
+      .get(id)
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
+  return { activeSection, registerSection, scrollToSection };
 }
 
 function SpaceRepositories({ channel }: { channel: TaskChannel }) {
@@ -430,28 +545,24 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
     );
 
   return (
-    <section className="overflow-hidden rounded-lg border border-gray-5">
-      <Flex
-        align="center"
-        gap="2"
-        px="4"
-        py="3"
-        className="border-gray-5 border-b bg-gray-2"
-      >
-        <GitBranchIcon size={15} className="shrink-0 text-gray-11" />
-        <Text size="2" weight="medium">
-          Repositories
-        </Text>
-        {selected.length > 0 ? (
-          <Text size="1" color="gray" className="ml-auto">
-            {selected.length}/10
+    <Flex direction="column" gap="3">
+      <Flex direction="column" gap="1">
+        <Flex align="center" gap="2">
+          <GitBranchIcon size={15} className="shrink-0 text-gray-11" />
+          <Text size="2" weight="medium">
+            Repositories
           </Text>
-        ) : null}
-      </Flex>
-      <Flex direction="column" gap="3" p="4">
+          {selected.length > 0 ? (
+            <Text size="1" color="gray">
+              {selected.length}/10
+            </Text>
+          ) : null}
+        </Flex>
         <Text size="1" color="gray">
           New tasks in this space can work across these repositories.
         </Text>
+      </Flex>
+      <Flex direction="column" gap="3" maxWidth="480px">
         {selected.length > 0 ? (
           <div className="flex flex-col divide-y divide-(--gray-4) overflow-hidden rounded-md border border-gray-5">
             {selected.map((repository) => (
@@ -500,23 +611,25 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
           </Callout.Root>
         ) : null}
         {changed ? (
-          <Button
-            size="1"
-            disabled={update.isPending}
-            onClick={() =>
-              update.mutate({
-                channelId: channel.id,
-                githubIntegration: integrationId,
-                repositories: selected,
-              })
-            }
-          >
-            {update.isPending ? <Spinner size="1" /> : null}
-            Save repositories
-          </Button>
+          <Flex justify="end">
+            <Button
+              size="1"
+              disabled={update.isPending}
+              onClick={() =>
+                update.mutate({
+                  channelId: channel.id,
+                  githubIntegration: integrationId,
+                  repositories: selected,
+                })
+              }
+            >
+              {update.isPending ? <Spinner size="1" /> : null}
+              Save repositories
+            </Button>
+          </Flex>
         ) : null}
       </Flex>
-    </section>
+    </Flex>
   );
 }
 
