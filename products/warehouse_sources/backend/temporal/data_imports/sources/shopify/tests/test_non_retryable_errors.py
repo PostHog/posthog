@@ -90,7 +90,7 @@ def test_transient_http_errors_stay_retryable(status_code, reason):
     [
         "Shopify: rate limit exceeded...",
         "Shopify: internal error from request 500 Internal Server Error",
-        "Shopify: internal errors in payload {'errors': ['throttled']}",
+        'Shopify: internal errors in payload [{"message": "internal error", "extensions": {"code": "internal_server_error"}}]',
         "Shopify: connection broken while reading response: Connection broken: IncompleteRead(0 bytes read)",
     ],
 )

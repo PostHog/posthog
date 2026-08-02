@@ -88,11 +88,12 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
         }
 
     def get_retryable_errors(self) -> set[str]:
-        # `_make_paginated_shopify_request`'s `execute` already retries these in-process via
-        # tenacity (5 attempts, exponential backoff honoring Shopify's throttle refill time)
-        # before re-raising `ShopifyRetryableError`. Surviving all 5 attempts means the rate
-        # limit or upstream blip is still live, but Temporal retries the whole activity and it's
-        # self-recovering, so keep it out of error tracking as noise.
+        # These are the messages `ShopifyRetryableError` carries once `_make_paginated_shopify_
+        # request`'s `execute` exhausts its own tenacity retries (5 attempts, exponential backoff
+        # honoring Shopify's throttle refill time — retried alongside transient `ConnectionError`/
+        # `Timeout`) and re-raises. Surviving all 5 attempts means the rate limit or upstream blip
+        # is still live, but Temporal retries the whole activity and it's self-recovering, so keep
+        # it out of error tracking as noise.
         return {
             "Shopify: rate limit exceeded",
             "Shopify: internal error",
