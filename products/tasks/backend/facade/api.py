@@ -48,6 +48,9 @@ from products.tasks.backend.constants import (
     is_blocked_sandbox_env_key,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.github_repository_access import (
+    inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
+)
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -4003,6 +4006,12 @@ def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDe
 def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
     """All visible tasks for the team as DTOs, mirroring the task list view filters."""
     return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
+
+
+def inaccessible_repositories_via_integration(
+    team_id: int, integration_id: int, repositories: list[str]
+) -> list[str]:
+    return _inaccessible_repositories_via_integration(team_id, integration_id, repositories)
 
 
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:

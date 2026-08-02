@@ -54,7 +54,6 @@ from products.tasks.backend.facade.run_config import (
     TaskArtifactType,
     get_reasoning_effort_error,
 )
-from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 
 logger = logging.getLogger(__name__)
 
@@ -676,7 +675,7 @@ class TaskWriteSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
         integration = attrs.get("github_integration") or getattr(self.instance, "github_integration", None)
         if repositories and integration:
-            inaccessible = inaccessible_repositories_via_integration(
+            inaccessible = tasks_facade.inaccessible_repositories_via_integration(
                 self.context["team"].id, integration.id, repositories
             )
             if inaccessible:
@@ -1509,7 +1508,7 @@ class ChannelUpdateSerializer(serializers.Serializer):
         if repositories and integration is None:
             raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
         if repositories and integration:
-            inaccessible = inaccessible_repositories_via_integration(
+            inaccessible = tasks_facade.inaccessible_repositories_via_integration(
                 self.context["team_id"], integration.id, repositories
             )
             if inaccessible:
