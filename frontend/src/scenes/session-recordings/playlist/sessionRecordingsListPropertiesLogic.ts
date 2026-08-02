@@ -167,7 +167,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                         )
                     } catch (e) {
                         if (!extraSessionProperties.length) {
-                            // These are supplementary columns on the recordings list — a backend blip shouldn't
+                            // These are supplementary columns on the recordings list. A backend blip shouldn't
                             // toast, it should just leave this batch's rows without properties.
                             posthog.captureException(e)
                             return values.recordingProperties

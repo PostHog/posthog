@@ -293,7 +293,7 @@ describe('sessionRecordingsListPropertiesLogic', () => {
             .toDispatchActions(['loadPropertiesForSessionsSuccess'])
             .toNotHaveDispatchedActions(['loadPropertiesForSessionsFailure'])
 
-        // an outage on both queries isn't a 400, so the pin set isn't blacklisted — it's retried next batch
+        // an outage on both queries isn't a 400, so the pin set isn't blacklisted (it's retried next batch)
         expect(logic.values.unqueryableExtraProperties).toBeNull()
     })
 })
