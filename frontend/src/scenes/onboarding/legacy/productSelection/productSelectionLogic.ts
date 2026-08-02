@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getRelativeNextPath } from 'lib/utils/url'
@@ -119,6 +119,9 @@ export interface productSelectionLogicActions {
     setStep: (step: OnboardingStep) => {
         step: OnboardingStep
     }
+    syncStepFromUrl: (step: OnboardingStep) => {
+        step: OnboardingStep
+    }
     toggleProduct: (productKey: ProductKey) => {
         productKey: ProductKey
     }
@@ -167,6 +170,9 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
     actions({
         // Step navigation
         setStep: (step: OnboardingStep) => ({ step }),
+        // Set by urlToAction in response to browser navigation (back/forward) — doesn't
+        // itself push a URL, so it can't loop with the actionToUrl below.
+        syncStepFromUrl: (step: OnboardingStep) => ({ step }),
 
         // Browsing history
         setBrowsingHistory: (browsingHistory: string[]) => ({ browsingHistory }),
@@ -199,6 +205,7 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
             'choose_path' as OnboardingStep,
             {
                 setStep: (_, { step }) => step,
+                syncStepFromUrl: (_, { step }) => step,
             },
         ],
 
@@ -436,6 +443,29 @@ export const productSelectionLogic = kea<productSelectionLogicType>([
                 first_product: values.firstProductOnboarding,
                 browsing_history: values.browsingHistory,
             })
+        },
+    })),
+
+    actionToUrl(() => ({
+        // Push a real history entry per step so browser Back moves within onboarding
+        // instead of popping the entry the user arrived on (e.g. the marketing site).
+        setStep: ({ step }) => {
+            const searchParams: Record<string, any> = { ...router.values.searchParams }
+            if (step === 'product_selection') {
+                searchParams.step = 'product_selection'
+            } else {
+                delete searchParams.step
+            }
+            return [router.values.location.pathname, searchParams, router.values.hashParams]
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        [urls.onboarding()]: (_, searchParams) => {
+            const step: OnboardingStep = searchParams.step === 'product_selection' ? 'product_selection' : 'choose_path'
+            if (step !== values.currentStep) {
+                actions.syncStepFromUrl(step)
+            }
         },
     })),
 

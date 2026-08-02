@@ -33,6 +33,18 @@ function BrowsingHistoryBanner(): JSX.Element | null {
     )
 }
 
+// LemonCards render as plain divs, which posthog-js autocapture ignores — role="button" plus
+// a keyboard handler makes these picked up as interactive elements so a click always leaves a trace,
+// even if the onClick handler itself fails to advance the step.
+function activationKeyDownHandler(onActivate: () => void): React.KeyboardEventHandler<HTMLDivElement> {
+    return (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onActivate()
+        }
+    }
+}
+
 function ChoosePathStep(): JSX.Element {
     const { useCases } = useValues(productSelectionLogic)
     const { selectUseCase, selectPickMyself } = useActions(productSelectionLogic)
@@ -60,6 +72,9 @@ function ChoosePathStep(): JSX.Element {
                         onClick={() => selectUseCase(useCase.key)}
                         hoverEffect
                         data-attr={`use-case-${useCase.key}`}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={activationKeyDownHandler(() => selectUseCase(useCase.key))}
                     >
                         <div className="flex flex-col items-center text-center gap-3">
                             <div className="text-3xl">
@@ -82,6 +97,9 @@ function ChoosePathStep(): JSX.Element {
                     onClick={() => selectPickMyself()}
                     hoverEffect
                     data-attr="pick-myself-card"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={activationKeyDownHandler(() => selectPickMyself())}
                 >
                     <div className="flex flex-col items-center text-center gap-3">
                         <div className="text-3xl">

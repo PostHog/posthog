@@ -17,6 +17,9 @@ export interface LemonCardProps {
     'data-attr'?: string
     closeable?: boolean
     onClose?: () => void
+    role?: string
+    tabIndex?: number
+    onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>
 }
 
 export const LemonCard = forwardRef<HTMLDivElement, LemonCardProps>(function LemonCard(
