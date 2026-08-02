@@ -100,7 +100,7 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
     const blockedCount = countBy(tools, (t) => t.approval_state === 'do_not_use')
 
     const renderToolGroup = (groupTools: MCPServerInstallationToolApi[]): JSX.Element => (
-        <div className="border border-primary rounded overflow-hidden">
+        <div>
             {groupTools.map((tool) => (
                 <ToolRow
                     key={tool.id}
