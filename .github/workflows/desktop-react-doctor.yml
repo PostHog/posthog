@@ -77,23 +77,37 @@ jobs:
                     cat "$REPORT" >&2 || true
                   fi
 
-            - name: Upsert sticky PR comment
+            - name: Render report summary
+              id: render
               if: ${{ always() && steps.scan.outputs.report != '' }}
+              shell: bash
+              env:
+                  GITHUB_REPOSITORY: ${{ github.repository }}
+                  GITHUB_SERVER_URL: ${{ github.server_url }}
+                  REACT_DOCTOR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  REACT_DOCTOR_PATH_PREFIX: products/desktop
+                  REPORT: ${{ steps.scan.outputs.report }}
+              run: |
+                  set -euo pipefail
+                  BODY="${RUNNER_TEMP}/react-doctor-comment.md"
+                  node "${GITHUB_WORKSPACE}/.github/scripts/desktop/react-doctor-comment.mjs" "$REPORT" "$BODY"
+                  cat "$BODY" >> "$GITHUB_STEP_SUMMARY"
+                  echo "body-path=$BODY" >> "$GITHUB_OUTPUT"
+
+            - name: Upsert sticky PR comment
+              # Fork PRs only get a read-only token, so the upsert would fail there;
+              # skip it explicitly instead of failing silently. Fork contributors
+              # still get the report via the job summary above.
+              if: ${{ always() && steps.render.outputs.body-path != '' && github.event.pull_request.head.repo.full_name == github.repository }}
               continue-on-error: true
               shell: bash
               env:
                   GH_TOKEN: ${{ github.token }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
-                  GITHUB_SERVER_URL: ${{ github.server_url }}
-                  REACT_DOCTOR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  REACT_DOCTOR_PATH_PREFIX: products/desktop
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-                  REPORT: ${{ steps.scan.outputs.report }}
+                  BODY: ${{ steps.render.outputs.body-path }}
               run: |
                   set -uo pipefail
-                  BODY="${RUNNER_TEMP}/react-doctor-comment.md"
-                  node "${GITHUB_WORKSPACE}/.github/scripts/desktop/react-doctor-comment.mjs" "$REPORT" "$BODY"
-                  cat "$BODY" >> "$GITHUB_STEP_SUMMARY"
                   jq -Rs '{body: .}' "$BODY" > "${RUNNER_TEMP}/react-doctor-payload.json"
                   marker="<!-- desktop-react-doctor:summary -->"
                   existing=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" --paginate \
