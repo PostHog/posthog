@@ -44,6 +44,7 @@ import {
   PageHeaderTitle,
   PageHeaderTitleRow,
 } from "@posthog/ui/primitives/PageHeader";
+import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import {
   Box,
@@ -202,7 +203,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 px-6 py-4">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4 px-6 py-4">
         {spacesLayout && backendChannel ? (
           <>
             <SpaceRepositories channel={backendChannel} />
@@ -378,11 +379,9 @@ const MAX_REPOSITORIES = 10;
 // delete button crowding the tag (mirrors the message editor's attachments).
 function RepoChip({
   repository,
-  disabled,
   onRemove,
 }: {
   repository: string;
-  disabled: boolean;
   onRemove: () => void;
 }) {
   return (
@@ -390,8 +389,7 @@ function RepoChip({
       <button
         type="button"
         aria-label={`Remove ${repository}`}
-        disabled={disabled}
-        className="relative inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0 disabled:cursor-default disabled:opacity-50"
+        className="relative inline-flex size-3.5 shrink-0 cursor-pointer items-center justify-center border-none bg-transparent p-0"
         onClick={onRemove}
       >
         <span className="pointer-events-none absolute inset-0 flex items-center justify-center opacity-100 transition-opacity duration-150 group-hover/chip:opacity-0 motion-reduce:transition-none">
@@ -406,10 +404,11 @@ function RepoChip({
   );
 }
 
-// The space's connected repositories, shown as a subtle inline strip above the
-// document: tag chips for what's connected, plus an on-demand picker to add
-// more. Changes autosave — there's no Save button. Selected repos must share
-// one GitHub integration, so the add list scopes to the active integration.
+// The space's connected repositories: a header row that matches the CONTEXT.md
+// header, then a row of tag chips plus an on-demand picker to add more. Reads
+// straight from the channel (the mutation applies each add/remove optimistically
+// to the cache), so there's no local mirror and no Save button. Selected repos
+// must share one GitHub integration, so the add list scopes to it.
 function SpaceRepositories({ channel }: { channel: TaskChannel }) {
   const {
     repositories,
@@ -420,93 +419,98 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
     hasGithubIntegration,
   } = useRepositoryIntegration();
   const update = useUpdateTaskChannelRepositories();
-  const [selected, setSelected] = useState(channel.repositories ?? []);
-  const [integrationId, setIntegrationId] = useState<number | null>(
-    channel.github_integration ?? null,
-  );
 
-  useEffect(() => {
-    setSelected(channel.repositories ?? []);
-    setIntegrationId(channel.github_integration ?? null);
-  }, [channel.github_integration, channel.repositories]);
-
+  const selected = channel.repositories ?? [];
+  const integrationId = channel.github_integration ?? null;
   const atLimit = selected.length >= MAX_REPOSITORIES;
-  const available = atLimit
-    ? []
-    : repositories.filter((repository) => {
-        const repositoryIntegration = getIntegrationIdForRepo(repository);
-        return (
-          !selected.includes(repository) &&
-          repositoryIntegration != null &&
-          (integrationId === null || repositoryIntegration === integrationId)
-        );
-      });
 
-  // Autosave: local state updates optimistically and the mutation persists the
-  // full desired set, so overlapping add/remove clicks settle last-write-wins.
-  const persist = (nextSelected: string[], nextIntegration: number | null) => {
-    setSelected(nextSelected);
-    setIntegrationId(nextIntegration);
+  const available = repositories.filter((repository) => {
+    const repositoryIntegration = getIntegrationIdForRepo(repository);
+    return (
+      !selected.includes(repository) &&
+      repositoryIntegration != null &&
+      (integrationId === null || repositoryIntegration === integrationId)
+    );
+  });
+
+  const save = (nextSelected: string[], nextIntegration: number | null) =>
     update.mutate({
       channelId: channel.id,
       githubIntegration: nextIntegration,
       repositories: nextSelected,
     });
-  };
 
   const addRepository = (repository: string | null) => {
     if (!repository || selected.includes(repository)) return;
     const repositoryIntegration = getIntegrationIdForRepo(repository);
     if (repositoryIntegration == null) return;
-    persist([...selected, repository], repositoryIntegration);
+    save([...selected, repository], repositoryIntegration);
   };
 
   const removeRepository = (repository: string) => {
     const next = selected.filter((item) => item !== repository);
-    persist(next, next.length === 0 ? null : integrationId);
+    save(next, next.length === 0 ? null : integrationId);
   };
 
+  // When there's nothing to add, keep the button visible but disabled with a
+  // reason, rather than the picker's own "No GitHub repos" dead-end state.
+  const addDisabledReason = !hasGithubIntegration
+    ? "Connect GitHub in settings to add repositories"
+    : atLimit
+      ? `You can add up to ${MAX_REPOSITORIES} repositories`
+      : isLoadingRepos && available.length === 0
+        ? "Loading repositories…"
+        : available.length === 0
+          ? "All accessible repositories are already added"
+          : null;
+
   return (
-    <Flex align="center" gap="2" wrap="wrap" className="min-h-7 shrink-0">
-      <GitBranchIcon size={14} className="shrink-0 text-gray-10" />
-      <Text size="1" color="gray" className="mr-1 shrink-0">
-        Repositories
-      </Text>
-
-      {selected.map((repository) => (
-        <RepoChip
-          key={repository}
-          repository={repository}
-          disabled={update.isPending}
-          onRemove={() => removeRepository(repository)}
-        />
-      ))}
-
-      <GitHubRepoPicker
-        value={null}
-        onChange={addRepository}
-        repositories={available}
-        isLoading={isLoadingRepos}
-        isRefreshing={isRefreshingRepos}
-        onRefresh={() => void refreshRepositories()}
-        placeholder={
-          hasGithubIntegration
-            ? selected.length > 0
-              ? "Add"
-              : "Add a repository…"
-            : "Connect GitHub"
-        }
-        size="1"
-        disabled={!hasGithubIntegration || atLimit || update.isPending}
-      />
-
-      {update.isPending ? (
-        <Spinner size="1" className="shrink-0" />
-      ) : update.error ? (
-        <Text size="1" color="red" className="shrink-0">
-          Couldn't save
+    <Flex direction="column" gap="2">
+      <Flex align="center" gap="2">
+        <GitBranchIcon size={15} className="text-gray-11" />
+        <Text size="2" weight="medium">
+          Repositories
         </Text>
-      ) : null}
+        {update.isPending ? (
+          <Spinner size="1" />
+        ) : update.error ? (
+          <Text size="1" color="red">
+            Couldn't save
+          </Text>
+        ) : null}
+      </Flex>
+
+      <Flex align="center" gap="2" wrap="wrap" className="min-h-7">
+        {selected.map((repository) => (
+          <RepoChip
+            key={repository}
+            repository={repository}
+            onRemove={() => removeRepository(repository)}
+          />
+        ))}
+
+        {addDisabledReason ? (
+          <Tooltip content={addDisabledReason}>
+            <span className="inline-flex">
+              <QuillButton variant="outline" size="sm" disabled>
+                <GithubLogoIcon size={14} />
+                Add repository
+              </QuillButton>
+            </span>
+          </Tooltip>
+        ) : (
+          <GitHubRepoPicker
+            value={null}
+            onChange={addRepository}
+            repositories={available}
+            isLoading={isLoadingRepos}
+            isRefreshing={isRefreshingRepos}
+            onRefresh={() => void refreshRepositories()}
+            placeholder={selected.length > 0 ? "Add" : "Add a repository…"}
+            size="1"
+          />
+        )}
+      </Flex>
     </Flex>
   );
 }
