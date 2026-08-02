@@ -426,6 +426,33 @@ impl FencedChangelogProducers {
     /// transaction, which no test can stage against a healthy cluster —
     /// but what happens *afterwards* is the entire reason the state is
     /// tracked, so the aftermath has to be reachable.
+    /// Hold the partition's gate in the state a commit in flight leaves
+    /// it, so a writer arriving now parks instead of opening a window.
+    ///
+    /// The wake path is otherwise unreachable from a test: parking
+    /// requires arriving inside the commit's own round trip, which is
+    /// milliseconds wide and not something a test can aim at. Staging the
+    /// gate directly is what makes the interleaving deterministic rather
+    /// than statistical.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn begin_committing_for_test(&self, partition: u32) {
+        if let Some(fence) = self.partitions.get(&partition) {
+            let mut gate = fence.gate.lock().unwrap();
+            gate.open = false;
+            gate.committing = true;
+        }
+    }
+
+    /// Release that gate and wake the parked writers, as a finishing
+    /// commit does.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn finish_committing_for_test(&self, partition: u32) {
+        if let Some(fence) = self.partitions.get(&partition) {
+            fence.gate.lock().unwrap().committing = false;
+            fence.window_closed.notify_waiters();
+        }
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn condemn_for_test(&self, partition: u32) {
         if let Some(fence) = self.partitions.get(&partition) {
@@ -450,21 +477,23 @@ impl FencedChangelogProducers {
                 FencedProduceError::NotAcquired
             })?;
 
-        // A condemned producer cannot begin another transaction, so
-        // evict it here rather than discovering that one failed
-        // `begin_transaction` at a time. Dropping it turns every later
-        // write into an ownership answer the router can act on, and
-        // leaves the partition in the state the repair pass looks for.
-        if !fence.is_usable() {
-            self.forget_fence(partition, &fence);
-            counter!("personhog_leader_kafka_produce_errors_total").increment(1);
-            return Err(FencedProduceError::NotAcquired);
-        }
-
         // Join the open window, or open one. A window mid-commit admits
         // no joiners; wait for it to close and retry.
         let join_start = Instant::now();
         let opened = loop {
+            // Checked every iteration, not only on the way in. A
+            // condemned producer cannot begin another transaction, and
+            // the commit that condemns it is the same one whose end wakes
+            // whoever is parked below — so a check placed after the park
+            // is skipped by exactly the writer it exists for, which then
+            // opens a window on a dead producer and answers with a
+            // retryable failure instead of the ownership bounce that gets
+            // the partition re-acquired.
+            if !fence.is_usable() {
+                self.forget_fence(partition, &fence);
+                counter!("personhog_leader_kafka_produce_errors_total").increment(1);
+                return Err(FencedProduceError::NotAcquired);
+            }
             // Register interest before inspecting the gate: a close that
             // fires between the check and the await must not be lost.
             let closed = fence.window_closed.notified();
@@ -500,17 +529,6 @@ impl FencedChangelogProducers {
             if let Some(e) = begin_failed {
                 counter!("personhog_leader_kafka_produce_errors_total").increment(1);
                 return Err(self.classify(&fence, partition, e));
-            }
-            // The fence can be condemned while this write is parked: the
-            // commit that condemns it is the same one whose end wakes us.
-            // Checking only on the way in would let a woken writer open a
-            // window on a producer that cannot begin one, and answer with
-            // a retryable failure rather than the ownership bounce that
-            // gets the partition re-acquired.
-            if !fence.is_usable() {
-                self.forget_fence(partition, &fence);
-                counter!("personhog_leader_kafka_produce_errors_total").increment(1);
-                return Err(FencedProduceError::NotAcquired);
             }
             closed.await;
         };

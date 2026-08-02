@@ -378,3 +378,37 @@ async fn an_abandoned_guard_does_not_evict_its_replacement() {
         .await
         .expect("the replacement fence must survive the stale guard");
 }
+
+/// A writer parked behind a committing window is woken by the very commit
+/// that condemns the producer. Checking usability only before the park
+/// skips exactly that writer: it wakes, finds the gate idle, and opens a
+/// window on a producer that cannot begin one — answering with a
+/// retryable failure the client retries against a pod that cannot write
+/// the partition, instead of the ownership bounce that moves it.
+#[tokio::test]
+async fn a_writer_woken_onto_a_condemned_producer_is_bounced() {
+    let topic = format!("fence_woken_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers(&topic));
+    producers.acquire(0).await.expect("acquire the fence");
+
+    // Stage the gate exactly as a commit in flight leaves it, so the
+    // write below parks rather than opening its own window.
+    producers.begin_committing_for_test(0);
+    let parked = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(1)).await })
+    };
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // The commit resolves badly and condemns the producer, then releases
+    // the gate and wakes the parked writer — production's exact order.
+    producers.condemn_for_test(0);
+    producers.finish_committing_for_test(0);
+
+    match parked.await.expect("the parked task must not panic") {
+        Err(FencedProduceError::NotAcquired) => {}
+        other => {
+            panic!("a writer woken onto a condemned producer must answer as unowned, got {other:?}")
+        }
+    }
+}
