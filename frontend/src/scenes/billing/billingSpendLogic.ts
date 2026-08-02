@@ -320,7 +320,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
             },
         ],
         dateTo: [
-            props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO,
+            (props.dateTo || DEFAULT_BILLING_SPEND_DATE_TO) as string | null,
             {
                 // `null` is a valid dateTo (e.g. "This month" has no upper bound) — falling back
                 // to the previous value here left it stuck on a stale absolute date, which broke
