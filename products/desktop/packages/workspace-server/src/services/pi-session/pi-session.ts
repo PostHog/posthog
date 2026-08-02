@@ -94,6 +94,7 @@ interface ManagedPiSession {
   state: PiPoolSessionState;
   lastUsedAt: number;
   activeRequestCount: number;
+  stopFailed: boolean;
   extensionResponsesInFlight: Map<string, Promise<void>>;
   completedExtensionResponseIds: Set<string>;
   pid?: number;
@@ -305,6 +306,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     const projectTrustPath = input.projectTrustPath ?? input.cwd;
     if (
       existingSession &&
+      !existingSession.stopFailed &&
       existingSession.cwd === input.cwd &&
       existingSession.projectTrustPath === projectTrustPath
     ) {
@@ -490,6 +492,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       await session.client.stop();
     } catch (error) {
       if (this.sessions.get(taskId) === session) {
+        session.stopFailed = true;
         throw error;
       }
       return;
@@ -602,6 +605,7 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       state: "starting",
       lastUsedAt: Date.now(),
       activeRequestCount: 0,
+      stopFailed: false,
       extensionResponsesInFlight: new Map(),
       completedExtensionResponseIds: new Set(),
     };

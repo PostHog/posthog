@@ -258,7 +258,7 @@ describe("PiSessionService project trust", () => {
     );
     vi.stubEnv("PI_CODING_AGENT_DIR", agentDir);
 
-    const clients = [0, 1].map(
+    const clients = [0, 1, 2].map(
       () =>
         ({
           start: vi.fn(async () => {}),
@@ -326,8 +326,20 @@ describe("PiSessionService project trust", () => {
     expect(service.health("task-1").state).toBe("idle");
     expect(processTracking.unregister).not.toHaveBeenCalled();
 
-    await service.setProjectTrusted("task-1", true);
+    await service.resume({
+      taskId: "task-1",
+      cwd: worktree,
+      projectTrustPath: repository,
+    });
     expect(clients[0].stop).toHaveBeenCalledTimes(2);
+    expect(runtimeFactory.create).toHaveBeenLastCalledWith({
+      cwd: worktree,
+      sessionFile: "/tmp/session.jsonl",
+      projectTrusted: false,
+    });
+
+    await service.setProjectTrusted("task-1", true);
+    expect(clients[1].stop).toHaveBeenCalledOnce();
     expect(processTracking.unregister).toHaveBeenCalledWith(
       123,
       "pi-session-stopped",
