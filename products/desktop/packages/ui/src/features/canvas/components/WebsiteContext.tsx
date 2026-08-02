@@ -8,16 +8,16 @@ import {
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  Input,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Button as QuillButton,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -453,17 +453,18 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
     save(next, next.length === 0 ? null : integrationId);
   };
 
+  const isLoadingList = isLoadingRepos && available.length === 0;
   // When there's nothing to add, keep the button visible but disabled with a
   // reason, rather than the picker's own "No GitHub repos" dead-end state.
   const addDisabledReason = !hasGithubIntegration
     ? "Connect GitHub in settings to add repositories"
     : atLimit
       ? `You can add up to ${MAX_REPOSITORIES} repositories`
-      : isLoadingRepos && available.length === 0
-        ? "Loading repositories…"
-        : available.length === 0
+      : available.length === 0
+        ? selected.length > 0
           ? "All accessible repositories are already added"
-          : null;
+          : "No repositories available"
+        : null;
 
   return (
     <Flex direction="column" gap="2">
@@ -490,7 +491,12 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
           />
         ))}
 
-        {addDisabledReason ? (
+        {isLoadingList && hasGithubIntegration ? (
+          <QuillButton variant="outline" size="sm" disabled>
+            <Spinner size="1" />
+            Loading repositories…
+          </QuillButton>
+        ) : addDisabledReason ? (
           <Tooltip content={addDisabledReason}>
             <span className="inline-flex">
               <QuillButton variant="outline" size="sm" disabled>
@@ -500,33 +506,99 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
             </span>
           </Tooltip>
         ) : (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <QuillButton variant="outline" size="sm">
-                  <GithubLogoIcon size={14} />
-                  {selected.length > 0 ? "Add…" : "Add repository…"}
-                </QuillButton>
-              }
-            />
-            <DropdownMenuContent
-              align="start"
-              className="max-h-72 min-w-56 overflow-y-auto"
-            >
-              {available.map((repository) => (
-                <DropdownMenuItem
-                  key={repository}
-                  onClick={() => addRepository(repository)}
-                >
-                  <GithubLogoIcon size={14} className="shrink-0" />
-                  <span className="truncate">{repository}</span>
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <AddRepositoryPopover
+            available={available}
+            onAdd={addRepository}
+            label={selected.length > 0 ? "Add…" : "Add repository…"}
+          />
         )}
       </Flex>
     </Flex>
+  );
+}
+
+// Show the filter field only once the list is long enough to warrant scanning.
+const REPO_SEARCH_THRESHOLD = 10;
+
+// The add-repository picker: a button that opens a popover listing the
+// addable repositories. A search field pins to the top once the list is long;
+// only the list scrolls, so there's a single scrollbar.
+function AddRepositoryPopover({
+  available,
+  onAdd,
+  label,
+}: {
+  available: string[];
+  onAdd: (repository: string) => void;
+  label: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const showSearch = available.length > REPO_SEARCH_THRESHOLD;
+  const trimmed = query.trim().toLowerCase();
+  const filtered = trimmed
+    ? available.filter((repository) =>
+        repository.toLowerCase().includes(trimmed),
+      )
+    : available;
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery("");
+      }}
+    >
+      <PopoverTrigger
+        render={
+          <QuillButton variant="outline" size="sm">
+            <GithubLogoIcon size={14} />
+            {label}
+          </QuillButton>
+        }
+      />
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="flex max-h-72 w-64 flex-col p-0"
+      >
+        {showSearch ? (
+          <div className="shrink-0 border-gray-5 border-b p-1.5">
+            <Input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search repositories…"
+              className="h-7"
+            />
+          </div>
+        ) : null}
+        <div className="min-h-0 flex-1 overflow-y-auto p-1">
+          {filtered.length === 0 ? (
+            <div className="px-2 py-1.5 text-[13px] text-gray-10">
+              No repositories found
+            </div>
+          ) : (
+            filtered.map((repository) => (
+              <button
+                key={repository}
+                type="button"
+                onClick={() => {
+                  onAdd(repository);
+                  setOpen(false);
+                }}
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-[13px] hover:bg-[var(--fill-hover)]"
+              >
+                <GithubLogoIcon size={14} className="shrink-0" />
+                <span className="truncate">{repository}</span>
+              </button>
+            ))
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
