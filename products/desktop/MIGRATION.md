@@ -119,6 +119,7 @@ separate project.
 | Source (.github/workflows/) | Port | Notes beyond the standard transforms |
 | --- | --- | --- |
 | _(none — monorepo-native)_ | desktop-ci.yml | single `pull_request:`/`merge_group:` dispatch that calls the four gating workflows; see transform rule 7 |
+| _(none — monorepo-native)_ | desktop-release-gate-dry-run.yml | read-only rehearsal of the backend-deploy gate scripts; not derived from a source workflow |
 | build.yml | desktop-build.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Build Pass` |
 | warm-caches.yml | desktop-warm-caches.yml | seeds every cache the restore-only desktop PR workflows use; pnpm-store caching is explicit (`desktop-pnpm-*` keys) instead of setup-node auto-cache so PR restores share the namespace |
 | agent-release-verify.yml | desktop-agent-release-verify.yml | restore-only pnpm store |
@@ -127,7 +128,7 @@ separate project.
 | test.yml | desktop-test.yml | gating: `workflow_call` child of desktop-ci.yml + `Desktop Tests Pass`; live-gateway e2e kept with `POSTHOG_CODE_E2E_*` org secrets |
 | code-storybook.yml | _(not ported)_ | removed post-merge: the code-signed VR baseline flagged every story as new from this repo (see the Visual Review baseline note). Do not re-port on resync unless VR is re-registered against posthog/posthog first |
 | code-build-test.yml | desktop-build-test.yml | `workflow_dispatch` only; the source's `refactor/electron-vite` push trigger is a code-repo branch and is dropped |
-| code-release.yml | desktop-release.yml | tags `desktop-v*`; legacy publishing to PostHog/code releases kept (see below) |
+| code-release.yml | desktop-release.yml | tags `desktop-v*`; legacy publishing to PostHog/code releases kept (see below); monorepo-native backend-deploy gate (`check-backend-deps` + `wait-for-backend` jobs, added to `finalize-release`'s `needs:`, backed by `.github/scripts/desktop/`) must be re-added on resync |
 | code-tag.yml | desktop-tag.yml | computes and pushes `desktop-v*` tags; quiet-period check and patch count scoped `-- products/desktop/` (monorepo master always has fresh commits; unscoped counts would be meaningless) |
 | code-update-e2e.yml | desktop-update-e2e.yml | nightly + dispatch; the source's temporary push trigger for `test/macos-auto-update-e2e` is dropped (code-repo branch, and default-only triggers exempt its caches from the cache-write lint) |
 | cleanup-draft-releases.yml | desktop-cleanup-draft-releases.yml | targets PostHog/code explicitly via the releaser app token: `github.repository` is now the monorepo, whose drafts belong to other products |
