@@ -2,7 +2,16 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconCheck, IconChevronLeft, IconRefresh, IconShare, IconShieldLock, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonSnack, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonCollapse,
+    LemonDialog,
+    LemonDivider,
+    LemonSnack,
+    LemonSwitch,
+    LemonTag,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel, TeamMembershipLevel } from 'lib/constants'
@@ -83,10 +92,32 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
 
     const tools: MCPServerInstallationToolApi[] = installationTools[installation.id] ?? []
     const visibleTools = useMemo(() => tools.filter((t) => showRemoved || !t.removed_at), [tools, showRemoved])
+    const readTools = useMemo(() => visibleTools.filter((t) => t.is_read_only), [visibleTools])
+    const writeDeleteTools = useMemo(() => visibleTools.filter((t) => !t.is_read_only), [visibleTools])
     const removedCount = countBy(tools, (t) => !!t.removed_at)
     const approvedCount = countBy(tools, (t) => t.approval_state === 'approved')
     const pendingCount = countBy(tools, (t) => (t.approval_state ?? 'needs_approval') === 'needs_approval')
     const blockedCount = countBy(tools, (t) => t.approval_state === 'do_not_use')
+
+    const renderToolGroup = (groupTools: MCPServerInstallationToolApi[]): JSX.Element => (
+        <div className="border border-primary rounded overflow-hidden">
+            {groupTools.map((tool) => (
+                <ToolRow
+                    key={tool.id}
+                    tool={tool}
+                    teamScope={installation.scope === 'shared'}
+                    disabledReason={disabledReason}
+                    onPolicyChange={(state: ToolApprovalState) =>
+                        setToolApprovalState({
+                            installationId: installation.id,
+                            toolName: tool.tool_name,
+                            approvalState: state,
+                        })
+                    }
+                />
+            ))}
+        </div>
+    )
 
     return (
         <div className="deprecated-space-y-3">
@@ -178,23 +209,32 @@ function ToolsSection({ installation, disabledReason }: ToolsSectionProps): JSX.
                         : 'No tools reported yet. Click "Refresh tools" after connecting.'}
                 </div>
             ) : (
-                <div className="border border-primary rounded overflow-hidden">
-                    {visibleTools.map((tool) => (
-                        <ToolRow
-                            key={tool.id}
-                            tool={tool}
-                            teamScope={installation.scope === 'shared'}
-                            disabledReason={disabledReason}
-                            onPolicyChange={(state: ToolApprovalState) =>
-                                setToolApprovalState({
-                                    installationId: installation.id,
-                                    toolName: tool.tool_name,
-                                    approvalState: state,
-                                })
-                            }
-                        />
-                    ))}
-                </div>
+                <LemonCollapse
+                    multiple
+                    defaultActiveKeys={['read', 'write_delete']}
+                    panels={[
+                        readTools.length > 0 && {
+                            key: 'read',
+                            header: (
+                                <div className="flex items-center gap-2">
+                                    <span>Read tools</span>
+                                    <LemonSnack>{readTools.length}</LemonSnack>
+                                </div>
+                            ),
+                            content: renderToolGroup(readTools),
+                        },
+                        writeDeleteTools.length > 0 && {
+                            key: 'write_delete',
+                            header: (
+                                <div className="flex items-center gap-2">
+                                    <span>Write/delete tools</span>
+                                    <LemonSnack>{writeDeleteTools.length}</LemonSnack>
+                                </div>
+                            ),
+                            content: renderToolGroup(writeDeleteTools),
+                        },
+                    ]}
+                />
             )}
         </div>
     )

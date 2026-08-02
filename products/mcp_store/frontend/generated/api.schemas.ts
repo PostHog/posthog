@@ -863,6 +863,10 @@ export interface MCPServerInstallationToolApi {
     readonly locked: boolean
     /** Policy layer that decided the effective state. */
     readonly decided_by: string
+    /**
+     * True when the server declared this tool read-only via the MCP readOnlyHint annotation. Tools without that hint are treated as write/delete-capable.
+     */
+    readonly is_read_only: boolean
     readonly last_seen_at: string
     /** @nullable */
     readonly removed_at: string | null
