@@ -24,6 +24,9 @@ const SnsEnvelopeSchema = z.object({
     Signature: z.string(),
     SigningCertURL: z.string().url(),
     UnsubscribeURL: z.string().url().optional(),
+    // Confirmation envelopes only. This has to stay declared: zod strips undeclared keys, and without
+    // it the field is missing from the signed string, so every confirmation fails signature checks.
+    SubscribeURL: z.string().url().optional(),
 })
 
 export type SnsEnvelope = z.infer<typeof SnsEnvelopeSchema>
@@ -394,7 +397,7 @@ export class SesWebhookHandler {
         } else if (m.Type === 'SubscriptionConfirmation' || m.Type === 'UnsubscribeConfirmation') {
             pushKV('Message', m.Message)
             pushKV('MessageId', m.MessageId)
-            pushKV('SubscribeURL', (m as any).SubscribeURL) // present in confirmation payload body, not in envelope schema
+            pushKV('SubscribeURL', m.SubscribeURL)
             pushKV('Timestamp', m.Timestamp)
             pushKV('Token', m.Token!)
             pushKV('TopicArn', m.TopicArn)
@@ -483,19 +486,18 @@ export class SesWebhookHandler {
         // Handle confirmation flow
         if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'SubscriptionConfirmation') {
             logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
-            // Confirm by visiting SubscribeURL (contained in the *message JSON*, not envelope.Message field here)
-            // We need to fetch the inner message JSON to get SubscribeURL
-            const env = parsed.envelope
-            const inner = parseJSON(env.Message) as { SubscribeURL?: string }
-            logger.info('[SesWebhookHandler] confirming subscription', { inner })
-            if (inner.SubscribeURL) {
-                if (!this.isValidSnsSubscribeUrl(inner.SubscribeURL)) {
+            // SNS holds the subscription in PendingConfirmation until someone fetches SubscribeURL,
+            // so responding 200 is not what confirms it. On a confirmation envelope SubscribeURL is
+            // a top-level field, while Message carries prose for a human rather than JSON.
+            const subscribeUrl = parsed.envelope.SubscribeURL
+            if (subscribeUrl) {
+                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
                     logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
-                        url: inner.SubscribeURL,
+                        url: subscribeUrl,
                     })
                     return { status: 403, body: { error: 'Invalid SubscribeURL' } }
                 }
-                await this.fetchText(inner.SubscribeURL)
+                await this.fetchText(subscribeUrl)
             }
             return { status: 200, body: { ok: true } }
         }

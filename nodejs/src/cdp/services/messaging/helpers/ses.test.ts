@@ -1,3 +1,5 @@
+import crypto from 'node:crypto'
+
 import { defaultConfig } from '~/common/config/config'
 
 import { SesWebhookHandler } from './ses'
@@ -5,6 +7,9 @@ import { EmailTrackingCodeSigner } from './tracking-code'
 
 // Hardcoded (not imported) so a change to the header constant fails this test.
 const TRACKING_CODE_HEADER = 'X-PostHog-Tracking-Code'
+
+const signingKeys = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 })
+const signingCertPem = signingKeys.publicKey.export({ type: 'spki', format: 'pem' }).toString()
 
 const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, 'http://localhost:8010')
 
@@ -437,62 +442,68 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics).toEqual([])
     })
 
-    it('confirms SubscriptionConfirmation with valid SNS SubscribeURL', async () => {
-        const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('')
-        const snsEnvelope = {
+    // Shaped like what SNS actually posts: SubscribeURL is a sibling of Message, and Message holds
+    // prose rather than JSON. Signed with a real key and verified with verifySignature on, because
+    // production always verifies and the confirmation envelope's signed string differs from a
+    // notification's (it covers Token and SubscribeURL).
+    const snsConfirmation = (subscribeUrl: string): Record<string, string> => {
+        const envelope: Record<string, string> = {
             Type: 'SubscriptionConfirmation',
             MessageId: 'sns-msg-1',
             Token: 'token-123',
             TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
-            Message: JSON.stringify({
-                SubscribeURL:
-                    'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123',
-            }),
+            Message:
+                'You have chosen to subscribe to the topic arn:aws:sns:us-east-1:123456789012:ses-topic.\nTo confirm the subscription, visit the SubscribeURL included in this message.',
+            SubscribeURL: subscribeUrl,
             Timestamp: '2025-10-03T12:10:00Z',
             SignatureVersion: '1',
-            Signature: 'fake',
             SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
         }
-        const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
+        // The canonical string AWS signs: these keys in this order, each as "key\nvalue\n".
+        const canonical = ['Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type']
+            .map((key) => `${key}\n${envelope[key]}\n`)
+            .join('')
+        return {
+            ...envelope,
+            Signature: crypto.createSign('RSA-SHA1').update(canonical, 'utf8').sign(signingKeys.privateKey, 'base64'),
+        }
+    }
+
+    it('confirms a signed SubscriptionConfirmation by fetching its SubscribeURL', async () => {
+        const certSpy = jest.spyOn(handler as any, 'fetchCert').mockResolvedValue(signingCertPem)
+        const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('')
+        const subscribeUrl =
+            'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
+
+        const result = await handler.handleWebhook({
+            body: snsConfirmation(subscribeUrl),
+            headers: {},
+            verifySignature: true,
+        })
+
         expect(result.status).toBe(200)
-        expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining('https://sns.us-east-1.amazonaws.com/'))
+        expect(fetchSpy).toHaveBeenCalledWith(subscribeUrl)
+        certSpy.mockRestore()
         fetchSpy.mockRestore()
     })
 
-    it('rejects SubscriptionConfirmation with non-SNS SubscribeURL', async () => {
-        const snsEnvelope = {
-            Type: 'SubscriptionConfirmation',
-            MessageId: 'sns-msg-1',
-            Token: 'token-123',
-            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
-            Message: JSON.stringify({
-                SubscribeURL: 'https://evil.lhr.life/latest/meta-data/iam/security-credentials/role',
-            }),
-            Timestamp: '2025-10-03T12:10:00Z',
-            SignatureVersion: '1',
-            Signature: 'fake',
-            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
-        }
-        const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
-        expect(result.status).toBe(403)
-    })
+    it.each([
+        ['a host outside SNS', 'https://evil.lhr.life/latest/meta-data/iam/security-credentials/role'],
+        ['plaintext http', 'http://sns.us-east-1.amazonaws.com/subscribe'],
+    ])('refuses to fetch a SubscribeURL pointing at %s', async (_case, subscribeUrl) => {
+        const certSpy = jest.spyOn(handler as any, 'fetchCert').mockResolvedValue(signingCertPem)
+        const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('')
 
-    it('rejects SubscriptionConfirmation with HTTP SubscribeURL', async () => {
-        const snsEnvelope = {
-            Type: 'SubscriptionConfirmation',
-            MessageId: 'sns-msg-1',
-            Token: 'token-123',
-            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
-            Message: JSON.stringify({
-                SubscribeURL: 'http://sns.us-east-1.amazonaws.com/subscribe',
-            }),
-            Timestamp: '2025-10-03T12:10:00Z',
-            SignatureVersion: '1',
-            Signature: 'fake',
-            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
-        }
-        const result = await handler.handleWebhook({ body: snsEnvelope, headers: {}, verifySignature: false })
+        const result = await handler.handleWebhook({
+            body: snsConfirmation(subscribeUrl),
+            headers: {},
+            verifySignature: true,
+        })
+
         expect(result.status).toBe(403)
+        expect(fetchSpy).not.toHaveBeenCalled()
+        certSpy.mockRestore()
+        fetchSpy.mockRestore()
     })
 
     it('propagates parentRunId from the tracking code so batch runs get correct attribution', async () => {
