@@ -12,6 +12,8 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.errors import (
     CH_TRANSIENT_ERRORS,
     CHQueryErrorCorruptedParquetMetadata,
+    CHQueryErrorNotAnAggregate,
+    CHQueryErrorQueryCancelled,
     CHQueryErrorTableIsReadOnly,
     CHQueryErrorTooManyBytes,
     ExposedCHQueryError,
@@ -182,3 +184,45 @@ class TestArgumentCountErrorsAreUserFacing(TestCase):
         wrapped = wrap_clickhouse_query_error(server_error)
         assert isinstance(wrapped, ExposedCHQueryError)
         assert classify_query_error(wrapped) == QueryErrorCategory.USER_ERROR
+
+
+class TestMaterializedColumnNamesAreScrubbed(TestCase):
+    """A materialized property (e.g. `properties.$pathname`) is backed by a physical column
+    named `mat_$pathname`. Users who never created that column shouldn't see it in error text -
+    the message must read back as the HogQL expression they typed."""
+
+    def test_not_an_aggregate_error_scrubs_materialized_column_name(self) -> None:
+        server_error = ServerException(
+            "DB::Exception: Column 'posthog.events.mat_$pathname' is not under aggregate function "
+            "and not in GROUP BY keys.",
+            code=215,
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorNotAnAggregate)
+        message = str(wrapped)
+        assert "mat_$pathname" not in message
+        assert "properties.$pathname" in message
+
+
+class TestCancelledQueriesAreExposedAndFriendly(TestCase):
+    """A cancelled query (e.g. the user navigated away, or ClickHouse aborted it) must not leak
+    a raw `DB::Exception: Query was cancelled` stack trace to the SQL editor."""
+
+    @parameterized.expand(
+        [
+            (394, "QUERY_WAS_CANCELLED"),
+            (735, "QUERY_WAS_CANCELLED_BY_CLIENT"),
+            (236, "ABORTED"),
+        ]
+    )
+    def test_cancelled_query_gets_friendly_message(self, code: int, name: str) -> None:
+        server_error = ServerException(
+            f"DB::Exception: {name}. Stack trace:\n#0 0x00007f... in ClickHouse::Something()", code=code
+        )
+        wrapped = wrap_clickhouse_query_error(server_error)
+        assert isinstance(wrapped, CHQueryErrorQueryCancelled)
+        assert isinstance(wrapped, ExposedCHQueryError)
+        message = str(wrapped)
+        assert "Stack trace" not in message
+        assert "cancelled" in message.lower()
+        assert classify_query_error(wrapped) == QueryErrorCategory.CANCELLED

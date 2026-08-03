@@ -36,6 +36,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -1074,13 +1075,19 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
 }
 
 const EmptyResultsState = (): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+
     return (
         <div
             className="flex flex-1 justify-center items-center gap-2 border-t px-4 py-6 text-center"
             data-attr="sql-editor-output-pane-no-rows-state"
         >
             <IconWarning className="text-warning text-lg" />
-            <span className="text-secondary">Query produced no results</span>
+            <span className="text-secondary max-w-xl">
+                {currentTeam && !currentTeam.ingested_event
+                    ? "Query produced no results because this project hasn't received any events yet. Send an event, then rerun the query."
+                    : 'Query produced no results. Check your filters, date range, and that the data you expect has been ingested.'}
+            </span>
         </div>
     )
 }

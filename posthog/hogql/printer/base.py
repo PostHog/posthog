@@ -40,6 +40,50 @@ from posthog.week_start_day import WeekStartDay
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
+# Core type names accepted after a `to`/`toXOrNull`/`toXOrZero`/`toXOrDefault` cast prefix,
+# grouped by family. Used to stop the "unknown function" fuzzy-match suggestion from crossing
+# families (e.g. suggesting toIPv6OrNull for toUInt64OrNull just because the strings are similar).
+CAST_TYPE_FAMILIES: dict[str, str] = {
+    **dict.fromkeys(
+        ("int8", "int16", "int32", "int64", "int128", "int256"),
+        "int",
+    ),
+    **dict.fromkeys(
+        ("uint8", "uint16", "uint32", "uint64", "uint128", "uint256"),
+        "int",
+    ),
+    **dict.fromkeys(("float32", "float64", "decimal"), "float"),
+    **dict.fromkeys(("ipv4", "ipv6"), "ip"),
+    **dict.fromkeys(("date", "date32", "datetime", "datetime64"), "temporal"),
+    **dict.fromkeys(("string", "fixedstring"), "string"),
+    "uuid": "uuid",
+    "bool": "bool",
+    "boolean": "bool",
+}
+CAST_SUFFIXES = ("ordefault", "orzero", "ornull")
+
+
+def _cast_type_family(function_name: str) -> str | None:
+    "Returns the cast type family for a `to<Type>[OrNull|OrZero|OrDefault]`-style function name, if recognized."
+    lower = function_name.lower()
+    if not lower.startswith("to"):
+        return None
+    core = lower[2:]
+    for suffix in CAST_SUFFIXES:
+        if core.endswith(suffix):
+            core = core[: -len(suffix)]
+            break
+    return CAST_TYPE_FAMILIES.get(core)
+
+
+def _cast_families_compatible(function_name: str, suggestion: str) -> bool:
+    "Only reject a fuzzy-matched suggestion when both names are recognized casts in different families."
+    function_family = _cast_type_family(function_name)
+    suggestion_family = _cast_type_family(suggestion)
+    if function_family is None or suggestion_family is None:
+        return True
+    return function_family == suggestion_family
+
 
 def get_channel_definition_dict():
     """Get the channel definition dictionary name with the correct database.
@@ -1128,7 +1172,7 @@ class BasePrinter(Visitor[str]):
                 )
 
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
-            if len(close_matches) > 0:
+            if len(close_matches) > 0 and _cast_families_compatible(node.name, close_matches[0]):
                 raise QueryError(
                     f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{close_matches[0]}(...)'?"
                 )

@@ -50,7 +50,23 @@ class InternalHogQLError(BaseHogQLError):
 class SyntaxError(ExposedHogQLError):
     """The input does not conform to HogQL syntax."""
 
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        node: Optional["Expr"] = None,
+    ):
+        super().__init__(_humanize_parser_message(message), start=start, end=end, node=node)
+
+
+def _humanize_parser_message(message: str) -> str:
+    # cpp-json (ANTLR) and rust-py word running off the end of the query differently;
+    # collapse both into a single human-readable message.
+    if "mismatched input '<EOF>' expecting" in message or "unexpected token in expression: Eof" in message:
+        return "Unexpected end of query. Check for a missing closing bracket, quote, or clause."
+    return message
 
 
 class QueryError(ExposedHogQLError):

@@ -1889,6 +1889,12 @@ class TestPrinter(BaseTest):
             "uuid(event)",
             "Unsupported function call 'uuid(...)'. Perhaps you meant 'toUUID(...)'?",
         )
+        # toUInt64OrNull isn't itself an exposed function; its lexically closest match is
+        # toIPv6OrNull (same "to...OrNull" shape), but suggesting a numeric-to-IP cast is
+        # confidently wrong. The suggestion must be dropped rather than shown.
+        with self.assertRaises(QueryError) as context:
+            self._expr("toUInt64OrNull(event)", None, "clickhouse")
+        self.assertEqual(str(context.exception), "Unsupported function call 'toUInt64OrNull(...)'")
         self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
         self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")
         self._assert_expr_error(

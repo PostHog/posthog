@@ -84,6 +84,24 @@ def clickhouse_error_type(e: Exception) -> str:
 
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 
+# Materialized columns are physical ClickHouse columns minted from a property name
+# (see _materialized_column_name in ee/clickhouse/materialized_columns/columns.py), so their
+# names leak into ClickHouse error text as e.g. `posthog.events.mat_$pathname`. Map the common
+# case (no collision suffix, no table-column prefix) back to the HogQL expression the user
+# actually wrote, so errors read "properties.$pathname" instead of an internal column name.
+MATERIALIZED_COLUMN_NAME_PATTERN = re.compile(r"\b(?:mat_|pmat_|dmat_string_)([A-Za-z0-9$_]+)\b")
+
+
+def scrub_materialized_column_names(message: str) -> str:
+    "Best-effort rewrite of materialized column names in a ClickHouse error into their HogQL property expression."
+    return MATERIALIZED_COLUMN_NAME_PATTERN.sub(lambda match: f"properties.{match.group(1)}", message)
+
+
+QUERY_CANCELLED_MESSAGE = (
+    "The query was cancelled before it finished running. This can happen if you navigated away, "
+    "reran it, or it hit a time limit. Try running it again."
+)
+
 CORRUPTED_PARQUET_METADATA_MESSAGE = (
     "A Parquet file backing this table has corrupted or oversized metadata and can't be read. "
     "This usually means the file wasn't written correctly during import. Re-sync the source (or "
@@ -110,6 +128,7 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
 
     meta = look_up_clickhouse_error_code_meta(err)
     name = meta.name
+    message = scrub_materialized_column_names(err.message)
 
     # Naming convention:
     # - Exceptions starting with ClickHouse inherit from APIException and are not sent to error reporting.
@@ -158,44 +177,49 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         # Transient: a replica dropped its ZooKeeper/Keeper session and went read-only; it self-heals.
         return CHQueryErrorTableIsReadOnly(err.message, code=err.code, code_name="table_is_read_only")
 
-    # user query errors - pass through original message with proper code_name
+    # cancelled queries - give a real sentence instead of a raw ClickHouse stack trace
+    elif name in ("QUERY_WAS_CANCELLED", "QUERY_WAS_CANCELLED_BY_CLIENT", "ABORTED"):
+        return CHQueryErrorQueryCancelled(QUERY_CANCELLED_MESSAGE, code=err.code, code_name="query_cancelled")
+
+    # user query errors - pass through original message (with materialized column names
+    # scrubbed) and proper code_name
     elif name == "ILLEGAL_TYPE_OF_ARGUMENT":
-        return CHQueryErrorIllegalTypeOfArgument(err.message, code=err.code, code_name="illegal_type_of_argument")
+        return CHQueryErrorIllegalTypeOfArgument(message, code=err.code, code_name="illegal_type_of_argument")
     elif name == "NO_COMMON_TYPE":
-        return CHQueryErrorNoCommonType(err.message, code=err.code, code_name="no_common_type")
+        return CHQueryErrorNoCommonType(message, code=err.code, code_name="no_common_type")
     elif name == "NOT_AN_AGGREGATE":
-        return CHQueryErrorNotAnAggregate(err.message, code=err.code, code_name="not_an_aggregate")
+        return CHQueryErrorNotAnAggregate(message, code=err.code, code_name="not_an_aggregate")
     elif name == "UNKNOWN_FUNCTION":
-        return CHQueryErrorUnknownFunction(err.message, code=err.code, code_name="unknown_function")
+        return CHQueryErrorUnknownFunction(message, code=err.code, code_name="unknown_function")
     elif name == "TYPE_MISMATCH":
-        return CHQueryErrorTypeMismatch(err.message, code=err.code, code_name="type_mismatch")
+        return CHQueryErrorTypeMismatch(message, code=err.code, code_name="type_mismatch")
     elif name == "ILLEGAL_AGGREGATION":
-        return CHQueryErrorIllegalAggregation(err.message, code=err.code, code_name="illegal_aggregation")
+        return CHQueryErrorIllegalAggregation(message, code=err.code, code_name="illegal_aggregation")
     elif name == "NUMBER_OF_ARGUMENTS_DOESNT_MATCH":
         return CHQueryErrorNumberOfArgumentsDoesntMatch(
-            err.message, code=err.code, code_name="number_of_arguments_doesnt_match"
+            message, code=err.code, code_name="number_of_arguments_doesnt_match"
         )
     elif name == "UNKNOWN_IDENTIFIER":
-        return CHQueryErrorUnknownIdentifier(err.message, code=err.code, code_name="unknown_identifier")
+        return CHQueryErrorUnknownIdentifier(message, code=err.code, code_name="unknown_identifier")
     elif name == "TOO_MANY_BYTES":
-        return CHQueryErrorTooManyBytes(err.message, code=err.code, code_name="too_many_bytes")
+        return CHQueryErrorTooManyBytes(message, code=err.code, code_name="too_many_bytes")
     elif name == "CANNOT_PARSE_UUID":
-        return CHQueryErrorCannotParseUuid(err.message, code=err.code, code_name="cannot_parse_uuid")
+        return CHQueryErrorCannotParseUuid(message, code=err.code, code_name="cannot_parse_uuid")
     elif name == "CANNOT_PARSE_BOOL":
-        return CHQueryErrorCannotParseBool(err.message, code=err.code, code_name="cannot_parse_bool")
+        return CHQueryErrorCannotParseBool(message, code=err.code, code_name="cannot_parse_bool")
     elif name == "UNSUPPORTED_METHOD":
-        return CHQueryErrorUnsupportedMethod(err.message, code=err.code, code_name="unsupported_method")
+        return CHQueryErrorUnsupportedMethod(message, code=err.code, code_name="unsupported_method")
     elif name == "INVALID_JOIN_ON_EXPRESSION":
-        return CHQueryErrorInvalidJoinOnExpression(err.message, code=err.code, code_name="invalid_join_on_expression")
+        return CHQueryErrorInvalidJoinOnExpression(message, code=err.code, code_name="invalid_join_on_expression")
     elif name == "UNKNOWN_TABLE":
-        return CHQueryErrorUnknownTable(err.message, code=err.code, code_name="unknown_table")
+        return CHQueryErrorUnknownTable(message, code=err.code, code_name="unknown_table")
 
     # all other errors
     else:
         name = f"CHQueryError{meta.label}"
         processed_error_class = ExposedCHQueryError if meta.user_safe else InternalCHQueryError
-        message = meta.user_safe if isinstance(meta.user_safe, str) else err.message
-        return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
+        final_message = meta.user_safe if isinstance(meta.user_safe, str) else message
+        return type(name, (processed_error_class,), {})(final_message, code=err.code, code_name=meta.name.lower())
 
 
 def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
@@ -249,6 +273,10 @@ class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
 class CHQueryErrorCorruptedParquetMetadata(ExposedCHQueryError):
     """A Parquet file backing a warehouse table has corrupted or oversized thrift metadata."""
 
+    pass
+
+
+class CHQueryErrorQueryCancelled(ExposedCHQueryError):
     pass
 
 
