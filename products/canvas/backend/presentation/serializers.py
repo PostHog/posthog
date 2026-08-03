@@ -64,7 +64,9 @@ class CanvasCreateSerializer(serializers.Serializer):
         help_text="Display name for the canvas.",
     )
     channel_id = serializers.UUIDField(help_text="Id of the channel the canvas belongs to.")
-    template_id = serializers.CharField(required=False, default="freeform", max_length=64)
+    template_id = serializers.CharField(
+        required=False, default="freeform", max_length=64, help_text="Canvas template identifier."
+    )
     is_home = serializers.BooleanField(
         required=False,
         default=False,
@@ -75,12 +77,22 @@ class CanvasCreateSerializer(serializers.Serializer):
 class CanvasUpdateSerializer(serializers.Serializer):
     """Writable canvas fields: metadata only — source changes go through publish/edit."""
 
-    name = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True, max_length=400)
+    name = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=400,
+        help_text="Updated display name.",
+    )
     # The field name shadows BaseSerializer.context; the metaclass moves declared fields into
     # _declared_fields, so self.context still resolves to the serializer context at runtime.
-    context = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)  # type: ignore[assignment]
-    pinned = serializers.BooleanField(required=False)
-    generation_task_id = serializers.UUIDField(required=False, allow_null=True)
+    context = serializers.CharField(  # type: ignore[assignment]
+        required=False, allow_blank=True, trim_whitespace=False, help_text="Updated author context markdown."
+    )
+    pinned = serializers.BooleanField(required=False, help_text="Whether the canvas is pinned in its channel.")
+    generation_task_id = serializers.UUIDField(
+        required=False, allow_null=True, help_text="Task currently generating this canvas, or null to clear it."
+    )
 
 
 class CanvasSourceAssetSerializer(serializers.Serializer):
@@ -466,3 +478,6 @@ class CanvasRevertSerializer(serializers.Serializer):
     """Payload for reverting the canvas's head to an existing source version."""
 
     version_id = serializers.UUIDField(help_text="Id of the source version to make the head again.")
+    expected_current_version_id = serializers.UUIDField(
+        allow_null=True, help_text="Current source version observed before requesting the revert."
+    )

@@ -168,13 +168,11 @@ def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
     diagnostics: list[dict[str, Any]] = []
 
     for pattern, code_name, message in _FORBIDDEN_PATTERNS:
-        match = pattern.search(code)
-        if match is not None:
+        for match in pattern.finditer(code):
             diagnostics.append(diagnostic("error", code_name, message, path=path, line=_line_of(code, match.start())))
 
     for pattern, code_name, message in _NETWORK_PATTERNS:
-        match = pattern.search(code)
-        if match is not None:
+        for match in pattern.finditer(code):
             diagnostics.append(diagnostic("warning", code_name, message, path=path, line=_line_of(code, match.start())))
 
     allowed = allowed_import_specifiers()
@@ -300,6 +298,13 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
 
     files = project.get("files") or {}
     assets = project.get("assets") or {}
+    if project.get("entryHtml") not in files:
+        diagnostics.append(diagnostic("error", "missing_entry", "entryHtml must name a file present in files"))
+    network_origins = ((project.get("capabilities") or {}).get("network") or {}).get("origins") or []
+    if network_origins:
+        diagnostics.append(
+            diagnostic("error", "network_origins_not_supported", "capabilities.network.origins must be empty")
+        )
     if len(files) + len(assets) > limits["maxSourceFiles"]:
         diagnostics.append(
             diagnostic(

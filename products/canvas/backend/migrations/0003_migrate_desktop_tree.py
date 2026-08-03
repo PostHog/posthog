@@ -87,8 +87,11 @@ def migrate_desktop_tree(apps, schema_editor):
             normalized = _normalize_channel_name(top.replace("\\/", "/"))
             if not normalized or normalized == "unfiled":
                 continue
+            if normalized == "me" and not folder.created_by_id:
+                counts["personal_folder_skipped_no_owner"] += 1
+                continue
             owner_key = folder.created_by_id if normalized == "me" else None
-            cache_key = (top, owner_key)
+            cache_key = (normalized, owner_key)
             channel = channel_by_top_path.get(cache_key)
             if channel is None:
                 if normalized == "me" and folder.created_by_id:
@@ -113,7 +116,7 @@ def migrate_desktop_tree(apps, schema_editor):
         def channel_for_path(path: str, owner_id: int | None, _channels=channel_by_top_path):
             top = re.split(r"(?<!\\)/", path or "")[0]
             normalized = _normalize_channel_name(top.replace("\\/", "/"))
-            return _channels.get((top, owner_id if normalized == "me" else None))
+            return _channels.get((normalized, owner_id if normalized == "me" else None))
 
         # 2. Dashboard rows → Canvas rows (UUIDs preserved).
         home_canvas_ids: set[str] = set()
@@ -158,29 +161,27 @@ def migrate_desktop_tree(apps, schema_editor):
 
         # 3. Folder instructions → channel instructions (history preserved).
         folder_ids = [row.id for row in team_folders]
-        migrated_channels: set = set()
+        migrated_channel_versions: dict[Any, int] = {}
         for instruction in FolderInstructions.objects.filter(folder_id__in=folder_ids).order_by(
             "version", "created_at"
         ):
             channel = channel_by_folder_id.get(str(instruction.folder_id))
             if channel is None:
                 continue
-            key = (channel.id, instruction.version)
-            if key in migrated_channels:
-                continue
-            migrated_channels.add(key)
-            ChannelInstructions.objects.get_or_create(
+            migrated_version = migrated_channel_versions.get(channel.id, 0) + 1
+            migrated_channel_versions[channel.id] = migrated_version
+            ChannelInstructions.objects.create(
                 channel_id=channel.id,
-                version=instruction.version,
-                defaults={
-                    "team_id": team_id,
-                    "content": instruction.content,
-                    "is_latest": instruction.is_latest,
-                    "deleted": instruction.deleted,
-                    "created_by_id": instruction.created_by_id,
-                    "created_at": instruction.created_at,
-                },
+                version=migrated_version,
+                team_id=team_id,
+                content=instruction.content,
+                is_latest=False,
+                deleted=instruction.deleted,
+                created_by_id=instruction.created_by_id,
+                created_at=instruction.created_at,
             )
+        for channel_id, latest_version in migrated_channel_versions.items():
+            ChannelInstructions.objects.filter(channel_id=channel_id, version=latest_version).update(is_latest=True)
         for marker in FolderContextGeneration.objects.filter(folder_id__in=folder_ids):
             channel = channel_by_folder_id.get(str(marker.folder_id))
             if channel is None or not marker.task_id:

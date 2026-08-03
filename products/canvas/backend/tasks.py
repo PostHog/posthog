@@ -8,7 +8,13 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(
-    ignore_result=True, queue=CeleryQueue.DEFAULT.value, max_retries=3, autoretry_for=(Exception,), retry_backoff=True
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    max_retries=3,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    soft_time_limit=300,
+    time_limit=330,
 )
 def process_canvas_build(team_id: int, build_id: str) -> None:
     """Run one queued canvas build (idempotent — finished builds are a no-op)."""

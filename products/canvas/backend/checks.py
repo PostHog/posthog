@@ -40,10 +40,12 @@ def check_artifact_delivery_settings(app_configs: Any, **kwargs: Any) -> list[Er
                 id="canvas.E002",
             )
         )
-    if keys and len(keys[0]) < 32:
+    invalid_key_positions = [str(index + 1) for index, key in enumerate(keys) if len(key) < 32]
+    if invalid_key_positions:
         errors.append(
             Error(
-                "The first CANVAS_ARTIFACT_SIGNING_KEY must be at least 32 characters.",
+                "Every CANVAS_ARTIFACT_SIGNING_KEY must be at least 32 characters; invalid position(s): "
+                + ", ".join(invalid_key_positions),
                 id="canvas.E003",
             )
         )

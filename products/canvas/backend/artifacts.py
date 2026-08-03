@@ -139,7 +139,10 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         response["Content-Type"] = content_type
         return _with_artifact_headers(response, etag)
 
-    content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
+    try:
+        content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
+    except object_storage.ObjectStorageError:
+        raise Http404 from None
     if content is None or len(content) != asset.get("sizeBytes"):
         raise Http404
     response = HttpResponse(content, content_type=content_type)

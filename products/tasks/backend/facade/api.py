@@ -5711,7 +5711,7 @@ def list_channel_instruction_versions(
     versions = (
         ChannelInstructions.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False)
         .select_related("created_by")
-        .order_by("-version", "-created_at", "-id")
+        .order_by("-version", "-created_at", "-id")[:200]
     )
     return [_instructions_to_dto(row) for row in versions]
 

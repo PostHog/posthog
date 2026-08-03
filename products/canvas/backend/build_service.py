@@ -432,7 +432,9 @@ def publish_source_project(
     return canvas, version, build, first_publish
 
 
-def revert_to_version(canvas: Canvas, version_id: str | UUID) -> tuple[Canvas, CanvasBuild]:
+def revert_to_version(
+    canvas: Canvas, version_id: str | UUID, expected_current_version_id: str | UUID | None
+) -> tuple[Canvas, CanvasBuild]:
     """Move the canvas's head back to an existing version and rebuild it.
 
     Raises CanvasSourceVersion.DoesNotExist for a version that isn't this
@@ -440,6 +442,10 @@ def revert_to_version(canvas: Canvas, version_id: str | UUID) -> tuple[Canvas, C
     """
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
+        current_id = str(canvas.current_source_version_id) if canvas.current_source_version_id else None
+        expected_id = str(expected_current_version_id) if expected_current_version_id else None
+        if current_id != expected_id:
+            raise CanvasVersionConflict(current_id)
         version = CanvasSourceVersion.objects.for_team(canvas.team_id).get(pk=version_id, canvas_id=canvas.id)
         _lock_team_build_capacity(canvas.team_id)
         _assert_build_capacity(canvas.team_id)
@@ -458,9 +464,9 @@ def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBui
     """
     now = timezone.now()
     with transaction.atomic(), team_scope(canvas.team_id):
+        Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
         build = CanvasBuild.objects.for_team(canvas.team_id).select_for_update().get(pk=build_id, canvas_id=canvas.id)
         if action == "pin":
-            Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
             pinned_count = CanvasBuild.objects.for_team(canvas.team_id).filter(canvas_id=canvas.id, pinned=True).count()
             if not build.pinned and pinned_count >= MAX_PINNED_BUILDS_PER_CANVAS:
                 raise ValueError(f"A canvas can retain at most {MAX_PINNED_BUILDS_PER_CANVAS} pinned builds.")
@@ -524,7 +530,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         build.attempt_count += 1
         build.lease_expires_at = now + BUILD_LEASE_DURATION
         build.save(update_fields=["status", "attempt_count", "lease_expires_at"])
-        CANVAS_BUILD_QUEUE_SECONDS.observe(max(0, (now - build.created_at).total_seconds()))
+        CANVAS_BUILD_QUEUE_SECONDS.observe(max(0, (now - build.enqueued_at).total_seconds()))
 
     try:
         project = read_source_project(build.source_version)
@@ -619,9 +625,7 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         manifest=manifest,
         diagnostics=diagnostics,
     ):
-        # The build reached a terminal state (cancelled, or the sweeper gave up
-        # on it) while the artifacts were uploading. Its objects stay for the
-        # retention sweep; the canvas keeps its last-known-good build.
+        object_storage.delete_objects(uploaded_keys)
         CANVAS_BUILD_OUTCOMES.labels(outcome="failed", code="superseded_during_build").inc()
         return
     CANVAS_BUILD_OUTCOMES.labels(outcome="ready", code="").inc()
@@ -695,17 +699,26 @@ def _artifact_content_type(path: str) -> str:
     return "application/octet-stream"
 
 
-def _finish_failed(build: CanvasBuild, diagnostics: list[dict[str, Any]]) -> None:
+def _finish_failed(stale_build: CanvasBuild, diagnostics: list[dict[str, Any]]) -> None:
+    with transaction.atomic():
+        build = (
+            CanvasBuild.objects.for_team(stale_build.team_id)
+            .select_for_update()
+            .filter(id=stale_build.id, status__in=CanvasBuild.ACTIVE_STATUSES)
+            .first()
+        )
+        if build is None:
+            return
+        build.status = CanvasBuild.STATUS_FAILED
+        build.diagnostics = diagnostics
+        build.finished_at = timezone.now()
+        build.lease_expires_at = None
+        build.save(update_fields=["status", "diagnostics", "finished_at", "lease_expires_at"])
     logger.warning(
         "canvas_build_failed",
         build_id=str(build.id),
         codes=[diagnostic.get("code") for diagnostic in diagnostics][:20],
     )
-    build.status = CanvasBuild.STATUS_FAILED
-    build.diagnostics = diagnostics
-    build.finished_at = timezone.now()
-    build.lease_expires_at = None
-    build.save(update_fields=["status", "diagnostics", "finished_at", "lease_expires_at"])
     code = str(diagnostics[0].get("code", "unknown")) if diagnostics else "unknown"
     CANVAS_BUILD_OUTCOMES.labels(outcome="failed", code=code).inc()
     CANVAS_BUILD_DURATION_SECONDS.labels(outcome="failed").observe(
@@ -820,7 +833,11 @@ def cleanup_canvas_builds() -> int:
             keep = {str(build.canvas.published_build_id) if build.canvas.published_build_id else None}
             rollback = (
                 CanvasBuild.objects.unscoped()
-                .filter(canvas_id=build.canvas_id, status=CanvasBuild.STATUS_READY)
+                .filter(
+                    canvas_id=build.canvas_id,
+                    status=CanvasBuild.STATUS_READY,
+                    artifact_object_prefix__isnull=False,
+                )
                 .exclude(id__in=[identifier for identifier in keep if identifier])
                 .order_by("-created_at")
                 .values_list("id", flat=True)

@@ -20,11 +20,13 @@ CODE = 'import React from "react";\nexport default () => <div>hi</div>;\n'
 def project(**overrides):
     base = {
         "schemaVersion": 1,
-        "files": {CANVAS_COMPONENT_PATH: CODE},
+        "files": {CANVAS_ENTRY_HTML: '<div id="root"></div>', CANVAS_COMPONENT_PATH: CODE},
         "entryHtml": CANVAS_ENTRY_HTML,
         "dependencies": {"react": "19.0.0"},
         "canvasSdkVersion": "0.1.0",
     }
+    if "files" in overrides:
+        overrides["files"] = {CANVAS_ENTRY_HTML: '<div id="root"></div>', **overrides["files"]}
     base.update(overrides)
     return base
 

@@ -2,10 +2,12 @@ from typing import Any
 from uuid import UUID
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -104,6 +106,17 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "build_action",
     ]
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "channel", OpenApiTypes.UUID, required=False, description="Only return canvases in this channel."
+            ),
+            OpenApiParameter("is_home", bool, required=False, description="Filter by channel-home status."),
+        ]
+    )
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return super().list(request, *args, **kwargs)
+
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.filter(team_id=self.team_id, deleted=False)
         # Channels are per-user for the personal kind: the facade's visibility
@@ -116,6 +129,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if self.action == "list":
             channel_id = self.request.query_params.get("channel")
             if channel_id:
+                try:
+                    channel_id = str(UUID(channel_id))
+                except ValueError:
+                    return queryset.none()
                 queryset = queryset.filter(channel_id=channel_id)
             is_home = self.request.query_params.get("is_home")
             if is_home is not None:
@@ -184,7 +201,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             update_fields.append("pinned_at")
         if "generation_task_id" in data:
             task_id = data["generation_task_id"]
-            if task_id is not None and not tasks_facade.task_exists(task_id, self.team_id):
+            user = request.user if isinstance(request.user, User) else None
+            if task_id is not None and (
+                user is None or not tasks_facade.task_owned_by_user(task_id, self.team_id, user.id)
+            ):
                 return Response({"detail": "Task not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
             canvas.generation_task_id = task_id
             update_fields.append("generation_task_id")
@@ -231,6 +251,8 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 project = build_service.read_source_project(version)
             else:
                 project, _ = build_service.current_source_project(canvas)
+        except DjangoValidationError:
+            return Response({"detail": "Version not found for this canvas."}, status=status.HTTP_404_NOT_FOUND)
         except ObjectStorageError:
             return Response(
                 {"detail": "The canvas's source is temporarily unavailable."},
@@ -427,7 +449,13 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         payload = CanvasRevertSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         try:
-            _canvas, build = build_service.revert_to_version(canvas, payload.validated_data["version_id"])
+            _canvas, build = build_service.revert_to_version(
+                canvas,
+                payload.validated_data["version_id"],
+                payload.validated_data["expected_current_version_id"],
+            )
+        except build_service.CanvasVersionConflict as conflict:
+            return _conflict_response(conflict)
         except build_service.CanvasBuildCapacityExceeded:
             return _capacity_response()
         except CanvasSourceVersion.DoesNotExist:

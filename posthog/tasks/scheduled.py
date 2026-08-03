@@ -808,13 +808,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="sync all surveys cache",
     )
 
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         crontab(hour="1", minute=str(randrange(0, 40))),
         cleanup_canvas_builds.s(),
         name="apply canvas build artifact retention",
     )
 
-    sender.add_periodic_task(
+    add_periodic_task_with_expiry(
+        sender,
         crontab(minute="*/2"),
         sweep_canvas_builds.s(),
         name="recover stuck canvas builds",

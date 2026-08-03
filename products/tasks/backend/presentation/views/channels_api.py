@@ -110,7 +110,10 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Invalid channel name"}, status=status.HTTP_400_BAD_REQUEST)
         if result == "name_taken":
             return Response({"detail": "A channel with this name already exists"}, status=status.HTTP_400_BAD_REQUEST)
-        return Response(ChannelSerializer(result).data)
+        channel = tasks_facade.get_channel(pk, self.team_id, self._user_id())
+        if channel is None:
+            raise NotFound()
+        return Response(ChannelSerializer(channel).data)
 
     @extend_schema(responses={204: None}, summary="Delete a public channel")
     def destroy(self, request, pk=None, **kwargs):
@@ -153,7 +156,6 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ),
     )
     @instructions.mapping.put
-    @instructions.mapping.patch
     def publish_instructions(self, request, pk=None, **kwargs):
         serializer = ChannelInstructionsWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -204,6 +206,9 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         versions = tasks_facade.list_channel_instruction_versions(pk, self.team_id, self._user_id())
         if versions is None:
             raise NotFound("Channel not found")
+        page = self.paginate_queryset(versions)
+        if page is not None:
+            return self.get_paginated_response(ChannelInstructionsSerializer(page, many=True).data)
         return Response(ChannelInstructionsSerializer(versions, many=True).data)
 
     @extend_schema(

@@ -651,7 +651,7 @@ def context_channel_exists(team_id: int, channel_id: str, user_id: int | None) -
     return Channel.objects.filter(Q(team_id=team_id, id=parsed, deleted=False) & visible).exists()
 
 
-def context_canvas_exists(team_id: int, canvas_id: str) -> bool:
+def context_canvas_exists(team_id: int, canvas_id: str, user_id: int | None) -> bool:
     """Whether `canvas_id` is a canvas in this team (loop context-attach validation).
 
     The Canvas model belongs to the canvas product, which depends on tasks —
@@ -664,7 +664,8 @@ def context_canvas_exists(team_id: int, canvas_id: str) -> bool:
     from django.apps import apps  # noqa: PLC0415
 
     canvas_model = apps.get_model("canvas", "Canvas")
-    return canvas_model.objects.unscoped().filter(team_id=team_id, id=parsed, deleted=False).exists()
+    visible = ~Q(channel__channel_type=Channel.ChannelType.PERSONAL) | Q(channel__created_by_id=user_id)
+    return canvas_model.objects.unscoped().filter(Q(team_id=team_id, id=parsed, deleted=False) & visible).exists()
 
 
 # --- CRUD ---
