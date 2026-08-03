@@ -8,7 +8,7 @@ import secrets
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, NoReturn, Optional, Self, cast
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from posthog.dataclasses import frozen
@@ -653,6 +653,20 @@ class Integration(models.Model):
         if self.kind == "databricks":
             return self.integration_id or "unknown ID"
         if self.kind == Integration.IntegrationKind.AWS_S3:
+            name = self.integration_id or "unknown ID"
+
+            account_id = self.config.get("aws_account_id")
+            role = self.config.get("aws_role_arn")
+
+            if role:
+                detail = f"AWS role '{role}'"
+            elif account_id:
+                detail = f"AWS account {account_id}"
+            else:
+                detail = "access key"
+
+            return f"{name} ({detail})"
+        if self.kind == Integration.IntegrationKind.AWS_REDSHIFT:
             name = self.integration_id or "unknown ID"
 
             account_id = self.config.get("aws_account_id")
@@ -4521,43 +4535,73 @@ class AzureBlobIntegration:
         return None
 
 
+class AWSCredentialIntegrationError(Exception):
+    """Error raised when AWS credentials are not valid."""
+
+    pass
+
+
 class S3CredentialIntegrationError(Exception):
     """Error raised when an S3-family credential integration is not valid."""
 
     pass
 
 
-def _read_s3_credentials(integration: Integration) -> AWSKeyPair:
+_AWSKindType = Literal[Integration.IntegrationKind.AWS_REDSHIFT, Integration.IntegrationKind.AWS_S3]
+
+
+def _read_aws_credentials(integration: Integration) -> AWSKeyPair:
     try:
+        # SAFETY: Safety is delegated to the integration which must guarantee
+        # sensitive_config keys are correctly assigned.
         return AWSKeyPair.unsafe_from_strings(
             integration.sensitive_config["aws_access_key_id"], integration.sensitive_config["aws_secret_access_key"]
         )
     except KeyError as e:
-        raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
+        raise AWSCredentialIntegrationError(f"Integration is not valid: {str(e)} missing")
 
 
-def _build_s3_sensitive_config(aws_access_key_id: str, aws_secret_access_key: str) -> dict[str, str]:
-    return {
-        "aws_access_key_id": aws_access_key_id,
-        "aws_secret_access_key": aws_secret_access_key,
-    }
+def _create_unique_aws_integration(
+    *,
+    team_id: int,
+    kind: _AWSKindType,
+    name: str,
+    account_id: str,
+    credentials: AWSKeyPair,
+    created_by: "User | None",
+) -> Integration:
+    """Create an AWS integration from credentials and an account."""
+    return _create_unique_named_integration(
+        team_id=team_id,
+        kind=kind,
+        name=name,
+        config={"name": name, "aws_account_id": account_id},
+        sensitive_config={
+            "aws_access_key_id": credentials.access_key_id,
+            "aws_secret_access_key": credentials.secret_access_key,
+        },
+        created_by=created_by,
+    )
 
 
-def _create_unique_s3_integration(
+class DuplicateNameError(Exception):
+    pass
+
+
+def _create_unique_named_integration(
     *,
     team_id: int,
     kind: str,
     name: str,
-    config: dict[str, Any],
+    config: dict[str, str],
     sensitive_config: dict[str, str],
     created_by: "User | None",
 ) -> Integration:
-    """Create an S3-family integration, rejecting a name already taken for this team and kind.
+    """Create an integration, rejecting a name already taken for this team and kind.
 
     Unlike most integrations, `name` is a free-form user-supplied identifier rather than one derived
     from the external connection (an OAuth account id, service-account email, etc.). So we create
-    rather than upsert — re-using a name is a 400, not a silent overwrite of an unrelated credential
-    set.
+    rather than upsert and raise a 400 error, on conflicts.
     """
     try:
         # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
@@ -4572,10 +4616,10 @@ def _create_unique_s3_integration(
                 created_by=created_by,
             )
     except IntegrityError:
-        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
+        raise DuplicateNameError(f"An integration named '{name}' already exists")
 
 
-def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: str) -> bool:
+def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: str, kind: _AWSKindType) -> bool:
     """Check if the AWS role is only in one organization.
 
     This is used as a security measure to block multiple organizations from
@@ -4589,7 +4633,7 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     has_same_aws_role_integrations = (
         Integration.objects.select_related("team__organization")
         .filter(
-            kind=Integration.IntegrationKind.AWS_S3,
+            kind=kind,
             config__aws_role_arn=aws_role_arn,
         )
         .exclude(team__organization_id=organization_id)
@@ -4607,22 +4651,57 @@ def _return_non_empty_str_from_config(config: Mapping, key: str) -> str | None:
     return None
 
 
-class AwsS3RoleBasedIntegration:
-    """An AWS S3 integration storing a customer's AWS role."""
+def validate_aws_credentials(aws_access_key_id: str, aws_secret_access_key: str) -> str:
+    """Validate AWS credentials via STS GetCallerIdentity, returning the AWS account id.
+
+    GetCallerIdentity requires no IAM permissions, so it verifies the credentials are valid
+    without assuming any particular S3 policy. It hits the fixed global AWS STS endpoint, so
+    there is no user-controlled endpoint and no SSRF surface (unlike S3-compatible).
+
+    This runs synchronously on the request thread, so the timeout budget is kept tight:
+    a single attempt (no retry) bounds the worst case at ~10s (connect + read) if STS is
+    unreachable, rather than blocking the worker while botocore retries.
+    """
+    import boto3  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
+    from botocore.config import Config  # noqa: PLC0415
+    from botocore.exceptions import BotoCoreError, ClientError  # noqa: PLC0415
+
+    client = boto3.client(
+        "sts",
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 1}),
+    )
+    try:
+        identity = client.get_caller_identity()
+    except ClientError as e:
+        message = e.response.get("Error", {}).get("Message") or str(e)
+        raise AWSCredentialIntegrationError(f"AWS credentials are not valid: {message}")
+    except BotoCoreError as e:
+        raise AWSCredentialIntegrationError(f"Could not validate AWS credentials: {e}")
+
+    return identity["Account"]
+
+
+class AWSRoleBasedIntegration:
+    """An AWS integration storing a customer's AWS role."""
 
     integration: Integration
     aws_role_arn: str
 
+    integration_kind: ClassVar[_AWSKindType]
+
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != Integration.IntegrationKind.AWS_S3:
-            raise S3CredentialIntegrationError(
-                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+        if integration.kind != self.integration_kind:
+            raise AWSCredentialIntegrationError(
+                "Integration provided is not the expected AWS integration"
+                f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
         self.integration = integration
         try:
             self.aws_role_arn = integration.config["aws_role_arn"]
         except KeyError:
-            raise S3CredentialIntegrationError("S3 integration is not valid: 'aws_role_arn' missing")
+            raise AWSCredentialIntegrationError("AWS integration is not valid: 'aws_role_arn' missing")
 
     @classmethod
     def integration_from_config(
@@ -4634,18 +4713,18 @@ class AwsS3RoleBasedIntegration:
     ) -> Integration:
         name = _return_non_empty_str_from_config(config, "name")
         if not name:
-            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+            raise AWSCredentialIntegrationError("A name is required for an AWS integration")
 
         aws_role_arn = _return_non_empty_str_from_config(config, "aws_role_arn")
         if not aws_role_arn:
-            raise S3CredentialIntegrationError("A valid role ARN is required for an AWS S3 integration")
+            raise AWSCredentialIntegrationError("A valid role ARN is required for an AWS integration")
 
-        if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id):
-            raise ValidationError("Cannot create AWS S3 integration: Invalid role")
+        if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id, cls.integration_kind):
+            raise ValidationError("Cannot create AWS integration: Invalid role")
 
-        return _create_unique_s3_integration(
+        return _create_unique_named_integration(
             team_id=team_id,
-            kind=Integration.IntegrationKind.AWS_S3,
+            kind=cls.integration_kind,
             name=name,
             config={"name": name, "aws_role_arn": aws_role_arn},
             sensitive_config={},
@@ -4653,67 +4732,53 @@ class AwsS3RoleBasedIntegration:
         )
 
 
-class AwsS3Integration:
-    """An AWS S3 integration storing reusable AWS credentials.
+class AWSS3RoleBasedIntegration(AWSRoleBasedIntegration):
+    """An AWS S3 integration storing a customer's AWS role."""
 
-    Holds only credentials; bucket, region, prefix and other export-specific settings stay on the
-    batch export destination config, so one credential can be reused across many buckets/regions —
-    and, in future, by Redshift COPY-mode exports that stage to S3.
+    integration_kind: ClassVar[Literal[Integration.IntegrationKind.AWS_S3]] = Integration.IntegrationKind.AWS_S3
 
-    Unlike `S3CompatibleIntegration` it has no `endpoint_url` — an AWS
+
+class AWSRedshiftRoleBasedIntegration(AWSRoleBasedIntegration):
+    """An AWS Redshift integration storing a customer's AWS role."""
+
+    integration_kind: ClassVar[Literal[Integration.IntegrationKind.AWS_REDSHIFT]] = (
+        Integration.IntegrationKind.AWS_REDSHIFT
+    )
+
+
+class AWSCredentialsIntegration:
+    """AWS integration for any service that requires storing long-lived AWS credentials.
+
+    Unlike `S3CompatibleIntegration` it has no `endpoint_url` because an AWS
     integration must never be pointed at an arbitrary endpoint (SSRF boundary).
     """
 
     integration: Integration
-    aws_access_key_id: str
-    aws_secret_access_key: str
+    credentials: AWSKeyPair
+
+    integration_kind: ClassVar[_AWSKindType]
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != Integration.IntegrationKind.AWS_S3:
-            raise S3CredentialIntegrationError(
-                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+        if integration.kind != self.integration_kind:
+            raise AWSCredentialIntegrationError(
+                "Integration provided is not the expected AWS integration"
+                f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
         self.integration = integration
-        credentials = _read_s3_credentials(integration)
-        self.aws_access_key_id = credentials.access_key_id
-        self.aws_secret_access_key = credentials.secret_access_key
+        self.credentials = _read_aws_credentials(integration)
 
     @property
     def aws_account_id(self) -> str | None:
         """The AWS account id resolved from the credentials at create time, if available."""
         return self.integration.config.get("aws_account_id")
 
-    @staticmethod
-    def validate_credentials(aws_access_key_id: str, aws_secret_access_key: str) -> str:
-        """Validate AWS credentials via STS GetCallerIdentity, returning the AWS account id.
+    @property
+    def aws_access_key_id(self) -> str:
+        return self.credentials.access_key_id
 
-        GetCallerIdentity requires no IAM permissions, so it verifies the credentials are valid
-        without assuming any particular S3 policy. It hits the fixed global AWS STS endpoint, so
-        there is no user-controlled endpoint and no SSRF surface (unlike S3-compatible).
-
-        This runs synchronously on the request thread, so the timeout budget is kept tight:
-        a single attempt (no retry) bounds the worst case at ~10s (connect + read) if STS is
-        unreachable, rather than blocking the worker while botocore retries.
-        """
-        import boto3  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
-        from botocore.config import Config  # noqa: PLC0415
-        from botocore.exceptions import BotoCoreError, ClientError  # noqa: PLC0415
-
-        client = boto3.client(
-            "sts",
-            aws_access_key_id=aws_access_key_id,
-            aws_secret_access_key=aws_secret_access_key,
-            config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 1}),
-        )
-        try:
-            identity = client.get_caller_identity()
-        except ClientError as e:
-            message = e.response.get("Error", {}).get("Message") or str(e)
-            raise S3CredentialIntegrationError(f"AWS credentials are not valid: {message}")
-        except BotoCoreError as e:
-            raise S3CredentialIntegrationError(f"Could not validate AWS credentials: {e}")
-
-        return identity["Account"]
+    @property
+    def aws_secret_access_key(self) -> str:
+        return self.credentials.secret_access_key
 
     @classmethod
     def integration_from_config(
@@ -4724,29 +4789,52 @@ class AwsS3Integration:
     ) -> Integration:
         name = _return_non_empty_str_from_config(config, "name")
         if not name:
-            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+            raise AWSCredentialIntegrationError("A name is required for an AWS integration")
 
         aws_access_key_id = _return_non_empty_str_from_config(config, "aws_access_key_id")
         if not aws_access_key_id:
-            raise S3CredentialIntegrationError("Access key ID is required for an AWS S3 integration")
+            raise AWSCredentialIntegrationError("Access key ID is required for an AWS integration")
 
         aws_secret_access_key = _return_non_empty_str_from_config(config, "aws_secret_access_key")
         if not aws_secret_access_key:
-            raise S3CredentialIntegrationError("Secret access key is required for an AWS S3 integration")
+            raise AWSCredentialIntegrationError("Secret access key is required for an AWS integration")
 
         # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
-        account_id = cls.validate_credentials(aws_access_key_id, aws_secret_access_key)
+        account_id = validate_aws_credentials(aws_access_key_id, aws_secret_access_key)
+
+        # SAFETY: We check that each value is non-empty and str type, and, by
+        # validating the credentials directly with AWS, we ensure each of these
+        # values is what they say they are. This call is safe.
+        credentials = AWSKeyPair.unsafe_from_strings(aws_access_key_id, aws_secret_access_key)
 
         # `name` is the unencrypted, frontend-visible identifier — never an AWS credential, which is
         # treated as a secret. The account id is non-sensitive and kept for display/debugging.
-        return _create_unique_s3_integration(
+        return _create_unique_aws_integration(
             team_id=team_id,
-            kind=Integration.IntegrationKind.AWS_S3,
+            kind=cls.integration_kind,
             name=name,
-            config={"name": name, "aws_account_id": account_id},
-            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            account_id=account_id,
+            credentials=credentials,
             created_by=created_by,
         )
+
+
+class AWSS3Integration(AWSCredentialsIntegration):
+    """An AWS S3 integration storing reusable AWS credentials.
+
+    Holds only credentials; bucket, region, prefix and other export-specific settings stay on the
+    batch export destination config, so one credential can be reused across many buckets/regions.
+    """
+
+    integration_kind: ClassVar[Literal[Integration.IntegrationKind.AWS_S3]] = Integration.IntegrationKind.AWS_S3
+
+
+class AWSRedshiftIntegration(AWSCredentialsIntegration):
+    """An AWS Redshift integration storing reusable AWS credentials."""
+
+    integration_kind: ClassVar[Literal[Integration.IntegrationKind.AWS_REDSHIFT]] = (
+        Integration.IntegrationKind.AWS_REDSHIFT
+    )
 
 
 class S3CompatibleIntegration:
@@ -4761,12 +4849,7 @@ class S3CompatibleIntegration:
     """
 
     integration: Integration
-    # The `aws_` prefix applies even to these non-AWS providers: they are AWS Signature V4
-    # credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also
-    # match boto3's kwargs and the existing S3-family batch export config fields, so they pass
-    # through unchanged.
-    aws_access_key_id: str
-    aws_secret_access_key: str
+    credentials: AWSKeyPair
     endpoint_url: str
 
     def __init__(self, integration: Integration) -> None:
@@ -4775,40 +4858,57 @@ class S3CompatibleIntegration:
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
         self.integration = integration
-        credentials = _read_s3_credentials(integration)
-        self.aws_access_key_id = credentials.access_key_id
-        self.aws_secret_access_key = credentials.secret_access_key
+        self.credentials = _read_aws_credentials(integration)
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:
             raise S3CredentialIntegrationError("S3-compatible integration is missing required field: 'endpoint_url'")
 
+    @property
+    def aws_access_key_id(self) -> str:
+        return self.credentials.access_key_id
+
+    @property
+    def aws_secret_access_key(self) -> str:
+        return self.credentials.secret_access_key
+
     @classmethod
     def integration_from_config(
         cls,
         team_id: int,
-        name: str,
-        endpoint_url: str,
-        aws_access_key_id: str,
-        aws_secret_access_key: str,
         created_by: "User | None" = None,
+        **config,
     ) -> Integration:
+        name = _return_non_empty_str_from_config(config, "name")
         if not name:
             raise S3CredentialIntegrationError("A name is required for an S3-compatible integration")
+
+        aws_access_key_id = _return_non_empty_str_from_config(config, "aws_access_key_id")
+        if not aws_access_key_id:
+            raise S3CredentialIntegrationError("Access key ID is required for an S3-compatible integration")
+
+        aws_secret_access_key = _return_non_empty_str_from_config(config, "aws_secret_access_key")
+        if not aws_secret_access_key:
+            raise S3CredentialIntegrationError("Secret access key is required for an S3-compatible integration")
+
+        endpoint_url = _return_non_empty_str_from_config(config, "endpoint_url")
         if not endpoint_url:
-            raise S3CredentialIntegrationError("An endpoint URL is required for an S3-compatible integration")
+            raise S3CredentialIntegrationError("Endpoint URL is required for an S3-compatible integration")
 
         # SSRF protection — credentials must not be testable against an attacker-controlled endpoint.
         allowed, error = is_url_allowed(endpoint_url)
         if not allowed:
             raise S3CredentialIntegrationError(f"Invalid endpoint URL: {error}")
 
-        return _create_unique_s3_integration(
+        return _create_unique_named_integration(
             team_id=team_id,
             kind=Integration.IntegrationKind.S3_COMPATIBLE,
             name=name,
             config={"name": name, "endpoint_url": endpoint_url},
-            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            sensitive_config={
+                "aws_access_key_id": aws_access_key_id,
+                "aws_secret_access_key": aws_secret_access_key,
+            },
             created_by=created_by,
         )
 

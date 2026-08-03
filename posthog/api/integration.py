@@ -60,13 +60,17 @@ from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
-    AwsS3Integration,
-    AwsS3RoleBasedIntegration,
+    AWSCredentialIntegrationError,
+    AWSRedshiftIntegration,
+    AWSRedshiftRoleBasedIntegration,
+    AWSS3Integration,
+    AWSS3RoleBasedIntegration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
     DatabricksIntegration,
     DatabricksIntegrationError,
+    DuplicateNameError,
     EmailIntegration,
     FirebaseIntegration,
     GitHubIntegration,
@@ -747,44 +751,52 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError("Organization context is missing")
             organization_id = str(get_organization().id)
 
-            integration = AwsS3RoleBasedIntegration if "aws_role_arn" in config else AwsS3Integration
+            s3_integration = AWSS3RoleBasedIntegration if "aws_role_arn" in config else AWSS3Integration
 
             try:
-                instance = integration.integration_from_config(
+                instance = s3_integration.integration_from_config(
                     team_id=team_id,
                     created_by=request.user,
                     organization_id=organization_id,
                     **config,
                 )
-            except S3CredentialIntegrationError as e:
+            except (AWSCredentialIntegrationError, DuplicateNameError) as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "aws-redshift":
+            config = validated_data.get("config", {})
+
+            get_organization = self.context.get("get_organization")
+            if get_organization is None:
+                raise ValidationError("Organization context is missing")
+            organization_id = str(get_organization().id)
+
+            redshift_integration = (
+                AWSRedshiftRoleBasedIntegration if "aws_role_arn" in config else AWSRedshiftIntegration
+            )
+
+            try:
+                instance = redshift_integration.integration_from_config(
+                    team_id=team_id,
+                    created_by=request.user,
+                    organization_id=organization_id,
+                    **config,
+                )
+            except (AWSCredentialIntegrationError, DuplicateNameError) as e:
                 raise ValidationError(str(e))
             return instance
 
         elif validated_data["kind"] == "s3-compatible":
             config = validated_data.get("config", {})
-            name = config.get("name")
-            endpoint_url = config.get("endpoint_url")
-            aws_access_key_id = config.get("aws_access_key_id")
-            aws_secret_access_key = config.get("aws_secret_access_key")
-
-            if not (name and endpoint_url and aws_access_key_id and aws_secret_access_key):
-                raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be provided")
-            if not all(
-                isinstance(value, str) for value in (name, endpoint_url, aws_access_key_id, aws_secret_access_key)
-            ):
-                raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be strings")
-
             try:
                 # SSRF validation of `endpoint_url` happens inside `integration_from_config`.
                 instance = S3CompatibleIntegration.integration_from_config(
                     team_id=team_id,
-                    name=name,
-                    endpoint_url=endpoint_url,
-                    aws_access_key_id=aws_access_key_id,
-                    aws_secret_access_key=aws_secret_access_key,
                     created_by=request.user,
+                    **config,
                 )
-            except S3CredentialIntegrationError as e:
+            except (S3CredentialIntegrationError, AWSCredentialIntegrationError, DuplicateNameError) as e:
                 raise ValidationError(str(e))
             return instance
 

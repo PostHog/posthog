@@ -38,10 +38,12 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     TLS,
     Authority,
-    AwsS3Integration,
+    AWSCredentialIntegrationError,
+    AWSS3Integration,
     Credentials,
     DatabricksIntegration,
     DatabricksIntegrationError,
+    DuplicateNameError,
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
@@ -64,6 +66,7 @@ from posthog.models.integration import (
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
+    validate_aws_credentials,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -3407,10 +3410,10 @@ class TestDatabricksIntegrationModel(BaseTest):
             )
 
 
-class TestAwsS3IntegrationModel(BaseTest):
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+class TestAWSS3IntegrationModel(BaseTest):
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_integration_from_config_with_valid_config(self, mock_validate):
-        integration = AwsS3Integration.integration_from_config(
+        integration = AWSS3Integration.integration_from_config(
             team_id=self.team.pk,
             name="prod-aws",
             aws_access_key_id="AKIAEXAMPLE",
@@ -3430,27 +3433,27 @@ class TestAwsS3IntegrationModel(BaseTest):
         }
         # display_name surfaces AWS account so users can tell integrations apart.
         assert integration.display_name == "prod-aws (AWS account 123456789012)"
-        assert AwsS3Integration(integration).aws_account_id == "123456789012"
+        assert AWSS3Integration(integration).aws_account_id == "123456789012"
 
     def test_integration_from_config_requires_name(self):
-        with pytest.raises(S3CredentialIntegrationError, match="A name is required"):
-            AwsS3Integration.integration_from_config(
+        with pytest.raises(AWSCredentialIntegrationError, match="A name is required"):
+            AWSS3Integration.integration_from_config(
                 team_id=self.team.pk,
                 name="",
                 aws_access_key_id="AKIAEXAMPLE",
                 aws_secret_access_key="secret",
             )
 
-    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    @patch("posthog.models.integration.validate_aws_credentials", return_value="123456789012")
     def test_integration_from_config_rejects_duplicate_name(self, mock_validate):
-        AwsS3Integration.integration_from_config(
+        AWSS3Integration.integration_from_config(
             team_id=self.team.pk,
             name="prod-aws",
             aws_access_key_id="AKIAEXAMPLE",
             aws_secret_access_key="secret",
         )
-        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'prod-aws' already exists"):
-            AwsS3Integration.integration_from_config(
+        with pytest.raises(DuplicateNameError, match="An integration named 'prod-aws' already exists"):
+            AWSS3Integration.integration_from_config(
                 team_id=self.team.pk,
                 name="prod-aws",
                 aws_access_key_id="AKIAOTHER",
@@ -3459,12 +3462,12 @@ class TestAwsS3IntegrationModel(BaseTest):
         assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
 
     @patch("boto3.client")
-    def test_validate_credentials_returns_account_id(self, mock_boto_client):
+    def test_validate_aws_credentials_returns_account_id(self, mock_boto_client):
         mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
-        assert AwsS3Integration.validate_credentials("key", "secret") == "123456789012"
+        assert validate_aws_credentials("key", "secret") == "123456789012"
 
     @patch("boto3.client")
-    def test_validate_credentials_raises_on_invalid_credentials(self, mock_boto_client):
+    def test_validate_aws_credentials_raises_on_invalid_credentials(self, mock_boto_client):
         from botocore.exceptions import ClientError
 
         mock_boto_client.return_value.get_caller_identity.side_effect = ClientError(
@@ -3472,23 +3475,23 @@ class TestAwsS3IntegrationModel(BaseTest):
             "GetCallerIdentity",
         )
         with pytest.raises(
-            S3CredentialIntegrationError, match="AWS credentials are not valid: The security token is invalid."
+            AWSCredentialIntegrationError, match="AWS credentials are not valid: The security token is invalid."
         ):
-            AwsS3Integration.validate_credentials("key", "secret")
+            validate_aws_credentials("key", "secret")
 
     def test_wrapping_wrong_kind_raises(self):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.S3_COMPATIBLE, integration_id="x"
         )
-        with pytest.raises(S3CredentialIntegrationError, match="is not an AWS S3 integration"):
-            AwsS3Integration(integration)
+        with pytest.raises(AWSCredentialIntegrationError, match="is not the expected AWS integration"):
+            AWSS3Integration(integration)
 
     def test_wrapping_missing_credentials_raises(self):
         integration = Integration.objects.create(
             team=self.team, kind=Integration.IntegrationKind.AWS_S3, integration_id="x", sensitive_config={}
         )
-        with pytest.raises(S3CredentialIntegrationError, match="missing"):
-            AwsS3Integration(integration)
+        with pytest.raises(AWSCredentialIntegrationError, match="missing"):
+            AWSS3Integration(integration)
 
 
 class TestS3CompatibleIntegrationModel(BaseTest):
@@ -3512,7 +3515,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         assert integration.display_name == "my-r2 (access key, https://account.r2.cloudflarestorage.com)"
 
     def test_integration_from_config_requires_endpoint_url(self):
-        with pytest.raises(S3CredentialIntegrationError, match="endpoint URL is required"):
+        with pytest.raises(S3CredentialIntegrationError, match="Endpoint URL is required"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
@@ -3529,7 +3532,7 @@ class TestS3CompatibleIntegrationModel(BaseTest):
             aws_access_key_id="key",
             aws_secret_access_key="secret",
         )
-        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'my-r2' already exists"):
+        with pytest.raises(DuplicateNameError, match="An integration named 'my-r2' already exists"):
             S3CompatibleIntegration.integration_from_config(
                 team_id=self.team.pk,
                 name="my-r2",
