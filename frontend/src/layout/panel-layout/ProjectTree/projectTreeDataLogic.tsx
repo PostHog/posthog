@@ -514,8 +514,8 @@ export interface projectTreeDataLogicMeta {
             featureFlags: FeatureFlagsSet,
             folderStates: Record<string, FolderState>,
             users: Record<string, UserBasicType>,
-            sidebarToolOrder: any,
-            isSidebarFlattened: any
+            sidebarToolOrder: string[] | null,
+            isSidebarFlattened: boolean
         ) => (searchTerm: string) => TreeDataItem[]
     }
 }

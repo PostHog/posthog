@@ -308,10 +308,10 @@ export interface uiCustomizationLogicMeta {
         userUiConfiguration: (
             user: UserType | null,
             pendingUiConfiguration: UserUIConfiguration | null,
-            resetInFlight: any
+            resetInFlight: boolean
         ) => UserUIConfiguration | null
         uiConfiguration: (
-            userUiConfiguration: any,
+            userUiConfiguration: UserUIConfiguration | null,
             projectDefaultUiConfiguration: UserUIConfiguration | null
         ) => UserUIConfiguration | null
         isSidebarSectionShown: (
