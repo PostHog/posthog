@@ -2,18 +2,14 @@ import IORedis, { Redis } from 'ioredis'
 import { parseArgs } from 'node:util'
 
 import {
+    CDP_MIGRATION_KEY_GROUPS,
     CdpMigrationOptions,
+    CdpMigrationKeyGroup,
     MigrationPhase,
+    keyPatternsForGroups,
     migrationHasMismatches,
     runCdpMigration,
 } from './cdp-valkey-migration'
-
-const KEY_PATTERNS = [
-    '@posthog/hog-masker/mask/*',
-    '@posthog/hog-watcher-2/state/*',
-    '@posthog/hog-watcher-2/tokens/*',
-    '@posthog/hog-watcher-2/state-lock/*',
-]
 
 function connectionFromEnv(prefix: 'CDP_REDIS' | 'CDP_VALKEY'): Redis {
     const host = process.env[`${prefix}_HOST`]
@@ -30,6 +26,7 @@ function parseOptions(): CdpMigrationOptions {
     const { values } = parseArgs({
         options: {
             phase: { type: 'string', default: 'copy' },
+            group: { type: 'string', multiple: true, default: ['all'] },
             execute: { type: 'boolean', default: false },
             'writers-paused': { type: 'boolean', default: false },
             'scan-count': { type: 'string', default: '500' },
@@ -41,19 +38,40 @@ function parseOptions(): CdpMigrationOptions {
         console.log(`Usage: migrate-cdp-redis-to-valkey [options]
 
   --phase copy       Copy source keys while Redis remains authoritative (default)
-  --phase finalize   Exact copy and remove target-only keys; requires paused writers
+  --phase finalize   Exact copy, remove target-only keys, and verify
   --phase verify     Compare values and expiries without writing
+  --group NAME       Key group to migrate: hog-watcher, hog-masker, or all (default)
+                     May be repeated to select multiple groups
   --execute          Apply changes; omitted means dry-run
-  --writers-paused   Confirm every HogMasker and HogWatcher writer is paused
+  --writers-paused   Confirm writers are paused (required when hog-masker is selected)
   --scan-count N     Redis SCAN batch size (default: 500)
   --ttl-tolerance-ms N  Allowed expiry difference during verify (default: 2000)
 
-Connections come from CDP_REDIS_* (source) and CDP_VALKEY_* (target).`)
+Connections come from CDP_REDIS_* (source) and CDP_VALKEY_* (target).
+
+Examples:
+  --group hog-watcher --phase verify
+      Check watcher parity without writing.
+  --group hog-watcher --phase finalize --execute
+      One-shot live watcher migration; watcher state is operational and recoverable.
+  --group hog-masker --phase finalize --execute --writers-paused
+      Finalize sensitive masker history after pausing all writers.`)
         process.exit(0)
     }
     if (!['copy', 'finalize', 'verify'].includes(values.phase)) {
         throw new Error(`Invalid --phase: ${values.phase}`)
     }
+    const requestedGroups = values.group ?? ['all']
+    const availableGroups = Object.keys(CDP_MIGRATION_KEY_GROUPS) as CdpMigrationKeyGroup[]
+    const invalidGroups = requestedGroups.filter(
+        (group): group is string => group !== 'all' && !availableGroups.includes(group as CdpMigrationKeyGroup)
+    )
+    if (invalidGroups.length > 0) {
+        throw new Error(`Invalid --group: ${invalidGroups.join(', ')}`)
+    }
+    const groups = requestedGroups.includes('all')
+        ? availableGroups
+        : [...new Set(requestedGroups as CdpMigrationKeyGroup[])]
     const scanCount = Number(values['scan-count'])
     const ttlToleranceMs = Number(values['ttl-tolerance-ms'])
     if (!Number.isInteger(scanCount) || scanCount < 1 || !Number.isFinite(ttlToleranceMs) || ttlToleranceMs < 0) {
@@ -63,9 +81,10 @@ Connections come from CDP_REDIS_* (source) and CDP_VALKEY_* (target).`)
         phase: values.phase as MigrationPhase,
         execute: values.execute,
         writersPaused: values['writers-paused'],
+        requireWritersPaused: groups.includes('hog-masker'),
         scanCount,
         ttlToleranceMs,
-        keyPatterns: KEY_PATTERNS,
+        keyPatterns: keyPatternsForGroups(groups),
     }
 }
 

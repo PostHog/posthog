@@ -1,6 +1,11 @@
 import IORedis, { Redis } from 'ioredis'
 
-import { CdpMigrationOptions, migrationHasMismatches, runCdpMigration } from './cdp-valkey-migration'
+import {
+    CdpMigrationOptions,
+    keyPatternsForGroups,
+    migrationHasMismatches,
+    runCdpMigration,
+} from './cdp-valkey-migration'
 
 const KEY_PATTERNS = ['@posthog-test/hog-masker/mask/*', '@posthog-test/hog-watcher-2/*']
 const SOURCE_KEY = '@posthog-test/hog-masker/mask/function/hash'
@@ -16,6 +21,7 @@ describe('CDP Valkey migration', () => {
         phase: 'copy',
         execute: true,
         writersPaused: false,
+        requireWritersPaused: true,
         scanCount: 10,
         ttlToleranceMs: 500,
         keyPatterns: KEY_PATTERNS,
@@ -86,7 +92,33 @@ describe('CDP Valkey migration', () => {
     it('refuses to finalize without paused writers', async () => {
         await expect(
             runCdpMigration(source, target, options({ phase: 'finalize', writersPaused: false }))
-        ).rejects.toThrow('Finalization requires execute=true and writersPaused=true')
+        ).rejects.toThrow('Finalization for the selected key groups requires writersPaused=true')
+    })
+
+    it('allows a one-shot live finalization for watcher-only state', async () => {
+        await source.set(WATCHER_STATE_KEY, '12')
+
+        const summary = await runCdpMigration(
+            source,
+            target,
+            options({
+                phase: 'finalize',
+                keyPatterns: keyPatternsForGroups(['hog-watcher']).map((pattern) => pattern.replace('@posthog/', '@posthog-test/')),
+                requireWritersPaused: false,
+            })
+        )
+
+        expect(migrationHasMismatches(summary)).toBe(false)
+        await expect(target.get(WATCHER_STATE_KEY)).resolves.toBe('12')
+    })
+
+    it('selects masker and watcher key groups independently', () => {
+        expect(keyPatternsForGroups(['hog-masker'])).toEqual(['@posthog/hog-masker/mask/*'])
+        expect(keyPatternsForGroups(['hog-watcher'])).toEqual([
+            '@posthog/hog-watcher-2/state/*',
+            '@posthog/hog-watcher-2/tokens/*',
+            '@posthog/hog-watcher-2/state-lock/*',
+        ])
     })
 
     it('copies non-expiring watcher state', async () => {

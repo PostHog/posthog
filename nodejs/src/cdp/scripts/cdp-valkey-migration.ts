@@ -6,10 +6,26 @@ type DumpBufferPipeline = ReturnType<Redis['pipeline']> & {
 
 export type MigrationPhase = 'copy' | 'finalize' | 'verify'
 
+export const CDP_MIGRATION_KEY_GROUPS = {
+    'hog-masker': ['@posthog/hog-masker/mask/*'],
+    'hog-watcher': [
+        '@posthog/hog-watcher-2/state/*',
+        '@posthog/hog-watcher-2/tokens/*',
+        '@posthog/hog-watcher-2/state-lock/*',
+    ],
+} as const
+
+export type CdpMigrationKeyGroup = keyof typeof CDP_MIGRATION_KEY_GROUPS
+
+export function keyPatternsForGroups(groups: CdpMigrationKeyGroup[]): string[] {
+    return [...new Set(groups.flatMap((group) => CDP_MIGRATION_KEY_GROUPS[group]))]
+}
+
 export type CdpMigrationOptions = {
     phase: MigrationPhase
     execute: boolean
     writersPaused: boolean
+    requireWritersPaused: boolean
     scanCount: number
     ttlToleranceMs: number
     keyPatterns: string[]
@@ -182,8 +198,11 @@ export async function runCdpMigration(
     target: Redis,
     options: CdpMigrationOptions
 ): Promise<MigrationSummary> {
-    if (options.phase === 'finalize' && (!options.execute || !options.writersPaused)) {
-        throw new Error('Finalization requires execute=true and writersPaused=true')
+    if (options.phase === 'finalize' && !options.execute) {
+        throw new Error('Finalization requires execute=true')
+    }
+    if (options.phase === 'finalize' && options.requireWritersPaused && !options.writersPaused) {
+        throw new Error('Finalization for the selected key groups requires writersPaused=true')
     }
 
     const summary = emptyMigrationSummary()
