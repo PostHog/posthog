@@ -39,7 +39,7 @@ class Dataset(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     archived = models.BooleanField(default=False)
     current_revision = models.ForeignKey(
         "DatasetRevision",
-        on_delete=models.SET_NULL,
+        on_delete=models.RESTRICT,
         null=True,
         blank=True,
         related_name="+",
@@ -119,7 +119,7 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     external_id = models.CharField(max_length=255, null=True, blank=True)
     current_version = models.ForeignKey(
         "DatasetItemVersion",
-        on_delete=models.SET_NULL,
+        on_delete=models.RESTRICT,
         null=True,
         blank=True,
         related_name="+",
@@ -158,7 +158,7 @@ class DatasetItemVersion(UUIDModel, CreatedMetaFields):
     dataset_item = models.ForeignKey(DatasetItem, on_delete=models.CASCADE, related_name="versions")
     dataset_revision = models.ForeignKey(
         DatasetRevision,
-        on_delete=models.CASCADE,
+        on_delete=models.RESTRICT,
         related_name="item_versions",
     )
     version = models.PositiveIntegerField()

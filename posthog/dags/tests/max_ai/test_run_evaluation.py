@@ -52,6 +52,7 @@ def test_prepare_dataset_uses_the_current_active_snapshot(mock_get_team_id) -> N
         created_by=user,
         base_version=1,
     )
+    Dataset.objects.for_team(team.id).filter(id=dataset.id).update(current_revision=None)
 
     context = dagster.build_op_context(op_config={"dataset_id": str(dataset.id)})
     result = prepare_dataset(context)

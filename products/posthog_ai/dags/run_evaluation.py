@@ -14,7 +14,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.dags.common import JobOwners
 
-from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
+from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision, latest_dataset_revision
 from products.ai_observability.backend.models import Dataset
 from products.posthog_ai.dags.snapshot_team_data import (
     ClickhouseTeamDataSnapshot,
@@ -77,7 +77,8 @@ def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetC
         .select_related("current_revision")
         .get(id=config.dataset_id, archived=False)
     )
-    current_revision_number = dataset.current_revision.revision if dataset.current_revision is not None else None
+    current_revision = dataset.current_revision or latest_dataset_revision(team_id=team_id, dataset_id=dataset.id)
+    current_revision_number = current_revision.revision if current_revision is not None else None
     if config.revision is not None:
         if current_revision_number is None:
             raise ValueError("This dataset has no revisions. Add an item before running the evaluation.")

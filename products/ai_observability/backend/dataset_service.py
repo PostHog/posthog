@@ -7,9 +7,11 @@ from typing import Literal
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
+from django.db.models import Max
 
 from posthog.models import Team, User
 
+from products.ai_observability.backend.dataset_queries import latest_dataset_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 
 type JSONValue = None | bool | int | float | str | list[JSONValue] | dict[str, JSONValue]
@@ -221,6 +223,11 @@ def _lock_dataset(*, team_id: int, dataset_id: UUID) -> Dataset:
         .get(id=dataset_id)
     )
     current_revision = dataset.current_revision
+    if current_revision is None:
+        current_revision = latest_dataset_revision(team_id=dataset.team_id, dataset_id=dataset.id)
+        if current_revision is not None:
+            dataset.current_revision = current_revision
+            dataset.save(update_fields=["current_revision"])
     if current_revision is not None and (
         current_revision.dataset_id != dataset.id or current_revision.team_id != dataset.team_id
     ):
@@ -242,7 +249,17 @@ def _lock_item(*, team_id: int, dataset: Dataset, item_id: UUID) -> DatasetItem:
 def _current_item_version(*, dataset: Dataset, item: DatasetItem) -> DatasetItemVersion:
     version = item.current_version
     if version is None:
-        raise DatasetIntegrityError("Dataset item has no current version.")
+        version = (
+            DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True)
+            .select_related("dataset_revision")
+            .filter(dataset_item_id=item.id)
+            .order_by("-version")
+            .first()
+        )
+        if version is None:
+            raise DatasetIntegrityError("Dataset item has no current version.")
+        item.current_version = version
+        item.save(update_fields=["current_version"])
     if (
         item.team_id != dataset.team_id
         or version.team_id != dataset.team_id
@@ -265,11 +282,16 @@ def _check_base_version(*, current_version: DatasetItemVersion, base_version: in
 
 
 def _create_revision(*, dataset: Dataset, created_by: User | None) -> DatasetRevision:
-    revision_number = dataset.current_revision.revision + 1 if dataset.current_revision is not None else 1
+    latest_revision_number = (
+        DatasetRevision.objects.for_team(dataset.team_id, canonical=True)
+        .filter(dataset_id=dataset.id)
+        .aggregate(latest_revision=Max("revision"))["latest_revision"]
+        or 0
+    )
     return DatasetRevision.objects.for_team(dataset.team_id, canonical=True).create(
         team_id=dataset.team_id,
         dataset=dataset,
-        revision=revision_number,
+        revision=latest_revision_number + 1,
         created_by=created_by,
     )
 

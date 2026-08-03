@@ -236,7 +236,7 @@ class Migration(migrations.Migration):
                 (
                     "dataset_revision",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
+                        on_delete=django.db.models.deletion.RESTRICT,
                         related_name="item_versions",
                         to="ai_observability.datasetrevision",
                     ),
@@ -261,7 +261,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True,
                 null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
+                on_delete=django.db.models.deletion.RESTRICT,
                 related_name="+",
                 to="ai_observability.datasetrevision",
             ),
@@ -272,7 +272,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(
                 blank=True,
                 null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
+                on_delete=django.db.models.deletion.RESTRICT,
                 related_name="+",
                 to="ai_observability.datasetitemversion",
             ),

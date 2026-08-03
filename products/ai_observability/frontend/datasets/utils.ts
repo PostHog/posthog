@@ -2,6 +2,10 @@ export const EMPTY_JSON = '{\n  \n}'
 
 export type JSONValue = Record<string, unknown> | unknown[] | string | number | boolean | null
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
 /**
  * Coerce a string to a valid JSON object or null.
  * @param maybeJson - The string to coerce
@@ -12,10 +16,9 @@ export function coerceJsonToObject(maybeJson: string | null): Record<string, unk
         return null
     }
     try {
-        const parsedObject = JSON.parse(maybeJson)
-        // Regular object or null
-        if (typeof parsedObject === 'object' && Object.keys(parsedObject).length > 0) {
-            return parsedObject as Record<string, unknown>
+        const parsedObject: unknown = JSON.parse(maybeJson)
+        if (isJsonObject(parsedObject) && Object.keys(parsedObject).length > 0) {
+            return parsedObject
         }
         return null
     } catch {
@@ -33,14 +36,10 @@ export function isStringJsonObject(maybeJson: string | null): boolean {
         return true
     }
     try {
-        const parsedObject = JSON.parse(maybeJson)
-        if (typeof parsedObject !== 'object' || parsedObject === null || Array.isArray(parsedObject)) {
-            return false
-        }
+        return isJsonObject(JSON.parse(maybeJson))
     } catch {
         return false
     }
-    return true
 }
 
 export function isStringJsonValue(maybeJson: string | null, allowNull: boolean = true): boolean {
@@ -60,7 +59,11 @@ export function parseJsonValue(maybeJson: string | null): JSONValue {
 }
 
 export function parseJsonObject(maybeJson: string | null): Record<string, unknown> {
-    return (maybeJson ? JSON.parse(maybeJson) : {}) as Record<string, unknown>
+    const parsedObject: unknown = maybeJson ? JSON.parse(maybeJson) : {}
+    if (!isJsonObject(parsedObject)) {
+        throw new TypeError('Expected a JSON object')
+    }
+    return parsedObject
 }
 
 export function normalizeJsonValue(value: unknown, fallback: JSONValue): JSONValue {

@@ -1,11 +1,13 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { CodeEnumApi } from '../generated/api.schemas'
 import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { DatasetFormValues, DatasetLogicProps, aiObservabilityDatasetLogic } from './aiObservabilityDatasetLogic'
 import { aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
@@ -382,6 +384,39 @@ describe('aiObservabilityDatasetLogic', () => {
     })
 
     describe('dataset item archiving', () => {
+        it('offers to reload items when archiving an outdated version', async () => {
+            const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
+            mockDatasetsApi.archiveItem.mockRejectedValue(
+                new ApiError(errorDetail, 409, undefined, {
+                    code: CodeEnumApi.StaleVersion,
+                    detail: errorDetail,
+                    current_version: 2,
+                })
+            )
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const listCallCount = mockDatasetsApi.listItems.mock.calls.length
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveDatasetItem(mockDatasetItem1.id, mockDatasetItem1.version)
+            }).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith(errorDetail, {
+                button: {
+                    label: 'Reload items',
+                    action: expect.any(Function),
+                },
+            })
+            const toastOptions = (lemonToast.error as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => void }
+            }
+            toastOptions.button.action()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(listCallCount + 1)
+        })
+
         it('shows an error when Undo cannot restore the item', async () => {
             const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
             logic.mount()
@@ -401,6 +436,44 @@ describe('aiObservabilityDatasetLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith(
                 "Couldn't restore dataset item. Refresh the dataset and try again."
             )
+        })
+
+        it('offers to reload items when Undo finds a newer version', async () => {
+            const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
+            mockDatasetsApi.restoreItem.mockRejectedValue(
+                new ApiError(errorDetail, 409, undefined, {
+                    code: CodeEnumApi.StaleVersion,
+                    detail: errorDetail,
+                    current_version: 3,
+                })
+            )
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveDatasetItem(mockDatasetItem1.id, mockDatasetItem1.version)
+            }).toFinishAllListeners()
+
+            const undoToastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => Promise<void> }
+            }
+            await undoToastOptions.button.action()
+            const listCallCount = mockDatasetsApi.listItems.mock.calls.length
+
+            expect(lemonToast.error).toHaveBeenCalledWith(errorDetail, {
+                button: {
+                    label: 'Reload items',
+                    action: expect.any(Function),
+                },
+            })
+            const errorToastOptions = (lemonToast.error as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => void }
+            }
+            errorToastOptions.button.action()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockDatasetsApi.listItems).toHaveBeenCalledTimes(listCallCount + 1)
         })
     })
 

@@ -2,7 +2,8 @@ from collections.abc import Mapping
 from typing import NoReturn, cast
 from uuid import UUID
 
-from django.db.models import F, Q, QuerySet, Subquery
+from django.db.models import F, OuterRef, Q, QuerySet, Subquery
+from django.db.models.functions import Coalesce
 from django.http import Http404
 
 from drf_spectacular.types import OpenApiTypes
@@ -142,18 +143,27 @@ class DatasetConflictResponseSerializer(serializers.Serializer):
     )
 
 
+def _resolved_dataset_revision(dataset: Dataset) -> int | None:
+    annotated_revision = cast(int | None, getattr(dataset, "resolved_current_revision", None))
+    if annotated_revision is not None:
+        return annotated_revision
+    return dataset.current_revision.revision if dataset.current_revision is not None else None
+
+
+def _resolved_dataset_revision_id(dataset: Dataset) -> UUID | None:
+    annotated_revision_id = cast(UUID | None, getattr(dataset, "resolved_current_revision_id", None))
+    if annotated_revision_id is not None:
+        return annotated_revision_id
+    return dataset.current_revision_id
+
+
 class DatasetReadSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True, allow_null=True)
     metadata = JSONObjectField(read_only=True, help_text="JSON object with descriptive dataset metadata.")
-    current_revision = serializers.IntegerField(
-        source="current_revision.revision",
-        read_only=True,
-        allow_null=True,
+    current_revision = serializers.SerializerMethodField(
         help_text="Latest dataset revision, or null before the first item is added.",
     )
-    current_revision_id = serializers.UUIDField(
-        read_only=True,
-        allow_null=True,
+    current_revision_id = serializers.SerializerMethodField(
         help_text="ID of the latest committed dataset revision.",
     )
     team_id = serializers.IntegerField(read_only=True, help_text="Project that owns the dataset.")
@@ -174,6 +184,14 @@ class DatasetReadSerializer(serializers.ModelSerializer):
             "team_id",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_current_revision(self, instance: Dataset) -> int | None:
+        return _resolved_dataset_revision(instance)
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_current_revision_id(self, instance: Dataset) -> UUID | None:
+        return _resolved_dataset_revision_id(instance)
 
 
 class DatasetCreateSerializer(DatasetMutationSerializer):
@@ -507,6 +525,39 @@ def _item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItemVersion]
     )
 
 
+def _dataset_queryset() -> QuerySet[Dataset, Dataset]:
+    latest_revision = DatasetRevision.objects.unscoped().filter(dataset_id=OuterRef("id")).order_by("-revision")
+    return (
+        Dataset.objects.unscoped()
+        .select_related("created_by", "current_revision")
+        .annotate(
+            resolved_current_revision=Coalesce(
+                F("current_revision__revision"),
+                Subquery(latest_revision.values("revision")[:1]),
+            ),
+            resolved_current_revision_id=Coalesce(
+                F("current_revision_id"),
+                Subquery(latest_revision.values("id")[:1]),
+            ),
+        )
+    )
+
+
+def _current_item_version_queryset() -> QuerySet[DatasetItemVersion, DatasetItemVersion]:
+    latest_version_id = (
+        DatasetItemVersion.objects.unscoped()
+        .filter(dataset_item_id=OuterRef("dataset_item_id"))
+        .order_by("-version")
+        .values("id")[:1]
+    )
+    return _item_version_queryset().filter(
+        id=Coalesce(
+            F("dataset_item__current_version_id"),
+            Subquery(latest_version_id),
+        )
+    )
+
+
 class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericViewSet):
     scope_object = "dataset"
     scope_object_read_actions = ["list", "retrieve", "revisions"]
@@ -515,7 +566,7 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
     posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetPagination
     serializer_class = DatasetReadSerializer
-    queryset = Dataset.objects.unscoped().select_related("created_by", "current_revision")
+    queryset = _dataset_queryset()
     http_method_names = ["get", "post", "patch", "put", "head", "options"]
 
     def _should_skip_parents_filter(self) -> bool:
@@ -702,7 +753,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     posthog_feature_flag = "llm-analytics-datasets"
     pagination_class = DatasetItemPagination
     serializer_class = DatasetItemReadSerializer
-    queryset = _item_version_queryset().filter(dataset_item__current_version_id=F("id"))
+    queryset = _current_item_version_queryset()
     lookup_field = "dataset_item_id"
     http_method_names = ["get", "post", "patch", "head", "options"]
 
@@ -747,11 +798,7 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     def _get_dataset(self, dataset_id: UUID) -> Dataset:
         try:
-            dataset = (
-                Dataset.objects.for_team(self.team.id, canonical=True)
-                .select_related("created_by", "current_revision")
-                .get(id=dataset_id)
-            )
+            dataset = _dataset_queryset().filter(team_id=self.team.id).get(id=dataset_id)
         except Dataset.DoesNotExist as error:
             raise Http404 from error
         self.check_object_permissions(self.request, dataset)
@@ -779,8 +826,8 @@ class DatasetItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 archived=archived,
             )
         else:
-            current_revision = dataset.current_revision
-            if current_revision is None or revision > current_revision.revision:
+            current_revision = _resolved_dataset_revision(dataset)
+            if current_revision is None or revision > current_revision:
                 raise Http404("Dataset revision not found.")
 
             version_ids = dataset_item_versions_at_revision(

@@ -2,6 +2,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import IntegrityError, transaction
+from django.db.models.deletion import RestrictedError
 
 from parameterized import parameterized
 from rest_framework import status
@@ -611,6 +612,52 @@ class TestDatasetsApi(APIBaseTest):
             str(Dataset.objects.for_team(self.team.id).get(id=dataset["id"]).current_revision_id),
             update_response.data["dataset_revision_id"],
         )
+
+    def test_current_pointers_recover_from_immutable_history(self) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"], input="v1")
+        Dataset.objects.for_team(self.team.id).filter(id=dataset["id"]).update(current_revision=None)
+        DatasetItem.objects.for_team(self.team.id).filter(id=item["id"]).update(current_version=None)
+
+        dataset_response = self.client.get(f"{self.datasets_url}{dataset['id']}/")
+        item_response = self.client.get(f"{self.items_url}{item['id']}/")
+        update_response = self.client.patch(
+            f"{self.items_url}{item['id']}/",
+            {"base_version": 1, "input": "v2"},
+            format="json",
+        )
+
+        self.assertEqual(dataset_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(dataset_response.data["current_revision"], 1)
+        self.assertEqual(item_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(item_response.data["version"], 1)
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(update_response.data["version"], 2)
+        self.assertEqual(update_response.data["dataset_revision"], 2)
+        self.assertEqual(
+            str(Dataset.objects.for_team(self.team.id).get(id=dataset["id"]).current_revision_id),
+            update_response.data["dataset_revision_id"],
+        )
+        self.assertEqual(
+            str(DatasetItem.objects.for_team(self.team.id).get(id=item["id"]).current_version_id),
+            update_response.data["version_id"],
+        )
+
+    def test_history_deletion_requires_deleting_the_dataset(self) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"])
+        revision = DatasetRevision.objects.for_team(self.team.id).get(id=item["dataset_revision_id"])
+        version = DatasetItemVersion.objects.for_team(self.team.id).get(id=item["version_id"])
+
+        with self.assertRaises(RestrictedError):
+            revision.delete()
+        with self.assertRaises(RestrictedError):
+            version.delete()
+
+        Dataset.objects.for_team(self.team.id).get(id=dataset["id"]).delete()
+
+        self.assertFalse(DatasetRevision.objects.for_team(self.team.id).filter(id=revision.id).exists())
+        self.assertFalse(DatasetItemVersion.objects.for_team(self.team.id).filter(id=version.id).exists())
 
     def test_personal_api_key_scopes_cover_custom_actions(self) -> None:
         dataset = self._create_dataset()

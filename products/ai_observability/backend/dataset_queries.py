@@ -2,7 +2,16 @@ from uuid import UUID
 
 from django.db.models import OuterRef, QuerySet, Subquery
 
-from products.ai_observability.backend.models.datasets import DatasetItemVersion
+from products.ai_observability.backend.models.datasets import DatasetItemVersion, DatasetRevision
+
+
+def latest_dataset_revision(*, team_id: int, dataset_id: UUID) -> DatasetRevision | None:
+    return (
+        DatasetRevision.objects.for_team(team_id, canonical=True)
+        .filter(dataset_id=dataset_id)
+        .order_by("-revision")
+        .first()
+    )
 
 
 def dataset_item_versions_at_revision(
