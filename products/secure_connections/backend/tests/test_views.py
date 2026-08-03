@@ -88,9 +88,11 @@ class TestSecureConnectionApprovalsApi(APIBaseTest):
             "selector": "api.internal.example",
         }
         self.team.refresh_from_db()
-        assert self.team.extra_settings["secure_connections"]["cdp_approved_connections"][CONNECTION_ID][
-            "selector"
-        ] == ("api.internal.example")
+        assert self.team.extra_settings is not None
+        assert (
+            self.team.extra_settings["secure_connections"]["cdp_approved_connections"][CONNECTION_ID]["selector"]
+            == "api.internal.example"
+        )
 
         responses.reset()
         response = self.client.post(self.url, {"connection_id": CONNECTION_ID, "approved": False})

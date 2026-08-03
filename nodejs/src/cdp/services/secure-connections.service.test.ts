@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken'
+import { randomBytes } from 'node:crypto'
 import http from 'node:http'
 import net from 'node:net'
 
@@ -7,7 +8,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { SecureConnectionsService, magicHostnameForConnection } from './secure-connections.service'
 
 const CONNECTION_ID = 'fd247df6-cf23-4abc-8ee0-3bce4bbc5be0'
-const WORKLOAD_SECRET = 'demo-workload-secret-at-least-32-bytes'
+const WORKLOAD_SECRET = randomBytes(32).toString('hex')
 
 function listen(server: net.Server): Promise<number> {
     return new Promise((resolve) =>

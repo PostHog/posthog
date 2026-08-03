@@ -64015,13 +64015,27 @@ export namespace Schemas {
       control_url: string;
     }
 
+    /**
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `connected` - connected
+     */
+    export type SecureConnectionStateEnum = typeof SecureConnectionStateEnum[keyof typeof SecureConnectionStateEnum];
+
+
+    export const SecureConnectionStateEnum = {
+      NotConfigured: 'not_configured',
+      Waiting: 'waiting',
+      Connected: 'connected',
+    } as const;
+
     export interface SecureConnectionStatus {
       /** Current setup state for this project's secure connection.
        *
        * * `not_configured` - not_configured
        * * `waiting` - waiting
        * * `connected` - connected */
-      connection_state: ConnectionStateEnum;
+      connection_state: SecureConnectionStateEnum;
       /** Services currently advertised through the secure connection. */
       connections: SecureConnection[];
     }

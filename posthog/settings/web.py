@@ -662,6 +662,8 @@ SPECTACULAR_SETTINGS = {
             "needs_attention",
             "sync_paused",
         ],
+        "SecureConnectionStateEnum": ["not_configured", "waiting", "connected"],
+        "ConnectionStateEnum": ["ready", "pending_oauth", "needs_reauth", "disabled", "missing_credential"],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.
         "SignalSourceProduct": "products.signals.backend.enums.SIGNAL_SOURCE_PRODUCT_VALUES",

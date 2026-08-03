@@ -166,9 +166,11 @@ class TestSecureConnectionApprovals(BaseTest):
             }
         }
         self.team.refresh_from_db()
-        assert self.team.extra_settings["secure_connections"]["cdp_approved_connections"][connection.id][
-            "selector"
-        ] == ("api.internal.example")
+        assert self.team.extra_settings is not None
+        assert (
+            self.team.extra_settings["secure_connections"]["cdp_approved_connections"][connection.id]["selector"]
+            == "api.internal.example"
+        )
 
         api.set_cdp_connection_approval(self.team.id, connection, approved=False)
 

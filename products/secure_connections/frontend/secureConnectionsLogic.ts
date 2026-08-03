@@ -34,7 +34,7 @@ export interface secureConnectionsLogicActions {
     loadCdpApprovals: () => any
     loadCdpApprovalsSuccess: (cdpApprovals: SecureConnectionApprovalsApi, payload?: any) => any
     loadCdpApprovalsFailure: (error: string, errorObject?: any) => any
-    setCdpApproval: (connectionId: string, approved: boolean) => any
+    setCdpApproval: (payload: { connectionId: string; approved: boolean }) => any
     setCdpApprovalSuccess: (cdpApprovals: SecureConnectionApprovalsApi, payload?: any) => any
     setCdpApprovalFailure: (error: string, errorObject?: any) => any
     createEnrollment: () => any

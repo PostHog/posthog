@@ -149,7 +149,9 @@ function SecureConnectionsScene(): JSX.Element {
                                             disabledReason={
                                                 compatible ? undefined : 'CDP currently supports HTTP services only.'
                                             }
-                                            onClick={() => setCdpApproval(connection.id, !approved)}
+                                            onClick={() =>
+                                                setCdpApproval({ connectionId: connection.id, approved: !approved })
+                                            }
                                         >
                                             {approved
                                                 ? 'Revoke CDP access'
@@ -180,7 +182,7 @@ function SecureConnectionsScene(): JSX.Element {
                                     type="secondary"
                                     status="danger"
                                     loading={cdpApprovalsLoading}
-                                    onClick={() => setCdpApproval(connectionId, false)}
+                                    onClick={() => setCdpApproval({ connectionId, approved: false })}
                                 >
                                     Revoke {connectionId}
                                 </LemonButton>

@@ -12,9 +12,10 @@
  * * `waiting` - waiting
  * * `connected` - connected
  */
-export type ConnectionStateEnumApi = (typeof ConnectionStateEnumApi)[keyof typeof ConnectionStateEnumApi]
+export type SecureConnectionStateEnumApi =
+    (typeof SecureConnectionStateEnumApi)[keyof typeof SecureConnectionStateEnumApi]
 
-export const ConnectionStateEnumApi = {
+export const SecureConnectionStateEnumApi = {
     NotConfigured: 'not_configured',
     Waiting: 'waiting',
     Connected: 'connected',
@@ -41,7 +42,7 @@ export interface SecureConnectionStatusApi {
      * * `not_configured` - not_configured
      * * `waiting` - waiting
      * * `connected` - connected */
-    connection_state: ConnectionStateEnumApi
+    connection_state: SecureConnectionStateEnumApi
     /** Services currently advertised through the secure connection. */
     connections: SecureConnectionApi[]
 }
