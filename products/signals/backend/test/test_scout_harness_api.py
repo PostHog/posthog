@@ -1441,6 +1441,92 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.consecutive_failure_count == 0
         assert config.run_interval_minutes == 120
 
+    @parameterized.expand(
+        [
+            ("default_marks_exempt", {"enabled": True}, True),
+            ("explicit_false_wins", {"enabled": True, "auto_pause_exempt": False}, False),
+        ]
+    )
+    def test_re_enabling_an_inactivity_paused_scout_marks_it_exempt(
+        self, _name: str, payload: dict, expected_exempt: bool
+    ) -> None:
+        # A re-enable is a human overruling the sweep, and the sweep must not overrule them back:
+        # the same quiet fortnight would re-qualify the scout as soon as its grace window lapses.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["auto_pause_exempt"] is expected_exempt
+        config.refresh_from_db()
+        assert config.enabled is True
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.pause_reason is None
+        assert config.auto_pause_exempt is expected_exempt
+
+    def test_re_enabling_an_inactivity_paused_scout_emits_the_revert_event(self) -> None:
+        # The sweep's false-positive metric: a re-enable soon after the pause means the rule
+        # paused something someone still wanted.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.IGNORED,
+            status_changed_at=timezone.now() - timedelta(hours=2),
+        )
+
+        with patch("products.signals.backend.scout_harness.serializers.posthoganalytics.capture") as capture:
+            response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_auto_pause_reverted"]
+        assert call.kwargs["properties"]["pause_reason"] == SignalScoutConfig.PauseReason.IGNORED
+        assert call.kwargs["properties"]["reverted_within_24h"] is True
+
+    def test_re_enabling_a_breaker_paused_scout_does_not_mark_it_exempt(self) -> None:
+        # The exemption belongs to the inactivity sweep; a re-enable after repeated failures says
+        # nothing about whether the scout's silence is wanted.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            enabled=False,
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.auto_pause_exempt is False
+
+    def test_exempting_a_scout_clears_its_pending_warning(self) -> None:
+        # Exempting takes the scout out of the sweep, so nothing else would ever clear the
+        # warning and the fleet page would keep saying it's about to pause.
+        config = SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-foo",
+            status=SignalScoutConfig.Status.PENDING_PAUSE,
+            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+        )
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"auto_pause_exempt": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["auto_pause_exempt"] is True
+        config.refresh_from_db()
+        assert config.auto_pause_exempt is True
+        assert config.status == SignalScoutConfig.Status.ACTIVE
+        assert config.pause_reason is None
+
     def test_resending_enabled_false_does_not_escalate_a_system_pause(self) -> None:
         # Clients resend whole config objects; an unchanged `enabled=false` must not convert
         # a system pause into a user pause the system may never resume.

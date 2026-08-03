@@ -526,6 +526,9 @@ const scoutConfigCreate = (): ToolBase<typeof ScoutConfigCreateSchema, Schemas.S
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
         }
+        if (params.auto_pause_exempt !== undefined) {
+            body['auto_pause_exempt'] = params.auto_pause_exempt
+        }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
@@ -613,6 +616,9 @@ const scoutConfigUpdate = (): ToolBase<typeof ScoutConfigUpdateSchema, WithPostH
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
         }
+        if (params.auto_pause_exempt !== undefined) {
+            body['auto_pause_exempt'] = params.auto_pause_exempt
+        }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
@@ -644,6 +650,7 @@ const scoutCreatePrepare = (): ToolBase<typeof ScoutCreateSchema, PrepareConfirm
             messageTemplate:
                 "About to create scout '{name}', a persistent automation that can run unattended on its configured schedule and write reports to the inbox when enabled with emit on. Reply 'confirm' to create it.\n",
             codec: __runtime.codec,
+            stash: __runtime.stash,
             boundScope: { projectId: String(__scopeProjectId) },
         })
     },
@@ -660,6 +667,7 @@ const scoutCreateExecute = (): ToolBase<typeof ScoutCreateSchemaExecute, Schemas
             purpose: 'scout-create',
             codec: __runtime.codec,
             ledger: __runtime.ledger,
+            stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
         if (!__guard.ok) {
@@ -1161,6 +1169,9 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
         }
+        if (params.auto_pause_exempt !== undefined) {
+            body['auto_pause_exempt'] = params.auto_pause_exempt
+        }
         if (params.run_cron_schedule !== undefined) {
             body['run_cron_schedule'] = params.run_cron_schedule
         }
@@ -1256,6 +1267,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.output_destinations !== undefined) {
             body['output_destinations'] = params.output_destinations
+        }
+        if (params.auto_pause_exempt !== undefined) {
+            body['auto_pause_exempt'] = params.auto_pause_exempt
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
