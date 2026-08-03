@@ -112,18 +112,17 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    session_id = "conversation-abc"  # same across every turn of the conversation
-                                    trace_id = str(uuid.uuid4())     # one per turn
-                                    distinct_id = "user_123"
+                                    trace_id = str(uuid.uuid4())
 
-                                    # tools and get_weather() are your existing tool-calling setup
                                     response = client.models.generate_content(
                                         model="gemini-2.5-flash",
                                         contents=[{"role": "user", "parts": [{"text": "What's the weather in Paris?"}]}],
                                         config=types.GenerateContentConfig(tools=tools),
-                                        posthog_distinct_id=distinct_id,
+                                        posthog_distinct_id="user_123",
                                         posthog_trace_id=trace_id,
-                                        posthog_properties={"$ai_session_id": session_id},
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                        },
                                     )
                                 `,
                             },
@@ -131,18 +130,17 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const sessionId = 'conversation-abc' // same across every turn of the conversation
-                                    const traceId = crypto.randomUUID()  // one per turn
-                                    const distinctId = 'user_123'
+                                    const traceId = crypto.randomUUID()
 
-                                    // tools and getWeather() are your existing tool-calling setup
                                     const response = await client.models.generateContent({
                                       model: 'gemini-2.5-flash',
                                       contents: "What's the weather in Paris?",
                                       config: { tools },
-                                      posthogDistinctId: distinctId,
+                                      posthogDistinctId: 'user_123',
                                       posthogTraceId: traceId,
-                                      posthogProperties: { $ai_session_id: sessionId },
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                      },
                                     })
                                 `,
                             },
@@ -185,17 +183,16 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    # Capture each function call as a span nested under the generation above
                                     for call in response.function_calls or []:
                                         start = time.time()
-                                        result = get_weather(**call.args)
+                                        result = run_tool(call.name, call.args)
 
                                         posthog.capture(
-                                            distinct_id=distinct_id,
+                                            distinct_id="user_123",
                                             event="$ai_span",
                                             properties={
                                                 "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
+                                                "$ai_session_id": "conversation-abc",
                                                 "$ai_span_id": str(uuid.uuid4()),
                                                 "$ai_span_name": call.name,
                                                 "$ai_input_state": call.args,
@@ -209,17 +206,16 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    // Capture each function call as a span nested under the generation above
                                     for (const call of response.functionCalls ?? []) {
                                       const start = Date.now()
-                                      const result = await getWeather(call.args)
+                                      const result = await runTool(call.name, call.args)
 
                                       posthog.capture({
-                                        distinctId,
+                                        distinctId: 'user_123',
                                         event: '$ai_span',
                                         properties: {
                                           $ai_trace_id: traceId,
-                                          $ai_session_id: sessionId,
+                                          $ai_session_id: 'conversation-abc',
                                           $ai_span_id: crypto.randomUUID(),
                                           $ai_span_name: call.name,
                                           $ai_input_state: call.args,

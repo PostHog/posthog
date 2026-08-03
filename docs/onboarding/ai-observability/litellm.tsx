@@ -128,19 +128,16 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
 
                                     posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                                    session_id = "conversation-abc"  # same across every turn of the conversation
-                                    trace_id = str(uuid.uuid4())     # one per turn
-                                    user_id = "user_123"
+                                    trace_id = str(uuid.uuid4())
 
-                                    # tools is your existing tool-calling setup
                                     response = litellm.completion(
                                         model="gpt-5-mini",
                                         messages=[{"role": "user", "content": "What's the weather in Paris?"}],
                                         tools=tools,
                                         metadata={
-                                            "user_id": user_id,                   # Maps to PostHog distinct_id
+                                            "user_id": "user_123",                # Maps to PostHog distinct_id
                                             "company": "company_id_in_your_db",   # Custom property
-                                            "$ai_session_id": session_id,
+                                            "$ai_session_id": "conversation-abc",
                                             "$ai_trace_id": trace_id,
                                         },
                                     )
@@ -212,17 +209,16 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     <CodeBlock
                         language="python"
                         code={dedent`
-                            # get_weather() is your existing tool-calling function
                             for call in response.choices[0].message.tool_calls or []:
                                 start = time.time()
-                                result = get_weather(**json.loads(call.function.arguments))
+                                result = run_tool(call.function.name, json.loads(call.function.arguments))
 
                                 posthog.capture(
-                                    distinct_id=user_id,
+                                    distinct_id="user_123",
                                     event="$ai_span",
                                     properties={
                                         "$ai_trace_id": trace_id,
-                                        "$ai_session_id": session_id,
+                                        "$ai_session_id": "conversation-abc",
                                         "$ai_span_id": str(uuid.uuid4()),
                                         "$ai_span_name": call.function.name,
                                         "$ai_input_state": call.function.arguments,

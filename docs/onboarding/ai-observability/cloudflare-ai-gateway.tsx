@@ -122,19 +122,19 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    session_id = "conversation-abc"  # same across every turn of the conversation
-                                    trace_id = str(uuid.uuid4())     # one per turn
-                                    distinct_id = "user_123"
+                                    trace_id = str(uuid.uuid4())
 
-                                    # tools and get_weather() are your existing tool-calling setup
                                     response = client.chat.completions.create(
                                         model="openai/gpt-5-mini",
                                         max_completion_tokens=1024,
                                         messages=[{"role": "user", "content": "What's the weather in Paris?"}],
                                         tools=tools,
-                                        posthog_distinct_id=distinct_id,
+                                        posthog_distinct_id="user_123",
                                         posthog_trace_id=trace_id,
-                                        posthog_properties={"$ai_session_id": session_id, "$ai_provider": "cloudflare"},
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                            "$ai_provider": "cloudflare",
+                                        },
                                     )
                                 `,
                             },
@@ -142,19 +142,19 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const sessionId = 'conversation-abc' // same across every turn of the conversation
-                                    const traceId = crypto.randomUUID()  // one per turn
-                                    const distinctId = 'user_123'
+                                    const traceId = crypto.randomUUID()
 
-                                    // tools and getWeather() are your existing tool-calling setup
                                     const response = await client.chat.completions.create({
                                       model: 'openai/gpt-5-mini',
                                       max_completion_tokens: 1024,
                                       messages: [{ role: 'user', content: "What's the weather in Paris?" }],
                                       tools,
-                                      posthogDistinctId: distinctId,
+                                      posthogDistinctId: 'user_123',
                                       posthogTraceId: traceId,
-                                      posthogProperties: { $ai_session_id: sessionId, $ai_provider: 'cloudflare' },
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                        $ai_provider: 'cloudflare',
+                                      },
                                     })
                                 `,
                             },
@@ -197,17 +197,16 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    # Capture each tool call as a span nested under the generation above
                                     for call in response.choices[0].message.tool_calls or []:
                                         start = time.time()
-                                        result = get_weather(**json.loads(call.function.arguments))
+                                        result = run_tool(call.function.name, json.loads(call.function.arguments))
 
                                         posthog.capture(
-                                            distinct_id=distinct_id,
+                                            distinct_id="user_123",
                                             event="$ai_span",
                                             properties={
                                                 "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
+                                                "$ai_session_id": "conversation-abc",
                                                 "$ai_span_id": str(uuid.uuid4()),
                                                 "$ai_span_name": call.function.name,
                                                 "$ai_input_state": call.function.arguments,
@@ -221,10 +220,9 @@ export const getCloudflareAIGatewaySteps = (ctx: OnboardingComponentsContext): S
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    // Capture each tool call as a span nested under the generation above
                                     for (const call of response.choices[0].message.tool_calls ?? []) {
                                       const start = Date.now()
-                                      const result = await getWeather(JSON.parse(call.function.arguments))
+                                      const result = await runTool(call.function.name, JSON.parse(call.function.arguments))
 
                                       posthog.capture({
                                         distinctId,

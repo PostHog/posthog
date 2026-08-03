@@ -95,7 +95,7 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                             Run your CrewAI agents as normal. PostHog automatically captures an \`$ai_generation\`
                             event for each LLM call. LiteLLM's callback does not see the tools your agents call.
                             Capture a tool's own execution as a span from inside the tool itself instead, as
-                            \`get_weather\` does below.
+                            \`my_tool\` does below.
                         `}
                     </Markdown>
 
@@ -108,25 +108,23 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                             posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                            session_id = "conversation-abc"  # same across every turn of the conversation
-                            trace_id = str(uuid.uuid4())     # one per crew run
-                            user_id = "user_123"
+                            trace_id = str(uuid.uuid4())
 
                             @tool
-                            def get_weather(city: str) -> str:
-                                """Look up the weather for a given city."""
+                            def my_tool(query: str) -> str:
+                                """Describe what your tool does."""
                                 start = time.time()
-                                result = f"It's always sunny in {city}!"
+                                result = run_tool(query)
 
                                 posthog.capture(
-                                    distinct_id=user_id,
+                                    distinct_id="user_123",
                                     event="$ai_span",
                                     properties={
                                         "$ai_trace_id": trace_id,
-                                        "$ai_session_id": session_id,
+                                        "$ai_session_id": "conversation-abc",
                                         "$ai_span_id": str(uuid.uuid4()),
-                                        "$ai_span_name": "get_weather",
-                                        "$ai_input_state": {"city": city},
+                                        "$ai_span_name": "my_tool",
+                                        "$ai_input_state": {"query": query},
                                         "$ai_output_state": result,
                                         "$ai_latency": time.time() - start,
                                     },
@@ -140,8 +138,8 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 model="gpt-4o-mini",
                                 is_litellm=True,
                                 metadata={
-                                    "user_id": user_id,
-                                    "$ai_session_id": session_id,
+                                    "user_id": "user_123",
+                                    "$ai_session_id": "conversation-abc",
                                     "$ai_trace_id": trace_id,
                                 },
                             )
@@ -151,7 +149,7 @@ export const getCrewAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 goal="Find the weather in a city",
                                 backstory="You are an expert wildlife researcher.",
                                 llm=llm,
-                                tools=[get_weather],
+                                tools=[my_tool],
                             )
 
                             task = Task(

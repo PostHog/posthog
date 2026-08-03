@@ -112,19 +112,18 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    session_id = "conversation-abc"  # same across every turn of the conversation
-                                    trace_id = str(uuid.uuid4())     # one per turn
-                                    distinct_id = "user_123"
+                                    trace_id = str(uuid.uuid4())
 
-                                    # tools and get_weather() are your existing tool-calling setup
                                     response = client.messages.create(
                                         model="claude-sonnet-4-5",
                                         max_tokens=1024,
                                         messages=[{"role": "user", "content": "What's the weather in Paris?"}],
                                         tools=tools,
-                                        posthog_distinct_id=distinct_id,
+                                        posthog_distinct_id="user_123",
                                         posthog_trace_id=trace_id,
-                                        posthog_properties={"$ai_session_id": session_id},
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                        },
                                     )
                                 `,
                             },
@@ -132,19 +131,18 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const sessionId = 'conversation-abc' // same across every turn of the conversation
-                                    const traceId = crypto.randomUUID()  // one per turn
-                                    const distinctId = 'user_123'
+                                    const traceId = crypto.randomUUID()
 
-                                    // tools and getWeather() are your existing tool-calling setup
                                     const response = await client.messages.create({
                                       model: 'claude-sonnet-4-5',
                                       max_tokens: 1024,
                                       messages: [{ role: 'user', content: "What's the weather in Paris?" }],
                                       tools,
-                                      posthogDistinctId: distinctId,
+                                      posthogDistinctId: 'user_123',
                                       posthogTraceId: traceId,
-                                      posthogProperties: { $ai_session_id: sessionId },
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                      },
                                     })
                                 `,
                             },
@@ -187,20 +185,19 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    # Capture each tool_use block as a span nested under the generation above
                                     for block in response.content:
                                         if block.type != "tool_use":
                                             continue
 
                                         start = time.time()
-                                        result = get_weather(**block.input)
+                                        result = run_tool(block.name, block.input)
 
                                         posthog.capture(
-                                            distinct_id=distinct_id,
+                                            distinct_id="user_123",
                                             event="$ai_span",
                                             properties={
                                                 "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
+                                                "$ai_session_id": "conversation-abc",
                                                 "$ai_span_id": str(uuid.uuid4()),
                                                 "$ai_span_name": block.name,
                                                 "$ai_input_state": block.input,
@@ -214,19 +211,18 @@ export const getAnthropicSteps = (ctx: OnboardingComponentsContext): StepDefinit
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    // Capture each tool_use block as a span nested under the generation above
                                     for (const block of response.content) {
                                       if (block.type !== 'tool_use') continue
 
                                       const start = Date.now()
-                                      const result = await getWeather(block.input)
+                                      const result = await runTool(block.name, block.input)
 
                                       posthog.capture({
-                                        distinctId,
+                                        distinctId: 'user_123',
                                         event: '$ai_span',
                                         properties: {
                                           $ai_trace_id: traceId,
-                                          $ai_session_id: sessionId,
+                                          $ai_session_id: 'conversation-abc',
                                           $ai_span_id: crypto.randomUUID(),
                                           $ai_span_name: block.name,
                                           $ai_input_state: block.input,

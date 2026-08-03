@@ -115,16 +115,14 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
 
                             posthog = Posthog("<ph_project_token>", host="<ph_client_api_host>")
 
-                            session_id = "conversation-abc"  # same across every turn of the conversation
-                            trace_id = str(uuid.uuid4())     # one per turn
-                            user_id = "user_123"
+                            trace_id = str(uuid.uuid4())
 
                             lm = dspy.LM(
                                 "openai/gpt-5-mini",
                                 api_key="your_openai_api_key",
                                 metadata={
-                                    "user_id": user_id,
-                                    "$ai_session_id": session_id,
+                                    "user_id": "user_123",
+                                    "$ai_session_id": "conversation-abc",
                                     "$ai_trace_id": trace_id,
                                 },
                             )
@@ -172,11 +170,11 @@ export const getDSPySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                             context = retrieve("hedgehog facts")
 
                             posthog.capture(
-                                distinct_id=user_id,
+                                distinct_id="user_123",
                                 event="$ai_span",
                                 properties={
                                     "$ai_trace_id": trace_id,
-                                    "$ai_session_id": session_id,
+                                    "$ai_session_id": "conversation-abc",
                                     "$ai_span_id": str(uuid.uuid4()),
                                     "$ai_span_name": "retrieve",
                                     "$ai_input_state": "hedgehog facts",
