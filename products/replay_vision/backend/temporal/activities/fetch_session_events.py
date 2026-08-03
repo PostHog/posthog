@@ -39,6 +39,9 @@ logger = structlog.get_logger(__name__)
 # Events are no longer inlined in the prompt — they're loaded into the table the model queries on demand — so we
 # page through the whole session.
 _EVENTS_PER_PAGE = 2000
+# Eligibility caps active seconds, not event count, so an instrumentation loop or bot can still emit
+# millions of rows. Cap the total we hold in memory, gzip into Redis, and index for the events tool.
+_MAX_TOTAL_EVENT_ROWS = 50_000
 
 # Noisy SDK-internal events that add no signal for the LLM.
 _EVENTS_TO_IGNORE = ["$feature_flag_called"]
@@ -136,6 +139,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
 
     columns: list[str] | None = None
     all_rows: list[list[Any]] = []
+    events_truncated = False
     for page_number in itertools.count():
         page = events_obj.get_events(
             session_id=session_id,
@@ -151,6 +155,16 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         if not page.rows:
             break
         all_rows.extend(list(row) for row in page.rows)
+        if len(all_rows) >= _MAX_TOTAL_EVENT_ROWS:
+            events_truncated = len(all_rows) > _MAX_TOTAL_EVENT_ROWS or page.has_more
+            del all_rows[_MAX_TOTAL_EVENT_ROWS:]
+            logger.warning(
+                "replay_vision.fetch.events_truncated",
+                session_id=session_id,
+                team_id=team_id,
+                cap=_MAX_TOTAL_EVENT_ROWS,
+            )
+            break
         if not page.has_more:
             break
 
@@ -170,6 +184,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         event_timestamps=processed.event_timestamps,
         navigation=processed.navigation,
         navigation_dropped=processed.navigation_dropped,
+        events_truncated=events_truncated,
         distinct_id=metadata.get("distinct_id"),
         metadata=SessionMetadata(
             start_time=metadata["start_time"],

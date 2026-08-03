@@ -17,6 +17,7 @@ import {
     convertNotebookContentToMarkdown,
     getMarkdownNotebookMarkdown,
     getMarkdownNotebookTitle,
+    insertMarkdownNotebookBlockAfterNode,
     isMarkdownNotebookContent,
     notebookArtifactContentToMarkdown,
     notebookContentHasCommentMarks,
@@ -62,6 +63,38 @@ describe('markdownNotebookV2', () => {
         expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
             '# Activation\n\n\n<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
         )
+    })
+
+    it('inserts markdown blocks after the block with a matching nodeId prop', () => {
+        const content = buildMarkdownNotebookContent(
+            '# Activation\n\n<UsageMetrics nodeId="target-node" />\n\nClosing paragraph'
+        )
+        const nextContent = insertMarkdownNotebookBlockAfterNode(content, 'target-node', '<Survey id="s1" />')
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\n<UsageMetrics nodeId="target-node" />\n\n<Survey id="s1" />\n\nClosing paragraph'
+        )
+    })
+
+    it('inserts markdown blocks after the block with a matching parsed block id', () => {
+        const markdown = '# Activation\n\nMiddle paragraph\n\nClosing paragraph'
+        const middleBlockId = parseMarkdownNotebook(markdown).nodes[1].id
+        const nextContent = insertMarkdownNotebookBlockAfterNode(
+            buildMarkdownNotebookContent(markdown),
+            middleBlockId,
+            'Inserted paragraph'
+        )
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual(
+            '# Activation\n\nMiddle paragraph\n\nInserted paragraph\n\nClosing paragraph'
+        )
+    })
+
+    it('appends at the end when no block matches the target node id', () => {
+        const content = buildMarkdownNotebookContent('# Activation')
+        const nextContent = insertMarkdownNotebookBlockAfterNode(content, 'missing-node', '<Survey id="s1" />')
+
+        expect(getMarkdownNotebookMarkdown(nextContent)).toEqual('# Activation\n\n\n<Survey id="s1" />')
     })
 
     it('converts common legacy notebook nodes to markdown', () => {

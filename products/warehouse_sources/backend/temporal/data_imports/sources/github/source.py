@@ -80,7 +80,18 @@ GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
     "reviews": "pull_request_review",
     "deployments": "deployment",
     "deployment_statuses": "deployment_status",
+    # Like reviews, a fan-out child with no repo-wide list endpoint, so polling costs one call per
+    # commit and the table ships deselected. The event nests the run under `check_run` and the poll
+    # path injects no parent column (check run ids are globally unique), so the webhook row already
+    # matches the poll row and needs no reshaping.
+    "check_runs": "check_run",
 }
+
+# Everything else stays poll-only. GitHub does emit events for several of the other tables, but the
+# template lands `body[eventType]` as the row and these nest the object under a different key —
+# `alert` for the code-scanning/Dependabot/secret-scanning alerts, `comment` for issue and review
+# comments, `forkee` for forks, `commit` for statuses — so each needs its own reshaping branch
+# before its webhook rows would match what the poll path writes.
 
 
 @SourceRegistry.register
