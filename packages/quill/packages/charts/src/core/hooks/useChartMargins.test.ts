@@ -113,6 +113,15 @@ describe('useChartMargins', () => {
         expect(render({ series: big }).left).toBeGreaterThan(render({ series: small }).left)
     })
 
+    it('moves rotated category-label space from the horizontal margins to the bottom margin', () => {
+        const longLabels = ['a-very-long-category-label', 'another-long-category-label']
+        const horizontal = render({ labels: longLabels })
+        const rotated = render({ labels: longLabels, xTickLabelRotation: -45 })
+
+        expect(rotated.bottom).toBeGreaterThan(horizontal.bottom)
+        expect(rotated.left + rotated.right).toBeLessThan(horizontal.left + horizontal.right)
+    })
+
     describe('horizontal orientation', () => {
         it('sizes the left margin from the widest category label, not value-tick width', () => {
             const longCategoryLabels = ['shortest', 'a-considerably-longer-label']
