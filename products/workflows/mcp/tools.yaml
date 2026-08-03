@@ -322,8 +322,8 @@ tools:
             email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
             server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
             nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
-            reaches real people until workflows-publish; a rejection saying active workflows can't be edited means
-            draft editing isn't enabled for this project yet. The full updated workflow is returned. Prefer this over
+            reaches real people until workflows-publish; a rejection saying active workflows can't be edited means draft
+            editing isn't enabled for this project yet. The full updated workflow is returned. Prefer this over
             workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in
             sync. For library templates use workflows-patch-email-template instead.
     workflows-patch-graph:
