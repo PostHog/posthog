@@ -142,18 +142,24 @@ class OrganizationEnrichmentFetch(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["organization", "fetched_at"], name="growth_enrich_fetch_org_time"),
+            # Matches latest_fetches_qs' DISTINCT ON ordering (enrichment/labels.py) so the batch
+            # runner's driving query is an index scan instead of a sort of the whole archive.
+            models.Index(fields=["organization", "-fetched_at", "-id"], name="growth_enrich_fetch_org_ts_id"),
         ]
 
 
 class EnrichmentPromptConfig(UUIDModel):
-    """A versioned LLM classifier definition for one enrichment label (the "score lab" brains).
+    """A versioned LLM classifier definition for one AI enrichment label.
 
     Rails are code; brains are rows: the label owner iterates prompt/model/input selection by
     creating new rows, without a deploy. A behavior change is always a new row (new version),
-    never an in-place edit. `name` is a
-    human label for this classifier and nothing reads it as data; the output contract is
-    output_fields (see enrichment/labels.py), so renaming a label changes nothing about what the
-    classifier does or where its verdicts are stored.
+    never an in-place edit. `name` is a human label for this classifier; the output contract is
+    output_fields (see enrichment/labels.py). But `EnrichmentLabelResult.label_name` is a
+    denormalized copy of `name`, and both the idempotency check and the unique constraint key on
+    it — so renaming a label orphans every existing verdict (they keep the old label_name and are
+    invisible under the new one), and the runner reclassifies the org from scratch. Renaming
+    requires updating history in the same transaction:
+    `EnrichmentLabelResult.objects.filter(label_name=old).update(label_name=new)`.
     """
 
     # Label this config computes, e.g. "ai_pilled".
@@ -228,10 +234,15 @@ class EnrichmentLabelResult(UUIDModel):
         db_constraint=False,
         related_name="enrichment_label_results",
     )
-    # Exactly which archived payload was classified.
+    # Exactly which archived payload was classified. SET_NULL (not CASCADE): the fetch archive
+    # is the natural target for retention pruning (Organization deletion already cascades to it,
+    # see OrganizationEnrichmentFetch.organization), and prompt_hash + inputs make a verdict
+    # self-describing enough to survive its source fetch being pruned.
     fetch = models.ForeignKey(
         "growth.OrganizationEnrichmentFetch",
-        on_delete=models.CASCADE,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name="label_results",
     )
     label_name = models.CharField(max_length=128)

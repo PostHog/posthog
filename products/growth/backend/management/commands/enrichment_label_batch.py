@@ -6,14 +6,17 @@ recomputes under the same version. Nothing here is consumed downstream; results 
 queryable in Postgres only.
 """
 
+import time
+import hashlib
 import threading
 from collections import deque
 from collections.abc import Iterator
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
-from django.db import close_old_connections, transaction
+from django.db import close_old_connections, connection, transaction
 
 import structlog
 
@@ -21,16 +24,30 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
 
 from products.growth.backend.enrichment.labels import (
-    UNKNOWN,
+    PromptConfigError,
+    ai_processing_approved,
     classify_payload,
     get_active_config,
+    is_unknown_output,
     latest_fetches_qs,
     signup_domain_for_organization,
-    verdict_field_key,
+    validate_input_fields,
+    validate_output_fields,
 )
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
+
+_ID_BATCH_SIZE = 500
+
+
+def _advisory_lock_key(label: str) -> int:
+    """Stable 64-bit key for pg_try_advisory_lock. The unique constraint on EnrichmentLabelResult
+    stops a duplicate ROW, not the duplicate LLM spend — that happens minutes earlier, before the
+    row is written — so two overlapping runs for the same label need a lock, not just the
+    constraint."""
+    digest = hashlib.sha256(f"enrichment_label_batch:{label}".encode()).digest()
+    return int.from_bytes(digest[:8], "big", signed=True)
 
 
 class Command(BaseCommand):
@@ -40,25 +57,86 @@ class Command(BaseCommand):
         parser.add_argument("--label", required=True, help="EnrichmentPromptConfig.name to run")
         parser.add_argument("--limit", type=int, default=None, help="Attempt at most this many (non-skipped) orgs")
         parser.add_argument("--workers", type=int, default=5, help="Bounded concurrency for LLM calls")
+        parser.add_argument(
+            "--max-failures",
+            type=int,
+            default=25,
+            help="Abort the run once this many consecutive fetches fail in a row (circuit breaker)",
+        )
+        parser.add_argument(
+            "--min-success-rate",
+            type=float,
+            default=0.5,
+            help="Fail the run if succeeded/attempted drops below this fraction",
+        )
 
     def handle(self, *args: Any, **options: Any) -> None:
         label: str = options["label"]
         limit: int | None = options["limit"]
         workers: int = options["workers"]
+        max_failures: int = options["max_failures"]
+        min_success_rate: float = options["min_success_rate"]
         if workers < 1:
             raise CommandError("--workers must be at least 1")
+        if limit is not None and limit < 1:
+            raise CommandError("--limit must be at least 1")
+        if max_failures < 1:
+            raise CommandError("--max-failures must be at least 1")
 
         config = get_active_config(label)
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
-        # A custom output schema's pass/fail key differs from `label` - see
-        # verdict_field_key's docstring. Resolved once since config doesn't change mid-run.
-        verdict_key = verdict_field_key(config)
+        try:
+            validate_input_fields(config)
+            validate_output_fields(config)
+        except PromptConfigError as e:
+            raise CommandError(str(e)) from e
 
-        client = get_llm_client(product="growth")
+        lock_key = _advisory_lock_key(label)
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [lock_key])
+            lock_acquired = cursor.fetchone()[0]
+        if not lock_acquired:
+            raise CommandError(f"Another enrichment_label_batch run already holds the lock for label {label!r}")
 
-        counts: dict[str, int] = {"attempted": 0, "succeeded": 0, "skipped_existing": 0, "unknown": 0, "failures": 0}
+        try:
+            self._run(label, config, limit, workers, max_failures, min_success_rate)
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [lock_key])
+
+    def _run(
+        self,
+        label: str,
+        config: EnrichmentPromptConfig,
+        limit: int | None,
+        workers: int,
+        max_failures: int,
+        min_success_rate: float,
+    ) -> None:
+        started_at = time.monotonic()
+        # tenacity in labels.py already owns retries (stop_after_attempt(3)); the SDK's own
+        # internal retries underneath would multiply that budget nine-fold per fetch and actively
+        # worsen a 429 the tenacity layer is already backing off from.
+        client = get_llm_client(product="growth").with_options(max_retries=0)
+
+        counts: dict[str, int] = {
+            "attempted": 0,
+            "succeeded": 0,
+            "skipped_existing": 0,
+            "skipped_no_ai_consent": 0,
+            "unknown": 0,
+            "failures": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            # Enumerated (counted into "attempted") but never processed because the circuit
+            # breaker had already tripped — excluded from success_rate's denominator below so an
+            # aborted run's ratio reflects what was actually tried, not what was merely queued.
+            "aborted": 0,
+        }
         counts_lock = threading.Lock()
+        failure_streak = 0
+        circuit_open = threading.Event()
 
         def _result_exists(fetch: OrganizationEnrichmentFetch, label_name: str) -> bool:
             return EnrichmentLabelResult.objects.filter(
@@ -78,14 +156,30 @@ class Command(BaseCommand):
             )
 
         # In-flight LLM concurrency is bounded by the pool size itself; no extra gate needed.
-        def _process(fetch: OrganizationEnrichmentFetch) -> None:
+        def _process(fetch: OrganizationEnrichmentFetch, *, threaded: bool) -> None:
+            nonlocal failure_streak
+            if circuit_open.is_set():
+                with counts_lock:
+                    counts["aborted"] += 1
+                return
             try:
+                if threaded:
+                    # Thread-local DB connections: drop any stale one before ORM work on this
+                    # thread. Kept inside the guarded region so a failure here counts as an
+                    # ordinary failure instead of escaping through future.result() and killing
+                    # the run — and closed again below, since pool threads are reused and
+                    # otherwise sit on a held connection for the full 60s of every LLM call.
+                    close_old_connections()
                 # Re-check right before spending: another run may have computed this since the
                 # target was enumerated.
                 live_label = _live_label_name()
                 if _result_exists(fetch, live_label):
                     with counts_lock:
                         counts["skipped_existing"] += 1
+                    return
+                if not ai_processing_approved(fetch.organization_id):
+                    with counts_lock:
+                        counts["skipped_no_ai_consent"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
                 output = classify_payload(config, fetch.payload, signup_domain, client)
@@ -118,61 +212,117 @@ class Command(BaseCommand):
                 )
                 with counts_lock:
                     counts["failures"] += 1
+                    failure_streak += 1
+                    if failure_streak >= max_failures:
+                        circuit_open.set()
                 return
+            finally:
+                if threaded:
+                    connection.close()
+            meta = output.get("meta", {})
             with counts_lock:
                 counts["succeeded"] += 1
-                if verdict_key is not None and output.get(verdict_key) == UNKNOWN:
+                counts["prompt_tokens"] += meta.get("prompt_tokens", 0)
+                counts["completion_tokens"] += meta.get("completion_tokens", 0)
+                failure_streak = 0
+                if is_unknown_output(output):
                     counts["unknown"] += 1
 
-        def _process_threaded(fetch: OrganizationEnrichmentFetch) -> None:
-            # Thread-local DB connections: drop any stale one before ORM work on this thread.
-            close_old_connections()
-            _process(fetch)
+        def _id_batches() -> Iterator[list[tuple[UUID, UUID]]]:
+            """Keyset-paginate latest_fetches_qs() over the full archive by organization_id in
+            bounded chunks, so a multi-hour run never holds more than one page of full (payload +
+            joined Organization) rows in memory. .iterator() alone doesn't guarantee that:
+            DISABLE_SERVER_SIDE_CURSORS is true under pgbouncer, which silently degrades
+            .iterator() to a client-side buffer that materializes the entire result set before
+            yielding the first row.
+
+            --limit is deliberately NOT enforced here: it bounds attempted (non-skipped) orgs, not
+            enumerated ones, so it's applied in _attempt_targets instead. Capping the page query
+            itself would make a resumed run re-enumerate the same already-processed prefix and
+            attempt 0 forever whenever the first --limit orgs by organization_id already have a
+            result."""
+            last_org_id: UUID | None = None
+            while True:
+                id_qs = latest_fetches_qs().values_list("id", "organization_id")
+                if last_org_id is not None:
+                    id_qs = id_qs.filter(organization_id__gt=last_org_id)
+                page = list(id_qs[:_ID_BATCH_SIZE])
+                if not page:
+                    return
+                yield page
+                last_org_id = page[-1][1]
 
         def _attempt_targets() -> Iterator[OrganizationEnrichmentFetch]:
-            for fetch in latest_fetches_qs().select_related("organization").iterator():
-                if limit is not None and counts["attempted"] >= limit:
+            for page in _id_batches():
+                if circuit_open.is_set():
                     return
-                if _result_exists(fetch, label):
-                    with counts_lock:
-                        counts["skipped_existing"] += 1
-                    continue
-                counts["attempted"] += 1
-                yield fetch
+                fetches = OrganizationEnrichmentFetch.objects.filter(
+                    id__in=[fetch_id for fetch_id, _ in page]
+                ).select_related("organization")
+                for fetch in fetches:
+                    if circuit_open.is_set():
+                        return
+                    if _result_exists(fetch, label):
+                        with counts_lock:
+                            counts["skipped_existing"] += 1
+                        continue
+                    if limit is not None and counts["attempted"] >= limit:
+                        return
+                    # Not lock-guarded: this generator is only ever driven by one thread at a time
+                    # (the serial loop, or the single submitting loop that feeds the pool below) —
+                    # unlike the counters _process mutates from worker threads.
+                    counts["attempted"] += 1
+                    yield fetch
 
         if workers == 1:
             # Serial path stays on the caller's DB connection — worker threads can't see an
             # open transaction (which is also why the tests run with --workers 1).
             for fetch in _attempt_targets():
-                _process(fetch)
+                _process(fetch, threaded=False)
         else:
-            # Bounded in-flight submission: memory stays proportional to the worker count,
-            # not the archive size.
+            # Bounded in-flight submission, and _id_batches keyset-paginates the driving query:
+            # memory stays proportional to worker count and batch size, not archive size.
             pending: deque[Future[None]] = deque()
             with ThreadPoolExecutor(max_workers=workers) as pool:
                 for fetch in _attempt_targets():
-                    pending.append(pool.submit(_process_threaded, fetch))
+                    pending.append(pool.submit(_process, fetch, threaded=True))
                     if len(pending) >= workers * 4:
                         pending.popleft().result()
                 while pending:
                     pending.popleft().result()
 
-        # succeeded/attempted rather than a raw count: an alert can fire on the ratio, and on a
-        # run that attempted nothing at all, which is what a silently broken input source looks like.
-        success_rate = counts["succeeded"] / counts["attempted"] if counts["attempted"] else None
+        # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
+        # that attempted nothing at all, which is what a silently broken input source looks like.
+        # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
+        # work that was queued but never actually attempted, and consent skips for the same
+        # reason: an archive of orgs that all declined is a correct empty run, not a failed one.
+        tried = counts["attempted"] - counts["aborted"] - counts["skipped_no_ai_consent"]
+        success_rate = counts["succeeded"] / tried if tried else None
+        elapsed_seconds = time.monotonic() - started_at
         summary = (
             f"attempted {counts['attempted']}, succeeded {counts['succeeded']}, "
-            f"skipped_existing {counts['skipped_existing']}, unknown {counts['unknown']}, failures {counts['failures']}"
+            f"skipped_existing {counts['skipped_existing']}, "
+            f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
+            f"failures {counts['failures']}, aborted {counts['aborted']}, "
+            f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
+            f"elapsed_seconds {elapsed_seconds:.1f}"
         )
         logger.info(
             "enrichment_label_batch_complete",
             label=label,
             prompt_version=config.version,
             success_rate=success_rate,
+            elapsed_seconds=elapsed_seconds,
             **counts,
         )
-        if counts["failures"]:
-            # Exiting 0 on a run where every item failed is indistinguishable from a clean run to
-            # anything scheduling this.
-            raise CommandError(summary)
-        self.stdout.write(self.style.SUCCESS(summary))
+        # Written unconditionally, before any failure decision below: a wrapper parsing stdout
+        # for these counts needs them most on the run that fails, not just on a clean one.
+        self.stdout.write(summary)
+        if circuit_open.is_set():
+            raise CommandError(f"aborted after {max_failures} consecutive failures ({summary})")
+        if tried > 0 and counts["succeeded"] == 0:
+            raise CommandError(f"every attempted org failed ({summary})")
+        if success_rate is not None and success_rate < min_success_rate:
+            raise CommandError(
+                f"success_rate {success_rate:.2f} is below --min-success-rate {min_success_rate} ({summary})"
+            )

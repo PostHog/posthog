@@ -178,6 +178,8 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "EnrichmentPromptConfig",
         # Shadow classifier output, org-scoped rather than team-scoped. Written only by the batch
         # runner and read-only in admin; no API endpoint, never looked up by user-supplied ID.
+        # It carries an Organization FK, so the org_scoped rule would otherwise cover it: remove this
+        # exemption the moment an endpoint exposes it, or the rule stops protecting it silently.
         "EnrichmentLabelResult",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
