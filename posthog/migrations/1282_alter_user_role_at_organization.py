@@ -8,25 +8,32 @@ class Migration(migrations.Migration):
         ("posthog", "1281_migrate_managed_warehouse_models"),
     ]
 
+    # `choices` lives entirely in Python validation, so this emits no DDL - `sqlmigrate` prints
+    # "(no-op)". Kept state-only so it can't take the ACCESS EXCLUSIVE lock on posthog_user that
+    # HotTableAlterPolicy guards against.
     operations = [
-        migrations.AlterField(
-            model_name="user",
-            name="role_at_organization",
-            field=models.CharField(
-                blank=True,
-                choices=[
-                    ("engineering", "Engineering"),
-                    ("data", "Data"),
-                    ("product", "Product Management"),
-                    ("founder", "Founder"),
-                    ("leadership", "Leadership"),
-                    ("marketing", "Marketing"),
-                    ("sales", "Sales / Success"),
-                    ("student", "Student"),
-                    ("other", "Other"),
-                ],
-                max_length=64,
-                null=True,
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterField(
+                    model_name="user",
+                    name="role_at_organization",
+                    field=models.CharField(
+                        blank=True,
+                        choices=[
+                            ("engineering", "Engineering"),
+                            ("data", "Data"),
+                            ("product", "Product Management"),
+                            ("founder", "Founder"),
+                            ("leadership", "Leadership"),
+                            ("marketing", "Marketing"),
+                            ("sales", "Sales / Success"),
+                            ("student", "Student"),
+                            ("other", "Other"),
+                        ],
+                        max_length=64,
+                        null=True,
+                    ),
+                ),
+            ],
         ),
     ]
