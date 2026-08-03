@@ -62,6 +62,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_copy_data_imports_rows_metric,
     get_ducklake_copy_data_imports_started_metric,
     get_ducklake_copy_data_imports_verification_metric,
+    record_ducklake_copy_data_imports_stage_duration,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.pipelines import DUCKGRES_BATCH_SINK_FLAG, is_duckgres_sink_team_member
@@ -80,6 +81,7 @@ def _stage_timer(*, stage: str, team_id: int, schema_id: str | None = None) -> E
         "Execution duration of one post-gate DuckLake data import copy stage.",
         attributes,
         log=True,
+        histogram_recorder=record_ducklake_copy_data_imports_stage_duration,
     )
 
 
