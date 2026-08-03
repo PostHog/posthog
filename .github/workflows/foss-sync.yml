@@ -31,11 +31,12 @@ jobs:
             # blob:none avoids a full-history clone; full commit graph keeps pushes connected.
             # persist-credentials:false so checkout's default-token auth header doesn't shadow
             # the app token we push with (posthog is public, so lazy blob fetches still work).
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout posthog
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   fetch-tags: true
                   persist-credentials: false
 

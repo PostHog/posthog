@@ -51,11 +51,12 @@ jobs:
             # (code-release.yml), where Apple's notary service and agreements apply.
             SKIP_NOTARIZE: '1'
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   persist-credentials: false
 
             - name: Setup pnpm
@@ -186,11 +187,12 @@ jobs:
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   persist-credentials: false
 
             - name: Setup pnpm
@@ -274,11 +276,12 @@ jobs:
             VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
             VITE_POSTHOG_API_HOST: ${{ secrets.VITE_POSTHOG_API_HOST }}
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   persist-credentials: false
 
             - name: Install Linux packaging tooling

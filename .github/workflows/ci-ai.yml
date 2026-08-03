@@ -62,13 +62,14 @@ jobs:
             contents: read
 
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # Check out the actual branch instead of merge commit with master,
                   # because we want the Braintrust experiment to have accurate git metadata (on master it's empty)
                   ref: ${{ github.event.pull_request.head.ref }}
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   clean: false
             - name: Clean up data directories with container permissions
               run: |

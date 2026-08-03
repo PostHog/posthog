@@ -61,13 +61,14 @@ jobs:
             # posthog/clickhouse/hcl/bin/image.txt; the repo variable overrides it when set.
             HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE }}
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # Needed for `git merge-base HEAD^2 origin/master` so we can key
                   # the Postgres schema cache by the PR's merge base, matching
                   # the producer in ci-backend.yml.
                   fetch-depth: 1000
-                  filter: blob:none
+                  filter: ''
 
             - name: Fetch current PR base for schema cache key
               if: github.event_name == 'pull_request'

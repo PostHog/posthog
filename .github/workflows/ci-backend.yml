@@ -379,10 +379,11 @@ jobs:
             django_shards: ${{ steps.discover.outputs.django_shards }}
 
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
-                  filter: blob:none
+                  filter: ''
 
             - name: Fetch current PR base for Turbo affected diff
               if: github.event_name == 'pull_request'
@@ -552,10 +553,11 @@ jobs:
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
-                  filter: blob:none
+                  filter: ''
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -3480,10 +3482,11 @@ jobs:
         permissions:
             contents: read
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
-                  filter: blob:none
+                  filter: ''
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -3737,13 +3740,14 @@ jobs:
             github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             (needs.turbo-tests.result != 'skipped' || needs.django_tests.result != 'skipped')
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # Default pull_request checkout = the synthetic merge ref — the same tree the
                   # coverage runs measured, so diff line numbers match. Full history for diff-cover;
                   # blob:none keeps it light (commit graph only, blobs fetched on demand).
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
             - name: Check for coverage reporter
               id: reporter
               shell: bash

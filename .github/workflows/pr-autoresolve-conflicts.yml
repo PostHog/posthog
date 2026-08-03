@@ -66,12 +66,13 @@ jobs:
             # GitHub's `mergeable` field is computed lazily and returns UNKNOWN for anything a
             # `pr list` touches, so it can't be used to find conflicts. We check authoritatively
             # with `git merge-tree` against master instead.
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout master
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: master
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   persist-credentials: false # public repo; PR heads fetch anonymously
             - name: Find conflicting PRs
               id: find
@@ -177,12 +178,13 @@ jobs:
             matrix:
                 pr: ${{ fromJson(needs.detect.outputs.prs) }}
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout PR head
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ matrix.pr.headRefName }}
                   fetch-depth: 0 # need full history to merge master; blobs fetched lazily
-                  filter: blob:none
+                  filter: ''
                   persist-credentials: false
 
             - name: Start merge, list conflicts

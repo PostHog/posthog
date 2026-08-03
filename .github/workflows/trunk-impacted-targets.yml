@@ -55,10 +55,11 @@ jobs:
         outputs:
             targets: ${{ steps.targets.outputs.targets }}
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
-                  filter: blob:none
+                  filter: ''
 
             - name: Fetch PR base for the changed-file diff
               env:

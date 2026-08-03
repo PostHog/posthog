@@ -154,12 +154,13 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_POSTHOG_CLI_RELEASER_PRIVATE_KEY }}
 
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: master
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Update to latest master before preparing release

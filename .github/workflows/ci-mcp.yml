@@ -322,12 +322,13 @@ jobs:
             INTERNAL_API_SECRET: 'posthog123'
 
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   # Deep clone so we can compute the merge-base with the PR base ref
                   # for the schema cache key (matches ci-backend.yml's turbo-discover).
                   fetch-depth: 1000
-                  filter: blob:none
+                  filter: ''
 
             - name: Clean up data directories with container permissions
               run: |

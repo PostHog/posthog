@@ -887,9 +887,10 @@ jobs:
             suggested_shards: ${{ steps.classify.outputs.suggested_shards }}
             estimated_minutes_saved: ${{ steps.classify.outputs.estimated_minutes_saved }}
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  filter: blob:none
+                  filter: ''
                   fetch-depth: 500
                   ref: ${{ github.event.pull_request.head.sha }}
                   repository: ${{ github.event.pull_request.head.repo.full_name }}

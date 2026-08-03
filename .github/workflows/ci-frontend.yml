@@ -210,10 +210,11 @@ jobs:
             should_run: ${{ steps.classify.outputs.should_run }}
             changed_files: ${{ steps.classify.outputs.changed_files }}
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
-                  filter: blob:none
+                  filter: ''
 
             - name: Compute changed files
               id: diff
@@ -362,9 +363,10 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  filter: blob:none
+                  filter: ''
 
             # The bundle-size build below git-resets to the base branch mid-job, which
             # removes this repo's local actions from the workspace — a local

@@ -54,12 +54,13 @@ jobs:
 
             # Always run the approval script from master — hardcoded so a PR
             # targeting a non-master branch can't supply a tampered script.
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout master (blobless, full history)
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   ref: master
-                  filter: blob:none
+                  filter: ''
                   fetch-depth: 0
 
             - name: Fetch PR head ref
@@ -273,12 +274,13 @@ jobs:
                   client-id: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_APP_ID }}
                   private-key: ${{ secrets.GH_APP_PR_APPROVAL_AGENT_PRIVATE_KEY }}
 
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout master (full history)
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   token: ${{ steps.app-token.outputs.token }}
                   ref: master
-                  filter: blob:none
+                  filter: ''
                   fetch-depth: 0
 
             - name: Fetch PR head

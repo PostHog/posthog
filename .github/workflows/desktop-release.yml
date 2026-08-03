@@ -86,11 +86,12 @@ jobs:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   token: ${{ steps.app-token.outputs.token }}
                   persist-credentials: false
 
@@ -312,11 +313,12 @@ jobs:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   token: ${{ steps.app-token.outputs.token }}
                   persist-credentials: false
 
@@ -495,11 +497,12 @@ jobs:
                   app_id: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
 
+            # hogli-lint: allow-full-depth-checkout -- filter removed to prevent promisor remote auth failures
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
               with:
                   fetch-depth: 0
-                  filter: blob:none
+                  filter: ''
                   token: ${{ steps.app-token.outputs.token }}
                   persist-credentials: false
 
