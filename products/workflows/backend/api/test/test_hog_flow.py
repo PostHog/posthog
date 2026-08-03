@@ -2197,6 +2197,87 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "audience_type" in json.dumps(response.json())
 
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_pages_accounts(self):
+        with (
+            self._account_audience_provider(),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_account_audience_page", return_value=["a1", "a2"]
+            ) as mock_page,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                {"filters": {"audience_type": "accounts", "properties": []}, "cursor": "a0"},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {
+            "accounts": ["a1", "a2"],
+            "cursor": "a2",
+            "has_more": False,
+            "group_type": "account",
+        }
+        mock_page.assert_called_once()
+
+    def test_internal_account_audience_requires_internal_secret(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+            {"filters": {"audience_type": "accounts"}},
+            format="json",
+        )
+        assert response.status_code in (401, 403), response.content
+
+    @parameterized.expand(
+        [
+            ("persons_filters", {"filters": {"properties": []}}),
+            ("missing_filters", {}),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_rejects_non_account_filters(self, _name, body):
+        with self._account_audience_provider():
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                body,
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+        assert response.status_code == 400, response.json()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_account_audience_requires_configured_group_type(self):
+        with self._account_audience_provider(group_type=None):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/account_audience",
+                {"filters": {"audience_type": "accounts", "properties": []}},
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+        assert response.status_code == 400, response.json()
+
+    def test_user_blast_radius_accounts_audience_counts_accounts(self):
+        with (
+            self._account_audience_provider(),
+            patch(
+                "products.workflows.backend.api.hog_flow.get_account_audience_count", side_effect=[3, 10]
+            ) as mock_count,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"audience_type": "accounts", "properties": []}},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        data = response.json()
+        assert data["affected"] == 3
+        assert data["total"] == 10
+        assert data["dedupe_key"] is None
+        assert data["confirm_token"]
+        assert mock_count.call_count == 2
+
     def _make_cohort(self, *, behavioral=False, static=False, nested_cohort_id=None) -> Cohort:
         if behavioral:
             properties = {

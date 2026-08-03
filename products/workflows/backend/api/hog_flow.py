@@ -101,7 +101,11 @@ from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGE
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.account_audience import (
+    ACCOUNT_BATCH_SIZE,
+    get_account_audience_count,
+    get_account_audience_page,
     get_account_group_type_name,
+    is_account_audience,
     parse_account_audience_filters,
 )
 from products.workflows.backend.services.batch_audience import (
@@ -3231,6 +3235,21 @@ class HogFlowViewSet(
         group_type_index = params.get("group_type_index")
         dedupe_key = params.get("dedupe_key")
 
+        if is_account_audience(filters):
+            # Account audiences never touch person data or flag conditions; the parse inside
+            # the count rejects anything but account filters.
+            return Response(
+                BlastRadiusSerializer(
+                    {
+                        "affected": get_account_audience_count(self.team, filters),
+                        "total": get_account_audience_count(self.team, {"audience_type": "accounts"}),
+                        "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                        "dedupe_key": None,
+                        "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
+                    }
+                ).data
+            )
+
         reject_flag_conditions_in_audience(self.team, filters)
 
         # Preview matches the actual send: with dedup active, "affected" is the number of
@@ -3878,6 +3897,43 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
             logger.exception("Error in internal_user_blast_radius_persons", error=str(e), team_id=team_id)
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_account_audience(self, request: Request, team_id: str) -> Response:
+        """
+        Internal endpoint for the Node batch resolver to page an account audience.
+        Requires Bearer token authentication via INTERNAL_API_SECRET.
+        """
+        if request.method != "POST":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        filters = request.data.get("filters") or {}
+        if not is_account_audience(filters):
+            return Response({"error": "Filters must declare audience_type 'accounts'"}, status=400)
+        group_type = get_account_group_type_name(team)
+        if group_type is None:
+            return Response({"error": "No customer analytics account group type configured"}, status=400)
+
+        cursor = request.data.get("cursor")
+        try:
+            accounts = get_account_audience_page(team, filters, cursor)
+            return Response(
+                {
+                    "accounts": accounts,
+                    "cursor": accounts[-1] if accounts else None,
+                    "has_more": len(accounts) == ACCOUNT_BATCH_SIZE,
+                    "group_type": group_type,
+                }
+            )
+        except exceptions.ValidationError as e:
+            return Response({"error": _validation_error_message(e)}, status=400)
+        except Exception as e:
+            logger.exception("Error in internal_account_audience", error=str(e), team_id=team_id)
             return Response({"error": "Internal server error"}, status=500)
 
     def internal_process_due_schedules(self, request: Request, **kwargs) -> Response:
