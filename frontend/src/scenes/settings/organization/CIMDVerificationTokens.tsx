@@ -1,18 +1,28 @@
 import { useActions, useValues } from 'kea'
 
-import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import { cimdVerificationTokensLogic, CIMDVerificationToken } from './cimdVerificationTokensLogic'
+import { cimdVerificationTokensLogic, validateCimdUrl, CIMDVerificationToken } from './cimdVerificationTokensLogic'
 
 export function CIMDVerificationTokens(): JSX.Element {
-    const { tokens, tokensLoading, isCreateDialogOpen, isCreatingToken, newTokenLabel, newTokenUrl, justCreatedToken } =
-        useValues(cimdVerificationTokensLogic)
+    const {
+        tokens,
+        tokensLoading,
+        isCreateDialogOpen,
+        isCreatingToken,
+        newTokenLabel,
+        newTokenUrl,
+        justCreatedToken,
+        bindingToken,
+        bindUrl,
+        isBindingToken,
+    } = useValues(cimdVerificationTokensLogic)
     const {
         showCreateDialog,
         hideCreateDialog,
@@ -21,7 +31,12 @@ export function CIMDVerificationTokens(): JSX.Element {
         createToken,
         deleteToken,
         setJustCreatedToken,
+        showBindDialog,
+        hideBindDialog,
+        setBindUrl,
+        bindToken,
     } = useActions(cimdVerificationTokensLogic)
+    const hasUnboundToken = tokens.some((token) => !token.cimd_url)
 
     return (
         <div className="space-y-4">
@@ -45,6 +60,13 @@ export function CIMDVerificationTokens(): JSX.Element {
                 </LemonButton>
             </div>
 
+            {hasUnboundToken && (
+                <LemonBanner type="warning">
+                    Some tokens were issued before URL binding and have stopped verifying. Set a metadata URL on each
+                    one below to restore verification.
+                </LemonBanner>
+            )}
+
             {!tokensLoading && tokens.length === 0 ? (
                 <div className="border border-dashed rounded-lg p-8 text-center">
                     <IconKey className="text-4xl text-secondary mx-auto mb-3" />
@@ -66,9 +88,12 @@ export function CIMDVerificationTokens(): JSX.Element {
                         {
                             title: 'Metadata URL',
                             key: 'cimd_url',
-                            render: (_, row: CIMDVerificationToken) => (
-                                <span className="text-xs font-mono break-all">{row.cimd_url ?? '—'}</span>
-                            ),
+                            render: (_, row: CIMDVerificationToken) =>
+                                row.cimd_url ? (
+                                    <span className="text-xs font-mono break-all">{row.cimd_url}</span>
+                                ) : (
+                                    <LemonTag type="warning">Not verifying</LemonTag>
+                                ),
                         },
                         {
                             title: 'Token',
@@ -100,25 +125,35 @@ export function CIMDVerificationTokens(): JSX.Element {
                             key: 'actions',
                             width: 0,
                             render: (_, row: CIMDVerificationToken) => (
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    size="small"
-                                    status="danger"
-                                    tooltip="Revoke token"
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Revoke token "${row.label}"?`,
-                                            description:
-                                                'Partners using this token in their CIMD metadata will no longer be recognized and will fall back to the anonymous rate limit tier.',
-                                            primaryButton: {
-                                                children: 'Revoke',
-                                                status: 'danger',
-                                                onClick: () => deleteToken(row),
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
-                                />
+                                <div className="flex gap-1">
+                                    {!row.cimd_url && (
+                                        <LemonButton
+                                            icon={<IconPencil />}
+                                            size="small"
+                                            tooltip="Set metadata URL"
+                                            onClick={() => showBindDialog(row)}
+                                        />
+                                    )}
+                                    <LemonButton
+                                        icon={<IconTrash />}
+                                        size="small"
+                                        status="danger"
+                                        tooltip="Revoke token"
+                                        onClick={() =>
+                                            LemonDialog.open({
+                                                title: `Revoke token "${row.label}"?`,
+                                                description:
+                                                    'Partners using this token in their CIMD metadata will no longer be recognized and will fall back to the anonymous rate limit tier.',
+                                                primaryButton: {
+                                                    children: 'Revoke',
+                                                    status: 'danger',
+                                                    onClick: () => deleteToken(row),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        }
+                                    />
+                                </div>
                             ),
                         },
                     ]}
@@ -141,9 +176,7 @@ export function CIMDVerificationTokens(): JSX.Element {
                             disabledReason={
                                 !newTokenLabel.trim()
                                     ? 'Please enter a label'
-                                    : !newTokenUrl.trim()
-                                      ? 'Please enter your CIMD metadata URL'
-                                      : undefined
+                                    : (validateCimdUrl(newTokenUrl.trim()) ?? undefined)
                             }
                             data-attr="confirm-create-cimd-verification-token"
                         >
@@ -172,13 +205,13 @@ export function CIMDVerificationTokens(): JSX.Element {
                     </label>
                     <LemonInput
                         id="cimd-token-url"
-                        placeholder="https://example.com/.well-known/posthog-client.json"
+                        placeholder="https://example.com/.well-known/oauth-client-metadata.json"
                         value={newTokenUrl}
                         onChange={setNewTokenUrl}
                     />
                     <p className="text-secondary text-xs">
-                        The token verifies only when found at this exact URL, so a copy published anywhere else is
-                        ignored. Must be HTTPS and include a path.
+                        The token only verifies at this URL, so a copy published anywhere else is ignored. Must be HTTPS
+                        and include a path, and the path is case-sensitive.
                     </p>
                 </div>
             </LemonModal>
@@ -205,6 +238,51 @@ export function CIMDVerificationTokens(): JSX.Element {
                             <code>com.posthog</code> object.
                         </p>
                         <CodeSnippet language={Language.Text}>{justCreatedToken.value}</CodeSnippet>
+                    </div>
+                )}
+            </LemonModal>
+
+            <LemonModal
+                isOpen={!!bindingToken}
+                onClose={hideBindDialog}
+                title="Set metadata URL"
+                footer={
+                    <>
+                        <LemonButton type="secondary" onClick={hideBindDialog}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={() => bindToken()}
+                            loading={isBindingToken}
+                            disabledReason={validateCimdUrl(bindUrl.trim()) ?? undefined}
+                            data-attr="confirm-bind-cimd-verification-token"
+                        >
+                            Set URL
+                        </LemonButton>
+                    </>
+                }
+            >
+                {bindingToken && (
+                    <div className="space-y-2">
+                        <p className="text-secondary text-sm">
+                            "{bindingToken.label}" was issued before URL binding and has stopped verifying. Set the
+                            metadata URL it should verify at to restore verification.
+                        </p>
+                        <label className="text-sm font-semibold" htmlFor="cimd-token-bind-url">
+                            CIMD metadata URL
+                        </label>
+                        <LemonInput
+                            id="cimd-token-bind-url"
+                            placeholder="https://example.com/.well-known/oauth-client-metadata.json"
+                            value={bindUrl}
+                            onChange={setBindUrl}
+                            autoFocus
+                        />
+                        <p className="text-secondary text-xs">
+                            The token only verifies at this URL, so a copy published anywhere else is ignored. Must be
+                            HTTPS and include a path, and the path is case-sensitive.
+                        </p>
                     </div>
                 )}
             </LemonModal>
