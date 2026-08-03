@@ -173,6 +173,14 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Append-only raw provider-payload archive written by the internal enrichment path;
         # no API endpoint, never looked up by user-supplied ID.
         "OrganizationEnrichmentFetch",
+        # Instance-global classifier definition, so there is no team_id to scope on. Seeded by
+        # migration and read by the batch runner; no API endpoint, never looked up by user-supplied ID.
+        "EnrichmentPromptConfig",
+        # Shadow classifier output, org-scoped rather than team-scoped. Written only by the batch
+        # runner and read-only in admin; no API endpoint, never looked up by user-supplied ID.
+        # It carries an Organization FK, so the org_scoped rule would otherwise cover it: remove this
+        # exemption the moment an endpoint exposes it, or the rule stops protecting it silently.
+        "EnrichmentLabelResult",
         # Model kept to avoid a deletion migration but has no API endpoint
         "ErrorTrackingAutoCaptureControls",
         "DuckLakeBackfill",

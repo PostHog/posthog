@@ -54,14 +54,16 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
-from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
-from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import DuckLakeRegisterDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
+from products.managed_warehouse.backend.facade.temporal import (
+    ACTIVITIES as DUCKLAKE_ACTIVITIES,
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsWorkflow,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -3750,7 +3752,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
     the Redis idempotency flag is missing.
 
     This exercises the writer-side idempotency gap: if the writer crashes between
-    `write_to_deltalake` committing and `mark_batch_as_processed` running, Kafka redelivery
+    `DeltaWriter.write` committing and `mark_batch_as_processed` running, Kafka redelivery
     would otherwise re-write the same batch and produce duplicate rows. The delta-history
     fallback closes that gap.
     """

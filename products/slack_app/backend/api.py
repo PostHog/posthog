@@ -97,6 +97,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_user_info import (
+    clear_workspace_profile_cache,
     get_cached_bot_user_id,
     get_slack_user_info,
     normalize_slack_response,
@@ -116,19 +117,28 @@ HANDLED_EVENT_TYPES = [
     "link_shared",
     "message",
     "member_joined_channel",
+    "team_join",
     "assistant_thread_started",
     "assistant_thread_context_changed",
     "app_home_opened",
+    "app_uninstalled",
 ]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
 # needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
 
-# Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
-# a near-simultaneous cross-region race during cutover. A real re-add after
-# this window should re-onboard — most likely the person forgot how it works.
-CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
+# Slack substitutes this placeholder for the message author in ``link_shared``
+# events it cannot attribute to a real user — messages posted by apps and bots,
+# or authors whose identity is hidden. Calling ``users.info`` on it always
+# fails with ``user_not_found``.
+SLACK_PLACEHOLDER_USER_ID = "U00"
+
+# Onboarding-on-join dedupe TTL (channel and workspace joins): just long enough
+# to absorb Slack retries and a near-simultaneous cross-region race during
+# cutover. A real re-join after this window should re-onboard — most likely the
+# person forgot how it works.
+ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
 CHANNEL_ONBOARDING_DOCS_URL = "https://posthog.com/docs/slack-app"
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
@@ -354,6 +364,11 @@ def resolve_slack_user(
     post_feedback: bool = True,
 ) -> SlackUserContext | None:
     """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure (unless post_feedback is False)."""
+    if slack_user_id == SLACK_PLACEHOLDER_USER_ID:
+        # There is no real user behind the placeholder, so there is nobody to
+        # resolve or to post feedback to.
+        return None
+
     try:
         slack_team_id = integration.integration_id
 
@@ -407,7 +422,7 @@ def resolve_slack_user(
             slack_email = dev_email
 
         if not slack_email:
-            logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
+            logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
             if post_feedback:
                 _post_slack_user_feedback(
                     slack,
@@ -1569,6 +1584,11 @@ _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
 )
+_ASSISTANT_MEMBER_JOIN_WELCOME = (
+    ":wave: Welcome! I'm PostHog, an AI agent your team uses. DM me here to investigate issues "
+    "using your PostHog data or open PRs in your connected repos - you can also @mention me in "
+    "any channel."
+)
 
 
 def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
@@ -1768,6 +1788,20 @@ def _route_assistant_event(
     )
 
 
+def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
+    """Drop the workspace's cached Slack profiles so a reinstall resolves users from
+    fresh ``users.info`` data instead of emails cached under the previous install.
+
+    Fanned out once to the other region (loop-guarded) since a dual-owned workspace
+    caches profiles on both sides.
+    """
+    deleted = clear_workspace_profile_cache(slack_team_id)
+    logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
+    if not was_proxied(request) and cross_region_routing_enabled():
+        _proxy_event_to_region(request, other_region_domain(request.get_host()))
+    return ROUTE_HANDLED_LOCALLY
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1799,6 +1833,9 @@ def route_posthog_code_event_to_relevant_region(
         us_domain=_us_region_domain(),
         eu_domain=_eu_region_domain(),
     )
+
+    if event_type == "app_uninstalled":
+        return _handle_app_uninstalled(request, slack_team_id)
 
     # App Home tab: published per-user when they open the Home tab. Always
     # handled locally — `views.publish` just renders a snapshot of the user's
@@ -2089,6 +2126,17 @@ def route_posthog_code_event_to_relevant_region(
             is_ext_shared_channel=is_ext_shared_channel,
         )
 
+    if event_type == "team_join":
+        return _route_team_join(
+            request,
+            event,
+            slack_team_id,
+            proxied=proxied,
+            other_domain=other_domain,
+            can_defer_to_other_region=can_defer_to_other_region,
+            incoming_host=incoming_host,
+        )
+
     # link_shared (unfurl) works with either integration kind.
     link_result = load_integrations(slack_team_id=slack_team_id, kinds=list(SLACK_INTEGRATION_KINDS))
     local_match = link_result.candidates[0] if link_result.candidates else None
@@ -2304,20 +2352,20 @@ def _channel_onboarding_cache_key(slack_team_id: str, channel_id: str) -> str:
     return f"slack_app:channel_onboarded:v1:{slack_team_id}:{channel_id}"
 
 
-def _claim_channel_onboarding(slack_team_id: str, channel_id: str) -> bool:
-    """Atomically claim the right to send the onboarding message.
+def _claim_once(cache_key: str) -> bool:
+    """Atomically claim a one-shot slot, e.g. the right to send an onboarding message.
 
     ``cache.add`` is the Django-blessed idempotency primitive: it returns True
     only if the key didn't already exist, so concurrent webhook deliveries
-    (Slack retries, two-region race during cutover) can't double-post.
+    (Slack retries, two-region race during cutover) can't double-post. Callers
+    release the slot with ``cache.delete`` when the claimed action fails, so
+    the next delivery gets another shot.
     """
-    return bool(
-        cache.add(
-            _channel_onboarding_cache_key(slack_team_id, channel_id),
-            True,
-            timeout=CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS,
-        )
-    )
+    return bool(cache.add(cache_key, True, timeout=ONBOARDING_DEDUPE_TTL_SECONDS))
+
+
+def _claim_channel_onboarding(slack_team_id: str, channel_id: str) -> bool:
+    return _claim_once(_channel_onboarding_cache_key(slack_team_id, channel_id))
 
 
 def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> None:
@@ -2384,6 +2432,88 @@ def _post_channel_onboarding_message(slack: SlackIntegration, integration: Integ
             integration_id=integration.id,
             slack_workspace_id=integration.integration_id,
             channel_id=channel_id,
+            exc_info=True,
+        )
+        return False
+
+
+def _route_team_join(
+    request: HttpRequest,
+    event: dict[str, Any],
+    slack_team_id: str,
+    *,
+    proxied: bool,
+    other_domain: str,
+    can_defer_to_other_region: bool,
+    incoming_host: str,
+) -> str:
+    """DM a personal welcome to a new workspace member, at most once.
+
+    Slack fires ``team_join`` for every account added to the workspace —
+    including bots and single/multi-channel guests, which we skip. Every full
+    member gets the DM: it grants no access on its own — the assistant
+    resolves and authorizes the user on every interaction, offering the
+    account-linking flow when their email doesn't match — so eligibility
+    sorts itself out on first use. The ``slack-app-assistant`` flag is the
+    per-install opt-in that keeps the DM dark for workspaces that haven't
+    enabled the assistant.
+    """
+    joiner = event.get("user") if isinstance(event.get("user"), dict) else None
+    slack_user_id = joiner.get("id") if joiner else None
+    if not joiner or not isinstance(slack_user_id, str):
+        return ROUTE_HANDLED_LOCALLY
+    if joiner.get("is_bot") or joiner.get("is_restricted") or joiner.get("is_ultra_restricted"):
+        return ROUTE_HANDLED_LOCALLY
+
+    workspace_result = load_integrations(slack_team_id=slack_team_id, kinds=[SLACK_INTEGRATION_KIND])
+    if not workspace_result.candidates:
+        return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+
+    if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
+        return _proxy_event_and_return_route(request, other_domain)
+
+    integration = next((c for c in workspace_result.candidates if is_slack_app_assistant_enabled(c.team)), None)
+    if integration is None:
+        return ROUTE_HANDLED_LOCALLY
+
+    if not _claim_once(_team_join_onboarding_cache_key(slack_team_id, slack_user_id)):
+        logger.info(
+            "slack_app_team_join_welcome_skipped_duplicate",
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+        )
+        return ROUTE_HANDLED_LOCALLY
+
+    if not _post_team_join_welcome(integration, slack_user_id):
+        # Release the dedupe slot so the next delivery gets another shot
+        # rather than being silently swallowed.
+        cache.delete(_team_join_onboarding_cache_key(slack_team_id, slack_user_id))
+
+    return ROUTE_HANDLED_LOCALLY
+
+
+def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> str:
+    return f"slack_app:team_join_welcomed:v1:{slack_team_id}:{slack_user_id}"
+
+
+def _post_team_join_welcome(integration: Integration, slack_user_id: str) -> bool:
+    try:
+        SlackIntegration(integration).client.chat_postMessage(
+            channel=slack_user_id, text=_ASSISTANT_MEMBER_JOIN_WELCOME
+        )
+        logger.info(
+            "slack_app_team_join_welcome_posted",
+            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
+            slack_user_id=slack_user_id,
+        )
+        return True
+    except Exception:
+        logger.warning(
+            "slack_app_team_join_welcome_post_failed",
+            integration_id=integration.id,
+            slack_workspace_id=integration.integration_id,
+            slack_user_id=slack_user_id,
             exc_info=True,
         )
         return False
