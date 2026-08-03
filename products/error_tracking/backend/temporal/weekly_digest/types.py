@@ -15,14 +15,16 @@ class WeeklyDigestInputs:
     # Total executions per org activity: initial run + 5 retries. The final attempt sends
     # partial digests instead of deferring recipients whose teams failed to build.
     max_attempts: int = 6
-    # Orgs handled per workflow execution. Each page runs in its own execution (chained via
-    # continue_as_new) so history stays bounded no matter how many orgs are discovered.
+    # Orgs handled per page. Each page runs as its own child workflow so history stays
+    # bounded no matter how many orgs are discovered.
     page_size: int = 1000
-    # Continue-as-new carried state — never set by callers. cursor is the last org id of
-    # the previous page (keyset paging: only this ~40-byte cursor rides between executions,
-    # never the org list, so org count can't approach the 2 MiB payload cap); the carried_*
-    # counters accumulate across the chain so the final execution can report and fail on
-    # the whole run.
+    # Pages processed concurrently as child workflows. The global org-activity target is
+    # max_concurrent_pages * max_concurrent — keep it at or below the worker fleet's
+    # activity-slot capacity (35 in prod) or the extra pages just queue.
+    max_concurrent_pages: int = 3
+    # Continue-as-new carried state for the pre-fan-out workflow path — never set by
+    # callers. Still honored so an execution continued-as-new from an old deploy resumes
+    # from its cursor with its counters intact.
     cursor: str | None = None
     carried_orgs: int = 0
     carried_orgs_failed: int = 0
@@ -37,6 +39,15 @@ class GetDigestOrgsInputs:
     # stable so an org can never be returned in two pages.
     after: str | None = None
     limit: int = 1000
+
+
+@dataclasses.dataclass(frozen=True)
+class WeeklyDigestPageInputs:
+    # ~40 bytes per org id: a 1000-org page rides well under the 2 MiB payload cap.
+    org_ids: list[str]
+    dry_run: bool = True
+    max_concurrent: int = 10
+    max_attempts: int = 6
 
 
 @dataclasses.dataclass(frozen=True)

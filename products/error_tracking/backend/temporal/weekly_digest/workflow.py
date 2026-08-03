@@ -17,12 +17,18 @@ with workflow.unsafe.imports_passed_through():
         SendOrgDigestInputs,
         SendOrgDigestResult,
         WeeklyDigestInputs,
+        WeeklyDigestPageInputs,
         WeeklyDigestResult,
     )
 
 WORKFLOW_NAME = "error-tracking-weekly-digest"
+PAGE_WORKFLOW_NAME = "error-tracking-weekly-digest-page"
 
 FAILED_ORGS_ERROR_TYPE = "ErrorTrackingWeeklyDigestOrgsFailed"
+
+# Gates the switch from the continue-as-new page chain to child-workflow fan-out; executions
+# whose history predates the fan-out replay the old path below.
+PAGE_FANOUT_PATCH = "weekly-digest-page-fanout-2026-08"
 
 GET_ORGS_RETRY_POLICY = common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30))
 GET_ORGS_TIMEOUT = timedelta(minutes=5)
@@ -43,6 +49,69 @@ def _sent_from_error(error: BaseException) -> int:
     return details[0] if details and isinstance(details[0], int) else 0
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _PageOutcome:
+    sent: int
+    orgs_failed: int
+
+
+async def _send_orgs(org_ids: list[str], dry_run: bool, max_concurrent: int, max_attempts: int) -> _PageOutcome:
+    """Run the per-org digest activities for one page, ``max_concurrent`` at a time.
+
+    Must be called from within a workflow.
+    """
+    # Keep up to max_concurrent per-org activities in flight at all times: the semaphore
+    # releases the moment one finishes, so the next org starts immediately rather than
+    # waiting for a whole wave to drain.
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def send_org(org_id: str) -> SendOrgDigestResult:
+        async with semaphore:
+            return await workflow.execute_activity(
+                send_org_digest_activity,
+                SendOrgDigestInputs(org_id=org_id, dry_run=dry_run, max_attempts=max_attempts),
+                start_to_close_timeout=SEND_ORG_START_TO_CLOSE_TIMEOUT,
+                heartbeat_timeout=SEND_ORG_HEARTBEAT_TIMEOUT,
+                retry_policy=common.RetryPolicy(
+                    # Must match SendOrgDigestInputs.max_attempts — final-attempt detection
+                    # inside the activity depends on the two agreeing.
+                    maximum_attempts=max_attempts,
+                    initial_interval=SEND_ORG_INITIAL_RETRY_INTERVAL,
+                    backoff_coefficient=2.0,
+                    maximum_interval=SEND_ORG_MAXIMUM_RETRY_INTERVAL,
+                ),
+            )
+
+    results = await asyncio.gather(*(send_org(org_id) for org_id in org_ids), return_exceptions=True)
+
+    sent = 0
+    orgs_failed = 0
+    for org_id, result in zip(org_ids, results):
+        if isinstance(result, BaseException):
+            orgs_failed += 1
+            sent += _sent_from_error(result)
+            workflow.logger.error(
+                "Error Tracking weekly digest org failed after retries",
+                extra={"org_id": org_id, "error": str(result)},
+            )
+            continue
+        sent += result.sent
+    return _PageOutcome(sent=sent, orgs_failed=orgs_failed)
+
+
+@workflow.defn(name=PAGE_WORKFLOW_NAME)
+class ErrorTrackingWeeklyDigestPageWorkflow(PostHogWorkflow):
+    """Processes one page of orgs. Returns counts instead of raising on org failures so the
+    parent can aggregate across pages and fail the run exactly once."""
+
+    inputs_cls = WeeklyDigestPageInputs
+
+    @workflow.run
+    async def run(self, inputs: WeeklyDigestPageInputs) -> WeeklyDigestResult:
+        outcome = await _send_orgs(inputs.org_ids, inputs.dry_run, inputs.max_concurrent, inputs.max_attempts)
+        return WeeklyDigestResult(orgs=len(inputs.org_ids), orgs_failed=outcome.orgs_failed, sent=outcome.sent)
+
+
 @workflow.defn(name=WORKFLOW_NAME)
 class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
     inputs_cls = WeeklyDigestInputs
@@ -53,6 +122,75 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
         if inputs is None:
             inputs = WeeklyDigestInputs()
 
+        if workflow.patched(PAGE_FANOUT_PATCH):
+            return await self._run_fanout(inputs)
+        return await self._run_paged(inputs)
+
+    async def _run_fanout(self, inputs: WeeklyDigestInputs) -> WeeklyDigestResult:
+        """Fan pages out as child workflows, ``max_concurrent_pages`` at a time.
+
+        Overlapping pages keeps activity slots busy while a page drains its slowest orgs —
+        with sequential pages, each page's tail (one slow org retrying) idles the whole
+        fleet until the next page starts.
+        """
+        window = asyncio.Semaphore(inputs.max_concurrent_pages)
+
+        async def run_page(org_ids: list[str]) -> WeeklyDigestResult:
+            async with window:
+                return await workflow.execute_child_workflow(
+                    ErrorTrackingWeeklyDigestPageWorkflow.run,
+                    WeeklyDigestPageInputs(
+                        org_ids=org_ids,
+                        dry_run=inputs.dry_run,
+                        max_concurrent=inputs.max_concurrent,
+                        max_attempts=inputs.max_attempts,
+                    ),
+                )
+
+        # inputs.cursor is normally None; it resumes a run continued-as-new from the
+        # pre-fan-out deploy, whose counters arrive via the carried_* fields below.
+        cursor = inputs.cursor
+        pages: list[list[str]] = []
+        page_tasks: list[asyncio.Task[WeeklyDigestResult]] = []
+        while True:
+            page = await workflow.execute_activity(
+                get_digest_orgs_activity,
+                GetDigestOrgsInputs(org_ids=inputs.org_ids, after=cursor, limit=inputs.page_size),
+                start_to_close_timeout=GET_ORGS_TIMEOUT,
+                retry_policy=GET_ORGS_RETRY_POLICY,
+            )
+            if not page:
+                break
+            pages.append(page)
+            page_tasks.append(asyncio.create_task(run_page(page)))
+            if len(page) < inputs.page_size:
+                break
+            cursor = page[-1]
+
+        results = await asyncio.gather(*page_tasks, return_exceptions=True)
+
+        orgs = inputs.carried_orgs
+        orgs_failed = inputs.carried_orgs_failed
+        sent = inputs.carried_sent
+        for page, result in zip(pages, results):
+            orgs += len(page)
+            if isinstance(result, BaseException):
+                # The child only propagates unexpected failures (per-org errors are counted
+                # inside it), so attribute the whole page.
+                orgs_failed += len(page)
+                workflow.logger.error(
+                    "Error Tracking weekly digest page failed",
+                    extra={"page_size": len(page), "error": str(result)},
+                )
+                continue
+            orgs_failed += result.orgs_failed
+            sent += result.sent
+
+        return self._finish(orgs=orgs, orgs_failed=orgs_failed, sent=sent, dry_run=inputs.dry_run)
+
+    async def _run_paged(self, inputs: WeeklyDigestInputs) -> WeeklyDigestResult:
+        """Pre-fan-out path: one page per execution, chained via continue_as_new. Kept only so
+        executions started before PAGE_FANOUT_PATCH replay deterministically."""
         # One keyset page per execution: only the ~40-byte cursor rides through
         # continue_as_new, so neither history nor payload size grows with org count.
         page = await workflow.execute_activity(
@@ -62,43 +200,9 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
             retry_policy=GET_ORGS_RETRY_POLICY,
         )
 
-        # Keep up to max_concurrent per-org activities in flight at all times: the semaphore
-        # releases the moment one finishes, so the next org starts immediately rather than
-        # waiting for a whole wave to drain.
-        semaphore = asyncio.Semaphore(inputs.max_concurrent)
-
-        async def send_org(org_id: str) -> SendOrgDigestResult:
-            async with semaphore:
-                return await workflow.execute_activity(
-                    send_org_digest_activity,
-                    SendOrgDigestInputs(org_id=org_id, dry_run=inputs.dry_run, max_attempts=inputs.max_attempts),
-                    start_to_close_timeout=SEND_ORG_START_TO_CLOSE_TIMEOUT,
-                    heartbeat_timeout=SEND_ORG_HEARTBEAT_TIMEOUT,
-                    retry_policy=common.RetryPolicy(
-                        # Must match SendOrgDigestInputs.max_attempts — final-attempt detection
-                        # inside the activity depends on the two agreeing.
-                        maximum_attempts=inputs.max_attempts,
-                        initial_interval=SEND_ORG_INITIAL_RETRY_INTERVAL,
-                        backoff_coefficient=2.0,
-                        maximum_interval=SEND_ORG_MAXIMUM_RETRY_INTERVAL,
-                    ),
-                )
-
-        results = await asyncio.gather(*(send_org(org_id) for org_id in page), return_exceptions=True)
-
-        sent = inputs.carried_sent
-        orgs_failed = inputs.carried_orgs_failed
-        for org_id, result in zip(page, results):
-            if isinstance(result, BaseException):
-                orgs_failed += 1
-                sent += _sent_from_error(result)
-                workflow.logger.error(
-                    "Error Tracking weekly digest org failed after retries",
-                    extra={"org_id": org_id, "error": str(result)},
-                )
-                continue
-            sent += result.sent
-
+        outcome = await _send_orgs(page, inputs.dry_run, inputs.max_concurrent, inputs.max_attempts)
+        sent = inputs.carried_sent + outcome.sent
+        orgs_failed = inputs.carried_orgs_failed + outcome.orgs_failed
         orgs = inputs.carried_orgs + len(page)
 
         # A full page may hide more orgs behind it; only a short page proves the set is
@@ -119,12 +223,15 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
                 )
             )
 
+        return self._finish(orgs=orgs, orgs_failed=orgs_failed, sent=sent, dry_run=inputs.dry_run)
+
+    def _finish(self, orgs: int, orgs_failed: int, sent: int, dry_run: bool) -> WeeklyDigestResult:
         if not orgs:
             workflow.logger.info("No orgs for Error Tracking weekly digest")
 
         workflow.logger.info(
             "Error Tracking weekly digest run complete",
-            extra={"orgs": orgs, "orgs_failed": orgs_failed, "sent": sent, "dry_run": inputs.dry_run},
+            extra={"orgs": orgs, "orgs_failed": orgs_failed, "sent": sent, "dry_run": dry_run},
         )
 
         if orgs_failed:

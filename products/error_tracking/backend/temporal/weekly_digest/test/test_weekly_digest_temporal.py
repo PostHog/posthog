@@ -39,6 +39,7 @@ from products.error_tracking.backend.temporal.weekly_digest.types import (
 )
 from products.error_tracking.backend.temporal.weekly_digest.workflow import (
     FAILED_ORGS_ERROR_TYPE,
+    ErrorTrackingWeeklyDigestPageWorkflow,
     ErrorTrackingWeeklyDigestWorkflow,
 )
 from products.error_tracking.backend.weekly_digest import build_team_digest_data
@@ -399,7 +400,7 @@ class TestErrorTrackingWeeklyDigestWorkflow:
             async with Worker(
                 env.client,
                 task_queue=task_queue,
-                workflows=[ErrorTrackingWeeklyDigestWorkflow],
+                workflows=[ErrorTrackingWeeklyDigestWorkflow, ErrorTrackingWeeklyDigestPageWorkflow],
                 activities=activities,
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 max_concurrent_activities=max_concurrent_activities,
