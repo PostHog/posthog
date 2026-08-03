@@ -571,6 +571,7 @@ export function useTaskCreation({
       channelName,
       channelId,
       channelContextId,
+      excludedAlwaysOnSkills,
       allowNoRepo,
       bluebirdEnabled,
       personalChannel?.id,
