@@ -23,6 +23,8 @@ interface TaskSelectorProps {
   children: ReactNode;
 }
 
+const CONTENT_STYLE = { minWidth: "240px" };
+
 export function TaskSelector({
   cellIndex,
   open,
@@ -97,7 +99,7 @@ export function TaskSelector({
           side="bottom"
           align="center"
           sideOffset={4}
-          className="min-w-[240px]"
+          style={CONTENT_STYLE}
         >
           {({ filtered }) => (
             <>
@@ -134,7 +136,7 @@ export function TaskSelector({
           side="bottom"
           align="center"
           sideOffset={4}
-          className="min-w-[240px]"
+          style={CONTENT_STYLE}
         >
           {({ filtered, hasMore, moreCount }) => (
             <>
