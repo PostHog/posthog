@@ -791,6 +791,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             flow.actions.filter((a: HogFlowAction) => a.type === 'wait_until_condition').map((a) => a.id)
         )
 
+        let updatedCount = 0
         const client = await this.cyclotronPool.connect()
         try {
             await client.query('BEGIN')
@@ -851,13 +852,18 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                      WHERE cj.id = u.id AND cj.status = 'available'`,
                     [updates.map((u) => u.id), updates.map((u) => u.personId), updates.map((u) => u.state)]
                 )
-                if (onlyNullAnchor) {
-                    counterHogflowMatcherFirstMapping.labels({ outcome: 'filled' }).inc(result.rowCount ?? 0)
-                } else {
-                    counterHogflowMatcherJobsRekeyedOnMove.inc(result.rowCount ?? 0)
-                }
+                updatedCount = result.rowCount ?? 0
             }
             await client.query('COMMIT')
+            // Counted after COMMIT: an UPDATE that succeeds and then fails to commit is rolled back, so
+            // counting before this would report anchors that no job actually carries.
+            if (updatedCount > 0) {
+                if (onlyNullAnchor) {
+                    counterHogflowMatcherFirstMapping.labels({ outcome: 'filled' }).inc(updatedCount)
+                } else {
+                    counterHogflowMatcherJobsRekeyedOnMove.inc(updatedCount)
+                }
+            }
         } catch (err) {
             await client.query('ROLLBACK').catch(() => {})
             throw err
