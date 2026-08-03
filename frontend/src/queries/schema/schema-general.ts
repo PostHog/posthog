@@ -7826,6 +7826,7 @@ export const externalDataSources = [
     'Campfire',
     'Crisp',
     'Kommo',
+    'GoogleMerchantCenter',
     'Axiom',
     'Plivo',
     'DataForSEO',

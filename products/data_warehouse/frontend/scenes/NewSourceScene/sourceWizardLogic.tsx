@@ -1056,6 +1056,7 @@ export interface sourceWizardLogicActions {
             | 'GoogleDirectory'
             | 'GoogleDrive'
             | 'GoogleForms'
+            | 'GoogleMerchantCenter'
             | 'GooglePageSpeedInsights'
             | 'GooglePlayConsole'
             | 'GoogleSearchConsole'
