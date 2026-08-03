@@ -15,6 +15,7 @@ from temporalio.client import ScheduleOverlapPolicy, WorkflowExecutionStatus
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
@@ -25,7 +26,12 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    ReplayScannerPromptSuggestion,
+    SuggestionStatus,
+)
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
+from products.replay_vision.backend.prompt_evaluation import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 from products.replay_vision.backend.temporal.activities import (
     delete_scanner_schedule_activity,
     list_enabled_scanners_activity,
@@ -44,6 +50,7 @@ from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_ID_PREFIX,
     SWEEP_SCANNER_WORKFLOW_NAME,
     VISION_ACTION_RUN_STUCK_CUTOFF,
+    build_evaluate_prompt_suggestion_workflow_id,
 )
 from products.replay_vision.backend.temporal.reconciler import (
     ReconcileScannerSchedulesWorkflow,
@@ -529,7 +536,7 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
         AsyncMock(return_value=temporal),
     ):
-        reaped = await reap_orphaned_observations_activity()
+        reaped = await ActivityEnvironment().run(reap_orphaned_observations_activity)
 
     assert reaped == 3
     statuses = {
@@ -544,6 +551,61 @@ async def test_reap_orphaned_observations_activity(org_team) -> None:
         assert statuses[key].completed_at is None, key
     # The fresh row never reaches Temporal; the empty-workflow-id row is reaped without a describe.
     assert set(temporal.described) == {"wf-gone-1", "wf-timed-out", "wf-open", "wf-err"}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_reap_settles_stuck_prompt_suggestion_evaluations(org_team) -> None:
+    # The evaluation workflow swallows finalize failures, so a terminated run leaves the row claiming to
+    # be running forever: the UI polls a test that will never finish and quota reserves its unspent credits.
+    _, team = org_team
+    scanner = await sync_to_async(_make_scanner)(team)
+    stale = timezone.now() - (EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT * 2 + dt.timedelta(minutes=5))
+
+    def _setup() -> dict[str, ReplayScannerPromptSuggestion]:
+        rows = {}
+        for key, started_at in (("stuck", stale), ("recent", timezone.now()), ("still_open", stale)):
+            rows[key] = ReplayScannerPromptSuggestion.objects.create(
+                scanner=scanner,
+                team=team,
+                suggested_prompt=f"p-{key}",
+                status=SuggestionStatus.PENDING,
+                scanner_version=1,
+                evaluation={
+                    "status": "running",
+                    "started_at": started_at.isoformat(),
+                    "total": 2,
+                    "results": [{"outcome": "kept"}],
+                    "summary": None,
+                },
+            )
+        return rows
+
+    rows = await sync_to_async(_setup)()
+    outcomes = {
+        build_evaluate_prompt_suggestion_workflow_id(rows["stuck"].id): "not_found",
+        build_evaluate_prompt_suggestion_workflow_id(rows["still_open"].id): "open",
+    }
+    temporal = _StubReapTemporal(outcomes)
+
+    with patch(
+        "products.replay_vision.backend.temporal.activities.reap_orphaned_observations.async_connect",
+        AsyncMock(return_value=temporal),
+    ):
+        reaped = await ActivityEnvironment().run(reap_orphaned_observations_activity)
+
+    assert reaped == 1
+    settled = await sync_to_async(lambda: ReplayScannerPromptSuggestion.objects.get(pk=rows["stuck"].pk))()
+    assert settled.evaluation is not None
+    assert settled.evaluation["status"] == "failed"
+    assert settled.evaluation["finished_at"] is not None
+    assert settled.evaluation["summary"] == {"kept": 1, "regressed": 0, "fixed": 0, "still_wrong": 0, "errors": 0}
+    for key in ("recent", "still_open"):
+        untouched = await sync_to_async(lambda k=key: ReplayScannerPromptSuggestion.objects.get(pk=rows[k].pk))()
+        assert untouched.evaluation is not None
+        assert untouched.evaluation["status"] == "running", key
+    # A stamp inside the timeout is never described: only provably-dead runs are settled.
+    assert build_evaluate_prompt_suggestion_workflow_id(rows["recent"].id) not in temporal.described
 
 
 def _make_run(action: VisionAction, *, status: str, workflow_id: str, age: dt.timedelta) -> VisionActionRun:

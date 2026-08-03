@@ -46,6 +46,9 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     output_destinations: {},
     last_run_at: null,
     consecutive_failure_count: 0,
+    status_changed_at: null,
+    auto_pause_exempt: false,
+    network_access: 'trusted',
     created_at: '2026-07-22T00:00:00Z',
 }
 

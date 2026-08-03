@@ -5,6 +5,7 @@ from typing import Any
 from unittest import mock
 
 import pyarrow as pa
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
@@ -199,6 +200,16 @@ class TestBodyTransforms:
         # GitHub answers 202 with no usable body while it recomputes a /stats aggregate. That must
         # sync nothing and end cleanly, not raise and retry the activity forever.
         rows, _calls = _run("contributor_stats", {"api.github.com": _response(None, status_code=202)})
+
+        assert rows == []
+
+    def test_statistics_no_content_syncs_zero_rows(self) -> None:
+        # GitHub answers 204 No Content on the /stats/* endpoints for a repo with no commit activity.
+        # The empty body must sync zero rows, not crash on response.json() (a JSONDecodeError).
+        no_content = _response(None, status_code=204)
+        no_content.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "", 0)
+
+        rows, _calls = _run("contributor_stats", {"api.github.com": no_content})
 
         assert rows == []
 

@@ -87,6 +87,27 @@ def _merge(state_alias: str, base_aggregator: str) -> ast.Call:
     return ast.Call(name=base_aggregator + _MERGE_SUFFIX, args=[ast.Field(chain=["ev", state_alias])])
 
 
+def _fingerprint_hash_expr() -> ast.Call:
+    """Hash the fingerprint without resolving it to its materialized column.
+
+    Distributed aggregation uses the textual expression as the block-column
+    name for grouping keys. ClickHouse versions disagree on whether the ``$``
+    in ``mat_$exception_fingerprint`` needs backticks in that name, which can
+    make the coordinator reject an otherwise valid block returned by a shard.
+    Reading the string directly from the properties JSON keeps the expression
+    stable across nodes.
+    """
+    return ast.Call(
+        name="cityHash64",
+        args=[
+            ast.Call(
+                name="JSONExtractString",
+                args=[ast.Field(chain=["e", "properties"]), ast.Constant(value="$exception_fingerprint")],
+            )
+        ],
+    )
+
+
 class ErrorTrackingQueryBuilder:
     """ClickHouse-only query builder using the denormalized fingerprint table.
 
@@ -226,10 +247,7 @@ class ErrorTrackingQueryBuilder:
         exprs: list[ast.Expr] = [
             ast.Alias(
                 alias="fp_hash",
-                expr=ast.Call(
-                    name="cityHash64",
-                    args=[ast.Field(chain=["e", "properties", "$exception_fingerprint"])],
-                ),
+                expr=_fingerprint_hash_expr(),
             ),
             ast.Alias(alias="last_seen_fp", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
             ast.Alias(alias="function_state", expr=_state(innermost_frame_attribute("$exception_functions"))),
