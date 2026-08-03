@@ -195,7 +195,7 @@ def _send_slack(
             return
         report = payload.get("report")
         slack_body = str(report) if report else body
-        text = _truncate(f"*{title}*\n{slack_body}", _SLACK_BODY_MAX_CHARS)
+        text = _truncate(f"*{_escape_slack_mrkdwn(title)}*\n{_escape_slack_mrkdwn(slack_body)}", _SLACK_BODY_MAX_CHARS)
         SlackIntegration(integration).client.chat_postMessage(
             channel=channel, text=text, unfurl_links=False, unfurl_media=False
         )
@@ -250,3 +250,7 @@ def _truncate(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 1] + "…"
+
+
+def _escape_slack_mrkdwn(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

@@ -289,6 +289,25 @@ class TestDispatchLoopEventSlackReport(LoopNotificationsTestCase):
 
     @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
     @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
+    def test_slack_report_escapes_control_tokens(self, mock_slack_cls, _mock_create_notification):
+        loop = self.create_loop_with_slack(name='Digest <!channel> & "more"')
+        fake_client = MagicMock()
+        mock_slack_cls.return_value.client = fake_client
+
+        dispatch_loop_event(loop, "run_completed", {"report": "Investigate <!channel> and <https://evil.test|this>."})
+
+        fake_client.chat_postMessage.assert_called_once_with(
+            channel="C123",
+            text=(
+                '*Loop "Digest &lt;!channel&gt; &amp; "more"" finished*\n'
+                "Investigate &lt;!channel&gt; and &lt;https://evil.test|this&gt;."
+            ),
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.SlackIntegration")
     def test_slack_body_falls_back_to_default_body_without_report(self, mock_slack_cls, _mock_create_notification):
         loop = self.create_loop_with_slack()
         fake_client = MagicMock()
