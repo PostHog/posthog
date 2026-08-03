@@ -38,6 +38,114 @@ import {
 import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const ChannelCreateSchema = TaskChannelsCreateBody
+
+const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDTO> => ({
+    name: 'channel-create',
+    schema: ChannelCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.ChannelDTO>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ChannelInstructionsRetrieveSchema = TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
+    id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe('ID of the channel whose instructions to read.'),
+})
+
+const channelInstructionsRetrieve = (): ToolBase<
+    typeof ChannelInstructionsRetrieveSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'channel-instructions-retrieve',
+    schema: ChannelInstructionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+        })
+        return result
+    },
+})
+
+const ChannelInstructionsUpdateSchema = TaskChannelsInstructionsPartialUpdateParams.omit({ project_id: true })
+    .extend(TaskChannelsInstructionsPartialUpdateBody.shape)
+    .extend({
+        id: TaskChannelsInstructionsPartialUpdateParams.shape['id'].describe(
+            'ID of the channel whose instructions to update.'
+        ),
+    })
+
+const channelInstructionsUpdate = (): ToolBase<
+    typeof ChannelInstructionsUpdateSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'channel-instructions-update',
+    schema: ChannelInstructionsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ChannelListSchema = TaskChannelsListQueryParams
+
+const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChannelDTOList> => ({
+    name: 'channel-list',
+    schema: ChannelListSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const ChannelRetrieveSchema = TaskChannelsRetrieveParams.omit({ project_id: true }).extend({
+    id: TaskChannelsRetrieveParams.shape['id'].describe('ID of the channel to read.'),
+})
+
+const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.ChannelDTO> => ({
+    name: 'channel-retrieve',
+    schema: ChannelRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const LoopsCreateSchema = LoopsCreateBody
 
 const LoopsCreateSchemaExecute = z.strictObject({
@@ -335,114 +443,6 @@ const loopsRunsRetrieve = (): ToolBase<typeof LoopsRunsRetrieveSchema, WithPostH
     },
 })
 
-const ChannelCreateSchema = TaskChannelsCreateBody
-
-const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDTO> => ({
-    name: 'channel-create',
-    schema: ChannelCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        const result = await context.api.request<Schemas.ChannelDTO>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
-            body,
-        })
-        return result
-    },
-})
-
-const ChannelInstructionsRetrieveSchema = TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
-    id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe('ID of the channel whose instructions to read.'),
-})
-
-const channelInstructionsRetrieve = (): ToolBase<
-    typeof ChannelInstructionsRetrieveSchema,
-    Schemas.ChannelInstructionsDTO
-> => ({
-    name: 'channel-instructions-retrieve',
-    schema: ChannelInstructionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
-        })
-        return result
-    },
-})
-
-const ChannelInstructionsUpdateSchema = TaskChannelsInstructionsPartialUpdateParams.omit({ project_id: true })
-    .extend(TaskChannelsInstructionsPartialUpdateBody.shape)
-    .extend({
-        id: TaskChannelsInstructionsPartialUpdateParams.shape['id'].describe(
-            'ID of the channel whose instructions to update.'
-        ),
-    })
-
-const channelInstructionsUpdate = (): ToolBase<
-    typeof ChannelInstructionsUpdateSchema,
-    Schemas.ChannelInstructionsDTO
-> => ({
-    name: 'channel-instructions-update',
-    schema: ChannelInstructionsUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.base_version !== undefined) {
-            body['base_version'] = params.base_version
-        }
-        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
-            body,
-        })
-        return result
-    },
-})
-
-const ChannelListSchema = TaskChannelsListQueryParams
-
-const channelList = (): ToolBase<typeof ChannelListSchema, Schemas.PaginatedChannelDTOList> => ({
-    name: 'channel-list',
-    schema: ChannelListSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-            },
-        })
-        return result
-    },
-})
-
-const ChannelRetrieveSchema = TaskChannelsRetrieveParams.omit({ project_id: true }).extend({
-    id: TaskChannelsRetrieveParams.shape['id'].describe('ID of the channel to read.'),
-})
-
-const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.ChannelDTO> => ({
-    name: 'channel-retrieve',
-    schema: ChannelRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ChannelRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ChannelDTO>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
 const TasksCreateSchema = TasksCreateBody.omit({
     title_manually_set: true,
     origin_product: true,
@@ -674,6 +674,11 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'channel-create': channelCreate,
+    'channel-instructions-retrieve': channelInstructionsRetrieve,
+    'channel-instructions-update': channelInstructionsUpdate,
+    'channel-list': channelList,
+    'channel-retrieve': channelRetrieve,
     'loops-create-prepare': loopsCreatePrepare,
     'loops-create-execute': loopsCreateExecute,
     'loops-destroy': loopsDestroy,
@@ -683,11 +688,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'loops-retrieve': loopsRetrieve,
     'loops-run-create': loopsRunCreate,
     'loops-runs-retrieve': loopsRunsRetrieve,
-    'channel-create': channelCreate,
-    'channel-instructions-retrieve': channelInstructionsRetrieve,
-    'channel-instructions-update': channelInstructionsUpdate,
-    'channel-list': channelList,
-    'channel-retrieve': channelRetrieve,
     'tasks-create': tasksCreate,
     'tasks-list': tasksList,
     'tasks-retrieve': tasksRetrieve,
