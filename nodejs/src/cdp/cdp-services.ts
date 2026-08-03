@@ -63,6 +63,20 @@ export interface CdpValkeyShadowPools {
     reader: RedisV2
 }
 
+export function routeSafeCdpRedis(
+    primaryEnabled: boolean,
+    redis: RedisV2,
+    valkey: CdpValkeyShadowPools | null
+): { primary: RedisV2; mirror: RedisV2 | null } {
+    if (!primaryEnabled) {
+        return { primary: redis, mirror: valkey?.writer ?? null }
+    }
+    if (!valkey) {
+        throw new Error('CDP_VALKEY_SAFE_PRIMARY_ENABLED requires a configured Valkey pool')
+    }
+    return { primary: valkey.writer, mirror: null }
+}
+
 export interface CdpCoreServices {
     redis: RedisV2
     /**
@@ -126,6 +140,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_DUAL_ENABLED'
+        | 'CDP_VALKEY_SAFE_PRIMARY_ENABLED'
         | 'CDP_VALKEY_TLS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
@@ -259,14 +274,22 @@ export function createCdpValkeyShadowPools(
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_DUAL_ENABLED'
+        | 'CDP_VALKEY_SAFE_PRIMARY_ENABLED'
         | 'CDP_VALKEY_TLS'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
     >,
     name: string
 ): CdpValkeyShadowPools | null {
-    if (!config.CDP_VALKEY_DUAL_ENABLED || !config.CDP_VALKEY_HOST) {
+    if ((!config.CDP_VALKEY_DUAL_ENABLED && !config.CDP_VALKEY_SAFE_PRIMARY_ENABLED) || !config.CDP_VALKEY_HOST) {
         return null
+    }
+
+    if (config.CDP_VALKEY_SAFE_PRIMARY_ENABLED) {
+        logger.warn(
+            '⚠️',
+            `[${name}] Valkey is authoritative for safe CDP keys; enable only after the dual-write TTL soak and parity checks`
+        )
     }
 
     logger.info(
@@ -357,6 +380,11 @@ export function createCdpCoreServices(
 
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
+    const { primary: safePrimary, mirror: safeMirror } = routeSafeCdpRedis(
+        config.CDP_VALKEY_SAFE_PRIMARY_ENABLED,
+        redis,
+        valkeyShadow
+    )
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
@@ -436,9 +464,9 @@ export function createCdpCoreServices(
             backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
-        redis,
+        safePrimary,
         messageAssetsService,
-        valkeyShadow?.writer ?? null
+        safeMirror
     )
 
     const hogExecutor = new HogExecutorService(
@@ -470,7 +498,7 @@ export function createCdpCoreServices(
     // and EmailValidationService degrades to the local cache + DNS.
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
-    const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
+    const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(safePrimary, safeMirror)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
