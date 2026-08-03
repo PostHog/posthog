@@ -756,10 +756,15 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // is dead, which fences the legitimate owner. Giving
                     // up the partition here takes it out of service with
                     // nothing to put it back — convergence sees it warmed
-                    // and unfenced, so no branch re-warms it. Reads stay
-                    // served until the lease machinery settles ownership;
-                    // refusing them needs a lease-validity check on the
-                    // read path, which is where that residual is closed.
+                    // and unfenced, so no branch re-warms it. On this
+                    // branch that leaves writes bouncing until a restart
+                    // or a handoff moves the partition; the stacked
+                    // lease-validity branch closes it with a serving-side
+                    // re-acquisition, gated on the authority stamp that
+                    // gives a pod the standing to bump the epoch. Reads
+                    // stay served until the lease machinery settles
+                    // ownership; refusing them needs a lease-validity
+                    // check on the read path, closed on the same branch.
                     return Err(Status::failed_precondition(format!(
                         "partition ownership fenced: {e}"
                     )));

@@ -145,16 +145,21 @@ struct PartitionFence {
     /// or a commit whose outcome stayed unknown.
     ///
     /// Such a producer is still installed, so presence alone cannot tell
-    /// a working fence from a dead one. Without this flag the repair pass
-    /// sees a fence, concludes there is nothing to do, and the partition
-    /// stays unwritable until a handoff moves it.
+    /// a working fence from a dead one. This flag is what makes the
+    /// distinction visible: a condemned partition answers as unowned so
+    /// the router bounces instead of retrying a dead producer. On this
+    /// branch nothing re-acquires in place — recovery is a process
+    /// restart or the partition moving — and the stacked lease-validity
+    /// branch adds the serving-side re-acquisition, which consults this
+    /// flag and needs the authority stamp it introduces for the standing
+    /// to bump the epoch.
     unusable: AtomicBool,
     commit_timeout: Duration,
 }
 
 impl PartitionFence {
-    /// Retire the producer: writes stop attempting it and the repair pass
-    /// stops treating the partition as fenced.
+    /// Retire the producer: writes stop attempting it and the partition
+    /// stops counting as fenced by this pod.
     fn condemn(&self, partition: u32, reason: &'static str) {
         if !self.unusable.swap(true, Ordering::Relaxed) {
             counter!(
@@ -866,8 +871,20 @@ impl FencedChangelogProducers {
     /// re-acquire, and the stale producer's failure must not evict its
     /// live replacement.
     fn forget_fence(&self, partition: u32, fence: &Arc<PartitionFence>) {
-        self.partitions
-            .remove_if(&partition, |_, installed| Arc::ptr_eq(installed, fence));
+        let removed = self
+            .partitions
+            .remove_if(&partition, |_, installed| Arc::ptr_eq(installed, fence))
+            .is_some();
+        if removed {
+            // The escalation signal for a partition giving up its fence
+            // outside the orderly release path — the series exists so a
+            // deploy-window burst of these is visible.
+            counter!(
+                "personhog_leader_fenced_partition_drops_total",
+                "partition" => partition.to_string()
+            )
+            .increment(1);
+        }
     }
 }
 
@@ -1186,10 +1203,10 @@ async fn commit_window_after(
         }
         // The commit task itself vanished, so nothing observed the
         // transaction's fate — which leaves the transaction open and this
-        // producer unable to begin another. Condemning it is what lets
-        // the repair pass see a partition that needs re-acquiring;
-        // without it `holds()` keeps answering yes and every later write
-        // fails for the life of the process.
+        // producer unable to begin another. Condemning it is what stops
+        // the partition counting as fenced; without it every later write
+        // retries a producer that cannot serve one, for the life of the
+        // process, with nothing to escalate.
         Err(join) => {
             fence.condemn(partition, "commit_task_lost");
             Err(FencedProduceError::Indeterminate(format!(
@@ -1276,9 +1293,9 @@ mod tests {
     /// into `Fenced` frees a version whose record may be committed, and
     /// collapsing it into `Indeterminate` throws away the bounce.
     /// The arrow *into* the condemned state. A producer left in a
-    /// transaction it cannot leave must be given up, or `holds()` keeps
-    /// answering yes, the repair pass sees nothing to do, and the
-    /// partition stays unwritable for the life of the process.
+    /// transaction it cannot leave must be given up, or the partition
+    /// keeps counting as fenced and every later write retries a producer
+    /// that cannot serve one, for the life of the process.
     #[test]
     fn a_producer_that_cannot_begin_another_window_is_condemned() {
         assert_eq!(condemn_reason(CommitOutcome::Aborted), None);

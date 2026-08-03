@@ -226,6 +226,13 @@ impl HandoffModel {
         // them apart. Collapsing that case keeps the state space at the
         // size it had before the decomposition; `ReadFirst`, where the
         // gap is the entire point, stays split.
+        //
+        // Be precise about what that buys: the checker *proves* ReadFirst
+        // unsafe by exploring its gap, and never explores FenceFirst's —
+        // FenceFirst's safety rests on the argument above, not on
+        // enumeration. If the no-observable-gap argument ever stops
+        // holding (an append path that does not require an installed
+        // warm), this collapse is the assumption to revisit first.
         let observable_gap =
             self.variant == Variant::EpochFenced && self.warm_order == WarmOrder::ReadFirst;
         if !observable_gap {

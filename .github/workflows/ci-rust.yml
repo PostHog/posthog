@@ -639,7 +639,11 @@ jobs:
             - name: Run the e2e gate with epoch fencing (zombie + writer lag)
               run: |
                   if ! ./target/debug/personhog-test-harness gate --help | grep -q -- --leader-env; then
-                    echo "harness predates --leader-env; skipping the fenced gate"
+                    # Graceful degradation for unrebased branches (see the
+                    # CI back-compat rule) — but loud, so a harness
+                    # regression that drops the flag cannot silently
+                    # retire this gate.
+                    echo "::warning title=fenced e2e gate skipped::harness predates --leader-env; the fenced gate did not run"
                     exit 0
                   fi
                   # The freeze has to outlive the lease, or the woken pod

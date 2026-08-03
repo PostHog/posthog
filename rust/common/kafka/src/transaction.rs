@@ -18,6 +18,104 @@ use crate::{
     },
 };
 
+/// Startup metadata-ping bound for producers built without a broker
+/// transaction bound — the value this call used before the bound
+/// existed, kept so unrelated services' startup behavior is unchanged.
+const UNBOUNDED_PING_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The `ClientConfig` for a transactional producer: the shared
+/// producer's tuning, the transactional id, and — when the caller
+/// controls the broker-side bound — `transaction.timeout.ms`.
+///
+/// A pure function so what the fenced producer inherits is assertable.
+/// It previously carried only a fixed subset of the shared tuning, so a
+/// deployment that set `message.max.bytes` or batch tuning got two
+/// producers behaving differently depending on which flag arm built
+/// them.
+///
+/// Four knobs are deliberately not copied even when configured, because
+/// the transactional contract pins them: transactions require
+/// idempotence, and idempotence requires `acks=all`, retries above
+/// zero, and at most five in-flight requests. librdkafka refuses to
+/// build a producer configured against any of those, so a shared
+/// override of `enable.idempotence`, `acks`, `retries`, or
+/// `max.in.flight.requests.per.connection` must not reach this one.
+fn transactional_client_config(
+    config: &KafkaConfig,
+    transactional_id: &str,
+    broker_txn_timeout: Option<Duration>,
+) -> Result<ClientConfig, KafkaError> {
+    let mut client_config = ClientConfig::new();
+    client_config
+        .set("bootstrap.servers", &config.kafka_hosts)
+        .set("statistics.interval.ms", "10000")
+        .set("linger.ms", config.kafka_producer_linger_ms.to_string())
+        .set(
+            "message.timeout.ms",
+            config.kafka_message_timeout_ms.to_string(),
+        )
+        .set(
+            "compression.codec",
+            config.kafka_compression_codec.to_owned(),
+        )
+        .set(
+            "queue.buffering.max.kbytes",
+            (config.kafka_producer_queue_mib * 1024).to_string(),
+        )
+        .set(
+            "queue.buffering.max.messages",
+            config.kafka_producer_queue_messages.to_string(),
+        )
+        .set("transactional.id", transactional_id);
+
+    if !config.kafka_client_id.is_empty() {
+        client_config.set("client.id", &config.kafka_client_id);
+    }
+    if let Some(v) = config.kafka_producer_batch_size {
+        client_config.set("batch.size", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_batch_num_messages {
+        client_config.set("batch.num.messages", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_topic_metadata_refresh_interval_ms {
+        client_config.set("topic.metadata.refresh.interval.ms", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_message_max_bytes {
+        client_config.set("message.max.bytes", v.to_string());
+    }
+    if let Some(v) = config.kafka_producer_sticky_partitioning_linger_ms {
+        client_config.set("sticky.partitioning.linger.ms", v.to_string());
+    }
+    if let Some(ref v) = config.kafka_producer_partitioner {
+        client_config.set("partitioner", v);
+    }
+
+    if let Some(broker_txn_timeout) = broker_txn_timeout {
+        let message_timeout_ms = u128::from(config.kafka_message_timeout_ms);
+        if message_timeout_ms > broker_txn_timeout.as_millis() {
+            // librdkafka reports this as a bare string from
+            // `rd_kafka_new`; say which two knobs disagree instead.
+            return Err(KafkaError::ClientCreation(format!(
+                "message.timeout.ms ({message_timeout_ms}) exceeds the requested \
+                 transaction.timeout.ms ({}) for transactional id {transactional_id}",
+                broker_txn_timeout.as_millis(),
+            )));
+        }
+        client_config.set(
+            "transaction.timeout.ms",
+            broker_txn_timeout.as_millis().to_string(),
+        );
+    }
+
+    if config.kafka_tls {
+        client_config
+            .set("security.protocol", "ssl")
+            .set("enable.ssl.certificate.verification", "false");
+    };
+
+    Ok(client_config)
+}
+
 // TODO - it's kinda gross to leak the underlying producer context type here, makes for a really gross API. We should
 // probably figure out some trait to abstract over it
 pub struct TransactionalProducer<C = DefaultClientContext>
@@ -86,60 +184,24 @@ impl<C: ClientContext> TransactionalProducer<C> {
         broker_txn_timeout: Option<Duration>,
         context: C,
     ) -> Result<Self, KafkaError> {
-        let mut client_config = ClientConfig::new();
-        client_config
-            .set("bootstrap.servers", &config.kafka_hosts)
-            .set("statistics.interval.ms", "10000")
-            .set("linger.ms", config.kafka_producer_linger_ms.to_string())
-            .set(
-                "message.timeout.ms",
-                config.kafka_message_timeout_ms.to_string(),
-            )
-            .set(
-                "compression.codec",
-                config.kafka_compression_codec.to_owned(),
-            )
-            .set(
-                "queue.buffering.max.kbytes",
-                (config.kafka_producer_queue_mib * 1024).to_string(),
-            )
-            .set(
-                "queue.buffering.max.messages",
-                config.kafka_producer_queue_messages.to_string(),
-            )
-            .set("transactional.id", transactional_id);
-
-        if let Some(broker_txn_timeout) = broker_txn_timeout {
-            let message_timeout_ms = u128::from(config.kafka_message_timeout_ms);
-            if message_timeout_ms > broker_txn_timeout.as_millis() {
-                // librdkafka reports this as a bare string from
-                // `rd_kafka_new`; say which two knobs disagree instead.
-                return Err(KafkaError::ClientCreation(format!(
-                    "message.timeout.ms ({message_timeout_ms}) exceeds the requested \
-                     transaction.timeout.ms ({}) for transactional id {transactional_id}",
-                    broker_txn_timeout.as_millis(),
-                )));
-            }
-            client_config.set(
-                "transaction.timeout.ms",
-                broker_txn_timeout.as_millis().to_string(),
-            );
-        }
-
-        if config.kafka_tls {
-            client_config
-                .set("security.protocol", "ssl")
-                .set("enable.ssl.certificate.verification", "false");
-        };
+        let client_config =
+            transactional_client_config(config, transactional_id, broker_txn_timeout)?;
 
         debug!("rdkafka configuration: {:?}", client_config);
         let api: FutureProducer<C> = client_config.create_with_context(context)?;
 
-        // "Ping" the Kafka brokers by requesting metadata, bounded by
-        // the caller's timeout: this runs on the partition-acquisition
-        // path, where an unbounded stall holds a warm slot and delays a
-        // handoff.
-        match api.client().fetch_metadata(None, timeout) {
+        // "Ping" the Kafka brokers by requesting metadata. On the
+        // broker-bounded (partition-acquisition) path the ping is bounded
+        // by the caller's timeout — an unbounded stall there holds a warm
+        // slot and delays a handoff. Everywhere else the historical fixed
+        // bound is kept, so services that never opted into broker bounds
+        // keep their startup behavior.
+        let ping_timeout = if broker_txn_timeout.is_some() {
+            timeout
+        } else {
+            UNBOUNDED_PING_TIMEOUT
+        };
+        match api.client().fetch_metadata(None, ping_timeout) {
             Ok(metadata) => {
                 info!(
                     "Successfully connected to Kafka brokers. Found {} topics.",
@@ -332,19 +394,82 @@ mod tests {
     fn an_unbounded_producer_does_not_inherit_the_operation_timeout() {
         let config = KafkaConfig {
             kafka_message_timeout_ms: 20_000,
-            kafka_hosts: "127.0.0.1:9".to_string(),
             ..KafkaConfig::default()
         };
-        // No broker is listening, so this fails at the metadata ping —
-        // but it must get that far, i.e. past client construction.
-        let Err(err) =
-            TransactionalProducer::from_config(&config, "test-txn-id", Duration::from_secs(1))
-        else {
-            panic!("no broker is listening on this port");
-        };
-        assert!(
-            !err.to_string().contains("must be set"),
-            "the producer was rejected at construction rather than reaching the broker: {err}"
+        let client_config = transactional_client_config(&config, "test-txn-id", None)
+            .expect("an unbounded config always builds");
+        assert_eq!(
+            client_config.get("transaction.timeout.ms"),
+            None,
+            "no broker bound was requested, so none may be set"
         );
+        assert_eq!(client_config.get("message.timeout.ms"), Some("20000"));
+    }
+
+    /// The fenced producer must carry the shared producer's tuning, not a
+    /// fixed subset of it: a deployment that raises `message.max.bytes`
+    /// or sets batch or metadata-refresh tuning would otherwise get two
+    /// producers behaving differently depending on which flag arm built
+    /// them — most consequentially the message ceiling, since the leader
+    /// admits person properties within a whisker of librdkafka's default.
+    #[test]
+    fn the_fenced_producer_inherits_the_shared_tuning() {
+        let config = KafkaConfig {
+            kafka_client_id: "leader-changelog".to_string(),
+            kafka_producer_batch_size: Some(524_288),
+            kafka_producer_batch_num_messages: Some(1_000),
+            kafka_producer_topic_metadata_refresh_interval_ms: Some(30_000),
+            kafka_producer_message_max_bytes: Some(2_097_152),
+            kafka_producer_sticky_partitioning_linger_ms: Some(25),
+            kafka_producer_partitioner: Some("murmur2_random".to_string()),
+            ..KafkaConfig::default()
+        };
+        let client_config = transactional_client_config(&config, "test-txn-id", None)
+            .expect("a compatible config builds");
+        for (key, value) in [
+            ("client.id", "leader-changelog"),
+            ("batch.size", "524288"),
+            ("batch.num.messages", "1000"),
+            ("topic.metadata.refresh.interval.ms", "30000"),
+            ("message.max.bytes", "2097152"),
+            ("sticky.partitioning.linger.ms", "25"),
+            ("partitioner", "murmur2_random"),
+        ] {
+            assert_eq!(
+                client_config.get(key),
+                Some(value),
+                "the fenced producer dropped the shared `{key}` tuning"
+            );
+        }
+    }
+
+    /// The four knobs the transactional contract pins must not be copied
+    /// even when the shared config sets them: transactions require
+    /// idempotence, and idempotence requires acks=all, retries above
+    /// zero, and at most five in-flight requests — librdkafka refuses to
+    /// build a producer configured against any of those.
+    #[test]
+    fn the_transactional_contract_pins_its_knobs() {
+        let config = KafkaConfig {
+            kafka_producer_enable_idempotence: Some(false),
+            kafka_producer_acks: Some("1".to_string()),
+            kafka_producer_retries: Some(0),
+            kafka_producer_max_in_flight_requests_per_connection: Some(50),
+            ..KafkaConfig::default()
+        };
+        let client_config = transactional_client_config(&config, "test-txn-id", None)
+            .expect("pinned knobs are dropped, not refused");
+        for key in [
+            "enable.idempotence",
+            "acks",
+            "retries",
+            "max.in.flight.requests.per.connection",
+        ] {
+            assert_eq!(
+                client_config.get(key),
+                None,
+                "`{key}` is pinned by the transactional contract and must not be copied"
+            );
+        }
     }
 }

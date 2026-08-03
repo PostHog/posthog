@@ -536,6 +536,20 @@ impl Config {
                  ({txn:?}); librdkafka rejects the producer outright"
             ));
         }
+        // Acquisition spends its timeout twice — once on the metadata
+        // ping, once on init_transactions — and both have to land inside
+        // the runway the keepalive reserves. The queued-write bound below
+        // caps the derived value transitively at the defaults, but an
+        // override can move the inputs, so the two-call bound is checked
+        // by name.
+        if self.fencing_init_timeout() * 2 > runway {
+            return Err(format!(
+                "fencing acquisition spends its timeout ({:?}) on two broker calls, which \
+                 does not fit the lease fence runway ({runway:?}); raise LEASE_TTL or lower \
+                 the transaction-timeout override",
+                self.fencing_init_timeout()
+            ));
+        }
         // A write parked behind a committing window pays that window's
         // send and commit before its own, so the runway has to cover
         // two — each of them including every commit attempt the code
