@@ -154,27 +154,47 @@ def _is_private_ip_literal(host: str) -> bool:
 
 def has_authority_bypass_chars(url: str) -> bool:
     """
-    Detect characters that make the URL authority ambiguous between parsers.
+    Detect characters that produce a parser-vs-client disagreement on the URL authority.
 
     ``urllib.parse.urlparse`` treats ``\\`` before ``@`` as part of the userinfo and
     returns the host after the ``@``, while ``requests``/``urllib3`` and browsers
     interpret ``\\`` as the end of the authority (a path separator) and connect to
     the host before it. ``%5c`` decodes to ``\\`` and produces the same divergence.
 
-    ``ENCODED_AUTHORITY_TERMINATORS`` inside the authority are ambiguous for a
-    different reason: any consumer that percent-decodes before splitting the
-    authority sees it end early, so ``https://good.example%2F@evil.example/``
-    resolves to ``good.example`` there but to ``evil.example`` elsewhere. Only the
-    authority is checked — the same sequences are ordinary data in a path, query, or
-    fragment — so pass a full URL: a bare host has no authority to inspect.
-
     URLs containing these characters cannot be safely validated by host, because
     the validated host differs from the host the client will actually connect to.
+
+    This runs on every SSRF-validated outbound fetch, so it stays limited to
+    sequences no client resolves consistently. Percent-encoded characters that are
+    merely ambiguous under a decode-then-split reading are handled by
+    ``has_encoded_authority_terminator``, which only redirect validation applies.
     """
     if "\\" in url:
         return True
     if "%5c" in url.lower():
         return True
+    return False
+
+
+def has_encoded_authority_terminator(url: str) -> bool:
+    """
+    Detect a percent-encoded authority delimiter anywhere in the URL authority.
+
+    A consumer that percent-decodes before splitting the authority sees it end at the
+    terminator, so ``https://good.example%2F@evil.example/`` reads as ``good.example``
+    there and as ``evil.example`` under ``urlparse``. Nothing in the request path
+    decodes that early today, which makes this a tripwire rather than the control:
+    it exists so that reintroducing a decode step, or dropping ``strip_url_userinfo``
+    from a redirect target, fails closed instead of silently reopening the split.
+
+    Only redirect validation calls this. The same sequences are legitimate in
+    credentials (an email username encodes ``@`` as ``%40``, a password may encode
+    ``/``, ``?``, or ``#``), so applying it to outbound fetches would reject ordinary
+    basic auth. Redirect targets have no business carrying credentials at all.
+
+    Pass a full URL: a bare host has no authority to inspect. Sequences in the path,
+    query, or fragment are ordinary encoded data and are ignored.
+    """
     try:
         authority = urlparse.urlparse(url).netloc.lower()
     except ValueError:

@@ -1695,6 +1695,21 @@ class TestUserAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.headers.get("location") is None
 
+    @parameterized.expand(
+        [
+            ("unterminated_ipv6_literal", "https://[::1"),
+            ("nfkc_unstable_host", "https://exa℀mple.com/"),
+        ]
+    )
+    def test_redirect_to_site_rejects_an_unparseable_app_url(self, _name: str, app_url: str) -> None:
+        self.team.app_urls = ["https://www.example.com"]
+        self.team.save()
+
+        response = self.client.get(f"/api/user/redirect_to_site/?appUrl={quote(app_url, safe='')}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.headers.get("location") is None
+
     @parameterized.expand([("http", "http%3A%2F%2Fwww.example.com"), ("https", "https%3A%2F%2Fwww.example.com")])
     def test_redirect_to_site_accepts_a_fully_encoded_app_url(self, _name: str, encoded: str) -> None:
         # Some browsers encode the whole redirect target (#23504). The redirect has to go to the

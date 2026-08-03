@@ -612,6 +612,18 @@ class TestNormalizeAndValidateAppUrl(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("unterminated_ipv6_literal", "https://[::1"),
+            ("nfkc_unstable_host", "https://exa℀mple.com/"),
+        ]
+    )
+    def test_rejects_unparseable_app_url(self, _name, app_url):
+        with self.assertRaises(ToolbarOAuthError) as cm:
+            normalize_and_validate_app_url(self.team, app_url)
+        assert cm.exception.code == "invalid_app_url"
+        assert cm.exception.status_code == 400
+
+    @parameterized.expand(
+        [
             # urlparse sees hostname='example.com' (the allowed domain), but a browser
             # following the redirect treats `\` as a path separator and routes to
             # attacker.example, leaking the toolbar OAuth code.

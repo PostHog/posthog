@@ -284,17 +284,36 @@ class TestUrlValidation:
             ("http://example.com/path\\with-backslash", True),
             ("http://example.com%5Cpath", True),
             ("http://attacker.com\\@example.com", True),
-            # Encoded authority terminators: clients that decode before splitting the
-            # authority end up on a different host than the one we validated.
-            ("https://example.com%2F@attacker.com/", True),
-            ("https://example.com%3f@attacker.com/", True),
-            ("https://example.com%23@attacker.com/", True),
-            ("https://example.com%40@attacker.com/", True),
-            # The same sequences outside the authority are ordinary encoded data.
-            ("https://example.com/repos/group%2Fproject", False),
-            ("https://example.com/send?to=someone%40example.com", False),
-            ("https://example.com/search#q=a%23b", False),
+            # Percent-encoded credentials are ordinary basic auth. Every parser resolves
+            # these to example.com, so blocking them would break outbound fetches that
+            # carry an email username or a password containing a reserved character.
+            ("https://user%40corp.example:pass@example.com/path", False),
+            ("https://user:p%2Fss@example.com/path", False),
+            ("https://user:p%23ss@example.com/path", False),
         ],
     )
     def test_has_authority_bypass_chars(self, url, expected):
         assert uv.has_authority_bypass_chars(url) is expected
+
+    @pytest.mark.parametrize(
+        "url,expected",
+        [
+            # A consumer that percent-decodes before splitting the authority sees it end
+            # at the terminator, landing on a different host than urlparse reports.
+            ("https://example.com%2F@attacker.com/", True),
+            ("https://example.com%3f@attacker.com/", True),
+            ("https://example.com%23@attacker.com/", True),
+            ("https://example.com%40@attacker.com/", True),
+            ("https://example.com%2Fpath", True),
+            ("https://example.com/", False),
+            # The same sequences outside the authority are ordinary encoded data.
+            ("https://example.com/repos/group%2Fproject", False),
+            ("https://example.com/send?to=someone%40example.com", False),
+            ("https://example.com/search#q=a%23b", False),
+            # Unparseable authorities fail closed rather than raising.
+            ("https://[::1", True),
+            ("https://exa℀mple.com/", True),
+        ],
+    )
+    def test_has_encoded_authority_terminator(self, url, expected):
+        assert uv.has_encoded_authority_terminator(url) is expected

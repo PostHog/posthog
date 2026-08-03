@@ -40,7 +40,7 @@ from posthog.models.activity_logging.activity_log import Detail, changes_between
 from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
-from posthog.security.url_validation import has_authority_bypass_chars
+from posthog.security.url_validation import has_authority_bypass_chars, has_encoded_authority_terminator
 from posthog.utils import load_data_from_request
 from posthog.utils_cors import cors_response
 
@@ -505,20 +505,26 @@ def canonicalize_encoded_url(url: str) -> str:
     Only a string with no host is decoded, and only once. Decoding a URL that already has an
     authority is what lets ``https://permitted.example%2F@evil.example/`` be approved as
     ``permitted.example`` while a browser resolves ``evil.example``, so that case is left alone.
-    Callers must redirect to what this returns, not to what they passed in — approving the decoded
-    form and emitting the raw one would reintroduce the same split.
+    Callers must redirect to what this returns, not to what they passed in, because approving the
+    decoded form and emitting the raw one would reintroduce the same split.
+
+    Callers run their own ``urlparse`` after this and turn its ``ValueError`` into a 400, so a URL
+    that cannot be parsed at all is handed back untouched rather than raised on here.
     """
-    if urlparse(url).hostname:
+    try:
+        if urlparse(url).hostname:
+            return url
+        decoded = urllib.parse.unquote(url)
+        return decoded if urlparse(decoded).hostname else url
+    except ValueError:
         return url
-    decoded = urllib.parse.unquote(url)
-    return decoded if urlparse(decoded).hostname else url
 
 
 def unparsed_hostname_in_allowed_url_list(allowed_url_list: Optional[list[str]], hostname: Optional[str]) -> bool:
     if not hostname:
         return hostname_in_allowed_url_list(allowed_url_list, hostname)
     candidate = canonicalize_encoded_url(hostname)
-    if has_authority_bypass_chars(candidate):
+    if has_authority_bypass_chars(candidate) or has_encoded_authority_terminator(candidate):
         return False
     return hostname_in_allowed_url_list(allowed_url_list, urlparse(candidate).hostname)
 
