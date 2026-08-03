@@ -11,11 +11,7 @@ export interface SkillInfo {
   editable: boolean;
   /** Size of SKILL.md in bytes (context-cost signal). */
   skillMdBytes: number;
-  /**
-   * Frontmatter `disable-model-invocation: true`: the agent never invokes the
-   * skill on its own — only an explicit user invocation (slash command or
-   * composer skill tag) runs it.
-   */
+  /** Frontmatter `disable-model-invocation: true`: only an explicit user invocation runs the skill, never the agent on its own. */
   disableModelInvocation?: boolean;
 }
 
@@ -37,14 +33,9 @@ export interface ExportedSkill {
   description: string;
   body: string;
   files: ExportedSkillFile[];
-  /** Frontmatter `disable-model-invocation: true`, carried so reconstruction keeps it. */
   disableModelInvocation?: boolean;
 }
 
-/**
- * Where `disableModelInvocation` rides in the team-skills API's metadata dict.
- * Named after the frontmatter key so the stored value reads the same everywhere.
- */
 export const DISABLE_MODEL_INVOCATION_METADATA_KEY = "disable-model-invocation";
 
 /**

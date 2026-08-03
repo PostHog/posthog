@@ -176,11 +176,7 @@ export class TeamSkillsService {
   }
 }
 
-/**
- * Reflects the flag into the API metadata dict: set on manual-only, removed
- * otherwise, so a republished skill that dropped the frontmatter stops being
- * manual-only. Other metadata keys pass through untouched.
- */
+// Clearing the key keeps a republish that dropped the frontmatter from staying manual-only.
 function withDisableModelInvocation(
   metadata: Record<string, unknown> | undefined,
   disableModelInvocation: boolean | undefined,

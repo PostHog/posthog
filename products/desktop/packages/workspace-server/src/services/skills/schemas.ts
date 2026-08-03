@@ -17,8 +17,6 @@ export const skillInfo = z.object({
   repoName: z.string().optional(),
   editable: z.boolean(),
   skillMdBytes: z.number(),
-  // Frontmatter `disable-model-invocation: true`: only explicit user
-  // invocation runs the skill; the agent never picks it on its own.
   disableModelInvocation: z.boolean().optional(),
 });
 

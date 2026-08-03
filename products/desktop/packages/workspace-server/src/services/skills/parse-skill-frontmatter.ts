@@ -26,7 +26,7 @@ export function parseSkillFrontmatter(content: string): {
   return { name, description, disableModelInvocation };
 }
 
-/** YAML 1.2 core-schema booleans: `true`/`True`/`TRUE` (quoted forms too). */
+// YAML 1.2 core schema: only `true` (any casing) is boolean true, never `yes`/`on`.
 function parseYamlBoolean(value: string | null): boolean {
   return value !== null && value.toLowerCase() === "true";
 }
@@ -110,8 +110,8 @@ function extractYamlValue(yaml: string, key: string): string | null {
       return collectIndentedLines(lines, i + 1).join("\n");
     }
 
-    // Quoted string (single or double). Quoted content is literal in YAML —
-    // a `#` inside never starts a comment, so no comment stripping here.
+    // Quoted string (single or double): a `#` inside quotes is literal in
+    // YAML, so no comment stripping here.
     if (
       (rawValue.startsWith("'") && rawValue.endsWith("'")) ||
       (rawValue.startsWith('"') && rawValue.endsWith('"'))
