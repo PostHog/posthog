@@ -224,7 +224,7 @@ describe('logsViewerLogic', () => {
             const toastSpy = jest.spyOn(lemonToast, 'error')
 
             await expectLogic(logic, () => {
-                logic.actions.loadUngroupedLogs(null)
+                logic.actions.loadUngroupedLogs()
             }).toDispatchActions(['loadUngroupedLogsFailure'])
 
             expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Error loading logs'))
