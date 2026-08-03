@@ -316,7 +316,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
           onOpenTask={handleOpenTask}
           onOpenThread={handleOpenThread}
         />
-        <div className="mx-auto w-full px-4 pt-2 pb-4">
+        <div className="mx-auto w-full px-4 pt-2 pb-2">
           <ChannelHomeComposer
             ref={composerRef}
             channelId={channelId}

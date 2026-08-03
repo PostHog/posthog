@@ -43,6 +43,7 @@ import type {
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
+    PatchedHogFlowActionEmailUpdateApi,
     PatchedHogFlowApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
@@ -327,6 +328,25 @@ export const hogFlowsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getHogFlowsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getHogFlowsActionsEmailPartialUpdateUrl = (projectId: string, id: string, actionId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/actions/${actionId}/email/`
+}
+
+export const hogFlowsActionsEmailPartialUpdate = async (
+    projectId: string,
+    id: string,
+    actionId: string,
+    patchedHogFlowActionEmailUpdateApi?: PatchedHogFlowActionEmailUpdateApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsActionsEmailPartialUpdateUrl(projectId, id, actionId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowActionEmailUpdateApi),
     })
 }
 

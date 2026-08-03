@@ -636,6 +636,52 @@ describe('PushNotificationService', () => {
             expect(mockRedisSet).toHaveBeenCalledTimes(1)
         })
 
+        it('mirrors APNS provider token reads and writes to Valkey', async () => {
+            const mirrorStore = new Map<string, string>()
+            const mirrorSet = jest.fn((key: string, value: string) => {
+                mirrorStore.set(key, value)
+                return 'OK'
+            })
+            const mirrorRedis = {
+                useClient: jest.fn((_opts: any, fn: any) =>
+                    fn({
+                        get: (key: string) => mirrorStore.get(key) ?? null,
+                        set: mirrorSet,
+                    })
+                ),
+            } as any
+            const mirroredService = new PushNotificationService(
+                integrationManager,
+                encryptedFields,
+                fetchUtils,
+                mockRedis,
+                undefined,
+                mirrorRedis
+            )
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: { status: 200, text: () => Promise.resolve(''), dump: () => Promise.resolve() },
+                fetchDuration: 15,
+            })
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+            })
+
+            await mirroredService.executeSendPushNotification(invocation)
+
+            expect(mirrorRedis.useClient).toHaveBeenCalledWith(
+                expect.objectContaining({ name: 'apns-jwt-read' }),
+                expect.any(Function)
+            )
+            expect(mirrorSet).toHaveBeenCalledWith(
+                expect.stringContaining('@posthog/apns-provider-jwt/'),
+                expect.any(String),
+                'EX',
+                2700
+            )
+            expect([...mirrorStore.values()]).toEqual([...redisStore.values()])
+        })
+
         it('sets apns-priority to 5 for passive interruption level', async () => {
             const invocation = createSendPushNotificationInvocation({
                 '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
