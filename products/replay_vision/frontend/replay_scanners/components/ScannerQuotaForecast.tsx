@@ -5,6 +5,7 @@ import { LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
+import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import {
@@ -26,7 +27,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const { scanner, scannerEstimate, scannerEstimateLoading, scannerEstimateError } = useValues(
         replayScannerLogic({ id: scannerId })
     )
-    const { quota, showUsd } = useValues(visionQuotaLogic)
+    const { quota, showUsd, onFreePlan } = useValues(visionQuotaLogic)
 
     if (!scanner) {
         return null
@@ -117,9 +118,10 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 ) : (
                     <div className="text-sm text-muted">—</div>
                 )}
-                {hasCap && (
+                {/* The exhausted note below carries this status, so don't say it twice. */}
+                {hasCap && !projection.exhausted && (
                     <span className="text-xs tabular-nums">
-                        <QuotaStatusLine projection={projection} />
+                        <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
                     </span>
                 )}
             </div>
@@ -133,6 +135,8 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     </div>
                 </Tooltip>
             )}
+
+            {hasCap && projection.exhausted && <QuotaExhaustedNote onFreePlan={onFreePlan} />}
 
             {hasCap && projectedCredits !== null && (
                 <>

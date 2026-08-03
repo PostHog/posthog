@@ -58,6 +58,18 @@ export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
 }
 
 /**
+ * True when the org's whole limit is the free allocation, so it is on the free plan rather than
+ * capped by choice. A zero limit is excluded: that is a deliberate spend cap, not a free plan.
+ * Drives copy, where "you ran out of free credits" and "you hit your limit" are different messages.
+ */
+export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
+    if (!hasCreditLimit(quota) || quota.credit_limit <= 0) {
+        return false
+    }
+    return billableCredits(quota.credit_limit, quota.free_monthly_credits) === 0
+}
+
+/**
  * Project credit spend to period end from the enabled fleet's summed per-scanner estimates.
  * `scannerProjectedMonthlyCreditsDelta` adjusts the fleet sum for a scanner being edited:
  * its proposed monthly credit estimate minus the stored contribution already in the sum.
@@ -140,7 +152,11 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
         return {}
     }
     if (state.kind === 'exhausted') {
-        return { disabledReason: `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.` }
+        return {
+            disabledReason: isFreeAllocationOnly(quota)
+                ? `You've used all your free Replay vision credits. Resets ${state.resetsOn}.`
+                : `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.`,
+        }
     }
     return {
         tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,

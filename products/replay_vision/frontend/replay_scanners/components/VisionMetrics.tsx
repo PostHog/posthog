@@ -27,7 +27,7 @@ const COLLECTION_ID = 'replay-vision-list-observations'
 export function VisionMetrics(): JSX.Element {
     const { scannerStats, chartDateFrom, chartDateTo } = useValues(replayScannersLogic)
     const { setChartDateRange } = useActions(replayScannersLogic)
-    const { quota, quotaLoading, showUsd, billedCredits, billedLimitCredits } = useValues(visionQuotaLogic)
+    const { quota, quotaLoading, showUsd, onFreePlan, billedCredits, billedLimitCredits } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, usedFreePct, projectedPct } = projection
@@ -190,13 +190,16 @@ export function VisionMetrics(): JSX.Element {
                                         <QuotaMeterLegendItem barClass={styles.bar} striped width={projectedWidth}>
                                             Projected
                                         </QuotaMeterLegendItem>
-                                        <span className="ml-auto">
-                                            <QuotaStatusLine projection={projection} />
-                                        </span>
+                                        {/* The exhausted note below carries this status, so don't say it twice. */}
+                                        {!projection.exhausted && (
+                                            <span className="ml-auto">
+                                                <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
+                                            </span>
+                                        )}
                                     </div>
                                     {projection.exhausted && (
                                         <div className="mt-1.5">
-                                            <QuotaExhaustedNote canBeBilled={showUsd} />
+                                            <QuotaExhaustedNote onFreePlan={onFreePlan} />
                                         </div>
                                     )}
                                 </>

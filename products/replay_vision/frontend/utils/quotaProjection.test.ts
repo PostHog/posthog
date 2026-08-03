@@ -147,6 +147,26 @@ describe('quotaUx', () => {
         expect(ux.tooltip).toContain('1,500 credits left')
     })
 
+    // A deliberate $0 cap is not a free plan, so it keeps the spend-limit wording.
+    it('keeps spend-limit wording for a zero limit', () => {
+        const ux = quotaUx(makeQuota({ credit_limit: 0, remaining: 0, exhausted: true }))
+        expect(ux.disabledReason).toMatch(/spend limit reached/i)
+    })
+
+    it('tells a free-tier org its credits ran out, not that it hit a spend limit', () => {
+        const ux = quotaUx(
+            makeQuota({
+                credit_limit: 2_500,
+                free_monthly_credits: 2_500,
+                credits_used: 2_500,
+                remaining: 0,
+                exhausted: true,
+            })
+        )
+        expect(ux.disabledReason).toMatch(/free Replay vision credits/i)
+        expect(ux.disabledReason).not.toMatch(/spend limit/i)
+    })
+
     it('returns nothing while usage is well under the threshold', () => {
         expect(quotaUx(makeQuota({ credits_used: 1_000, remaining: 9_000 }))).toEqual({})
     })

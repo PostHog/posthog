@@ -5,23 +5,26 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 interface Props {
-    /** False for orgs whose whole allocation is free: they have no limit to raise, they need billing at all. */
-    canBeBilled: boolean
+    /** Free-plan orgs have no limit to raise; they need billing in the first place. */
+    onFreePlan: boolean
 }
 
-/** Shown once scanning has stopped, so the meter isn't a dead end. */
-export function QuotaExhaustedNote({ canBeBilled }: Props): JSX.Element {
+/**
+ * Status and the way out in one line, shown once scanning has stopped.
+ * Replaces `QuotaStatusLine` in that state rather than sitting under it.
+ */
+export function QuotaExhaustedNote({ onFreePlan }: Props): JSX.Element {
     const billing = urls.organizationBilling([ProductKey.REPLAY_VISION])
-    // Muted so the link is the only accented element; the red status sits directly above.
     return (
         <div className="text-xs text-muted">
-            {canBeBilled ? (
+            <span className="text-danger">{onFreePlan ? 'Free credits used up.' : 'Spend limit reached.'}</span>{' '}
+            {onFreePlan ? (
                 <>
-                    <Link to={billing}>Raise your billing limit</Link> to resume scanning.
+                    <Link to={billing}>Add billing</Link> to keep scanning.
                 </>
             ) : (
                 <>
-                    <Link to={billing}>Add billing</Link> to keep scanning past the free credits.
+                    <Link to={billing}>Raise your billing limit</Link> to resume scanning.
                 </>
             )}
         </div>
