@@ -714,21 +714,24 @@ export interface PatchedErrorTrackingIssueWriteApi {
     description?: string | null
 }
 
-/**
- * Read-only serializer for issue contract types returned by the facade.
- */
-export interface PatchedErrorTrackingIssueReadApi {
-    id?: string
-    status?: string
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    first_seen?: string | null
-    assignee?: ErrorTrackingIssueAssigneeReadApi | null
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
-    cohort?: ErrorTrackingIssueCohortReadApi | null
+export interface ErrorTrackingIssueAssigneeWriteApi {
+    /** Whether the assignee is an organization member or a role.
+     *
+     * * `user` - user
+     * * `role` - role */
+    type: AssigneeTypeEnumApi
+    /** Id of the assignee: an integer user id for type 'user', or a role UUID for type 'role'. */
+    id: string
+}
+
+export interface PatchedErrorTrackingIssueAssignRequestApi {
+    /** Assignee to set on the issue. Omit or pass null to unassign. */
+    assignee?: ErrorTrackingIssueAssigneeWriteApi | null
+}
+
+export interface ErrorTrackingIssueAssignResponseApi {
+    /** Whether the assignment completed successfully. */
+    success: boolean
 }
 
 export interface ErrorTrackingIssueMergeRequestApi {

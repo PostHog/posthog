@@ -25241,9 +25241,24 @@ export namespace Schemas {
       sessions?: number;
     }
 
+    export interface ErrorTrackingIssueAssignResponse {
+      /** Whether the assignment completed successfully. */
+      success: boolean;
+    }
+
     export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
       type: string;
+    }
+
+    export interface ErrorTrackingIssueAssigneeWrite {
+      /** Whether the assignee is an organization member or a role.
+       *
+       * * `user` - user
+       * * `role` - role */
+      type: AssigneeTypeEnum;
+      /** Id of the assignee: an integer user id for type 'user', or a role UUID for type 'role'. */
+      id: string;
     }
 
     export interface ErrorTrackingIssueCohortRead {
@@ -50510,21 +50525,9 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
     }
 
-    /**
-     * Read-only serializer for issue contract types returned by the facade.
-     */
-    export interface PatchedErrorTrackingIssueRead {
-      id?: string;
-      status?: string;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      description?: string | null;
-      /** @nullable */
-      first_seen?: string | null;
-      assignee?: ErrorTrackingIssueAssigneeRead | null;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
-      cohort?: ErrorTrackingIssueCohortRead | null;
+    export interface PatchedErrorTrackingIssueAssignRequest {
+      /** Assignee to set on the issue. Omit or pass null to unassign. */
+      assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
