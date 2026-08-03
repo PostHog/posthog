@@ -2627,7 +2627,7 @@ jobs:
             - name: Install canvas builder dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               shell: bash
-              run: npm ci --ignore-scripts --omit=dev --prefix common/canvas-builder
+              run: npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
 
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
