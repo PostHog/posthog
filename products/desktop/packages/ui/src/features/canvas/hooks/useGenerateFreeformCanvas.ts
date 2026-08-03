@@ -58,10 +58,11 @@ export function useGenerateFreeformCanvas(args: {
 
   const generate = useCallback(
     async (opts: {
-      // The canvas being generated — per call, so surfaces that create the
-      // canvas at submit time (the channel composer) can use one hook instance.
-      dashboardId: string;
-      name: string;
+      // The canvas being generated, when the surface already knows it. The
+      // channel composer omits it — the agent resolves or creates the target
+      // itself, so no canvas record is touched client-side.
+      dashboardId?: string;
+      name?: string;
       templateId?: string;
       instruction: string;
       /** True when the canvas already has published source (a follow-up edit
@@ -134,9 +135,17 @@ export function useGenerateFreeformCanvas(args: {
 
         // Track this run so a toast (with a link back here) fires when it
         // finishes, even after the user navigates to another canvas.
-        useCanvasGenerationTrackerStore
-          .getState()
-          .track({ taskId: result.taskId, dashboardId, channelId, name });
+        // Target-less runs aren't tracked: there is no canvas to link to until
+        // the agent resolves or creates one, and their channel feed card
+        // already carries completion.
+        if (dashboardId) {
+          useCanvasGenerationTrackerStore.getState().track({
+            taskId: result.taskId,
+            dashboardId,
+            channelId,
+            name: name ?? "Canvas",
+          });
+        }
         // Refresh the workspace cache so the new cloud workspace row appears and
         // the task view resolves the cloud run instead of the repo-picker prompt.
         void queryClient.invalidateQueries({

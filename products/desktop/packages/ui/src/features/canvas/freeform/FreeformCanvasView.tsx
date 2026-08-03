@@ -97,7 +97,8 @@ interface PinnedArtifact {
 // through the warm-frame pool when it's a single-file project. Edit mode adds
 // the chat panel, version navigation (browse/revert over the server-side
 // history), and an edit composer. Generation runs as a dedicated task; while
-// one is in flight the empty canvas shows a "Generating… View task" state.
+// one is in flight the empty canvas shows a "Generating…" state with the run's
+// chat panel open by default (in view mode too), so the work is watchable.
 export function FreeformCanvasView({
   threadId,
   interactive,
@@ -449,8 +450,30 @@ export function FreeformCanvasView({
   // and only when no run is in flight. After submit it floats into the panel.
   const showHero =
     interactive && !hasContent && !effectiveTaskId && !dashboardLoading;
-  // The side panel only exists once there's a canvas or an active run.
-  const showPanel = interactive && (hasContent || !!effectiveTaskId);
+  // While a generation runs on a not-yet-renderable canvas, the run's chat is
+  // the only meaningful content — open the side panel by default, in view mode
+  // too, instead of stranding the user on the "Generating…" spinner. Dismissal
+  // is local (not the persisted collapse) so landing on a generating canvas
+  // always starts open, while a minimize still sticks for this visit.
+  const [generatingPanelDismissed, setGeneratingPanelDismissed] =
+    useState(false);
+  // A dismissal is per-run: a later run on this same mounted canvas opens the
+  // panel again. Reconciled during render, like the genTaskId bridge above.
+  const [dismissedForTaskId, setDismissedForTaskId] = useState(effectiveTaskId);
+  if (effectiveTaskId !== dismissedForTaskId) {
+    setDismissedForTaskId(effectiveTaskId);
+    if (effectiveTaskId) setGeneratingPanelDismissed(false);
+  }
+  const generatingPanelOpen =
+    isGenerating &&
+    !!effectiveTaskId &&
+    !pinnedArtifact &&
+    !headCode &&
+    !generatingPanelDismissed;
+  // The side panel exists once there's a canvas or an active run (edit mode),
+  // or while the generating default holds (any mode).
+  const showPanel =
+    (interactive && (hasContent || !!effectiveTaskId)) || generatingPanelOpen;
   // Build failures/progress surface in view mode too — the toolbar renders
   // there only while it has something to say.
   const hasBuildSignal =
@@ -466,9 +489,11 @@ export function FreeformCanvasView({
           mid-slide-in (waitingForHeroExit) — a paused tool-permission request
           would have nowhere to go, so surface it as a modal. When the panel is
           open, the chat handles it. */}
-      {interactive && effectiveTaskId && (collapsed || waitingForHeroExit) && (
-        <CanvasPermissionDialog taskId={effectiveTaskId} />
-      )}
+      {interactive &&
+        effectiveTaskId &&
+        ((collapsed && !generatingPanelOpen) || waitingForHeroExit) && (
+          <CanvasPermissionDialog taskId={effectiveTaskId} />
+        )}
       <Flex
         direction="column"
         className="min-w-0 flex-1 bg-gray-1"
@@ -573,7 +598,7 @@ export function FreeformCanvasView({
                     </>
                   )
                 ))}
-              {interactive && showPanel && collapsed && (
+              {interactive && showPanel && collapsed && !generatingPanelOpen && (
                 <Tooltip
                   content={effectiveTaskId ? "Show chat" : "Edit canvas"}
                 >
@@ -748,7 +773,7 @@ export function FreeformCanvasView({
 
       {showPanel && (
         <ResizableSidebar
-          open={!collapsed && !waitingForHeroExit}
+          open={(!collapsed || generatingPanelOpen) && !waitingForHeroExit}
           width={panelWidth}
           setWidth={setPanelWidth}
           isResizing={isResizingPanel}
@@ -760,7 +785,10 @@ export function FreeformCanvasView({
               heartbeat — stays alive and chat scroll survives a minimize. */}
           <CanvasSidePanel
             effectiveTaskId={effectiveTaskId}
-            onMinimize={() => setCollapsed(true)}
+            onMinimize={() => {
+              setCollapsed(true);
+              setGeneratingPanelDismissed(true);
+            }}
             dashboardId={dashboardId}
             channelId={channelId}
             channelName={channelName}

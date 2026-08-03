@@ -19,9 +19,18 @@ const TEMPLATE_HINTS: Record<string, string> = {
 };
 
 export function buildCanvasGenerationPrompt(input: {
-  dashboardId: string;
-  name: string;
+  /**
+   * Target canvas, when the surface already knows it (canvas-initiated runs).
+   * Channel-composer runs omit it: the agent resolves the target itself —
+   * building on a matching existing canvas in the channel, or creating a
+   * descriptively-named one — per the building-canvases skill.
+   */
+  dashboardId?: string;
+  /** The target's title; set whenever dashboardId is. */
+  name?: string;
   channelName: string;
+  /** Backend channel UUID, scoping the resolve-or-create canvas tools. */
+  channelId: string;
   templateId?: string;
   instruction: string;
   /** True when editing an existing canvas (it already has published source). */
@@ -35,13 +44,33 @@ export function buildCanvasGenerationPrompt(input: {
   // The header points back at the user's request, which leads the message —
   // without the pointer the agent can read the block as self-contained and
   // under-weight the actual instruction above it.
-  const header = isEdit
-    ? `Edit the canvas "${name}" in the channel "${channelName}", per the user's request at the start of this message.`
-    : `Build the canvas "${name}" for the channel "${channelName}", per the user's request at the start of this message.`;
+  const title = name ? ` "${name}"` : "";
+  const header = dashboardId
+    ? isEdit
+      ? `Edit the canvas${title} in the channel "${channelName}", per the user's request at the start of this message.`
+      : `Build the canvas${title} for the channel "${channelName}", per the user's request at the start of this message.`
+    : `Build a canvas in the channel "${channelName}", per the user's request at the start of this message.`;
+
+  // With a pre-resolved target the id is pinned; without one the agent runs
+  // the skill's resolve-or-create step so a near-duplicate of an existing
+  // canvas is never minted just because the composer couldn't know better.
+  const targetBlock = dashboardId
+    ? `Target canvas — already created, do NOT create another:
+- canvas id: "${dashboardId}"
+- channel: "${channelName}"`
+    : `Target canvas — none is pre-created; resolve it first, per the skill's "Resolve the
+target canvas" step:
+- List this channel's canvases with \`canvas-list\` (channel: "${input.channelId}").
+- If one is clearly the canvas this request refers to — an earlier iteration of the same
+  board or tool — build on it instead of creating a near-duplicate, and say so in your reply.
+- Otherwise create one in this channel with \`canvas-create\`, named with a short descriptive
+  title drawn from the request — never "Untitled canvas".`;
 
   const starterLine =
     !isEdit && input.useStarter
-      ? "\nStart from the starter scaffold in the building-react-quill-canvases skill's references — it already wires the date picker, theme tokens, and loading skeletons correctly.\n"
+      ? dashboardId
+        ? "\nStart from the starter scaffold in the building-react-quill-canvases skill's references — it already wires the date picker, theme tokens, and loading skeletons correctly.\n"
+        : "\nFor a first build (a new or still-empty canvas), start from the starter scaffold in the building-react-quill-canvases skill's references — it already wires the date picker, theme tokens, and loading skeletons correctly.\n"
       : "";
 
   const templateHint = templateId ? TEMPLATE_HINTS[templateId] : undefined;
@@ -52,9 +81,7 @@ export function buildCanvasGenerationPrompt(input: {
 Invoke the \`building-canvases\` skill now and follow its workflow (and the companion canvas
 skills it routes to) to implement, validate, and publish this canvas.
 
-Target canvas — already created, do NOT create another:
-- canvas id: "${dashboardId}"
-- channel: "${channelName}"
+${targetBlock}
 ${templateLine}${starterLine}
 Read the canvas's current source and \`current_version_id\` with the
 \`canvas-source-retrieve\` tool before editing, and publish the COMPLETE

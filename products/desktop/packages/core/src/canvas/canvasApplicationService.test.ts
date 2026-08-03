@@ -159,6 +159,29 @@ describe("CanvasApplicationService", () => {
     expect(gateway.renameCanvas).not.toHaveBeenCalled();
   });
 
+  it("leaves canvas resolution to the agent when no target is given", async () => {
+    const { service, createTask, generateCanvasName } = makeDeps();
+    const gateway = makeGateway();
+
+    const result = await service.generateCanvas(
+      input({ dashboardId: undefined, name: undefined }),
+      gateway,
+    );
+
+    expect(result).toEqual({ ok: true, taskId: "task-1" });
+    const [taskInput] = createTask.mock.calls[0];
+    // The prompt routes into the skill's resolve-or-create step instead of
+    // pinning a canvas id the composer would have had to mint blind.
+    expect(taskInput.content).toContain("`canvas-list`");
+    expect(taskInput.content).not.toContain("canvas id:");
+    expect(taskInput.taskDescription).toBe("Generate a canvas in #growth");
+    // The task still files into the channel, but no canvas record is touched.
+    expect(gateway.fileTask).toHaveBeenCalledWith("chan-1", "task-1");
+    expect(gateway.setGenerationTask).not.toHaveBeenCalled();
+    expect(generateCanvasName).not.toHaveBeenCalled();
+    expect(gateway.renameCanvas).not.toHaveBeenCalled();
+  });
+
   it("still starts the task when recording the generation task fails", async () => {
     const { service } = makeDeps();
     const gateway = makeGateway();

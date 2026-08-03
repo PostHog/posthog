@@ -2,7 +2,6 @@ import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import {
   forwardRef,
   useCallback,
@@ -17,7 +16,6 @@ import { PromptInput } from "../../message-editor/components/PromptInput";
 import { contentToPlainText } from "../../message-editor/content";
 import { useDraftStore } from "../../message-editor/draftStore";
 import type { EditorHandle } from "../../message-editor/types";
-import { toastError } from "../../notifications/errorDetails";
 import { ReasoningLevelSelector } from "../../sessions/components/ReasoningLevelSelector";
 import { getCurrentModeFromConfigOptions } from "../../sessions/sessionStore";
 import {
@@ -32,12 +30,7 @@ import { useCloudModeEnabled } from "../../task-detail/hooks/useCloudModeEnabled
 import { usePreviewConfig } from "../../task-detail/hooks/usePreviewConfig";
 import { useTaskCreation } from "../../task-detail/hooks/useTaskCreation";
 import { resolveWorkspaceModePreference } from "../../task-detail/hooks/workspaceModePreference";
-import { trackAndCreateCanvas } from "../createCanvasAnalytics";
 import { channelFeedQueryKey } from "../hooks/useChannelFeed";
-import {
-  UNTITLED_CANVAS_NAME,
-  useDashboardMutations,
-} from "../hooks/useDashboards";
 import { useGenerateFreeformCanvas } from "../hooks/useGenerateFreeformCanvas";
 import type { PendingKickoff } from "./ChannelFeedView";
 
@@ -83,15 +76,14 @@ export const ChannelHomeComposer = forwardRef<
   const editorRef = useRef<EditorHandle>(null);
   const [editorIsEmpty, setEditorIsEmpty] = useState(true);
   const { isOnline } = useConnectivity();
-  const navigate = useNavigate();
 
   // Canvas mode, armed from the mode selector (like Autoresearch on the
-  // new-task composer): the next submit generates a canvas from the prompt —
-  // create a canvas in the channel, kick off freeform generation, and open it —
-  // instead of creating a plain task. This replaces the prompt-to-canvas entry
-  // the old channel landing had.
+  // new-task composer): the next submit starts a canvas-generation task from
+  // the prompt instead of a plain task. No canvas is created client-side — the
+  // agent resolves the target itself (building on a matching existing canvas
+  // in the channel, or creating a descriptively-named one), so the feed never
+  // collects "Untitled canvas" husks.
   const [canvasArmed, setCanvasArmed] = useState(false);
-  const { createDashboard } = useDashboardMutations();
   const { generate: generateCanvas, isStarting: isStartingCanvas } =
     useGenerateFreeformCanvas({
       channelId,
@@ -191,62 +183,71 @@ export const ChannelHomeComposer = forwardRef<
       : undefined;
 
   const queryClient = useQueryClient();
-  const handleCanvasSubmit = useCallback(async () => {
-    const instruction = editorRef.current?.getText().trim();
-    if (!instruction || isStartingCanvas) return;
-    let record: { id: string; name: string };
-    try {
-      record = await trackAndCreateCanvas(
-        channelId,
-        "freeform",
-        "channel_home",
-        () => createDashboard(channelId, UNTITLED_CANVAS_NAME, "freeform"),
-      );
-    } catch (error) {
-      toastError("Couldn't create canvas", error);
-      return;
-    }
-    // generate() surfaces its own failure toasts; on success it files the task
-    // to the channel (so the run shows as a card in the feed, like a plain
-    // composer submit) and tracks completion for the finished-generation toast.
-    const taskId = await generateCanvas({
-      dashboardId: record.id,
-      name: record.name,
-      templateId: "freeform",
-      instruction,
-      adapter: adapter ?? "claude",
-      model: currentModel,
-      reasoningLevel: currentReasoningLevel,
-      useStarter: true,
-    });
-    if (!taskId) return;
-    // Surface the new card without waiting for the feed's next poll.
-    void queryClient.invalidateQueries({
-      queryKey: channelFeedQueryKey(channelId),
-    });
-    editorRef.current?.clear();
-    setCanvasArmed(false);
-    void navigate({
-      to: "/website/$channelId/dashboards/$dashboardId",
-      params: { channelId, dashboardId: record.id },
-    });
-  }, [
-    channelId,
-    adapter,
-    currentModel,
-    currentReasoningLevel,
-    createDashboard,
-    generateCanvas,
-    isStartingCanvas,
-    navigate,
-    queryClient,
-  ]);
 
   // In-flight optimistic kickoff ids, oldest first. Submits are serialized
   // (the composer is disabled while creating), so retiring the oldest on each
   // task-ready callback matches create order and keeps adds/removes balanced —
   // no row is ever orphaned, even if two creates briefly overlap.
   const pendingIdsRef = useRef<string[]>([]);
+
+  const handleCanvasSubmit = useCallback(async () => {
+    const editor = editorRef.current;
+    const instruction = editor?.getText().trim();
+    if (!editor || !instruction || isStartingCanvas) return;
+    track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
+      action_type: "canvas_generate",
+      surface: "channel_home",
+      channel_id: channelId,
+    });
+    // No canvas is created here — the agent resolves the target itself
+    // (building on a matching existing canvas, or creating a named one) per
+    // the building-canvases skill. The submit shows up as a task card in the
+    // feed, exactly like a plain composer submit; the canvas appears in the
+    // channel once the agent has resolved or created it.
+    const content = editor.getContent();
+    editor.clear();
+    const pendingId =
+      globalThis.crypto?.randomUUID?.() ??
+      `pending-${instruction.length}-${Date.now()}`;
+    pendingIdsRef.current.push(pendingId);
+    onPendingStart({ id: pendingId, prompt: instruction });
+    // generate() surfaces its own failure toasts; on success it files the task
+    // to the channel so the run shows as a card in the feed.
+    const taskId = await generateCanvas({
+      instruction,
+      adapter: adapter ?? "claude",
+      model: currentModel,
+      reasoningLevel: currentReasoningLevel,
+      useStarter: true,
+    });
+    pendingIdsRef.current = pendingIdsRef.current.filter(
+      (id) => id !== pendingId,
+    );
+    if (!taskId) {
+      // Creation failed — pull the optimistic row and give the prompt back so
+      // the user can retry.
+      onPendingEnd(pendingId);
+      editor.insertEditorContent(content);
+      return;
+    }
+    setCanvasArmed(false);
+    // Surface the new card without waiting for the feed's next poll, then
+    // retire the optimistic row once the real card can render.
+    await queryClient
+      .invalidateQueries({ queryKey: channelFeedQueryKey(channelId) })
+      .catch(() => {});
+    onPendingEnd(pendingId);
+  }, [
+    channelId,
+    adapter,
+    currentModel,
+    currentReasoningLevel,
+    generateCanvas,
+    isStartingCanvas,
+    queryClient,
+    onPendingStart,
+    onPendingEnd,
+  ]);
 
   const handleTaskCreated = useCallback(
     (task: Task) => {

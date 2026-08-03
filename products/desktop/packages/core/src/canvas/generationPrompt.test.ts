@@ -6,6 +6,7 @@ describe("buildCanvasGenerationPrompt", () => {
     dashboardId: "dash-1",
     name: "Signups",
     channelName: "growth",
+    channelId: "chan-1",
     instruction: "add a retention chart",
     isEdit: false,
   };
@@ -54,5 +55,41 @@ describe("buildCanvasGenerationPrompt", () => {
       buildCanvasGenerationPrompt({ ...base, templateId: "web-analytics" }),
     ).toContain("web analytics board");
     expect(buildCanvasGenerationPrompt(base)).not.toContain("Template:");
+  });
+
+  describe("without a pre-created target (channel composer)", () => {
+    const composer = {
+      channelName: "growth",
+      channelId: "chan-1",
+      instruction: "make a signup dashboard",
+      isEdit: false,
+    };
+
+    it("routes the agent into resolve-or-create instead of pinning a canvas id", () => {
+      const prompt = buildCanvasGenerationPrompt(composer);
+      expect(prompt).toContain('Build a canvas in the channel "growth"');
+      expect(prompt).not.toContain("canvas id:");
+      expect(prompt).not.toContain("do NOT create another");
+      // Reuse a matching existing canvas over minting a near-duplicate, and
+      // tell the user which way it went; new canvases get real names.
+      expect(prompt).toContain('`canvas-list` (channel: "chan-1")');
+      expect(prompt).toContain("say so in your reply");
+      expect(prompt).toContain("`canvas-create`");
+      expect(prompt).toContain('never "Untitled canvas"');
+    });
+
+    it("phrases the starter pointer for the create case only", () => {
+      const prompt = buildCanvasGenerationPrompt({
+        ...composer,
+        useStarter: true,
+      });
+      // The agent may resolve to an existing built canvas, where the scaffold
+      // doesn't apply — the pointer is scoped to first builds.
+      expect(prompt).toContain("For a first build");
+      expect(prompt).toContain("starter scaffold");
+      expect(buildCanvasGenerationPrompt(composer)).not.toContain(
+        "starter scaffold",
+      );
+    });
   });
 });
