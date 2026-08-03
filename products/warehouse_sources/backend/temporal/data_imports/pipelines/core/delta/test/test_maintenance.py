@@ -352,6 +352,16 @@ class TestRunScheduled:
             # A transient infra blip self-heals on the next scheduled pass and must not be promoted
             # into a fresh error-tracking issue.
             ("transient_blip_warned_only", OSError("Generic S3 error: Please reduce your request rate."), False),
+            # A commit conflict that exhausted execute_with_conflict_retry's budget (sustained
+            # contention from another still-running maintenance pass) is the same self-healing race,
+            # just losing at commit time instead of during compact's file scan.
+            (
+                "commit_conflict_retries_exhausted_warned_only",
+                deltalake.exceptions.CommitFailedError(
+                    "Commit failed: a concurrent transaction deleted data this operation read."
+                ),
+                False,
+            ),
         ]
     )
     @pytest.mark.asyncio
