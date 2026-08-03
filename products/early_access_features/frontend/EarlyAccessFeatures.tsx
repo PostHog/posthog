@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -19,7 +19,11 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, EarlyAccessFeatureType } from '~/types'
 
-import { AssigneeDisplay, AssigneeResolver } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
+import {
+    AssigneeIconDisplay,
+    AssigneeLabelDisplay,
+} from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
@@ -39,8 +43,14 @@ const STAGES_IN_ORDER: Record<EarlyAccessFeatureType['stage'], number> = {
 }
 
 export function EarlyAccessFeatures(): JSX.Element {
-    const { filteredEarlyAccessFeatures, earlyAccessFeaturesLoading, searchTerm } = useValues(earlyAccessFeaturesLogic)
-    const { setSearchTerm } = useActions(earlyAccessFeaturesLogic)
+    const {
+        filteredEarlyAccessFeatures,
+        earlyAccessFeaturesLoading,
+        searchTerm,
+        waitlistResponsesCount,
+        waitlistResponsesCountLoading,
+    } = useValues(earlyAccessFeaturesLogic)
+    const { setSearchTerm, updateFeatureAssignee } = useActions(earlyAccessFeaturesLogic)
     const shouldShowEmptyState = filteredEarlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading && !searchTerm
 
     // Creating an early access feature requires editor access to the resource.
@@ -141,15 +151,57 @@ export function EarlyAccessFeatures(): JSX.Element {
                                 sorter: (a, b) => STAGES_IN_ORDER[a.stage] - STAGES_IN_ORDER[b.stage],
                             },
                             {
+                                title: 'Waitlist',
+                                key: 'waitlist',
+                                tooltip: 'People who signed up to the waitlist survey for this feature',
+                                render(_, feature) {
+                                    const surveyId = feature.payload?.survey_id
+                                    if (typeof surveyId !== 'string') {
+                                        return <span className="text-secondary">–</span>
+                                    }
+                                    if (waitlistResponsesCountLoading) {
+                                        return <Spinner />
+                                    }
+                                    return (
+                                        <Link to={urls.survey(surveyId)}>{waitlistResponsesCount[surveyId] ?? 0}</Link>
+                                    )
+                                },
+                                sorter: (a, b) => {
+                                    const getCount = (feature: EarlyAccessFeatureType): number => {
+                                        const surveyId = feature.payload?.survey_id
+                                        return typeof surveyId === 'string'
+                                            ? (waitlistResponsesCount[surveyId] ?? 0)
+                                            : -1
+                                    }
+                                    return getCount(a) - getCount(b)
+                                },
+                            },
+                            {
                                 title: 'Assignee',
                                 key: 'assignee',
-                                render(_, { assignee }) {
+                                render(_, feature) {
+                                    const assigneeEditDisabledReason = getAccessControlDisabledReason(
+                                        AccessControlResourceType.EarlyAccessFeature,
+                                        AccessControlLevel.Editor,
+                                        feature.user_access_level
+                                    )
                                     return (
-                                        <AssigneeResolver assignee={assignee ?? null}>
-                                            {({ assignee: resolvedAssignee }) => (
-                                                <AssigneeDisplay assignee={resolvedAssignee} size="small" />
+                                        <AssigneeSelect
+                                            assignee={feature.assignee ?? null}
+                                            onChange={(assignee) => updateFeatureAssignee(feature.id, assignee)}
+                                        >
+                                            {(displayAssignee) => (
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    size="small"
+                                                    disabledReason={assigneeEditDisabledReason ?? undefined}
+                                                    data-attr="early-access-feature-list-assignee"
+                                                >
+                                                    <AssigneeIconDisplay assignee={displayAssignee} size="small" />
+                                                    <AssigneeLabelDisplay assignee={displayAssignee} size="small" />
+                                                </LemonButton>
                                             )}
-                                        </AssigneeResolver>
+                                        </AssigneeSelect>
                                     )
                                 },
                             },
