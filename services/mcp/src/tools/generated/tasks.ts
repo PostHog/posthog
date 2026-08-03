@@ -642,11 +642,9 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
 
 const TasksSpawnSchema = TasksSpawnCreateBody.extend({
     parent_run_id: TasksSpawnCreateBody.shape['parent_run_id'].describe('Your current orchestrator run ID.'),
-    description: TasksSpawnCreateBody.shape['description']
-        .unwrap()
-        .describe(
-            "The child's verbatim prompt. Make it specific, self-contained, and complete because the child works independently."
-        ),
+    description: TasksSpawnCreateBody.shape['description'].describe(
+        "The child's verbatim prompt. Make it specific, self-contained, and complete because the child works independently."
+    ),
 })
 
 const tasksSpawn = (): ToolBase<typeof TasksSpawnSchema, WithPostHogUrl<Schemas.TaskDetailDTO>> => ({
