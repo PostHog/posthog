@@ -10,6 +10,13 @@ import { defineLocalTool, type LocalToolResult } from "../registry";
 const GIT_TIMEOUT_MS = 10 * 60 * 1000;
 const GITHUB_BASE_URL = "https://github.com/";
 
+/**
+ * Scoping the auth header to github.com is what keeps the token from being
+ * sent to other hosts; an unscoped `http.extraHeader` rides along on every
+ * HTTP remote git talks to.
+ */
+export const GITHUB_AUTH_CONFIG_KEY = `http.${GITHUB_BASE_URL}.extraHeader`;
+
 const cloneRepoSchema = {
   repo: z
     .string()
@@ -32,12 +39,8 @@ function fail(text: string): LocalToolResult {
  * Carries the token as an `http.extraHeader` in the child's environment, so it
  * never reaches `.git/config` the way a credential embedded in the remote URL
  * would.
- *
- * The header is scoped to `https://github.com/` rather than set globally: an
- * unscoped one is attached to every HTTP remote git talks to, so a fetch
- * against a repo whose origin points elsewhere would hand the token over.
  */
-export function gitEnv(token: string | undefined): Record<string, string> {
+function gitEnv(token: string | undefined): Record<string, string> {
   // Repos declaring `filter=lfs` fail outright when git-lfs isn't installed;
   // skipping the smudge filter leaves pointer files instead.
   const env: Record<string, string> = { GIT_LFS_SKIP_SMUDGE: "1" };
@@ -46,9 +49,31 @@ export function gitEnv(token: string | undefined): Record<string, string> {
   return {
     ...env,
     GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: `http.${GITHUB_BASE_URL}.extraHeader`,
+    GIT_CONFIG_KEY_0: GITHUB_AUTH_CONFIG_KEY,
     GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basicAuth}`,
   };
+}
+
+/**
+ * Concurrent calls for the same repo (a parallel tool-call batch, a client
+ * retry racing a slow clone) would otherwise interleave on one checkout, and
+ * the failure-path cleanup could delete a directory the other call is still
+ * cloning into.
+ */
+const inFlight = new Map<string, Promise<LocalToolResult>>();
+
+function withCloneLock(
+  targetPath: string,
+  task: () => Promise<LocalToolResult>,
+): Promise<LocalToolResult> {
+  const previous = inFlight.get(targetPath);
+  const current = previous ? previous.then(task, task) : task();
+  inFlight.set(targetPath, current);
+  const cleanup = (): void => {
+    if (inFlight.get(targetPath) === current) inFlight.delete(targetPath);
+  };
+  current.then(cleanup, cleanup);
+  return current;
 }
 
 /**
@@ -58,8 +83,10 @@ export function gitEnv(token: string | undefined): Record<string, string> {
  *
  * Goes straight to `git` rather than through the simple-git client and its
  * clone saga: this only ever runs inside agent-server, against a scratch
- * checkout no one else touches, so the repo locking and rollback bookkeeping
- * buy nothing, and the raw subprocess passes `GIT_CONFIG_*` auth through as-is.
+ * checkout the desktop client never touches, so the client's repo locking and
+ * rollback bookkeeping buy nothing (same-session calls are serialized by
+ * `withCloneLock`), and the raw subprocess passes `GIT_CONFIG_*` auth through
+ * as-is.
  */
 export const cloneRepoTool = defineLocalTool({
   name: "clone_repo",
@@ -81,8 +108,9 @@ export const cloneRepoTool = defineLocalTool({
       token ? text.split(token).join("***") : text;
 
     // parseGithubUrl accepts owner/repo shorthand and full https/ssh URLs,
-    // validates the host, and normalizes away path traversal (a crafted URL
-    // can't escape the scratch workspace via the path.join below).
+    // validates the host, and rejects dot segments and unsafe characters in
+    // owner and repo, so a crafted URL can't escape the scratch workspace via
+    // the path.join below.
     const parsed = parseGithubUrl(repo);
     if (!parsed) {
       return fail(
@@ -157,60 +185,64 @@ export const cloneRepoTool = defineLocalTool({
       }
     };
 
-    // Idempotent: a prior clone (retry, reconnected session, LLM loop) leaves
-    // the repo in place. Reuse it instead of letting git abort on a non-empty
-    // destination, which the agent would receive as an opaque error.
-    if (fs.existsSync(path.join(targetPath, ".git"))) {
-      try {
-        // Only this tool writes to `repos/<owner>/<repo>`, so origin should
-        // already be `cloneUrl`. Anything else was retargeted after the clone:
-        // normalize it before the fetch below, both to keep a credential out of
-        // the config and to keep the fetch pointed at the repo we were asked
-        // for. Read the stored value rather than `remote get-url`, which
-        // resolves `url.<base>.insteadOf` and would mask both.
-        const originUrl = await run(
-          ["config", "--get", "remote.origin.url"],
-          targetPath,
-        );
-        if (originUrl !== cloneUrl) {
-          await run(["remote", "set-url", "origin", cloneUrl], targetPath);
+    return withCloneLock(targetPath, async () => {
+      // Idempotent: a prior clone (retry, reconnected session, LLM loop)
+      // leaves the repo in place. Reuse it instead of letting git abort on a
+      // non-empty destination, which the agent would receive as an opaque
+      // error.
+      if (fs.existsSync(path.join(targetPath, ".git"))) {
+        try {
+          // Only this tool writes to `repos/<owner>/<repo>`, so origin should
+          // already be `cloneUrl`. Anything else was retargeted after the
+          // clone: normalize it before the fetch below, both to keep a
+          // credential out of the config and to keep the fetch pointed at the
+          // repo we were asked for. Read the stored value rather than
+          // `remote get-url`, which resolves `url.<base>.insteadOf` and would
+          // mask both.
+          const originUrl = await run(
+            ["config", "--get", "remote.origin.url"],
+            targetPath,
+          );
+          if (originUrl !== cloneUrl) {
+            await run(["remote", "set-url", "origin", cloneUrl], targetPath);
+          }
+        } catch (err) {
+          return fail(
+            `clone_repo couldn't secure the existing origin: ${redact(
+              err instanceof Error ? err.message : String(err),
+            )}`,
+          );
         }
+        return (
+          (await checkout()) ??
+          (await done(`${slug} already cloned at ${targetPath}`))
+        );
+      }
+
+      try {
+        await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
+        const cloneArgs = [
+          "clone",
+          "--depth",
+          "1",
+          "--single-branch",
+          "--no-tags",
+        ];
+        if (branch) {
+          cloneArgs.push("--branch", branch);
+        }
+        await run([...cloneArgs, cloneUrl, targetPath]);
+        return done();
       } catch (err) {
+        // A partial clone would make the retry above take the "already cloned"
+        // path against a broken checkout.
+        await fsPromises.rm(targetPath, { recursive: true, force: true });
         return fail(
-          `clone_repo couldn't secure the existing origin: ${redact(
+          `clone_repo failed: ${redact(
             err instanceof Error ? err.message : String(err),
           )}`,
         );
       }
-      return (
-        (await checkout()) ??
-        (await done(`${slug} already cloned at ${targetPath}`))
-      );
-    }
-
-    try {
-      await fsPromises.mkdir(path.dirname(targetPath), { recursive: true });
-      const cloneArgs = [
-        "clone",
-        "--depth",
-        "1",
-        "--single-branch",
-        "--no-tags",
-      ];
-      if (branch) {
-        cloneArgs.push("--branch", branch);
-      }
-      await run([...cloneArgs, cloneUrl, targetPath]);
-      return done();
-    } catch (err) {
-      // A partial clone would make the retry above take the "already cloned"
-      // path against a broken checkout.
-      await fsPromises.rm(targetPath, { recursive: true, force: true });
-      return fail(
-        `clone_repo failed: ${redact(
-          err instanceof Error ? err.message : String(err),
-        )}`,
-      );
-    }
+    });
   },
 });

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,7 +10,7 @@ vi.mock("../../../utils/github-token", () => ({
   resolveGithubToken: vi.fn(() => undefined),
 }));
 
-const { cloneRepoTool, gitEnv } = await import("./clone-repo");
+const { cloneRepoTool, GITHUB_AUTH_CONFIG_KEY } = await import("./clone-repo");
 
 const REPO_URL = "https://github.com/PostHog/posthog.git";
 
@@ -124,7 +125,11 @@ describe("clone_repo", () => {
   // Regression: an unscoped http.extraHeader is sent to every HTTP remote, so a
   // fetch against a non-GitHub origin would hand over the live token.
   it("scopes the auth header to github.com", async () => {
-    const env = gitEnv("test-token");
+    const env = {
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: GITHUB_AUTH_CONFIG_KEY,
+      GIT_CONFIG_VALUE_0: "AUTHORIZATION: basic placeholder",
+    };
     const urlmatch = async (url: string): Promise<string> =>
       (await execGit(["config", "--get-urlmatch", "http", url], { env }))
         .stdout;
@@ -133,6 +138,54 @@ describe("clone_repo", () => {
       "AUTHORIZATION: basic",
     );
     expect(await urlmatch("https://evil.example.com/x.git")).toBe("");
+  });
+
+  // Regression: a slug like "PostHog/.." collapses through path.join onto the
+  // whole repos/ tree, and a clone failure there would rm -rf every prior
+  // checkout. The full input matrix lives in parseGithubUrl's own tests; this
+  // guards the tool's wiring to it.
+  it("rejects a traversal slug without touching the workspace", async () => {
+    const keptCheckout = path.join(cwd, "repos", "keep");
+    await mkdir(keptCheckout, { recursive: true });
+
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "git@github.com:PostHog/.." },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(existsSync(keptCheckout)).toBe(true);
+  });
+
+  it("cleans up the target after a failed clone so a retry starts fresh", async () => {
+    const result = await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog", branch: "does-not-exist" },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(existsSync(targetPath)).toBe(false);
+  });
+
+  // Regression: without per-target serialization the loser of the race rm -rfs
+  // the winner's in-progress checkout from its failure path.
+  it("serializes concurrent clones of the same repo", async () => {
+    const [first, second] = await Promise.all([
+      cloneRepoTool.handler(
+        { cwd, token: "test-token" },
+        { repo: "PostHog/posthog" },
+      ),
+      cloneRepoTool.handler(
+        { cwd, token: "test-token" },
+        { repo: "PostHog/posthog" },
+      ),
+    ]);
+
+    expect(first.isError).toBeUndefined();
+    expect(second.isError).toBeUndefined();
+    expect(
+      await git(["rev-parse", "--is-shallow-repository"], targetPath),
+    ).toBe("true");
   });
 
   it("fetches a missing branch into an existing shallow clone", async () => {
