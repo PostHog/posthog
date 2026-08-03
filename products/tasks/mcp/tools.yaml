@@ -571,6 +571,9 @@ tools:
     tasks-slack-thread-context-retrieve:
         operation: tasks_slack_thread_context_retrieve
         enabled: false
+    tasks-spawn-create:
+        operation: tasks_spawn_create
+        enabled: false
     tasks-staged-artifacts-finalize-upload-create:
         operation: tasks_staged_artifacts_finalize_upload_create
         enabled: false
