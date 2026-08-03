@@ -3398,15 +3398,31 @@ async fn a_failed_drain_still_leaves_a_partition_that_can_be_resumed() {
     )
     .await;
 
+    // Sequence on the failed attempt, not the write: overwriting the
+    // handoff before the pod has observed Draining would skip the drain
+    // entirely, and with it the fence record this test exists to check.
+    wait_for_condition_named(
+        WAIT_TIMEOUT,
+        POLL_INTERVAL,
+        "the pod to attempt (and fail) the drain, recording the partition as fenced",
+        || {
+            let events = Arc::clone(&events);
+            async move {
+                events
+                    .lock()
+                    .await
+                    .iter()
+                    .any(|e| matches!(e, HandoffEvent::DrainFailed(0)))
+            }
+        },
+    )
+    .await;
+
     // Cancel the handoff. The pod is serving again, so it must resume —
     // which it can only do if the failed drain was still recorded.
     put_handoff(&store, 0, None, "stuck-pod-1", HandoffPhase::Complete).await;
-    // Twice the usual bound: the resume can only land on a fresh
-    // attempt, and every failed drain before it ratchets the run
-    // supervisor's backoff — under load the ladder alone can spend most
-    // of the default wait.
     wait_for_condition_named(
-        WAIT_TIMEOUT * 2,
+        WAIT_TIMEOUT,
         POLL_INTERVAL,
         "the partition to resume, which needs the failed drain to have been recorded as fenced",
         || {
