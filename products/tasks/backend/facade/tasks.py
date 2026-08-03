@@ -5,6 +5,7 @@ Re-exports the beat-scheduled loop sweeps that core's scheduler registers.
 """
 
 import logging
+from typing import cast
 
 from celery import shared_task
 
@@ -14,6 +15,18 @@ from products.tasks.backend.loop_retention import sweep_loop_task_retention_task
 __all__ = ["reconcile_loop_trigger_schedules_task", "sweep_loop_task_retention_task"]
 
 logger = logging.getLogger(__name__)
+
+
+@shared_task(ignore_result=True)
+def notify_parent_of_child_event_task(child_run_id: str, event: str) -> None:
+    from products.tasks.backend.logic.services.orchestration import (  # noqa: PLC0415 — keeps Temporal off the Celery import path
+        ChildEvent,
+        notify_parent_of_child_event,
+    )
+
+    if event not in {"terminal", "pr_merged"}:
+        raise ValueError(f"Unsupported child event: {event}")
+    notify_parent_of_child_event(child_run_id, cast(ChildEvent, event))
 
 
 @shared_task(ignore_result=True)

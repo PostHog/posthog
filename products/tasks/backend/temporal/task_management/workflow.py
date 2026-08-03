@@ -357,14 +357,18 @@ class TaskManagementWorkflow(PostHogWorkflow):
         *,
         steer: bool,
     ) -> None:
+        context = dict(message_context) if isinstance(message_context, dict) else {}
+        source = context.pop("followup_source", FOLLOWUP_SOURCE_USER)
+        if not isinstance(source, str):
+            source = FOLLOWUP_SOURCE_USER
         self._pending_external_followups.append(
             PendingExternalFollowup(
                 message=message,
                 artifact_ids=artifact_ids or [],
-                source=FOLLOWUP_SOURCE_USER,
+                source=source,
                 actor_user_id=actor_user_id,
                 message_id=message_id,
-                context=message_context if isinstance(message_context, dict) else {},
+                context=context,
                 steer=steer,
                 sequence=self._next_followup_sequence,
             )

@@ -140,6 +140,7 @@ SHUTDOWN_REJECTION_DETAIL = "child_shutting_down"
 # to drive CI-vs-user-message metrics.
 FOLLOWUP_SOURCE_USER = "user"
 FOLLOWUP_SOURCE_CI = "ci"
+FOLLOWUP_SOURCE_CHILD = "child"
 
 
 @dataclass

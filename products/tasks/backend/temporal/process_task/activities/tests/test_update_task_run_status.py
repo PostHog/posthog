@@ -173,6 +173,18 @@ class TestUpdateTaskRunStatusActivity:
         assert len(completed) == 1
 
     @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.facade.tasks.notify_parent_of_child_event_task.apply_async")
+    def test_repeated_terminal_update_schedules_one_parent_notification(
+        self, mock_notify, activity_environment, test_task_run
+    ):
+        input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
+
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        mock_notify.assert_called_once_with(args=[str(test_task_run.id), "terminal"], countdown=20)
+
+    @pytest.mark.django_db(transaction=True)
     def test_terminal_transition_updates_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):
         # This activity is how workflow-driven loop runs reach a terminal status, so it must
         # drive loop bookkeeping (last_run_status, consecutive_failures -> auto-pause) — the

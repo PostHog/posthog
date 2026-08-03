@@ -117,6 +117,20 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         except Exception:
             activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
 
+        if input.status in _TERMINAL_STATUSES:
+            from products.tasks.backend.facade.tasks import (
+                notify_parent_of_child_event_task,  # noqa: PLC0415 — keeps Celery off the activity import path
+            )
+            from products.tasks.backend.logic.services.loop_runs import (
+                LOOP_TERMINAL_NOTIFICATION_GRACE_SECONDS,  # noqa: PLC0415 — shared terminal-write grace
+            )
+
+            transaction.on_commit(
+                lambda: notify_parent_of_child_event_task.apply_async(
+                    args=[str(task_run.id), "terminal"], countdown=LOOP_TERMINAL_NOTIFICATION_GRACE_SECONDS
+                )
+            )
+
     log_with_activity_context(
         "Task run status updated",
         run_id=input.run_id,
