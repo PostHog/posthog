@@ -62,6 +62,59 @@ export function useTaskChannels(options?: { enabled?: boolean }): {
   return { channels, personalChannel, isLoading: query.isLoading };
 }
 
+export function useUpdateTaskChannelRepositories() {
+  const client = useOptionalAuthenticatedClient();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      channelId: string;
+      githubIntegration: number | null;
+      repositories: string[];
+    }) => {
+      if (!client) throw new Error("Not authenticated");
+      return client.updateTaskChannel(input.channelId, {
+        github_integration: input.githubIntegration,
+        repositories: input.repositories,
+      });
+    },
+    // Autosave adds/removes from the context screen, so apply the change to the
+    // cache immediately and roll back on failure — the chip strip reads its
+    // state straight from this cache, no local mirror.
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: TASK_CHANNELS_QUERY_KEY });
+      const previous = queryClient.getQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+      );
+      queryClient.setQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+        (channels) =>
+          channels?.map((item) =>
+            item.id === input.channelId
+              ? {
+                  ...item,
+                  github_integration: input.githubIntegration,
+                  repositories: input.repositories,
+                }
+              : item,
+          ),
+      );
+      return { previous };
+    },
+    onError: (_error, _input, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(TASK_CHANNELS_QUERY_KEY, context.previous);
+      }
+    },
+    onSuccess: (channel) => {
+      queryClient.setQueryData<TaskChannel[]>(
+        TASK_CHANNELS_QUERY_KEY,
+        (channels) =>
+          channels?.map((item) => (item.id === channel.id ? channel : item)),
+      );
+    },
+  });
+}
+
 /**
  * Map a folder channel (by display name) onto its backend channel. The "me"
  * folder is the bridge for the personal channel; any other name resolves (or

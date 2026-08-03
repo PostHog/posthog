@@ -766,6 +766,10 @@ container.bind(LOCAL_HANDOFF_HOST).toConstantValue({
   selectDirectory: () => Promise.resolve(null),
   addFolder: () =>
     Promise.reject(new Error("Local handoff is not available on the web")),
+  getWorktreeLocation: () => Promise.resolve(""),
+  cloneRepository: () =>
+    Promise.reject(new Error("Local handoff is not available on the web")),
+  addAdditionalDirectory: () => Promise.resolve(),
 });
 container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
 container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);
