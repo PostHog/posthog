@@ -769,6 +769,7 @@ export const maxLogic = kea<maxLogicType>([
                 }
 
                 lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
+                return
             }
 
             if (conversation && conversation.status === ConversationStatus.Idle) {

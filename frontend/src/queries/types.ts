@@ -82,6 +82,11 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
      * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
      */
     suppressSlowQuerySuggestions?: boolean
+    /**
+     * Suppress the raw query ID shown under the loading state. Use this when the viewer has no way
+     * to act on it (e.g. embedded in a PostHog AI chat transcript, where it reads as a stray error).
+     */
+    suppressQueryIdDisplay?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

@@ -3,7 +3,9 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -215,6 +217,38 @@ describe('maxLogic', () => {
 
         // Verify no error toast was shown and no reset occurred
         expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
+    })
+
+    it('stops polling after a single error toast on a persistent non-404 failure', async () => {
+        const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(jest.fn())
+        const mockConversationId = 'errored-conversation-id'
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${mockConversationId}`]: () => [
+                    500,
+                    { detail: 'Internal server error' },
+                ],
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        const getSpy = jest.spyOn(api.conversations, 'get')
+
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(mockConversationId, 0, 0)
+        }).toFinishAllListeners()
+
+        // A persistent failure must surface once and stop, not recurse into up to 11 identical toasts
+        expect(getSpy).toHaveBeenCalledTimes(1)
+        expect(toastSpy).toHaveBeenCalledTimes(1)
     })
 
     it('manages suggestion group selection correctly', async () => {

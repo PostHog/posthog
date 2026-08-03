@@ -27,7 +27,10 @@ import { InsightShortId } from '~/types'
 import { MessageTemplate } from '../../../messages/MessageTemplate'
 import { visualizationTypeToQuery } from '../../../utils/visualizationQuery'
 
-const QUERY_CONTEXT_POSTHOG_AI: QueryContext = { limitContext: 'posthog_ai' } as const
+const QUERY_CONTEXT_POSTHOG_AI: QueryContext = {
+    limitContext: 'posthog_ai',
+    suppressQueryIdDisplay: true,
+} as const
 
 export interface VisualizationWidgetProps {
     content: VisualizationArtifactContent

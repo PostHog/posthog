@@ -239,7 +239,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+                <StatelessInsightLoadingState
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    suppressQueryIdDisplay={props.context?.suppressQueryIdDisplay}
+                />
             </div>
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {

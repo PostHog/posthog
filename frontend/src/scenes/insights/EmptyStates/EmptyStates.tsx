@@ -266,12 +266,14 @@ function LoadingDetails({
     rowsRead,
     bytesRead,
     secondsElapsed,
+    suppressQueryIdDisplay = false,
 }: {
     pollResponse?: Record<string, QueryStatus | null> | null
     queryId?: string | null
     rowsRead: number
     bytesRead: number
     secondsElapsed: number
+    suppressQueryIdDisplay?: boolean
 }): JSX.Element {
     const bytesPerSecond = (bytesRead / (secondsElapsed || 1)) * 1000
     const estimatedRows = pollResponse?.status?.query_progress?.estimated_rows_total
@@ -300,7 +302,7 @@ function LoadingDetails({
                     </>
                 )}
             </p>
-            <QueryIdDisplay queryId={queryId} />
+            {!suppressQueryIdDisplay && <QueryIdDisplay queryId={queryId} />}
         </>
     )
 }
@@ -312,6 +314,7 @@ export function StatelessInsightLoadingState({
     setProgress,
     progress,
     renderEmptyStateAsSkeleton = false,
+    suppressQueryIdDisplay = false,
 }: {
     queryId?: string | null
     pollResponse?: Record<string, QueryStatus | null> | null
@@ -320,6 +323,7 @@ export function StatelessInsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
     setProgress?: (loadId: string, progress: number) => void
     progress?: number
+    suppressQueryIdDisplay?: boolean
 }): JSX.Element {
     const [rowsRead, setRowsRead] = useState(0)
     const [bytesRead, setBytesRead] = useState(0)
@@ -424,6 +428,7 @@ export function StatelessInsightLoadingState({
                     rowsRead={rowsRead}
                     bytesRead={bytesRead}
                     secondsElapsed={secondsElapsed}
+                    suppressQueryIdDisplay={suppressQueryIdDisplay}
                 />
             </div>
         </div>
@@ -497,11 +502,13 @@ export function InsightLoadingState({
     insightProps,
     renderEmptyStateAsSkeleton = false,
     suppressSlowQuerySuggestions = false,
+    suppressQueryIdDisplay = false,
 }: {
     queryId?: string | null
     insightProps: InsightLogicProps
     renderEmptyStateAsSkeleton?: boolean
     suppressSlowQuerySuggestions?: boolean
+    suppressQueryIdDisplay?: boolean
 }): JSX.Element {
     const { insightPollResponse, insightLoadingTimeSeconds } = useValues(insightDataLogic(insightProps))
     const { currentTeam } = useValues(teamLogic)
@@ -515,6 +522,7 @@ export function InsightLoadingState({
             pollResponse={insightPollResponse}
             loadingTimeSeconds={insightLoadingTimeSeconds}
             renderEmptyStateAsSkeleton={renderEmptyStateAsSkeleton}
+            suppressQueryIdDisplay={suppressQueryIdDisplay}
             suggestion={
                 suppressSlowQuerySuggestions ? (
                     <></>
