@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Collection, Iterable
+from io import BytesIO
 from typing import Any, cast
 
 import pytest
@@ -12,6 +13,7 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import pytest_asyncio
+import pyarrow.parquet as pq
 
 from posthog.hogql.resolver import ResolverFactory
 
@@ -32,6 +34,7 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     LOGGER,
     InvalidNodeTypeException,
     _get_aws_storage_options,
+    get_s3_client,
     hogql_table,
 )
 
@@ -1057,6 +1060,12 @@ class TestMaterializeViewActivity:
             pyarrow_table = delta_table.to_pyarrow_table()
             assert pyarrow_table.num_rows == 0
             assert set(pyarrow_table.column_names) == {"id", "name"}
+            # ClickHouse rejects a parquet containing a 0-row row group, so the file must be metadata-only
+            s3 = get_s3_client()
+            with s3.open(result.file_uris[0], "rb") as f:
+                empty_parquet = pq.ParquetFile(BytesIO(f.read()))
+            assert empty_parquet.metadata.num_row_groups == 0
+            assert empty_parquet.schema_arrow.names == ["id", "name"]
 
     async def test_write_failure_surfaces(self, activity_environment, ateam, anode, ajob, bucket_name, adag):
         # regression: a failure in a per-batch write_deltalake call must surface from the

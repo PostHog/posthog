@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -294,6 +296,10 @@ export type EventDefinitionsListParams = {
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * Return exact matches for these event names. Pass names as repeated or comma-separated values.
+     */
+    names?: string[]
     /**
      * The initial index from which to return the results.
      */

@@ -23,9 +23,9 @@ interface OpenDismissReportDialogParams {
 }
 
 const PAUSE_OPTION_TOOLTIP =
-    'Snoozes this report: it briefly leaves your inbox while more context is gathered, and it can come back if new findings match.'
+    'Snoozes this report: it briefly leaves your inbox while more context is gathered, and it can come back if new signals match.'
 const SUPPRESS_OPTION_TOOLTIP =
-    'Dismisses permanently: the report leaves your inbox and matching findings will not surface it again. Your reason is saved with the report.'
+    'Dismisses permanently: the report leaves your inbox and matching signals will not surface it again. Your reason is saved with the report.'
 
 // Vertical radio list mirroring desktop `DismissReportDialog`: each reason carries an icon +
 // tooltip explaining whether it snoozes (pause) or dismisses permanently (eye-slash).

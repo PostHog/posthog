@@ -19,11 +19,14 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
+import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
+
 import { InstallationStatusNavButton } from './InstallationStatusNavButton'
 
 export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: boolean }): JSX.Element {
     const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')
     const { featureFlags } = useValues(featureFlagLogic)
+    const { isSidebarItemShown } = useValues(uiCustomizationLogic)
     const { toggleCommand } = useActions(commandLogic)
     const showSearchHint = featureFlags[FEATURE_FLAGS.CMD_K_NAV_EXPERIMENT] === 'footer-hint'
 
@@ -71,7 +74,9 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                         )}
                     </ButtonPrimitive>
                 )}
-                {isNotificationsEnabled && <NotificationsMenu iconOnly={isLayoutNavCollapsed} />}
+                {isNotificationsEnabled && isSidebarItemShown('notifications') && (
+                    <NotificationsMenu iconOnly={isLayoutNavCollapsed} />
+                )}
                 <InstallationStatusNavButton iconOnly={isLayoutNavCollapsed} />
                 <Link
                     to={urls.settings('project')}
@@ -83,7 +88,7 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
                     <IconGear />
                     {!isLayoutNavCollapsed && 'Settings'}
                 </Link>
-                <HelpMenu iconOnly={isLayoutNavCollapsed} />
+                {isSidebarItemShown('help') && <HelpMenu iconOnly={isLayoutNavCollapsed} />}
                 <PosthogStatusShownOnlyIfNotOperational iconOnly={isLayoutNavCollapsed} />
             </div>
         </div>

@@ -1,5 +1,5 @@
 import { IconInfo } from '@posthog/icons'
-import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -34,6 +34,11 @@ export const postgresDefinition: DestinationDefinition = {
                     </LemonField>
                 ) : (
                     <>
+                        <LemonBanner type="warning">
+                            PostHog is moving PostgreSQL batch exports to integration-based credentials. This export
+                            will be migrated automatically — no action required.
+                        </LemonBanner>
+
                         <LemonField name="user" label="User">
                             <LemonInput placeholder={isNew ? 'my-user' : 'Leave unchanged'} />
                         </LemonField>

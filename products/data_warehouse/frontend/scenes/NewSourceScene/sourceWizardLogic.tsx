@@ -253,6 +253,23 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
 
+// A thrown fetch has no HTTP status, so its message is the raw "Failed to fetch", most often an ad
+// blocker or extension blocking the request. Name that likely cause instead of echoing it.
+export function resolveConnectErrorMessage(e: any): string {
+    const apiMessage = e?.data?.message ?? e?.detail
+    if (apiMessage) {
+        return apiMessage
+    }
+    if (e?.status === undefined || e?.status === null || e?.status === 0) {
+        return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request. Try pausing it or switching networks, then try again."
+    }
+    if (e?.status >= 500) {
+        return 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
+    }
+    // A 4xx without a message body would otherwise toast "undefined".
+    return e?.message ?? 'Something went wrong setting up your source. Please try again.'
+}
+
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
     aws: 'S3',
     'google-cloud': 'Google Cloud Storage',
@@ -569,6 +586,7 @@ export interface sourceWizardLogicActions {
             | 'Ahrefs'
             | 'AikidoSecurity'
             | 'Airbrake'
+            | 'Airbridge'
             | 'Airbyte'
             | 'Aircall'
             | 'AirOps'
@@ -690,15 +708,18 @@ export interface sourceWizardLogicActions {
             | 'Basecamp'
             | 'Baserow'
             | 'Baseten'
+            | 'BCMS'
             | 'Beamer'
             | 'Beehiiv'
             | 'Bettermode'
             | 'BetterStack'
+            | 'Bexio'
             | 'BigCommerce'
             | 'Bigeye'
             | 'BigMailer'
             | 'BigQuery'
             | 'BillCom'
+            | 'Billit'
             | 'Billomat'
             | 'BingAds'
             | 'BingWebmasterTools'
@@ -784,6 +805,7 @@ export interface sourceWizardLogicActions {
             | 'Clari'
             | 'Clarifai'
             | 'Classy'
+            | 'Clay'
             | 'Clazar'
             | 'Cleartax'
             | 'Clerk'
@@ -830,6 +852,7 @@ export interface sourceWizardLogicActions {
             | 'Contentsquare'
             | 'ConvertKit'
             | 'Convex'
+            | 'Convonite'
             | 'Copper'
             | 'Coralogix'
             | 'Cortex'
@@ -876,6 +899,7 @@ export interface sourceWizardLogicActions {
             | 'Dialpad'
             | 'DigitalOcean'
             | 'DingConnect'
+            | 'Directus'
             | 'Discord'
             | 'Discourse'
             | 'DisplayVideo360'
@@ -898,12 +922,14 @@ export interface sourceWizardLogicActions {
             | 'DropboxSign'
             | 'Dub'
             | 'Dubsado'
+            | 'DuckLake'
             | 'Dwolla'
             | 'Dynamics365'
             | 'Dynamics365BusinessCentral'
             | 'DynamoDB'
             | 'Dynatrace'
             | 'E2B'
+            | 'Easybill'
             | 'Easypost'
             | 'Easypromos'
             | 'Ebay'
@@ -954,6 +980,7 @@ export interface sourceWizardLogicActions {
             | 'Firecrawl'
             | 'FireHydrant'
             | 'FireworksAI'
+            | 'FirstPromoter'
             | 'Five9'
             | 'Flagsmith'
             | 'Fleetio'
@@ -1046,6 +1073,7 @@ export interface sourceWizardLogicActions {
             | 'GoogleDirectory'
             | 'GoogleDrive'
             | 'GoogleForms'
+            | 'GoogleMerchantCenter'
             | 'GooglePageSpeedInsights'
             | 'GooglePlayConsole'
             | 'GoogleSearchConsole'
@@ -1092,6 +1120,7 @@ export interface sourceWizardLogicActions {
             | 'Holded'
             | 'Honeybadger'
             | 'Honeycomb'
+            | 'Hookdeck'
             | 'HoorayHR'
             | 'Hostaway'
             | 'HousecallPro'
@@ -1102,6 +1131,7 @@ export interface sourceWizardLogicActions {
             | 'Humanitix'
             | 'Huntr'
             | 'Hyperspell'
+            | 'Hyros'
             | 'Ikas'
             | 'IlluminaBasespace'
             | 'Imagga'
@@ -1122,6 +1152,7 @@ export interface sourceWizardLogicActions {
             | 'Instatus'
             | 'Intercom'
             | 'Interzoid'
+            | 'Inth'
             | 'Intruder'
             | 'Invoiced'
             | 'Invoiceninja'
@@ -1154,6 +1185,7 @@ export interface sourceWizardLogicActions {
             | 'Kestra'
             | 'Kick'
             | 'Kickscale'
+            | 'Kickstarter'
             | 'Kinde'
             | 'Kion'
             | 'Kisi'
@@ -1220,6 +1252,7 @@ export interface sourceWizardLogicActions {
             | 'Mailosaur'
             | 'Mailtrap'
             | 'Mantle'
+            | 'Manychat'
             | 'Marketo'
             | 'Marketstack'
             | 'Mastodon'
@@ -1280,6 +1313,7 @@ export interface sourceWizardLogicActions {
             | 'MonteCarlo'
             | 'Moodle'
             | 'Motherduck'
+            | 'Moxie'
             | 'MSSQL'
             | 'Mux'
             | 'Mycase'
@@ -1317,6 +1351,7 @@ export interface sourceWizardLogicActions {
             | 'Nylas'
             | 'Octolens'
             | 'OctopusDeploy'
+            | 'Odoo'
             | 'Oecd'
             | 'Okendo'
             | 'Okta'
@@ -1553,6 +1588,7 @@ export interface sourceWizardLogicActions {
             | 'Shortcut'
             | 'Shortio'
             | 'Shutterstock'
+            | 'SideShift'
             | 'SigmaComputing'
             | 'SignNow'
             | 'SigNoz'
@@ -1580,6 +1616,7 @@ export interface sourceWizardLogicActions {
             | 'Smartwaiver'
             | 'Smokeball'
             | 'SnapchatAds'
+            | 'Snovio'
             | 'Snowflake'
             | 'Snowplow'
             | 'Snyk'
@@ -1604,6 +1641,7 @@ export interface sourceWizardLogicActions {
             | 'Square'
             | 'Squarespace'
             | 'StackOverflowForTeams'
+            | 'Starburst'
             | 'Statsig'
             | 'Statuscake'
             | 'Statuspage'
@@ -1623,6 +1661,7 @@ export interface sourceWizardLogicActions {
             | 'SurveySparrow'
             | 'Survicate'
             | 'Svix'
+            | 'Swan'
             | 'Swarmia'
             | 'Swonkie'
             | 'Synthesia'
@@ -1674,11 +1713,13 @@ export interface sourceWizardLogicActions {
             | 'Toggl'
             | 'Torii'
             | 'TrackPMS'
+            | 'TradableBits'
             | 'Transistor'
             | 'TravisCI'
             | 'Trello'
             | 'Tremendous'
             | 'TriggerDev'
+            | 'TripleWhale'
             | 'TrunkIo'
             | 'TrustPilot'
             | 'Trustradius'
@@ -1694,9 +1735,11 @@ export interface sourceWizardLogicActions {
             | 'TwoC2p'
             | 'TyntecSMS'
             | 'Typeform'
+            | 'Typesense'
             | 'Ubidots'
             | 'UkCompaniesHouse'
             | 'UkOns'
+            | 'Umami'
             | 'UnComtrade'
             | 'Unleash'
             | 'Unstructured'
@@ -1747,6 +1790,7 @@ export interface sourceWizardLogicActions {
             | 'WooCommerce'
             | 'Wordpress'
             | 'Workable'
+            | 'Workato'
             | 'Workday'
             | 'Workflowmax'
             | 'Workiz'
@@ -1780,6 +1824,7 @@ export interface sourceWizardLogicActions {
             | 'Zenefits'
             | 'Zenloop'
             | 'Zep'
+            | 'Zero'
             | 'Zluri'
             | 'ZohoAnalytics'
             | 'ZohoBigin'
@@ -3274,7 +3319,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     actions.setStep(5)
                 }
             } catch (e: any) {
-                lemonToast.error(e.data?.message ?? e.message)
+                lemonToast.error(resolveConnectErrorMessage(e))
                 // Surface the failure instead of leaving it as a toast-only dead end: a captured
                 // exception keeps the stack triageable, and the event closes the connect funnel.
                 posthog.captureException(e)
@@ -3328,7 +3373,9 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: source,
                 })
             } else {
-                lemonToast.error(`Something went wrong.`)
+                lemonToast.error(
+                    `Couldn't finish connecting your source. Please try again, and if it keeps happening contact support.`
+                )
             }
         },
         submitSourceConnectionDetailsSuccess: () => {
@@ -3448,15 +3495,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
-                // A gateway timeout / 5xx has no JSON body, so e.message is the raw
-                // "Non-OK response [POST ...] (status 504: )" — meaningless to the user. Surface a
-                // friendly hint for server-side failures while keeping any API-provided message.
                 const apiMessage = e.data?.message ?? e.detail
-                const errorMessage =
-                    apiMessage ??
-                    (e.status >= 500
-                        ? 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
-                        : e.message)
+                const errorMessage = resolveConnectErrorMessage(e)
                 lemonToast.error(errorMessage)
 
                 // A 5xx with no body is an unexpected server failure, not a user credential

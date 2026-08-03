@@ -1493,6 +1493,25 @@ class TestAnthropicCountTokensEndpoint:
         assert response.json()["input_tokens"] > 0
         mock_real_count.assert_not_called()
 
+    def test_modal_model_approximates_count_without_provider_header(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        with patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count:
+            response = authenticated_client.post(
+                "/v1/messages/count_tokens",
+                json={
+                    "model": "moonshotai/kimi-k3",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+        mock_real_count.assert_not_called()
+
     def test_cloudflare_provider_rejects_unpriced_model(
         self,
         authenticated_client: TestClient,

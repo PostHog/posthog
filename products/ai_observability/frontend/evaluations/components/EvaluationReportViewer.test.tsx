@@ -15,11 +15,20 @@ function buildMetrics(fields: EvaluationReportStoredMetrics): EvaluationReportSt
     }
 }
 
-function buildReportRun(metrics: EvaluationReportStoredMetrics): EvaluationReportRun {
+function buildReportRun(
+    metrics: EvaluationReportStoredMetrics | null,
+    generationStatus: 'completed' | 'metrics_unavailable' = 'completed'
+): EvaluationReportRun {
     return {
         id: 'run-id',
         report: 'report-id',
-        content: { title: 'Evaluation report', sections: [], citations: [], metrics },
+        content: {
+            title: 'Evaluation report',
+            sections: [],
+            citations: [],
+            metrics,
+            generation_status: generationStatus,
+        },
         metadata: null,
         period_start: '2026-07-01T00:00:00Z',
         period_end: '2026-07-02T00:00:00Z',
@@ -83,6 +92,13 @@ describe('EvaluationReportViewer', () => {
         expect(screen.getByText('Fail').nextElementSibling?.classList.contains('text-danger')).toBe(true)
         expect(screen.getByText(/8.89pp vs previous/).classList.contains('text-success')).toBe(true)
         expect(screen.queryByText('(80.00%)')).toBeNull()
+    })
+
+    it('renders a metrics-unavailable notice instead of a zero-run table', () => {
+        render(<EvaluationReportViewer reportRun={buildReportRun(null, 'metrics_unavailable')} compact />)
+
+        expect(screen.getByText(/could not be calculated/)).toBeTruthy()
+        expect(screen.queryByText('Total runs')).toBeNull()
     })
 
     it('shows sentiment outcome distribution without boolean pass-rate framing', () => {

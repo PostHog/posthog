@@ -360,6 +360,18 @@ class BatchConsumer:
         except TimeoutError:
             pass
 
+    async def _handle_poll_timeout(self, poll_start: float) -> None:
+        # error, not exception: the timeout is the designed recovery
+        # path and its traceback carries no diagnostic value.
+        logger.error(  # noqa: TRY400
+            self._event("poll_timed_out"),
+            timeout_seconds=self._config.poll_timeout_seconds,
+            consecutive_failures=self._consecutive_poll_failures + 1,
+        )
+        self._note_poll_failure("timeout", duration=time.monotonic() - poll_start)
+        await self._drop_conn("_poll_conn")
+        await self._wait_or_shutdown(self._poll_retry_delay())
+
     async def run(self) -> None:
         self._install_signal_handlers()
 
@@ -399,23 +411,26 @@ class BatchConsumer:
                     continue
 
                 poll_start = time.monotonic()
+                poll_timeout_ctx = asyncio.timeout(self._config.poll_timeout_seconds)
                 try:
                     conn = await self._ensure_poll_conn()
-                    async with asyncio.timeout(self._config.poll_timeout_seconds):
+                    async with poll_timeout_ctx:
                         batches = await self._fetch_batches(conn, available=available)
                 except TimeoutError:
-                    # error, not exception: the timeout is the designed recovery
-                    # path and its traceback carries no diagnostic value.
-                    logger.error(  # noqa: TRY400
-                        self._event("poll_timed_out"),
-                        timeout_seconds=self._config.poll_timeout_seconds,
-                        consecutive_failures=self._consecutive_poll_failures + 1,
-                    )
-                    self._note_poll_failure("timeout", duration=time.monotonic() - poll_start)
-                    await self._drop_conn("_poll_conn")
-                    await self._wait_or_shutdown(self._poll_retry_delay())
+                    await self._handle_poll_timeout(poll_start)
                     continue
                 except psycopg.OperationalError as e:
+                    if poll_timeout_ctx.expired():
+                        # asyncio.timeout() cancels the in-flight query on expiry, but
+                        # psycopg's async wait loop can catch that cancellation and
+                        # re-raise it as a generic OperationalError ("consuming input
+                        # failed: server closed the connection unexpectedly") instead
+                        # of letting a bare TimeoutError propagate. Timeout.expired()
+                        # reflects whether this context's own deadline fired regardless
+                        # of the exception type, so this is still the designed timeout
+                        # path above, not a real queue-DB outage.
+                        await self._handle_poll_timeout(poll_start)
+                        continue
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))
                     capture_exception(e)
                     self._note_poll_failure("db_unreachable", duration=time.monotonic() - poll_start)

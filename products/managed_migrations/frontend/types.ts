@@ -66,6 +66,7 @@ export interface S3ManagedMigration extends BaseManagedMigration {
     s3_region: string
     s3_bucket: string
     s3_prefix: string
+    role_arn?: string
     endpoint_url?: string
 }
 
@@ -74,6 +75,7 @@ export interface S3GzipManagedMigration extends BaseManagedMigration {
     s3_region: string
     s3_bucket: string
     s3_prefix: string
+    role_arn?: string
     endpoint_url?: string
 }
 

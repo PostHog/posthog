@@ -303,8 +303,14 @@ async def delete_team_reports_activity(input: DeleteTeamReportsInput) -> None:
         artefact_count = SignalReportArtefact.objects.filter(team_id=input.team_id).count()
         report_count = SignalReport.objects.filter(team_id=input.team_id).count()
 
-        SignalReportArtefact.objects.filter(team_id=input.team_id).delete()
+        # Reports first, so their artefacts go through the cascade. Each artefact's post_delete then
+        # carries the report deletion as its origin, which is what tells the safety-verdict receiver in
+        # receivers.py that reconciling this artefact is pointless work: the report it judges is being
+        # deleted in the same operation, and that deletion retracts the embedding on its own. Deleting
+        # artefacts first would cost two extra queries per artefact inside a five minute activity. The
+        # sweep afterwards keeps the original behavior for any artefact the cascade did not reach.
         SignalReport.objects.filter(team_id=input.team_id).delete()
+        SignalReportArtefact.objects.filter(team_id=input.team_id).delete()
 
         return artefact_count, report_count
 
