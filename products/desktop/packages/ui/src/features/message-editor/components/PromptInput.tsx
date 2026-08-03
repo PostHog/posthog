@@ -501,7 +501,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
             <div
               className={clsx(
                 "cli-editor-scroll relative min-h-[37px] w-full overflow-y-auto py-2 pr-10 pl-2 text-[14px]",
-                editorHeight === "large" ? "max-h-[45vh]" : "max-h-[200px]",
+                editorHeight === "large" ? "max-h-none" : "max-h-[40vh]",
                 // A disabled editor still looks editable: the caret is the only
                 // tell, and it is absent precisely because you cannot focus it.
                 disabled && "text-muted-foreground",
