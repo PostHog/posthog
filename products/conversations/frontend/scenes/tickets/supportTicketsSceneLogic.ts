@@ -582,9 +582,6 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
     }),
     selectors({
-        // While a saved view is applied (`?view=…` in the URL), the view's name identifies
-        // the page far better than the generic scene name — it's what tells several open
-        // queue tabs apart in the browser's tab strip.
         breadcrumbs: [
             (s) => [s.activeView],
             (activeView: SavedTicketView | null): Breadcrumb[] => [
