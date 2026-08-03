@@ -88,12 +88,9 @@ class ChannelsAPITestCase(TestCase):
     def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
         list_repositories.return_value = [{"full_name": "posthog/posthog"}]
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
-        # Listing provisions the requester's personal channel.
         self.client.get(self._channels_url())
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
 
-        # A teammate who learns the id must not be able to redirect the owner's
-        # tasks — the personal channel is invisible to them, so this reads as 404.
         other_client = APIClient()
         other_client.force_authenticate(self.other_user)
         sneaky = other_client.patch(
@@ -105,7 +102,6 @@ class ChannelsAPITestCase(TestCase):
         personal.refresh_from_db()
         self.assertEqual(personal.repositories, [])
 
-        # The owner can still configure their own personal channel's repositories.
         owned = self.client.patch(
             f"{self._channels_url()}{personal.id}/",
             {"github_integration": integration.id, "repositories": ["posthog/posthog"]},
@@ -154,6 +150,29 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.content)
         self.assertEqual(created.json()["repositories"], ["posthog/posthog", "posthog/posthog-js"])
         self.assertEqual(created.json()["github_integration"], integration.id)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    def test_only_creator_can_configure_public_channel_repositories(self, list_repositories):
+        list_repositories.return_value = [{"full_name": "posthog/posthog"}]
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        response = other_client.patch(
+            f"{self._channels_url()}{channel_id}/",
+            {"github_integration": integration.id, "repositories": ["posthog/posthog"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        channel = Channel.objects.unscoped().get(id=channel_id)
+        self.assertEqual(channel.repositories, [])
+        self.assertIsNone(channel.github_integration_id)
+
+        renamed = other_client.patch(f"{self._channels_url()}{channel_id}/", {"name": "renamed"}, format="json")
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
+        self.assertEqual(renamed.json()["name"], "renamed")
 
     def test_public_channel_task_is_readable_but_not_controllable_by_teammates(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]

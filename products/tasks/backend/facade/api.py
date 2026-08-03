@@ -5473,20 +5473,17 @@ def update_channel(
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
 ) -> contracts.ChannelDTO | str:
-    """Update a channel. Personal channels allow repository configuration but not renaming."""
+    """Update a channel, keeping repository configuration creator-owned."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
     if channel is None:
         return "not_found"
     if channel.channel_type == Channel.ChannelType.PERSONAL:
-        # A personal channel is private to its owner. Hide it from every other
-        # member — same as the read path's _visible_channel — so a teammate who
-        # learns the id can't rewrite the owner's repository config and redirect
-        # their future tasks to different repositories.
         if channel.created_by_id != user_id:
             return "not_found"
-        # Renaming a personal channel stays disallowed, even for its owner.
         if name is not None:
             return "personal"
+    elif repositories is not None and channel.created_by_id != user_id:
+        return "not_found"
     update_fields: list[str] = []
     if name is not None:
         normalized = normalize_channel_name(name)
