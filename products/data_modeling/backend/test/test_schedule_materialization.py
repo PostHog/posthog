@@ -126,6 +126,31 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             self.sq.schedule_materialization()
         sync_wf.assert_called_once()
 
+    def test_rejected_frequency_leaves_a_virgin_dag_unbootstrapped(self):
+        # the bootstrap is all side effects, and on_commit fires immediately for the callers that
+        # are not inside an atomic block — so seeding or scheduling before the frequency is
+        # validated converts the DAG to v2 on a request that then 400s
+        node = Node.objects.get(saved_query=self.sq)
+        self.sq.sync_frequency_interval = timedelta(minutes=45)
+        self.sq.save(update_fields=["sync_frequency_interval"])
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch(f"{SERVICE}.sync_saved_query_workflow"),
+            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.sync_connect"),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            self.captureOnCommitCallbacks(execute=True),
+            self.assertRaises(UnsupportedFrequencyTargetError),
+        ):
+            self.sq.schedule_materialization()
+
+        create.assert_not_called()
+        node.refresh_from_db()
+        assert get_declared_target(node) is None
+
     def test_tiered_flag_writes_target_through_and_nulls_interval(self):
         node = Node.objects.get(saved_query=self.sq)
         with (
