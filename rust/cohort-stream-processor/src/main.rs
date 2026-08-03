@@ -181,12 +181,12 @@ async fn async_main(config: Config) -> Result<()> {
         .context("creating shadow producer")?,
     );
 
-    // Only the transfer sink gets the shorter `message.timeout.ms`: its produce runs inline on a
-    // partition worker under a bounded retry loop, so a long per-attempt timeout would multiply into
-    // a worker hold past the 30 s graceful-shutdown window. The membership, re-key, and marker sinks
-    // keep the shared 20 s: membership drops on fail (at-most-once), the re-key produce rides the
-    // events-path offset gate (held-then-redelivered), and a marker produce is a single un-retried
-    // attempt that yields the job on failure, so none of them holds a worker for more than one timeout.
+    // The transfer and marker sinks get the shorter `message.timeout.ms`: both produce inline on a
+    // partition worker and both are retried on a cadence — the transfer by a bounded inline loop, the
+    // marker by the drain sweeper — so a long per-attempt timeout repeats into a worker hold rather
+    // than costing it once. The membership and re-key sinks keep the shared 20 s: membership drops on
+    // fail (at-most-once) and the re-key produce rides the events-path offset gate
+    // (held-then-redelivered), so neither retries a black-holed produce on a timer.
     let transfer_kafka_config = config.build_transfer_kafka_config();
     let transfer_sink: Arc<dyn TransferSink> = Arc::new(
         KafkaTransferSink::new(
@@ -226,7 +226,7 @@ async fn async_main(config: Config) -> Result<()> {
     let marker_sink: Arc<dyn ReconcileMarkerSink> = if config.cohort_seed_reconcile_enabled {
         Arc::new(
             KafkaReconcileMarkerSink::new(
-                &kafka_config,
+                &config.build_marker_kafka_config(),
                 config.cohort_reconcile_markers_topic.clone(),
             )
             .await

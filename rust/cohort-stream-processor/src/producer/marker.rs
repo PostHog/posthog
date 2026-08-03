@@ -4,13 +4,15 @@
 //! membership output has to move to its own cluster, while markers stay alongside the seed topic on
 //! ingestion, and one shared producer would force them to move together.
 //!
-//! Two topic properties the seeder's watcher depends on, recorded here because the topic is
-//! provisioned in another repo and either would fail silently:
+//! One topic property the seeder's watcher depends on, recorded here because the topic is
+//! provisioned in another repo and would fail silently: a stable partition count. The watcher
+//! captures a start offset per partition at dispatch and is assigned exactly those, so a partition
+//! added mid-run is never read and holds the run open.
 //!
-//! - `cleanup.policy=delete`. Every partition marker of a run shares one key (see
-//!   [`reconcile_complete_key`]), so compaction would retain one of the 64 and erase the rest.
-//! - A stable partition count. The watcher captures a start offset per partition at dispatch and is
-//!   assigned exactly those, so a partition added mid-run is never read and holds the run open.
+//! The key ([`reconcile_complete_key`]) carries the body partition so every marker of a run is a
+//! distinct key. The topic is provisioned `cleanup.policy=delete`, but a compacting one would keep
+//! all 64 rather than collapsing them to whichever arrived last — a mis-provision that would
+//! otherwise record completed backfills as short.
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -63,11 +65,11 @@ impl ReconcileMarkerSink for KafkaReconcileMarkerSink {
     }
 }
 
-/// No-op marker sink for when the reconcile gate is off: satisfies the [`ReconcileMarkerSink`] slot
-/// without a Kafka producer. Nothing can produce through it, because a reconcile job is only ever
-/// admitted from a seed tile and `ReconcileDeps::enabled` gates that admission. Pairing this sink
-/// with `enabled: true` would break that: it acks every marker without producing one, so the jobs
-/// would complete and commit their seed offsets while the seeder saw no certificate at all.
+/// Inert sink for when the reconcile gate is off: satisfies the [`ReconcileMarkerSink`] slot without
+/// a Kafka producer. Nothing should reach it — a reconcile job is only ever admitted from a seed tile
+/// and `ReconcileDeps::enabled` gates that admission — so a produce here is a coding error, and it
+/// fails rather than acking. Acking would be the worse half of the trade: the job would complete and
+/// commit its seed offset while the seeder waited for a certificate that was never produced.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoopReconcileMarkerSink;
 
@@ -77,7 +79,10 @@ impl ReconcileMarkerSink for NoopReconcileMarkerSink {
         &self,
         markers: Vec<ReconcileCompleteMarker>,
     ) -> Vec<Result<(), KafkaProduceError>> {
-        markers.iter().map(|_| Ok(())).collect()
+        markers
+            .into_iter()
+            .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
+            .collect()
     }
 }
 
@@ -108,12 +113,16 @@ impl ReconcileMarkerSink for CaptureReconcileMarkerSink {
     }
 }
 
+/// Unique per marker, not per run: the partition is what makes 64 distinct keys out of one dispatch,
+/// so no cleanup policy can collapse them. Nothing downstream reads the key beyond the watcher's
+/// `':'` probe, and the ledger's fold is order-independent, so the grouping carries no meaning.
 fn reconcile_complete_key(marker: &ReconcileCompleteMarker) -> Option<String> {
     Some(format!(
-        "{}:{}:{}",
+        "{}:{}:{}:{}",
         marker.team_id().0,
         marker.cohort_id().0,
-        marker.run_id().0
+        marker.run_id().0,
+        marker.partition(),
     ))
 }
 
@@ -137,15 +146,15 @@ mod tests {
     }
 
     #[test]
-    fn reconcile_complete_key_identifies_the_run_without_the_partition() {
+    fn reconcile_complete_key_is_unique_per_partition_marker() {
         assert_eq!(
             reconcile_complete_key(&marker(63)),
-            Some("42:91204:00000000-0000-0000-0000-000000000000".to_string())
+            Some("42:91204:00000000-0000-0000-0000-000000000000:63".to_string())
         );
-        assert_eq!(
+        assert_ne!(
             reconcile_complete_key(&marker(63)),
             reconcile_complete_key(&marker(0)),
-            "all partition markers for one run share the same Kafka key",
+            "a shared key would let a compacting topic erase all but one marker of a run",
         );
     }
 

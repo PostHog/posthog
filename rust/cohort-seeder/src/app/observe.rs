@@ -131,6 +131,10 @@ pub async fn observe_run(
                         .observation_ends()
                         .await
                         .map_err(ObserveError::TopicEnds)?;
+                    // Warn at capture rather than on the hold it causes: the dispatch's partition set
+                    // is fixed, so the answer never changes, and this arm runs once per dispatch
+                    // while the hold below is re-entered on every tick until a re-dispatch.
+                    warn_on_uncovered_partitions(target, &ends);
                     store
                         .persist_ends(target.run_id, target.epoch, &ends)
                         .await?;
@@ -140,21 +144,6 @@ pub async fn observe_run(
         }
         Some(ends) => match ends.caught_up(&target.watch.positions) {
             None => {
-                let uncovered: Vec<i32> = ends
-                    .uncovered(&target.watch.positions)
-                    .into_iter()
-                    .map(WatchPartition::get)
-                    .collect();
-                if !uncovered.is_empty() {
-                    warn!(
-                        run_id = ?target.run_id,
-                        topic = %target.watch.topic,
-                        partitions = ?uncovered,
-                        "the marker topic gained partitions after this run was dispatched; the \
-                         watcher is assigned only the partitions captured then, so this run holds \
-                         until it is re-dispatched"
-                    );
-                }
                 return Ok(ObserveStep::MarkerLagging(
                     ends.behind(&target.watch.positions),
                 ));
@@ -172,6 +161,27 @@ pub async fn observe_run(
     let summary = apply_verdict(store, target, &active, ledger.settle(proof)).await?;
     store.mark_observed(target.run_id, target.epoch).await?;
     Ok(ObserveStep::Settled(summary))
+}
+
+/// A partition present in the freshly captured ends but absent from the dispatch's start positions is
+/// one the watcher was never assigned, so it can never be read and the run holds at
+/// [`ObserveStep::MarkerLagging`] until a re-dispatch recaptures the full set.
+fn warn_on_uncovered_partitions(target: &ObserveTarget, ends: &ObservationEnds) {
+    let uncovered: Vec<i32> = ends
+        .uncovered(&target.watch.positions)
+        .into_iter()
+        .map(WatchPartition::get)
+        .collect();
+    if uncovered.is_empty() {
+        return;
+    }
+    warn!(
+        run_id = ?target.run_id,
+        topic = %target.watch.topic,
+        partitions = ?uncovered,
+        "the marker topic gained partitions after this run was dispatched; the watcher is assigned \
+         only the partitions captured then, so this run holds until it is re-dispatched"
+    );
 }
 
 async fn apply_verdict(
@@ -215,17 +225,17 @@ async fn apply_verdict(
             })
         }
         SettledVerdict::NoMarkers => {
-            // `topic_idle` separates the two causes: nothing at all reached the watched topic (the
-            // processor's gate is off, or its markers are going somewhere else) versus markers that
-            // reached it but named no cohort of this run.
-            let topic_idle = target.watch.ends.as_ref().is_some_and(|ends| {
+            // One-sided. False proves records landed after the ends were captured, so the topic is
+            // live and the gate-off reading is wrong. True proves nothing about whether markers ever
+            // landed: the positions and the captured ends coincide on any topic that has gone quiet.
+            let no_reads_past_ends = target.watch.ends.as_ref().is_some_and(|ends| {
                 *ends == ObservationEnds::from_positions(&target.watch.positions)
             });
             warn!(
                 run_id = ?target.run_id,
                 team_id = target.team_id.0,
                 topic = %target.watch.topic,
-                topic_idle,
+                no_reads_past_ends,
                 "zero reconcile markers observed for a settled run: the processor reconcile gate is off fleet-wide, or its markers are landing on a different topic than the one watched"
             );
             let incomplete: Vec<(CohortId, PartitionBitmap)> =

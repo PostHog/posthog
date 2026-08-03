@@ -825,9 +825,9 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
     .await
 }
 
-/// Discovery classifies each completion phase, including a reconciling run whose completion
-/// columns are all NULL — and drops the observed run, whose remaining work is Django's, while the
-/// reconciling-run count still reports it.
+/// Discovery classifies each completion phase, including a reconciling run whose completion columns
+/// are all NULL and one whose persisted watch names a different marker topic — and drops the observed
+/// run, whose remaining work is Django's, while the reconciling-run count still reports it.
 #[tokio::test]
 async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()> {
     with_db(|pool| async move {
@@ -864,6 +864,25 @@ async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()>
         let epoch = claim.record(&pool, &full_hwms(), &empty_watch()).await?;
         mark_run_observed(&pool, observed, epoch).await?;
 
+        // A watch recorded against the topic markers used to ride. Its offsets name a different log,
+        // so resuming on them would settle the run against positions it never read.
+        let moved = insert_reconciling_run(&pool, 7).await?;
+        insert_participation(&pool, moved, 7, 701, false, empty_pinned()).await?;
+        let claim = confirm_reconciling(&pool, moved, RunKind::Behavioral)
+            .await?
+            .context("moved run should be claimable")?;
+        let _ = claim
+            .record(
+                &pool,
+                &full_hwms(),
+                &MarkerWatch {
+                    topic: "cohort_membership_changed_shadow".to_string(),
+                    positions: WatchPositions::new(),
+                    ends: None,
+                },
+            )
+            .await?;
+
         let discovered =
             discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS, MARKER_TOPIC).await?;
         let phase = |run| {
@@ -884,13 +903,19 @@ async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()>
                     UndispatchedReason::NeverDispatched
                 ))
         );
+        ensure!(
+            phase(moved)
+                == Some(CompletionPhase::ReconcilingUndispatched(
+                    UndispatchedReason::TopicChanged
+                ))
+        );
         // Dropped from discovery rather than hydrated and matched away: a run parked here behind
         // Django's readiness gate would otherwise cost two per-partition JSONB decodes every tick.
         ensure!(phase(observed).is_none());
 
-        // The three reconciling runs, observed or not, all still reach the gauge.
+        // Every reconciling run, observed or not, still reaches the gauge.
         let counts = count_reconciling_by_kind(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
-        ensure!(counts.get(&RunKind::Behavioral) == Some(&3));
+        ensure!(counts.get(&RunKind::Behavioral) == Some(&4));
         ensure!(!counts.contains_key(&RunKind::PersonProperty));
 
         // Both statements have a team-scoped variant, and dev — where this rollout lands first —

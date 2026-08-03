@@ -543,6 +543,19 @@ pub enum UndispatchedReason {
     TopicChanged,
 }
 
+impl UndispatchedReason {
+    /// Metric label. A topic rename re-dispatches every in-flight run at once, which is expected;
+    /// without the label that spike is indistinguishable from a genuinely corrupt dispatch record.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NeverDispatched => "never_dispatched",
+            Self::MissingRecord => "missing_record",
+            Self::UnparseableRecord => "unparseable_record",
+            Self::TopicChanged => "topic_changed",
+        }
+    }
+}
+
 /// The classification of one discovered completion row. Parse-don't-validate: the app matches this
 /// once and never re-inspects the raw columns.
 #[derive(Debug, Clone, PartialEq, Eq)]

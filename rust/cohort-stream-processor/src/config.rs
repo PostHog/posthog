@@ -251,8 +251,8 @@ pub struct Config {
     #[envconfig(from = "COHORT_REGISTER_TRANSFER_ENABLED", default = "false")]
     pub cohort_register_transfer_enabled: bool,
 
-    /// Admit and drain reconcile controls. Default off; enable only once every downstream consumer
-    /// tolerates completion markers. Register transfer is gated separately by
+    /// Admit and drain reconcile controls. Default off; enable only once `COHORT_RECONCILE_MARKERS_TOPIC`
+    /// exists in the environment, which startup asserts. Register transfer is gated separately by
     /// `COHORT_REGISTER_TRANSFER_ENABLED`.
     #[envconfig(from = "COHORT_SEED_RECONCILE_ENABLED", default = "false")]
     pub cohort_seed_reconcile_enabled: bool,
@@ -314,6 +314,13 @@ pub struct Config {
     /// any record without `person_id`/`status`, and the seeder's watcher tails this one end to end.
     #[envconfig(default = "cohort_reconcile_markers")]
     pub cohort_reconcile_markers_topic: String,
+
+    /// `message.timeout.ms` for the marker producer alone — much shorter than the shared 20 s. The
+    /// marker produce runs inline on a partition worker, so a broker that black-holes it stalls live
+    /// evaluation on that partition for the whole timeout, and the drain sweeper re-queues the job a
+    /// tick later and stalls it again. A fast fail just yields the job for the next tick.
+    #[envconfig(default = "2000")]
+    pub reconcile_marker_message_timeout_ms: u32,
 
     /// `murmur2_random` co-partitions a `person_id` key identically to the Node/Python producers.
     #[envconfig(default = "murmur2_random")]
@@ -1034,6 +1041,17 @@ impl Config {
             ..self.build_kafka_config()
         }
     }
+
+    /// Producer config for the reconcile-marker sink: the shared config with a shorter
+    /// `message.timeout.ms`. Same inline-on-a-worker reason as the transfer sink, except the retry
+    /// is the drain sweeper's rather than an inline loop, so an unreachable marker topic would
+    /// otherwise hold the worker for the full timeout on every tick.
+    pub fn build_marker_kafka_config(&self) -> KafkaConfig {
+        KafkaConfig {
+            kafka_message_timeout_ms: self.reconcile_marker_message_timeout_ms,
+            ..self.build_kafka_config()
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1089,6 +1107,7 @@ mod tests {
             pod_hostname: None,
             cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
             cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
+            reconcile_marker_message_timeout_ms: 2000,
             kafka_producer_partitioner: "murmur2_random".to_string(),
             cohort_partition_count: 64,
             kafka_compression_codec: "none".to_string(),
@@ -2074,6 +2093,10 @@ mod tests {
         let transfer = config.build_transfer_kafka_config();
         // Only `message.timeout.ms` differs; every other producer knob is inherited.
         assert_eq!(transfer.kafka_message_timeout_ms, 2000);
+        assert_eq!(
+            config.build_marker_kafka_config().kafka_message_timeout_ms,
+            2000,
+        );
         assert_eq!(shared.kafka_message_timeout_ms, 20_000);
         assert_eq!(
             transfer.kafka_producer_partitioner,

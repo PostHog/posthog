@@ -4,10 +4,11 @@
 //! it participates in no rebalance and leaves no durable offset. It watches every marker partition
 //! from explicit start offsets (the high watermarks captured at dispatch), with `auto.offset.reset=
 //! error` so a start below the log's low watermark surfaces as [`WatchError::Truncated`] instead of
-//! silently jumping. Every marker is keyed `"{team}:{cohort}:{run}"`; on a dedicated topic the `b':'`
-//! probe is no longer a hot-path filter but a guard against a mis-pointed topic, so anything it (or the
-//! parse behind it) rejects is counted by `reason`. Skipped messages still advance the partition's
-//! next-read offset. rdkafka types stay confined here — the watcher yields typed [`WatchItem`]s.
+//! silently jumping. Every marker is keyed `"{team}:{cohort}:{run}:{partition}"`; on a dedicated
+//! topic the `b':'` probe is no longer a hot-path filter but a guard against a mis-pointed topic, so
+//! anything it (or the parse behind it) rejects is counted by `reason`. Skipped messages still
+//! advance the partition's next-read offset. rdkafka types stay confined here — the watcher yields
+//! typed [`WatchItem`]s.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -180,7 +181,7 @@ fn classify_marker(key: Option<&[u8]>, payload: Option<&[u8]>) -> Option<Observe
         return skip("no_key");
     };
     if !key.contains(&b':') {
-        return skip("foreign_key");
+        return skip("key_not_a_marker");
     }
     let Some(payload) = payload else {
         return skip("no_payload");
@@ -195,7 +196,7 @@ fn classify_marker(key: Option<&[u8]>, payload: Option<&[u8]>) -> Option<Observe
             partition,
             run_id: marker.run_id(),
         }),
-        Err(_) => skip("partition"),
+        Err(_) => skip("partition_out_of_range"),
     }
 }
 

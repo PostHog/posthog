@@ -357,7 +357,8 @@ impl CompletionDriver {
                     // read as stalled the instant the dispatch record breaks.
                     track_oldest(&mut oldest_stalled, since);
                     if first_sighting {
-                        counter!(RECONCILE_RECORD_INVALID).increment(1);
+                        counter!(RECONCILE_RECORD_INVALID, "reason" => reason.as_str())
+                            .increment(1);
                     }
                     // Only the dispatch arm can heal an undispatched run; observe-only leaves it for a
                     // CLI re-dispatch.
