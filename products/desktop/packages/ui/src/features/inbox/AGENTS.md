@@ -130,8 +130,11 @@ Shared primitives exist to keep the surfaces consistent:
 
 When adding or changing UI, reuse those primitives first. Avoid encoding one-off layout systems inside a tab component.
 
+Components come from `@posthog/quill`; layout is `div`s with Tailwind. Radix is banned — see [UI Components](../../../../../AGENTS.md#ui-components) in the root `AGENTS.md`. Inbox files that still import `@radix-ui/themes` are legacy: when you edit one, drop the Radix import rather than extending it (`Flex`/`Box` → `div` + Tailwind, `Text`/`Button`/`Badge`/`Tooltip` → the quill component of the same name).
+
 ## Things to Avoid
 
+- Do not add any `@radix-ui/*` import. Use `@posthog/quill` plus `div` + Tailwind.
 - Do not reuse the deleted legacy `ReportListRow`, `ReportDetailPane`, or old list/detail stores.
 - Do not put page-level Inbox title or navigation into the global app header; `InboxView` owns the Inbox page chrome.
 - Do not add a configure shortcut back into the Inbox header; Responders configuration is a sidebar destination.
