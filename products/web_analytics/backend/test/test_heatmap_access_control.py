@@ -15,6 +15,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 
+from products.web_analytics.backend.heatmap_preflight import PreflightResult
 from products.web_analytics.backend.models import SavedHeatmap
 from products.web_analytics.backend.test.test_heatmaps_api import INSERT_SINGLE_HEATMAP_EVENT
 
@@ -171,6 +172,32 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
             mock_task.assert_not_called()
         else:
             mock_task.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("object_viewer", True, status.HTTP_403_FORBIDDEN),
+            ("resource_viewer", False, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.web_analytics.backend.api.heatmaps_api.preflight_page")
+    def test_preflight_requires_resource_viewer_access(
+        self, _name: str, object_grant: bool, expected_status: int, mock_preflight: MagicMock
+    ) -> None:
+        mock_preflight.return_value = PreflightResult("allowed", None, 200, None)
+        self._create_project_default(access_level="none")
+        self._create_access_control(
+            self.viewer_user,
+            resource_id=str(self.heatmap.id) if object_grant else None,
+            access_level="viewer",
+        )
+        self.client.force_login(self.viewer_user)
+
+        response = self.client.post(
+            self._list_url() + "preflight/", data={"url": "https://example.com/probed"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(mock_preflight.called, not object_grant)
 
     def test_creator_list_filters_out_object_blocked_heatmap(self):
         # Creator sees their own heatmap; an object-level "none" on another user's heatmap excludes it.

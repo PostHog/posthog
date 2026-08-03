@@ -229,6 +229,12 @@ pub struct RouterFreezeAck {
     /// this ack toward the handoff whose id it names.
     #[serde(default)]
     pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// The old owner's acknowledgment that all inflight request handlers for a
@@ -246,6 +252,12 @@ pub struct PodDrainedAck {
     /// this ack toward the handoff whose id it names.
     #[serde(default)]
     pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// The new owner's acknowledgment that it has consumed Kafka up to the stable
@@ -260,6 +272,12 @@ pub struct PodWarmedAck {
     /// this ack toward the handoff whose id it names.
     #[serde(default)]
     pub handoff_id: String,
+    /// Millisecond stamp written by the store at put time, for span
+    /// metrics (`acked_at` above keeps second resolution for protocol
+    /// visibility). Zero in records written by earlier builds; span
+    /// consumers skip zeros.
+    #[serde(default)]
+    pub acked_at_ms: i64,
 }
 
 /// Written to `{prefix}coordinator/leader` by the coordinator that wins
@@ -396,6 +414,7 @@ mod tests {
             router_name: "router-0".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
             handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
@@ -409,6 +428,7 @@ mod tests {
             pod_name: "leader-0".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
             handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();
@@ -422,6 +442,7 @@ mod tests {
             pod_name: "leader-1".to_string(),
             partition: 42,
             acked_at: 1700000000,
+            acked_at_ms: 0,
             handoff_id: "1700000000000-0".to_string(),
         };
         let json = serde_json::to_string(&ack).unwrap();

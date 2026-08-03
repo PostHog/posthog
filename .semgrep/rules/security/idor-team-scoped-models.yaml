@@ -179,6 +179,7 @@ rules:
                               |HogFlowSchedule
                               |HogFlowTemplate
                               |HogFunction
+                              |HogFunctionRevision
                               |Hook
                               |Insight
                               |InsightVariable
@@ -310,6 +311,7 @@ rules:
                               |Threshold
                               |ToleratedHash
                               |TeamConversationsTeamsConfig
+                              |SigningSecret
                               |Ticket
                               |TicketView
                               |TicketViewFavorite
@@ -512,6 +514,7 @@ rules:
                         |HogFlowSchedule
                         |HogFlowTemplate
                         |HogFunction
+                        |HogFunctionRevision
                         |Hook
                         |Insight
                         |InsightVariable
@@ -637,6 +640,7 @@ rules:
                         |Threshold
                         |ToleratedHash
                         |TeamConversationsTeamsConfig
+                        |SigningSecret
                         |Ticket
                         |TicketView
                         |TicketViewFavorite

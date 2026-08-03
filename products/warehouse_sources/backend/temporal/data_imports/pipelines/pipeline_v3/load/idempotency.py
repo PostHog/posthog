@@ -8,6 +8,7 @@ from asgiref.sync import async_to_sync
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 
 logger = structlog.get_logger(__name__)
@@ -62,7 +63,7 @@ def is_batch_already_processed(
     Slow path (post-crash recovery): if Redis has no flag and a `DeltaTableHelper`
     is provided, scan recent delta commits for a commit whose userMetadata matches
     this (run_uuid, batch_index). This catches the narrow writer-crash window
-    between `write_to_deltalake` committing and `mark_batch_as_processed` running —
+    between `DeltaWriter.write` committing and `mark_batch_as_processed` running —
     on Kafka redelivery we'd otherwise re-write the same batch and produce
     duplicate rows.
     """
@@ -76,7 +77,7 @@ def is_batch_already_processed(
         return False
 
     try:
-        return async_to_sync(delta_table_helper.has_batch_been_committed)(run_uuid, batch_index)
+        return async_to_sync(DeltaWriter(delta_table_helper).has_batch_been_committed)(run_uuid, batch_index)
     except Exception as e:
         # Failing open here would re-enable the duplicate-write race we're fixing,
         # so we log and surface the error to the caller (which will retry the message).

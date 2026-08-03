@@ -8,8 +8,8 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 export type StatTone = 'default' | 'danger' | 'warning' | 'success'
 
 /** A compact right-now count: number over a small label, colored only when it's a pressure. Optionally
- *  doubles as a filter toggle (onClick + active) — the compact sibling of StatCard, shared by the hub
- *  hero and the PR list strip so both read the same. */
+ *  doubles as a filter toggle (onClick + active) — the compact sibling of StatCard, used by the PR
+ *  list's stat strip. */
 export function HeroStat({
     label,
     value,
@@ -23,7 +23,7 @@ export function HeroStat({
     label: string
     value: number | null | undefined
     tone?: StatTone
-    /** 'end' in the hub hero's right cluster; 'start' in the PR list's left strip. */
+    /** Horizontal alignment of the number/label stack; the PR list's left strip uses 'start'. */
     align?: 'start' | 'end'
     loading?: boolean
     onClick?: () => void

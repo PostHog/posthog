@@ -64,6 +64,7 @@ import {
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
+import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -121,6 +122,7 @@ export class CdpApi {
 
     private hogFlowExecutor: HogFlowExecutorService
     private hogWatcher: HogWatcherService
+    private hogWatcherMirror: HogWatcherService | null
     private hogTransformer: HogTransformerService
     private invocationResultsService: InvocationResultsService
     private rerunJobManager: RerunJobManager | null = null
@@ -153,6 +155,7 @@ export class CdpApi {
         this.nativeDestinationExecutorService = services.nativeDestinationExecutorService
         this.segmentDestinationExecutorService = services.segmentDestinationExecutorService
         this.hogWatcher = services.hogWatcher
+        this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
 
         // API-only services. The hog-transformer's monitoring service reuses the same
@@ -181,7 +184,8 @@ export class CdpApi {
             this.hogFunctionManager,
             this.hogExecutor,
             this.hogWatcher,
-            this.invocationResultsService
+            this.invocationResultsService,
+            this.hogWatcherMirror
         )
         this.batchResolverProducer = batchResolverProducer
         this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
@@ -300,7 +304,11 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             const { id } = req.params
-            const summary = await this.hogWatcher.getPersistedState(id)
+            const summary = await mirrorCompare(
+                'hog-watcher.getPersistedState',
+                () => this.hogWatcher.getPersistedState(id),
+                () => this.hogWatcherMirror?.getPersistedState(id)
+            )
 
             res.json(summary)
         }
@@ -317,7 +325,11 @@ export class CdpApi {
                 return
             }
 
-            const summary = await this.hogWatcher.getPersistedState(id)
+            const summary = await mirrorCompare(
+                'hog-watcher.getPersistedState',
+                () => this.hogWatcher.getPersistedState(id),
+                () => this.hogWatcherMirror?.getPersistedState(id)
+            )
             const hogFunction = await this.hogFunctionManager.fetchHogFunction(id)
 
             if (!hogFunction) {
@@ -328,20 +340,35 @@ export class CdpApi {
             // Only allow patching the status if it is different from the current status
 
             if (summary.state !== state) {
-                await this.hogWatcher.forceStateChange(hogFunction, state)
+                await Promise.all([
+                    this.hogWatcher.forceStateChange(hogFunction, state),
+                    mirrorCall('hog-watcher.forceStateChange', () =>
+                        this.hogWatcherMirror?.forceStateChange(hogFunction, state)
+                    ),
+                ])
             }
 
             // Hacky - wait for a little to give a chance for the state to change
             await delay(100)
 
-            res.json(await this.hogWatcher.getPersistedState(id))
+            res.json(
+                await mirrorCompare(
+                    'hog-watcher.getPersistedState',
+                    () => this.hogWatcher.getPersistedState(id),
+                    () => this.hogWatcherMirror?.getPersistedState(id)
+                )
+            )
         }
 
     private getFunctionStates =
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<void> => {
             try {
-                const allStates = await this.hogWatcher.getAllFunctionStates()
+                const allStates = await mirrorCompare(
+                    'hog-watcher.getAllFunctionStates',
+                    () => this.hogWatcher.getAllFunctionStates(),
+                    () => this.hogWatcherMirror?.getAllFunctionStates()
+                )
 
                 // Transform the data for better consumption by Grafana and sort by tokens ascending
                 const statesArray = Object.entries(allStates)
