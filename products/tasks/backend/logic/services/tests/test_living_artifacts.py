@@ -4,7 +4,7 @@ from typing import Any, ClassVar
 
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
@@ -18,6 +18,8 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     DocumentConnectorUnavailable,
+    _chart_card_blocks,
+    _section_blocks,
     create_living_artifact,
     deliver_pending_slack_file_artifacts,
     edit_living_artifact,
@@ -54,6 +56,7 @@ class FakeDocumentConnectorAdapter:
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         document_id = (artifact.location or {}).get("document_id") if artifact is not None else artifact_id
         location = {
@@ -529,6 +532,72 @@ class TestLivingArtifacts(TestCase):
                 content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             )
 
+    def _create_scopeless_mapping(self, mock_integration_for_mapping) -> None:
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T123", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack_integration = MagicMock()
+        slack_integration.missing_scopes.return_value = {"files:write"}
+        mock_integration_for_mapping.return_value = slack_integration
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_file_adapter_allows_url_backed_chart_images_without_file_scope(
+        self, mock_integration_for_mapping, _mock_flag
+    ):
+        # Chart images deliver as image blocks pointing at a PostHog-hosted url — no upload,
+        # no files:write. Only the chart endpoint mints image_url metadata.
+        self._create_scopeless_mapping(mock_integration_for_mapping)
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Signups by week.png",
+            artifact_type=TaskArtifact.ArtifactType.FILE,
+            adapter=TaskArtifact.Adapter.SLACK_FILE,
+            content_bytes=b"png-bytes",
+            content_type="image/png",
+            metadata={"image_url": "http://localhost:8010/exporter/export-1.png?token=abc"},
+        )
+
+        self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_FILE)
+        self.assertEqual(artifact.location["delivery_status"], "pending")
+
+    @parameterized.expand(
+        [
+            ("no_image_url", None),
+            # Caller-writable metadata must not smuggle an off-origin url past the scope check —
+            # delivery would refuse to reference it and the artifact would hang pending forever.
+            ("untrusted_image_url", {"image_url": "https://attacker.example/fake-chart.png"}),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_file_adapter_rejects_non_chart_images_without_file_scope(
+        self, _name, metadata, mock_integration_for_mapping, _mock_flag
+    ):
+        self._create_scopeless_mapping(mock_integration_for_mapping)
+
+        with self.assertRaisesRegex(ValueError, "files:write"):
+            create_living_artifact(
+                run=self.task_run,
+                name="screenshot.png",
+                artifact_type=TaskArtifact.ArtifactType.FILE,
+                adapter=TaskArtifact.Adapter.SLACK_FILE,
+                content_bytes=b"png-bytes",
+                content_type="image/png",
+                metadata=metadata,
+            )
+
+        self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
+
     def _create_mapping_with_full_scopes(self) -> None:
         # Scopes granted (the DEV-install shape) so these tests prove the feature flag
         # gates canvas/file delivery even where the in-review scopes are available.
@@ -680,9 +749,58 @@ class TestLivingArtifacts(TestCase):
             current_version=1,
         )
 
-        delivered = deliver_pending_slack_file_artifacts(self.task_run, initial_comment="done")
+        delivery = deliver_pending_slack_file_artifacts(self.task_run)
 
-        self.assertEqual(delivered, 0)
+        self.assertFalse(delivery.answer_posted)
+        self.assertEqual(delivery.delivered_count, 0)
         mock_integration_for_mapping.assert_not_called()
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
+
+
+class TestChartCardBlockBuilders(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("url_within_limit", "http://localhost:8010/project/1/insights/abc", ["section", "image", "actions"]),
+            (
+                "url_over_slack_button_cap",
+                "http://localhost:8010/project/1/insights/new#q=" + "x" * 3000,
+                ["section", "image"],
+            ),
+            # Artifact metadata is caller-writable, so an off-origin url must not become a button
+            # the PostHog bot appears to vouch for.
+            ("url_off_posthog_origin", "https://phishing.example/project/1/insights/abc", ["section", "image"]),
+        ]
+    )
+    def test_button_only_added_for_trusted_url_within_slack_cap(self, _name, url, expected_block_types):
+        artifact = TaskArtifact(name="Chart", metadata={"posthog_url": url})
+        blocks = _chart_card_blocks(artifact, "F123")
+        self.assertEqual([b["type"] for b in blocks], expected_block_types)
+
+    def test_oversized_sections_split_below_block_char_cap(self):
+        blocks = _section_blocks(["a" * 6500, "short"])
+        self.assertEqual(len(blocks), 4)
+        self.assertTrue(all(len(b["text"]["text"]) <= 3000 for b in blocks))
+        self.assertEqual(blocks[-1]["text"]["text"], "short")
+
+    def test_oversized_sections_split_at_whitespace_so_mrkdwn_entities_survive(self):
+        # A hard character slice can cut a converted entity like `<url|text>` in half;
+        # the split must land on whitespace when any is available in the window.
+        words = "word " * 1300  # 6500 chars of 5-char words
+        blocks = _section_blocks([words.strip()])
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            text = block["text"]["text"]
+            self.assertLessEqual(len(text), 3000)
+            self.assertEqual(set(text.split(" ")), {"word"})
+
+    def test_untrusted_image_url_falls_back_to_uploaded_file_reference(self):
+        artifact = TaskArtifact(name="Chart", metadata={"image_url": "https://attacker.example/fake.png"})
+        blocks = _chart_card_blocks(artifact, "F123")
+        self.assertEqual(blocks[1], {"type": "image", "slack_file": {"id": "F123"}, "alt_text": "Chart"})
+
+    def test_trusted_image_url_is_referenced_directly(self):
+        image_url = "http://localhost:8010/exporter/export-1.png?token=abc"
+        artifact = TaskArtifact(name="Chart", metadata={"image_url": image_url})
+        blocks = _chart_card_blocks(artifact, None)
+        self.assertEqual(blocks[1], {"type": "image", "image_url": image_url, "alt_text": "Chart"})
