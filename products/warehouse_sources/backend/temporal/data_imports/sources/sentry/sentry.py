@@ -112,7 +112,10 @@ def _normalize_organization_slug(organization_slug: str) -> str:
         if subdomain and subdomain not in _SENTRY_NON_ORG_SUBDOMAINS:
             return subdomain
 
-    return segments[-1] if segments else slug
+    # Couldn't confidently identify a slug (e.g. a bare `sentry.io` or an `/organizations/` path
+    # with no slug after it), so leave the value untouched. The credential check then reports the
+    # exact thing the user typed rather than a misleading guess like the literal "organizations".
+    return slug
 
 
 def _normalize_api_base_url(api_base_url: str | None) -> str:

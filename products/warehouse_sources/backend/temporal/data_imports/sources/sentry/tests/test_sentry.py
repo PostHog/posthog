@@ -105,6 +105,8 @@ class TestSentryTransport:
             ("org_subdomain_with_path", "https://acme.sentry.io/issues/", "acme"),
             ("organizations_deep_link", "https://sentry.io/organizations/acme/issues/", "acme"),
             ("organizations_deep_link_no_scheme", "sentry.io/organizations/acme", "acme"),
+            # No slug to extract: return the input as-is rather than guessing the literal "organizations".
+            ("organizations_path_without_slug", "https://sentry.io/organizations/", "https://sentry.io/organizations/"),
         ]
     )
     def test_normalize_organization_slug_extracts_slug(self, _name: str, value: str, expected: str) -> None:
@@ -345,8 +347,6 @@ class TestSentrySourceValidation:
         )
 
     def test_parse_config_normalizes_pasted_org_url(self) -> None:
-        # Guards the wiring: parse_config must run the slug normalization so a pasted URL is stored
-        # as the bare slug, not just cleaned up inside the credential check.
         config = SentrySource().parse_config({"auth_token": "token", "organization_slug": "https://acme.sentry.io/"})
 
         assert config.organization_slug == "acme"
