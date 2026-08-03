@@ -121,7 +121,7 @@ function GridCell({
     <div
       ref={cellRef}
       data-grid-cell
-      className="relative overflow-hidden bg-gray-1"
+      className="relative overflow-y-auto bg-gray-1"
       onClick={handleCellClick}
       onPointerDownCapture={markActive}
       onFocusCapture={markActive}
