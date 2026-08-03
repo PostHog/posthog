@@ -33,6 +33,7 @@ import {
 import { useCanvasDeepLink } from "@posthog/ui/features/canvas/hooks/useCanvasDeepLink";
 import { useChannelDeepLink } from "@posthog/ui/features/canvas/hooks/useChannelDeepLink";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
+import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { CommandSearchBar } from "@posthog/ui/features/command/CommandSearchBar";
 import { GlobalFilePicker } from "@posthog/ui/features/command/GlobalFilePicker";
@@ -156,18 +157,36 @@ function RootLayout() {
     currentProjectId ? `/project/${currentProjectId}` : "/",
   );
 
+  // The "PostHog web" intercept is a one-time prompt: once it has been
+  // submitted, skipped, or dismissed, going back to PostHog web navigates
+  // straight there without asking again.
+  const posthogWebFeedbackSeen = usePostHogWebFeedbackStore((s) => s.hasSeen);
+  const markPostHogWebFeedbackSeen = usePostHogWebFeedbackStore(
+    (s) => s.markSeen,
+  );
+
+  const openPostHogWeb = () => {
+    if (posthogWebUrl) void openUrlInBrowser(posthogWebUrl);
+  };
+
   // "PostHog Web" opens the feedback modal first and performs its navigation
   // only once the modal is submitted or skipped.
   const handleFeedbackFinished = () => {
     const finishedMode = feedbackMode;
     setFeedbackMode(null);
-    if (finishedMode === "posthog-web" && posthogWebUrl) {
-      void openUrlInBrowser(posthogWebUrl);
+    if (finishedMode === "posthog-web") {
+      markPostHogWebFeedbackSeen();
+      openPostHogWeb();
     }
   };
 
   const handleOpenPostHogWeb = () => {
     track(ANALYTICS_EVENTS.POSTHOG_WEB_OPENED);
+    // The intercept only runs the first time; afterwards go straight to web.
+    if (posthogWebFeedbackSeen) {
+      openPostHogWeb();
+      return;
+    }
     setFeedbackMode("posthog-web");
   };
   const {
