@@ -55,6 +55,17 @@ describe('MetricsExemplarMarkers', () => {
         expect(screen.queryAllByTestId('metrics-exemplar-marker')).toHaveLength(0)
     })
 
+    it('clamps an exemplar onto a single-bucket chart instead of dropping it', () => {
+        renderOverlayInChart(
+            <MetricsExemplarMarkers exemplars={[{ timeMs: Date.parse('2026-08-01T10:30:00Z'), onClick: jest.fn() }]} />,
+            makeOverlayContext(
+                { x: (label) => BUCKET_X[label], y: (value) => value, yTicks: () => [] },
+                { labels: [BUCKETS[0]] }
+            )
+        )
+        expect(markerLefts()).toEqual([100 - RADIUS])
+    })
+
     it('pins dots to the plot baseline', () => {
         renderMarkers([BUCKETS[1]])
         const dot = screen.getByTestId('metrics-exemplar-marker')

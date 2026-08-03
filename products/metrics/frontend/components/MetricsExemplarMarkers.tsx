@@ -68,7 +68,7 @@ function exemplarX(
 ): number | null {
     const last = bucketTimes.length - 1
     // Labels mark bucket starts, so the plotted range extends one bucket span past the last label.
-    const bucketWidth = last > 0 ? bucketTimes[last] - bucketTimes[last - 1] : 0
+    const bucketWidth = last > 0 ? bucketTimes[last] - bucketTimes[last - 1] : Infinity
     if (timeMs < bucketTimes[0] || timeMs >= bucketTimes[last] + bucketWidth) {
         return null
     }
