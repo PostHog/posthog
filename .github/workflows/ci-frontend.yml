@@ -688,7 +688,10 @@ jobs:
         if: |
             !cancelled() && needs.changes.outputs.frontend_code == 'true'
             && needs.select-jest-tests.outputs.should_run != 'false'
-        name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
+        # select-jest-tests narrows a draft run to a single {segment: EE, chunk: 1}
+        # entry, identical to the full matrix's real EE/1 shard. Name it "selective"
+        # so the two distinct workloads don't share one job identity in CI history.
+        name: Jest test (${{ needs.select-jest-tests.outputs.mode == 'selective' && 'selective' || format('{0} - {1}', matrix.segment, matrix.chunk) }})
         strategy:
             # If one test fails, still run the others
             fail-fast: false
@@ -778,7 +781,9 @@ jobs:
                       junit-results/junit-*.xml
                       junit-results/posthog-jest-quarantine-*.jsonl
                   if-no-files-found: ignore
-                  retention-days: 1
+                  # Long enough to diagnose a flake reported after the fact (the flaky
+                  # report and manual triage both run well after same-day retention).
+                  retention-days: 7
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. FOSS and EE share test files,
@@ -842,7 +847,7 @@ jobs:
                   name: junit-results-replay-shared
                   path: junit-results/junit-*.xml
                   if-no-files-found: ignore
-                  retention-days: 1
+                  retention-days: 7
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on jest failure" step below is
             # the verdict. See the jest job for the full rationale. cli-version pinned, not 'latest'.
