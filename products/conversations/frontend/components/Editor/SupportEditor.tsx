@@ -22,7 +22,7 @@ import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/icons'
+import { IconCode, IconCopy, IconList, IconTerminal } from '@posthog/icons'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
@@ -132,6 +132,28 @@ function IconOrderedList(): JSX.Element {
     )
 }
 
+// Paperclip icon (not in @posthog/icons)
+function IconPaperclip({ className }: { className?: string }): JSX.Element {
+    return (
+        <svg
+            className={className}
+            width="1em"
+            height="1em"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+        >
+            <path
+                d="M20 11.5 12 19.5a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    )
+}
+
 // Underline icon (not in @posthog/icons)
 function IconUnderline(): JSX.Element {
     return (
@@ -169,6 +191,9 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
         },
     ],
 }
+
+/** Keep in sync with the content types the media upload API accepts for the `file` field */
+const ATTACHMENT_ACCEPT = 'image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx'
 
 const ImageExtension = Image.configure({
     HTMLAttributes: {
@@ -528,15 +553,38 @@ export function SupportEditor({
     const dropRef = useRef<HTMLDivElement>(null)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
-        onUpload: (url, fileName) => {
+        allowDocuments: true,
+        onUpload: (url, fileName, _uploadedMediaId, contentType) => {
             if (ttEditor) {
-                ttEditor.chain().focus().setImage({ src: url, alt: fileName }).run()
+                if (contentType?.startsWith('image/')) {
+                    ttEditor.chain().focus().setImage({ src: url, alt: fileName }).run()
+                } else {
+                    // Documents can't render inline, so they go in as a download link —
+                    // the same shape inbound channel attachments use
+                    ttEditor
+                        .chain()
+                        .focus()
+                        .insertContent([
+                            {
+                                type: 'paragraph',
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: fileName,
+                                        marks: [{ type: 'link', attrs: { href: url } }],
+                                    },
+                                ],
+                            },
+                            { type: 'paragraph' },
+                        ])
+                        .run()
+                }
             }
-            posthog.capture('rich text image uploaded', { name: fileName })
+            posthog.capture('rich text attachment uploaded', { name: fileName, content_type: contentType })
         },
         onError: (detail) => {
-            posthog.capture('rich text image upload failed', { error: detail })
-            lemonToast.error(`Error uploading image: ${detail}`)
+            posthog.capture('rich text attachment upload failed', { error: detail })
+            lemonToast.error(`Error uploading attachment: ${detail}`)
         },
     })
 
@@ -578,12 +626,12 @@ export function SupportEditor({
             if (!objectStorageAvailable || !e.clipboardData) {
                 return
             }
-            const imageItem = Array.from(e.clipboardData.items).find((item) => item.type.startsWith('image/'))
-            if (imageItem) {
-                const imageFile = imageItem.getAsFile()
-                if (imageFile) {
+            const fileItem = Array.from(e.clipboardData.items).find((item) => item.kind === 'file')
+            if (fileItem) {
+                const file = fileItem.getAsFile()
+                if (file) {
                     e.preventDefault()
-                    setFilesToUpload([imageFile])
+                    setFilesToUpload([file])
                 }
             }
         },
@@ -738,7 +786,7 @@ export function SupportEditor({
                     <div className="w-px h-4 bg-border mx-1" />
                     <LemonFileInput
                         key="file-upload"
-                        accept={'image/*'}
+                        accept={ATTACHMENT_ACCEPT}
                         multiple={false}
                         alternativeDropTargetRef={dropRef}
                         onChange={setFilesToUpload}
@@ -752,15 +800,19 @@ export function SupportEditor({
                                     uploading ? (
                                         <Spinner className="text-lg" textColored={true} />
                                     ) : (
-                                        <IconImage className="text-lg" />
+                                        <IconPaperclip className="text-lg" />
                                     )
                                 }
                                 disabledReason={
                                     objectStorageAvailable
                                         ? undefined
-                                        : 'Enable object storage to add images by dragging and dropping'
+                                        : 'Enable object storage to attach images and files'
                                 }
-                                tooltip={objectStorageAvailable ? 'Click here or drag and drop to upload images' : null}
+                                tooltip={
+                                    objectStorageAvailable
+                                        ? 'Click here or drag and drop to attach an image, PDF or document'
+                                        : null
+                                }
                             />
                         }
                     />

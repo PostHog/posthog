@@ -23,6 +23,25 @@ from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.storage import object_storage
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
+TEN_MEGABYTES = 10 * 1024 * 1024
+
+# Document types accepted alongside images, for surfaces that attach files rather
+# than embed them (support ticket replies). These are never rendered inline — the
+# download endpoint serves anything outside _INLINE_SAFE_CONTENT_TYPES as an
+# opaque attachment — so the list only needs to cover what people actually send.
+_ALLOWED_DOCUMENT_CONTENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "text/plain",
+        "text/csv",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    }
+)
 
 # Content types safe to render inline in a browser when served from the
 # unauthenticated /uploaded_media endpoint. Anything outside this set is
@@ -167,32 +186,47 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="""
     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
 
-    Uploaded media must have a content type beginning with 'image/' and be less than 4MB.
+    Send the file as `image` for images, which must have a content type beginning with 'image/' and be less than 4MB.
+
+    Send it as `file` to also allow documents (PDF, plain text, CSV and Office formats), which must be less than 10MB.
     """,
         responses={201: OpenApiTypes.OBJECT},
     )
     def create(self, request, *args, **kwargs) -> Response:
         try:
-            file = request.data["image"]
+            # `image` is the long-standing field and stays image-only; `file` additionally
+            # accepts the document types we allow as attachments.
+            documents_allowed = "file" in request.data
+            file = request.data["file"] if documents_allowed else request.data["image"]
 
-            if file.size > FOUR_MEGABYTES:
-                raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
+            content_type = _normalize_content_type(file.content_type)
+            is_image = content_type.startswith("image/")
+            if not is_image and not (documents_allowed and content_type in _ALLOWED_DOCUMENT_CONTENT_TYPES):
+                raise UnsupportedMediaType(file.content_type)
 
-            if file.content_type.startswith("image/"):
-                uploaded_media = UploadedMedia.save_content(
-                    team=self.team,
-                    created_by=request.user,
-                    file_name=file.name,
-                    content_type=file.content_type,
-                    content=file.file,
+            size_limit = FOUR_MEGABYTES if is_image else TEN_MEGABYTES
+            if file.size > size_limit:
+                raise ValidationError(
+                    code="file_too_large",
+                    detail=f"Uploaded media must be less than {size_limit // (1024 * 1024)}MB",
                 )
-                if uploaded_media is None:
-                    raise APIException("Could not save media")
 
+            uploaded_media = UploadedMedia.save_content(
+                team=self.team,
+                created_by=request.user,
+                file_name=file.name,
+                content_type=file.content_type,
+                content=file.file,
+            )
+            if uploaded_media is None:
+                raise APIException("Could not save media")
+
+            if uploaded_media.media_location is None:
+                raise APIException("Could not read uploaded media")
+
+            if is_image:
                 # to save having to copy the stream so that we can read it to verify the image,
                 # save it to minio anyway and then delete the record if it's not valid
-                if uploaded_media.media_location is None:
-                    raise APIException("Could not read uploaded media")
                 bytes_to_verify = object_storage.read_bytes(uploaded_media.media_location)
                 if not validate_image_file(bytes_to_verify, user=request.user.id):
                     statsd.incr(
@@ -206,24 +240,23 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                         detail="Uploaded media must be a valid image",
                     )
 
-                headers = self.get_success_headers(uploaded_media.get_absolute_url())
-                statsd.incr(
-                    "uploaded_media.uploaded",
-                    tags={"team_id": self.team.pk, "content_type": file.content_type},
-                )
-                return Response(
-                    {
-                        "id": uploaded_media.id,
-                        "image_location": uploaded_media.get_absolute_url(),
-                        "name": uploaded_media.file_name,
-                    },
-                    status=status.HTTP_201_CREATED,
-                    headers=headers,
-                )
-            else:
-                raise UnsupportedMediaType(file.content_type)
+            headers = self.get_success_headers(uploaded_media.get_absolute_url())
+            statsd.incr(
+                "uploaded_media.uploaded",
+                tags={"team_id": self.team.pk, "content_type": file.content_type},
+            )
+            return Response(
+                {
+                    "id": uploaded_media.id,
+                    "image_location": uploaded_media.get_absolute_url(),
+                    "name": uploaded_media.file_name,
+                    "content_type": uploaded_media.content_type,
+                },
+                status=status.HTTP_201_CREATED,
+                headers=headers,
+            )
         except KeyError:
-            raise ValidationError(code="no-image-provided", detail="An image file must be provided")
+            raise ValidationError(code="no-image-provided", detail="An image or file must be provided")
         except ObjectStorageUnavailable:
             raise ValidationError(
                 code="object_storage_required",

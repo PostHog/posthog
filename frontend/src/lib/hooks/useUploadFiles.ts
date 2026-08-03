@@ -71,28 +71,36 @@ function canReduceThisBlobType(file: File): boolean {
     return supportedTypes.includes(file.type)
 }
 
-export async function uploadFile(file: File): Promise<MediaUploadResponse> {
-    if (!file.type.startsWith('image/')) {
+export async function uploadFile(
+    file: File,
+    { allowDocuments = false }: { allowDocuments?: boolean } = {}
+): Promise<MediaUploadResponse> {
+    const isImage = file.type.startsWith('image/')
+    if (!isImage && !allowDocuments) {
         throw new Error('File is not an image')
     }
 
     let fileToUpload = file
-    if (canReduceThisBlobType(file)) {
+    if (isImage && canReduceThisBlobType(file)) {
         const compressedBlob = await lazyImageBlobReducer(file)
         fileToUpload = new File([compressedBlob], file.name, { type: compressedBlob.type })
     }
 
     const formData = new FormData()
-    formData.append('image', fileToUpload)
+    // The `file` field is what allows documents through; `image` stays image-only
+    formData.append(allowDocuments ? 'file' : 'image', fileToUpload)
     return await api.media.upload(formData)
 }
 
 export function useUploadFiles({
     onUpload,
     onError,
+    allowDocuments = false,
 }: {
-    onUpload?: (url: string, fileName: string, uploadedMediaId: string) => void
+    onUpload?: (url: string, fileName: string, uploadedMediaId: string, contentType?: string) => void
     onError: (detail: string) => void
+    /** Accept documents (PDF, CSV, Office files) as well as images */
+    allowDocuments?: boolean
 }): {
     setFilesToUpload: (files: File[]) => void
     filesToUpload: File[]
@@ -113,8 +121,8 @@ export function useUploadFiles({
                 uploadInProgressRef.current = true
                 setUploading(true)
                 const file: File = filesToUpload[0]
-                const media = await uploadFile(file)
-                onUpload?.(media.image_location, media.name, media.id)
+                const media = await uploadFile(file, { allowDocuments })
+                onUpload?.(media.image_location, media.name, media.id, media.content_type)
             } catch (error) {
                 const errorDetail = (error as any).detail || 'unknown error'
                 onError(errorDetail)

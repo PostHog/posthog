@@ -5693,6 +5693,7 @@ export interface MediaUploadResponse {
     id: string
     image_location: string
     name: string
+    content_type?: string
 }
 
 export enum Resource {

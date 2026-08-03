@@ -127,6 +127,62 @@ class TestMediaAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(response.json()["detail"], "Uploaded media must be less than 4MB")
 
+    def test_can_upload_and_download_a_document(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            pdf = SimpleUploadedFile(
+                name="certificate.pdf",
+                content=b"%PDF-1.4 not really a pdf",
+                content_type="application/pdf",
+            )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"file": pdf},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            assert response.json()["content_type"] == "application/pdf"
+            media_location = response.json()["image_location"]
+
+            self.client.logout()
+            download = self.client.get(media_location)
+
+            assert download.status_code == status.HTTP_200_OK
+            assert download.headers["Content-Type"] == "application/octet-stream"
+            assert download.headers["Content-Disposition"] == 'attachment; filename="certificate.pdf"'
+
+    def test_rejects_a_document_uploaded_as_an_image(self) -> None:
+        pdf = SimpleUploadedFile(name="certificate.pdf", content=b"%PDF-1.4", content_type="application/pdf")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/uploaded_media",
+            {"image": pdf},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
+
+    @parameterized.expand([("html", "text/html"), ("zip", "application/zip"), ("binary", "application/octet-stream")])
+    def test_rejects_content_types_outside_the_document_allowlist(self, _name: str, content_type: str) -> None:
+        file = SimpleUploadedFile(name="attachment", content=b"some bytes", content_type=content_type)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/uploaded_media",
+            {"file": file},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
+
+    def test_rejects_too_large_document(self) -> None:
+        fake_big_file = SimpleUploadedFile(
+            name="certificate.pdf",
+            content=b"1" * (10 * 1024 * 1024 + 1),
+            content_type="application/pdf",
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/uploaded_media",
+            {"file": fake_big_file},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["detail"], "Uploaded media must be less than 10MB")
+
     def test_download_sets_nosniff_and_strict_csp(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
             with open(get_path_to("a-small-but-valid.gif"), "rb") as image:

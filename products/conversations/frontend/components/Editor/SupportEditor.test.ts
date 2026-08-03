@@ -64,6 +64,25 @@ describe('SupportEditor serialization and preview schema', () => {
             },
             '- item\n\n![cat](https://example.com/cat.png)',
         ],
+        [
+            'file attachment as a download link',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'paragraph',
+                        content: [
+                            {
+                                type: 'text',
+                                text: 'certificate.pdf',
+                                marks: [{ type: 'link', attrs: { href: 'https://example.com/uploaded_media/abc' } }],
+                            },
+                        ],
+                    },
+                ],
+            },
+            '[certificate\\.pdf](https://example.com/uploaded_media/abc)',
+        ],
     ])('serializeToMarkdown handles %s', (_name, doc, expected) => {
         expect(serializeToMarkdown(doc)).toBe(expected)
     })
