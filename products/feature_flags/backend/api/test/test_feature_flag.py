@@ -4078,6 +4078,46 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert response.status_code == 200
         assert response.json()["is_used_in_replay_settings"] is True
 
+    @parameterized.expand(
+        [
+            ("declare_on_undeclared", None, "boolean", 200),
+            ("resend_same_type", "boolean", "boolean", 200),
+            ("boolean_to_string", "boolean", "string", 400),
+            ("string_to_json", "string", "json", 400),
+        ]
+    )
+    def test_return_type_can_only_be_set_once(self, _name, existing, requested, expected_status):
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="typed-flag", return_type=existing)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"return_type": requested}
+        )
+        assert response.status_code == expected_status, response.content
+        flag.refresh_from_db()
+        if expected_status == 200:
+            assert flag.return_type == requested
+        else:
+            assert flag.return_type == existing
+            assert "Cannot change the return type" in response.json()["detail"]
+            assert response.json()["attr"] == "return_type"
+
+    @parameterized.expand(
+        [
+            ("undeclared_boolean_flag", None, None, "boolean"),
+            ("undeclared_multivariate_flag", None, ["control", "test"], "string"),
+            ("declared_wins_over_shape", "number", ["control", "test"], "number"),
+        ]
+    )
+    def test_effective_return_type_falls_back_to_flag_shape(self, _name, declared, variant_keys, expected):
+        filters: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        if variant_keys:
+            filters["multivariate"] = {
+                "variants": [{"key": key, "rollout_percentage": 100 // len(variant_keys)} for key in variant_keys]
+            }
+        flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="shaped-flag", return_type=declared, filters=filters
+        )
+        assert flag.effective_return_type == expected
+
     def test_archive_flag_requires_disabled(self):
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="enabled-flag", active=True)
         response = self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/", {"archived": True})

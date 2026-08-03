@@ -445,6 +445,23 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
+    def test_copy_feature_flag_carries_return_type(self):
+        self.feature_flag_to_copy.return_type = "boolean"
+        self.feature_flag_to_copy.save()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/copy_flags",
+            {
+                "feature_flag_key": self.feature_flag_to_copy.key,
+                "from_project": self.feature_flag_to_copy.team_id,
+                "target_project_ids": [self.team_2.id],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        assert response.json()["success"][0]["return_type"] == "boolean"
+        assert FeatureFlag.objects.get(team=self.team_2, key=self.feature_flag_key).return_type == "boolean"
+
     @snapshot_postgres_queries
     def test_copy_feature_flag_create_new(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -501,6 +518,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "return_type": None,
             "is_used_in_replay_settings": False,
             "is_eligible_for_experiment": False,
             "team_id": target_project.id,
@@ -627,6 +645,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "return_type": None,
             "is_used_in_replay_settings": False,
             "is_eligible_for_experiment": False,
             "team_id": target_project.id,
@@ -814,6 +833,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_called_at": None,
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
+            "return_type": None,
             "is_used_in_replay_settings": False,
             "is_eligible_for_experiment": False,
             "team_id": target_project.id,

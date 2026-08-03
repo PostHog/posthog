@@ -219,6 +219,24 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         help_text="Identifier used for bucketing users into rollout and variants",
     )
 
+    # The type of value this flag hands back to calling code, independent of how it is rolled
+    # out, so a flag can keep a stable contract with its call site while the release strategy
+    # underneath it changes. Nothing evaluates this yet: it is stored and served only, and
+    # `effective_return_type` falls back to the flag's current shape while it is unset.
+    RETURN_TYPE_CHOICES = [
+        ("boolean", "Boolean"),
+        ("string", "String"),
+        ("number", "Number"),
+        ("json", "JSON"),
+    ]
+    return_type = models.CharField(
+        max_length=16,
+        choices=RETURN_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        help_text="Type of value this flag returns to calling code. Null means undeclared",
+    )
+
     # Cache projection: stored in Redis but not a DB field. Avoids N+1 queries
     # when accessing evaluation context names for many flags at once.
     _evaluation_tag_names: Optional[list[str]] = None
@@ -354,6 +372,14 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     @property
     def is_eligible_for_experiment(self) -> bool:
         return experiment_eligibility_error(self.variants) is None
+
+    @property
+    def effective_return_type(self) -> str:
+        # Undeclared flags are read as the type they already return: a variant match hands back
+        # the variant key (a string), anything else hands back a boolean.
+        if self.return_type:
+            return self.return_type
+        return "string" if self.variants else "boolean"
 
     @property
     def usage_dashboard_has_enriched_insights(self) -> bool:

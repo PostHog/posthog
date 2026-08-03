@@ -463,6 +463,21 @@ export const BucketingIdentifierEnumApi = {
     DeviceId: 'device_id',
 } as const
 
+/**
+ * * `boolean` - Boolean
+ * * `string` - String
+ * * `number` - Number
+ * * `json` - JSON
+ */
+export type ReturnTypeEnumApi = (typeof ReturnTypeEnumApi)[keyof typeof ReturnTypeEnumApi]
+
+export const ReturnTypeEnumApi = {
+    Boolean: 'boolean',
+    String: 'string',
+    Number: 'number',
+    Json: 'json',
+} as const
+
 export type FeatureFlagApiFilters = { [key: string]: unknown }
 
 export type FeatureFlagApiSurveys = { [key: string]: unknown }
@@ -532,6 +547,13 @@ export interface FeatureFlagApi {
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | null
+    /** Type of value this flag returns to calling code. Null means undeclared
+     *
+     * * `boolean` - Boolean
+     * * `string` - String
+     * * `number` - Number
+     * * `json` - JSON */
+    return_type?: ReturnTypeEnumApi | BlankEnumApi | null
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -1020,6 +1042,13 @@ export interface FeatureFlagCreateRequestSchemaApi {
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | null
+    /** Type of value this flag returns to calling code: 'boolean', 'string', 'number' or 'json'. Null means it has not been declared. Nothing evaluates this yet, and it cannot be changed once set.
+     *
+     * * `boolean` - Boolean
+     * * `string` - String
+     * * `number` - Number
+     * * `json` - JSON */
+    return_type?: ReturnTypeEnumApi | null
 }
 
 export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
@@ -1058,6 +1087,13 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | null
+    /** Type of value this flag returns to calling code: 'boolean', 'string', 'number' or 'json'. Null means it has not been declared. Nothing evaluates this yet, and it cannot be changed once set.
+     *
+     * * `boolean` - Boolean
+     * * `string` - String
+     * * `number` - Number
+     * * `json` - JSON */
+    return_type?: ReturnTypeEnumApi | null
 }
 
 export interface ChangeApi {

@@ -32196,6 +32196,22 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `boolean` - Boolean
+     * * `string` - String
+     * * `number` - Number
+     * * `json` - JSON
+     */
+    export type ReturnTypeEnum = typeof ReturnTypeEnum[keyof typeof ReturnTypeEnum];
+
+
+    export const ReturnTypeEnum = {
+      Boolean: 'boolean',
+      String: 'string',
+      Number: 'number',
+      Json: 'json',
+    } as const;
+
+    /**
      * Serializer mixin that handles tags for objects.
      */
     export interface FeatureFlag {
@@ -32258,6 +32274,13 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | BlankEnum | null;
+      /** Type of value this flag returns to calling code. Null means undeclared
+       *
+       * * `boolean` - Boolean
+       * * `string` - String
+       * * `number` - Number
+       * * `json` - JSON */
+      return_type?: ReturnTypeEnum | BlankEnum | null;
       /**
          * Last time this feature flag was called (from $feature_flag_called events)
          * @nullable
@@ -32386,6 +32409,13 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | null;
+      /** Type of value this flag returns to calling code: 'boolean', 'string', 'number' or 'json'. Null means it has not been declared. Nothing evaluates this yet, and it cannot be changed once set.
+       *
+       * * `boolean` - Boolean
+       * * `string` - String
+       * * `number` - Number
+       * * `json` - JSON */
+      return_type?: ReturnTypeEnum | null;
     }
 
     export interface FeatureFlagRolloutSummary {
@@ -51668,6 +51698,13 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | null;
+      /** Type of value this flag returns to calling code: 'boolean', 'string', 'number' or 'json'. Null means it has not been declared. Nothing evaluates this yet, and it cannot be changed once set.
+       *
+       * * `boolean` - Boolean
+       * * `string` - String
+       * * `number` - Number
+       * * `json` - JSON */
+      return_type?: ReturnTypeEnum | null;
     }
 
     /**

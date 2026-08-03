@@ -454,6 +454,17 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
         ),
+    return_type: zod
+        .union([
+            zod
+                .enum(['boolean', 'string', 'number', 'json'])
+                .describe('\* `boolean` - Boolean\n\* `string` - String\n\* `number` - Number\n\* `json` - JSON'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Type of value this flag returns to calling code: 'boolean', 'string', 'number' or 'json'. Null means it has not been declared. Nothing evaluates this yet, and it cannot be changed once set.\n\n\* `boolean` - Boolean\n\* `string` - String\n\* `number` - Number\n\* `json` - JSON"
+        ),
 })
 
 /**
@@ -821,6 +832,17 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "Identifier used to bucket users into rollout percentages and variants: 'distinct_id' (user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.\n\n\* `distinct_id` - User ID (default)\n\* `device_id` - Device ID"
+        ),
+    return_type: zod
+        .union([
+            zod
+                .enum(['boolean', 'string', 'number', 'json'])
+                .describe('\* `boolean` - Boolean\n\* `string` - String\n\* `number` - Number\n\* `json` - JSON'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Type of value this flag returns to calling code: 'boolean', 'string', 'number' or 'json'. Null means it has not been declared. Nothing evaluates this yet, and it cannot be changed once set.\n\n\* `boolean` - Boolean\n\* `string` - String\n\* `number` - Number\n\* `json` - JSON"
         ),
 })
 

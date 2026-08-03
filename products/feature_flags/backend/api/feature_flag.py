@@ -848,6 +848,13 @@ class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
         help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
         "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
+    return_type = serializers.ChoiceField(
+        choices=FeatureFlag.RETURN_TYPE_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Type of value this flag returns to calling code: 'boolean', 'string', 'number' or 'json'. "
+        "Null means it has not been declared. Nothing evaluates this yet, and it cannot be changed once set.",
+    )
 
 
 class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
@@ -897,6 +904,13 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
         "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
+    )
+    return_type = serializers.ChoiceField(
+        choices=FeatureFlag.RETURN_TYPE_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="Type of value this flag returns to calling code: 'boolean', 'string', 'number' or 'json'. "
+        "Null means it has not been declared. Nothing evaluates this yet, and it cannot be changed once set.",
     )
 
 
@@ -997,6 +1011,7 @@ class FeatureFlagSerializer(
             "status",
             "evaluation_runtime",
             "bucketing_identifier",
+            "return_type",
             "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
@@ -1051,6 +1066,7 @@ class FeatureFlagSerializer(
         self._validate_device_bucketing_with_persist_auth(attrs)
         self._validate_encrypted_payloads_require_remote_config(attrs)
         self._validate_archived_flags_are_disabled(attrs)
+        self._validate_return_type_is_immutable(attrs)
         self._validate_flag_limits()
 
         # Materialize the remote-config 100% rollout default here, before the approval gate runs in
@@ -1139,6 +1155,20 @@ class FeatureFlagSerializer(
                     "Cannot enable 'persist across authentication steps' when using device ID bucketing. "
                     "These features are incompatible."
                 )
+
+    def _validate_return_type_is_immutable(self, attrs: dict) -> None:
+        """A declared return type is a contract with the call site, so it can only be set once."""
+        if "return_type" not in attrs or self.instance is None:
+            return
+
+        current = self.instance.return_type
+        if current and attrs["return_type"] != current:
+            raise serializers.ValidationError(
+                {
+                    "return_type": f"Cannot change the return type of a flag that already returns '{current}'. "
+                    "Calling code relies on it. Create a new flag instead."
+                }
+            )
 
     def _validate_archived_flags_are_disabled(self, attrs: dict) -> None:
         """An archived flag must be disabled — archived means "done for good", not paused."""

@@ -1334,6 +1334,7 @@ class OrganizationFeatureFlagView(
             "bucketing_identifier": source_flag.bucketing_identifier,
             "is_remote_configuration": source_flag.is_remote_configuration,
             "has_encrypted_payloads": source_flag.has_encrypted_payloads,
+            "return_type": source_flag.return_type,
         }
         context = {
             "request": request,
