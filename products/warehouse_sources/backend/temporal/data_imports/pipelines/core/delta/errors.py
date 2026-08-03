@@ -46,7 +46,22 @@ def is_transient_object_store_error(error: BaseException) -> bool:
 # read, which delta-rs surfaces as this DeltaError. The scan failing here means the optimize aborted
 # before committing anything — the table is left exactly as it was, just still fragmented — so this is
 # safe to skip and retry on the next maintenance pass, not a bug in our logic.
-TRANSIENT_DELTA_MAINTENANCE_ERRORS = ("Optimize selected-file scan failed",)
+#
+# The same concurrent maintenance pass can instead lose the race at commit time rather than during the
+# scan: `execute_with_conflict_retry` already refreshes and retries a `CommitFailedError`
+# (DELTA_MERGE_CONFLICT_RETRIES times), but sustained contention from another still-running pass can
+# exhaust that budget too, and the error then propagates out here. Delta's conflict checker raises this
+# for its three concurrent-writer race variants — ConcurrentAppend ("a concurrent transactions added new
+# data"), ConcurrentDeleteRead ("a concurrent transaction deleted data this operation read"), and
+# ConcurrentDeleteDelete ("a concurrent transaction deleted the same data") — all sharing the "a
+# concurrent transaction" substring below. A failed commit never partially applies, so the table is left
+# exactly as it was, same as the scan-failure case above: safe to skip and retry on the next maintenance
+# pass. Deliberately narrower than matching CommitFailedError outright — MetadataChanged/ProtocolChanged
+# commit failures aren't a same-pass race and should still be captured.
+TRANSIENT_DELTA_MAINTENANCE_ERRORS = (
+    "Optimize selected-file scan failed",
+    "Commit failed: a concurrent transaction",
+)
 
 
 def is_transient_delta_maintenance_error(error: BaseException) -> bool:
