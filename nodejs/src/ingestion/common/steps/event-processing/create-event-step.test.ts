@@ -288,6 +288,68 @@ describe('create-event-step', () => {
             }
         })
 
+        describe('$experiment_exposure duplication', () => {
+            it('duplicates multivariate $feature_flag_called events for team 2 with only the event name changed', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const result = await step({
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        teamId: 2,
+                        projectId: 2 as ProjectId,
+                        event: '$feature_flag_called',
+                        properties: {
+                            $feature_flag: 'checkout-experiment',
+                            $feature_flag_response: 'test',
+                            unchanged: 'value',
+                        },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                    lastStep: 'prepareEventStep',
+                })
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.value.eventsToEmit).toHaveLength(2)
+                    const [flagCalled, exposure] = result.value.eventsToEmit
+                    expect(exposure.output).toBe(EVENTS_OUTPUT)
+                    expect(exposure.event).toEqual({ ...flagCalled.event, event: '$experiment_exposure' })
+                }
+            })
+
+            it.each([
+                ['a different team', 1, '$feature_flag_called', 'test'],
+                ['a boolean response', 2, '$feature_flag_called', true],
+                ['a stringified boolean response', 2, '$feature_flag_called', 'true'],
+                ['a different event', 2, '$pageview', 'test'],
+            ])('does not duplicate %s', async (_, teamId, event, response) => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const result = await step({
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        teamId,
+                        projectId: teamId as ProjectId,
+                        event,
+                        properties: { $feature_flag_response: response },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                    lastStep: 'prepareEventStep',
+                })
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.value.eventsToEmit).toHaveLength(1)
+                }
+            })
+        })
+
         describe('historicalMigration flag', () => {
             it('should include historical_migration in event when historicalMigration=true', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT)

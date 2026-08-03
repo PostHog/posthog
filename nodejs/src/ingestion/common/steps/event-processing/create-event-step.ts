@@ -7,6 +7,23 @@ import { EventHeaders, Person, PreIngestionEvent } from '~/types'
 
 import { EventToEmit } from './emit-event-step'
 
+const EXPERIMENT_EXPOSURE_TEAM_ID = 2
+const FEATURE_FLAG_CALLED_EVENT = '$feature_flag_called'
+const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
+
+function isMultivariateFeatureFlagCalledEvent(event: PreIngestionEvent): boolean {
+    const response = event.properties['$feature_flag_response']
+
+    return (
+        event.teamId === EXPERIMENT_EXPOSURE_TEAM_ID &&
+        event.event === FEATURE_FLAG_CALLED_EVENT &&
+        typeof response === 'string' &&
+        response !== '' &&
+        response !== 'true' &&
+        response !== 'false'
+    )
+}
+
 export interface CreateEventStepInput {
     person?: Person
     preparedEvent: PreIngestionEvent
@@ -31,8 +48,14 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
 
         const capturedAt = headers.now ?? null
         const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
+        const eventsToEmit: EventToEmit<O>[] = [{ event: rawEvent, output }]
+
+        if (isMultivariateFeatureFlagCalledEvent(preparedEvent)) {
+            eventsToEmit.push({ event: { ...rawEvent, event: EXPERIMENT_EXPOSURE_EVENT }, output })
+        }
+
         const result: CreateEventStepResult<O> = {
-            eventsToEmit: [{ event: rawEvent, output }],
+            eventsToEmit,
             teamId: preparedEvent.teamId,
             headers,
             message,
