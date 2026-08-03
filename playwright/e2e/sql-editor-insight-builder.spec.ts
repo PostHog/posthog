@@ -78,7 +78,7 @@ test.describe('SQL editor insight builder', () => {
         })
 
         await test.step('clicking a field compiles and runs a chart', async () => {
-            await page.getByRole('button', { name: 'Add result to the chart' }).click({ timeout: 60000 })
+            await page.getByRole('button', { name: 'Add result to the chart', exact: true }).click({ timeout: 60000 })
             await expect(page.getByTestId('sql-builder-status-bar')).toContainText('1 row', { timeout: 60000 })
             await expect(page.getByTestId('sql-builder-view-toggle')).toBeVisible()
         })
