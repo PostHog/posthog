@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-from unittest import mock
 
 from django.db import connection
 from django.test import override_settings
@@ -19,14 +18,6 @@ from products.cohorts.backend.models.leaf_shape import extract_leaf_shape_hash, 
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
 )
 class TestBackfillReadiness(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        feature_patch = mock.patch(
-            "products.cohorts.backend.models.dependencies.posthoganalytics.feature_enabled", return_value=False
-        )
-        feature_patch.start()
-        self.addCleanup(feature_patch.stop)
-
     def _filters(self, window_days: int, *, person_hash: str | None = None) -> dict:
         values: list[dict] = [
             {
