@@ -14,6 +14,13 @@ export const DEFAULT_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
     results: true,
 }
 
+// Read-only canvases (customer profiles) show results with filters tucked away behind the
+// pencil, matching the legacy profile layout.
+export const CANVAS_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
+    filters: false,
+    results: true,
+}
+
 export const INSERTED_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
     filters: true,
     results: true,

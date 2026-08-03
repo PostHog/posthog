@@ -27,13 +27,13 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
 
     def _post_event(self, payload: dict, **extra_headers) -> Any:
         body = json.dumps(payload).encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        signed = sign_slack_request(body, self.signing_secret)
         return self.client.post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
             **extra_headers,
         )
 
@@ -54,12 +54,16 @@ class TestPostHogCodeEventHandler(SimpleTestCase):
     def test_retry_returns_200(self, mock_config):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
         body = json.dumps({"type": "event_callback", "event": {"type": "app_mention"}}).encode()
-        signature, ts = sign_slack_request(body, self.signing_secret)
+        signed = sign_slack_request(body, self.signing_secret)
         response = self.client.post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            headers={"x-slack-signature": signature, "x-slack-request-timestamp": ts, "x-slack-retry-num": "1"},
+            headers={
+                "x-slack-signature": signed.signature,
+                "x-slack-request-timestamp": signed.timestamp,
+                "x-slack-retry-num": "1",
+            },
         )
         assert response.status_code == 200
 
@@ -1136,13 +1140,13 @@ class TestChannelApprovalGate(TestCase):
             "event": {"type": "app_mention", "channel": "C_EXT", "user": "U123", "ts": "1.0"},
         }
         body = json.dumps(envelope).encode()
-        signature, ts = sign_slack_request(body, "secret")
+        signed = sign_slack_request(body, "secret")
         APIClient().post(
             "/slack/event-callback/",
             data=body,
             content_type="application/json",
-            HTTP_X_SLACK_SIGNATURE=signature,
-            HTTP_X_SLACK_REQUEST_TIMESTAMP=ts,
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
         )
 
         mock_route.assert_called_once()

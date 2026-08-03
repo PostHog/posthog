@@ -155,6 +155,23 @@ export const KeyMetrics: Story = {
                 kpisLoading={false}
                 usersLoading={false}
                 theme={buildTheme()}
+                incompleteTail={false}
+            />
+        </div>
+    ),
+}
+
+export const KeyMetricsInProgressBucket: Story = {
+    render: () => (
+        <div className="w-[960px]">
+            <KpiTiles
+                kpis={KPIS}
+                users={metric(1840, 1655, [], 'up')}
+                intentClusterCount={metric(6, 0, [], 'up')}
+                kpisLoading={false}
+                usersLoading={false}
+                theme={buildTheme()}
+                incompleteTail
             />
         </div>
     ),

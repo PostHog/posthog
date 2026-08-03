@@ -1,6 +1,17 @@
 import { DateRange } from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { FunnelVizType } from '~/types'
 
 export type IsoDayOfWeek = NonNullable<DateRange['daysOfWeek']>[number]
+
+/** Mirrors backend support: trends, stickiness, lifecycle, and funnels in the trends viz only
+ *  (dropping mid-sequence events from a step funnel has ambiguous semantics). */
+export function querySupportsDaysOfWeek(querySource: Record<string, any> | null | undefined): boolean {
+    if (isTrendsQuery(querySource) || isStickinessQuery(querySource) || isLifecycleQuery(querySource)) {
+        return true
+    }
+    return isFunnelsQuery(querySource) && querySource.funnelsFilter?.funnelVizType === FunnelVizType.Trends
+}
 
 const DAYS_IN_WEEK = 7
 const WEEKDAYS: IsoDayOfWeek[] = [1, 2, 3, 4, 5]

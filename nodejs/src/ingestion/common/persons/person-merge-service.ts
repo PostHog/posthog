@@ -267,11 +267,10 @@ export class PersonMergeService {
             this.discardOverrideCounts()
             const result = await this.context.personStore.inTransaction('mergeDistinctIds-OneExists', async (tx) => {
                 // See comment above about `distinctIdVersion`
-                const insertedDistinctId = await tx.addPersonlessDistinctIdForMerge(
-                    this.context.team.id,
-                    distinctIdToAdd
-                )
-                const distinctIdVersion = this.context.mergeAlwaysV1 || !insertedDistinctId ? 1 : 0
+                const insertedDistinctId = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctIdToAdd)
+                const distinctIdVersion = this.context.personlessRollout.mergeAlwaysV1 || !insertedDistinctId ? 1 : 0
                 this.recordOverrideCount('oneExists', distinctIdVersion > 0)
 
                 const kafkaMessages = await tx.addDistinctId(existingPerson, distinctIdToAdd, distinctIdVersion)
@@ -304,11 +303,14 @@ export class PersonMergeService {
 
             this.discardOverrideCounts()
             const result = await this.context.personStore.inTransaction('mergeDistinctIds-NeitherExist', async (tx) => {
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId1 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
-
-                // See comment above about `distinctIdVersion`
-                const insertedDistinctId2 = await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
+                // See comment above about `distinctIdVersion`. With personless writes disabled the
+                // upserts are skipped; the always-v1 branch below never reads the results.
+                const insertedDistinctId1 = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId1)
+                const insertedDistinctId2 = this.context.personlessRollout.writesDisabled
+                    ? false
+                    : await tx.addPersonlessDistinctIdForMerge(this.context.team.id, distinctId2)
 
                 // `createPerson` uses the first Distinct ID provided to generate the Person
                 // UUID. That means the first Distinct ID definitely doesn't need an override,
@@ -317,7 +319,7 @@ export class PersonMergeService {
                 // need to actually write an override. (But mostly we're being verbose for
                 // documentation purposes)
                 let distinctId2Version = 0
-                if (this.context.mergeAlwaysV1) {
+                if (this.context.personlessRollout.mergeAlwaysV1) {
                     // The upsert results are not consulted: the second Distinct ID always gets an
                     // override, and no swap is needed since the first one derives the Person UUID.
                     distinctId2Version = 1
@@ -614,8 +616,10 @@ export class PersonMergeService {
                 const addMessages: PersonMessage[] = []
                 for (const pair of missingPairs) {
                     // See mergeDistinctIds for the personless distinctIdVersion logic.
-                    const inserted = await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
-                    const distinctIdVersion = this.context.mergeAlwaysV1 || !inserted ? 1 : 0
+                    const inserted = this.context.personlessRollout.writesDisabled
+                        ? false
+                        : await tx.addPersonlessDistinctIdForMerge(teamId, pair.anonDistinctId)
+                    const distinctIdVersion = this.context.personlessRollout.mergeAlwaysV1 || !inserted ? 1 : 0
                     this.recordOverrideCount('fold', distinctIdVersion > 0)
                     addMessages.push(...(await tx.addDistinctId(person, pair.anonDistinctId, distinctIdVersion)))
                 }

@@ -35,7 +35,7 @@ from pydantic.dataclasses import dataclass
 
 from posthog.models import User
 from posthog.models.file_system.file_system import FileSystem
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
@@ -43,6 +43,7 @@ from posthog.rbac.user_access_control import AccessControlLevel, UserAccessContr
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
+from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 from products.tasks.backend.logic.services import loop_runs
 from products.tasks.backend.loop_lifecycle import (
     pause_loops_for_deactivated_user,
@@ -646,20 +647,7 @@ def repository_accessible_via_integration(team_id: int, integration_id: int, ful
     accept only an exact match against the resulting list. A missing/invalidated cache is a normal
     state, so treating it as permissive would leave the cross-project boundary bypassable; if the
     list can't be resolved (refresh error, no snapshot) we reject rather than authorize."""
-    integration = Integration.objects.filter(team_id=team_id, kind="github", id=integration_id).first()
-    if integration is None:
-        return False
-    normalized = full_name.strip().lower()
-    try:
-        repositories = GitHubIntegration(integration).list_all_cached_repositories()
-    except Exception:
-        logger.warning(
-            "loop_repository_access_check_unavailable",
-            exc_info=True,
-            extra={"team_id": team_id, "integration_id": integration_id},
-        )
-        return False
-    return any(isinstance(repo, dict) and str(repo.get("full_name", "")).lower() == normalized for repo in repositories)
+    return not inaccessible_repositories_via_integration(team_id, integration_id, [full_name])
 
 
 def _desktop_node_exists(team_id: int, node_id: str, *, node_type: str) -> bool:
