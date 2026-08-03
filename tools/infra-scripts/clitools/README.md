@@ -89,5 +89,5 @@ python toolbox.py --update-claim --claim-duration 24
 - If access is not approved within 10 minutes, the script exits with the profile-specific login command to use
   before retrying
 - If Kubernetes rejects stale cached credentials after access is renewed, the script first logs in again with the
-  selected profile. If a global AWS SSO logout is still required, it explains the impact and asks for confirmation
+  selected profile. If Kubernetes still rejects it, the script resets AWS SSO, logs in again, and continues
 - If something doesn't work as expected, reach out to #team-infrastructure for assistance

@@ -202,20 +202,8 @@ def login_to_sso(profile: str, *, timeout: float) -> bool:
 
 
 def reset_sso(profile: str, *, deadline: float) -> bool:
-    """With confirmation, clear all cached AWS SSO credentials and log back in."""
-    print(  # noqa: T201
-        "⚠️ Kubernetes still rejects the refreshed credentials. AWS can only clear this cache globally, "
-        "which signs other AWS SSO profiles out too."
-    )
-    try:
-        confirmed = input("Log out all AWS SSO profiles and continue? [y/N]: ").strip().lower() == "y"
-    except (EOFError, OSError):
-        confirmed = False
-    if not confirmed:
-        print("❌ AWS SSO reset cancelled. Other sessions were left unchanged.")  # noqa: T201
-        return False
-
-    print("🔄 Clearing cached AWS SSO credentials...")  # noqa: T201
+    """Clear stale AWS SSO credentials and log back in with the selected profile."""
+    print("🔄 Kubernetes rejected the refreshed credentials. Resetting AWS SSO and logging in again...")  # noqa: T201
     try:
         logout = subprocess.run(
             ["aws", "sso", "logout"],

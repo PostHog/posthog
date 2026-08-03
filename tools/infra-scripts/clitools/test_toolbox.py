@@ -866,21 +866,14 @@ class TestToolbox(unittest.TestCase):
         diagnostic = "error: You must be logged in to the server (Unauthorized)"
         self.assertEqual(summarize_diagnostic(diagnostic), "Kubernetes rejected the cached AWS SSO credentials")
 
-    @patch("builtins.input", return_value="y")
     @patch("toolbox.kubernetes.login_to_sso", return_value=True)
     @patch("toolbox.kubernetes.time.monotonic", return_value=10)
     @patch("subprocess.run")
-    def test_reset_sso_logs_out_after_confirmation(self, mock_run, mock_time, mock_login, mock_input):
+    def test_reset_sso_logs_out_before_logging_back_in(self, mock_run, mock_time, mock_login):
         mock_run.return_value = MagicMock(returncode=0)
         self.assertTrue(reset_sso("prod-eu-eks", deadline=610))
         mock_run.assert_called_once_with(["aws", "sso", "logout"], check=False, timeout=600)
         mock_login.assert_called_once_with("prod-eu-eks", timeout=600)
-
-    @patch("builtins.input", return_value="n")
-    @patch("subprocess.run")
-    def test_reset_sso_preserves_other_sessions_without_confirmation(self, mock_run, mock_input):
-        self.assertFalse(reset_sso("prod-eu-eks", deadline=610))
-        mock_run.assert_not_called()
 
     @patch("toolbox.kubernetes.login_to_sso", return_value=True)
     @patch("toolbox.kubernetes.check_context_access", return_value=(True, ""))
