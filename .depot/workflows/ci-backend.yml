@@ -499,6 +499,17 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                       exit 0
                   fi
+                  # Consumers replay the routed labels from the checked-out copy of this file, so a
+                  # PR that edits routing lines up with no master dump, the merge-base one included.
+                  # Both keys drop out so migrations run from scratch.
+                  ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml)
+                  ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml)
+                  if [ "$ROUTING_BASE" != "$ROUTING_HEAD" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::products/db_routing.yaml differs from the merge base, so the schema cache is skipped"
+                      exit 0
+                  fi
                   # Exact branch-point key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
