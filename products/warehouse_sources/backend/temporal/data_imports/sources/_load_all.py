@@ -29,6 +29,7 @@ from .aha_ideas.source import AhaIdeasSource
 from .ahrefs.source import AhrefsSource
 from .aikido_security.source import AikidoSecuritySource
 from .airbrake.source import AirbrakeSource
+from .airbridge.source import AirbridgeSource
 from .airbyte.source import AirbyteSource
 from .aircall.source import AircallSource
 from .airops.source import AirOpsSource
@@ -515,6 +516,7 @@ from .google_cloud_storage.source import GoogleCloudStorageSource
 from .google_directory.source import GoogleDirectorySource
 from .google_drive.source import GoogleDriveSource
 from .google_forms.source import GoogleFormsSource
+from .google_merchant_center.source import GoogleMerchantCenterSource
 from .google_pagespeed_insights.source import GooglePageSpeedInsightsSource
 from .google_play_console.source import GooglePlayConsoleSource
 from .google_search_console.source import GoogleSearchConsoleSource
@@ -572,6 +574,7 @@ from .humanitec.source import HumanitecSource
 from .humanitix.source import HumanitixSource
 from .huntr.source import HuntrSource
 from .hyperspell.source import HyperspellSource
+from .hyros.source import HyrosSource
 from .ikas.source import IkasSource
 from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
@@ -791,6 +794,7 @@ from .nutshell.source import NutshellSource
 from .nylas.source import NylasSource
 from .octolens.source import OctolensSource
 from .octopus_deploy.source import OctopusDeploySource
+from .odoo.source import OdooSource
 from .oecd.source import OecdSource
 from .okendo.source import OkendoSource
 from .okta.source import OktaSource
@@ -1055,6 +1059,7 @@ from .smartsheet.source import SmartsheetSource
 from .smartwaiver.source import SmartwaiverSource
 from .smokeball.source import SmokeballSource
 from .snapchat_ads.source import SnapchatAdsSource
+from .snovio.source import SnovioSource
 from .snowflake.source import SnowflakeSource
 from .snowplow.source import SnowplowSource
 from .snyk.source import SnykSource

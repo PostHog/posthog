@@ -6,6 +6,7 @@ import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
     PushNotificationPayloadType,
 } from '~/cdp/schema/cyclotron'
+import { mirrorCall, mirrorCompare } from '~/cdp/utils/mirror-call'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -104,6 +105,38 @@ function backoffAt(baseMs: number, maxMs: number, tries: number): DateTime {
     return DateTime.utc().plus({ milliseconds: delay })
 }
 
+// Correlation ids stamped into every notification's data payload. An open happens on the device, so the
+// SDK is the only thing that can observe it; these ride along in the payload and come back on the
+// captured open event, which is what lets an open be attributed to the workflow and step that sent it.
+// Without them an open is only ever a global count.
+//
+// The key and the shape are fixed by the mobile SDKs: both read the single `posthog` entry out of the
+// notification payload and re-emit each of its keys as `$notification_<key>` on `$push_notification_opened`.
+// Nothing outside that entry is read, so these ids have to be nested under it rather than sent as
+// sibling keys.
+const PUSH_CORRELATION_KEY = 'posthog'
+
+// Serialized rather than nested as an object because FCM's `data` map only accepts string values. Both
+// SDKs parse this entry from either a dictionary or a JSON string, on either delivery route, so one
+// encoding covers FCM and direct APNs.
+function pushCorrelationData(invocation: CyclotronJobInvocationHogFunction): Record<string, string> {
+    const correlation: Record<string, string> = {
+        workflow_id: invocation.functionId,
+        invocation_id: invocation.id,
+    }
+    // Absent for a push sent outside a workflow step, where there is no step to attribute an open to.
+    if (invocation.state.actionId) {
+        correlation.action_id = invocation.state.actionId
+    }
+    // Send metrics are attributed to `parentRunId ?? functionId`, so a batch run counts its sends
+    // against the batch job rather than the workflow. An open has to be attributable the same way or
+    // the two don't divide into a rate — which is why the email tracking code carries this id too.
+    if (invocation.parentRunId) {
+        correlation.parent_run_id = invocation.parentRunId
+    }
+    return { [PUSH_CORRELATION_KEY]: JSON.stringify(correlation) }
+}
+
 function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAfterMs?: number): PushSendError {
     // Append the raw provider code so the failure surfaced to the hog template stays debuggable, while
     // the human-readable sentence leads.
@@ -131,7 +164,8 @@ export class PushNotificationService {
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
         private redis: RedisV2 | null,
-        private messageAssetsService?: MessageAssetsService
+        private messageAssetsService?: MessageAssetsService,
+        private redisMirror: RedisV2 | null = null
     ) {}
 
     @instrumented('push-notification.executeSendPushNotification')
@@ -143,7 +177,17 @@ export class PushNotificationService {
             throw new Error('Bad invocation')
         }
 
-        const params = invocation.queueParameters as CyclotronInvocationQueueParametersSendPushNotificationType
+        const queueParams = invocation.queueParameters as CyclotronInvocationQueueParametersSendPushNotificationType
+        // Stamp the correlation ids last so they win over any custom `data` key of the same name. The
+        // enriched copy is local: `invocation.queueParameters` stays untouched, so a reschedule re-derives
+        // these rather than persisting them onto the job.
+        const params: CyclotronInvocationQueueParametersSendPushNotificationType = {
+            ...queueParams,
+            payload: {
+                ...queueParams.payload,
+                data: { ...(queueParams.payload?.data ?? {}), ...pushCorrelationData(invocation) },
+            },
+        }
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, { finished: true })
         const addLog = createAddLogFunction(result.logs)
 
@@ -519,9 +563,15 @@ export class PushNotificationService {
         const keyFingerprint = createHash('sha256').update(`${teamId}:${keyId}:${signingKey}`).digest('hex')
         const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyFingerprint}`
 
-        const cached = await this.redis?.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
-            client.get(cacheKey)
-        )
+        const read = (pool: RedisV2) =>
+            pool.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) => client.get(cacheKey))
+        const cached = this.redis
+            ? await mirrorCompare(
+                  'push-notification.apns-jwt-read',
+                  () => read(this.redis!),
+                  () => (this.redisMirror ? read(this.redisMirror) : undefined)
+              )
+            : null
         if (cached) {
             return cached
         }
@@ -535,9 +585,16 @@ export class PushNotificationService {
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
         const jwt = `${signingInput}.${signature}`
 
-        await this.redis?.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
-            client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
-        )
+        const write = (pool: RedisV2) =>
+            pool.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
+                client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
+            )
+        await Promise.all([
+            this.redis ? write(this.redis) : undefined,
+            mirrorCall('push-notification.apns-jwt-write', () =>
+                this.redisMirror ? write(this.redisMirror) : undefined
+            ),
+        ])
         return jwt
     }
 

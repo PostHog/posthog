@@ -2048,6 +2048,7 @@ class ExternalDataSourceType(StrEnum):
     CAMPFIRE = "Campfire"
     CRISP = "Crisp"
     KOMMO = "Kommo"
+    GOOGLE_MERCHANT_CENTER = "GoogleMerchantCenter"
     AXIOM = "Axiom"
     PLIVO = "Plivo"
     DATA_FOR_SEO = "DataForSEO"
@@ -2460,6 +2461,10 @@ class ExternalDataSourceType(StrEnum):
     CLAY = "Clay"
     TRADABLE_BITS = "TradableBits"
     SWAN = "Swan"
+    HYROS = "Hyros"
+    ODOO = "Odoo"
+    AIRBRIDGE = "Airbridge"
+    SNOVIO = "Snovio"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2936,6 +2941,17 @@ class NeighborDirection(StrEnum):
     AFTER = "after"
 
 
+class MarketingAnalyticsAttributionBreakdown(StrEnum):
+    CHANNEL = "channel"
+    SOURCE = "source"
+    CAMPAIGN = "campaign"
+    MEDIUM = "medium"
+    CONTENT = "content"
+    TERM = "term"
+    REFERRING_DOMAIN = "referring_domain"
+    LANDING_PAGE = "landing_page"
+
+
 class MarketingAnalyticsBaseColumns(StrEnum):
     ID = "ID"
     CAMPAIGN = "Campaign"
@@ -3208,6 +3224,7 @@ class NodeKind(StrEnum):
     WEB_NOTABLE_CHANGES_QUERY = "WebNotableChangesQuery"
     MARKETING_ANALYTICS_TABLE_QUERY = "MarketingAnalyticsTableQuery"
     MARKETING_ANALYTICS_AGGREGATED_QUERY = "MarketingAnalyticsAggregatedQuery"
+    MARKETING_ANALYTICS_ATTRIBUTION_QUERY = "MarketingAnalyticsAttributionQuery"
     NON_INTEGRATED_CONVERSIONS_TABLE_QUERY = "NonIntegratedConversionsTableQuery"
     EXPERIMENT_METRIC = "ExperimentMetric"
     EXPERIMENT_QUERY = "ExperimentQuery"
@@ -3233,6 +3250,7 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_TOOL_CALL_BREAKDOWN_QUERY = "MCPToolCallBreakdownQuery"
     MCP_TOOL_CALLS_AND_ERRORS_QUERY = "MCPToolCallsAndErrorsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"

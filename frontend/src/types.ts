@@ -573,6 +573,7 @@ export interface OrganizationType extends OrganizationBasicType {
     is_member_join_email_enabled: boolean
     customer_id: string | null
     enforce_2fa: boolean | null
+    enforce_verified_domains: boolean | null
     is_ai_data_processing_approved?: boolean
     is_ai_training_opted_in?: boolean
     is_ai_training_locked?: boolean
@@ -1872,6 +1873,7 @@ export enum PersonsTabType {
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
     EMAILS = 'emails',
+    PUSH_NOTIFICATIONS = 'pushNotifications',
 }
 
 export enum GroupsTabType {
@@ -4959,6 +4961,9 @@ export interface Experiment {
     /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
+    /** Optimistic-concurrency token, bumped by the server on every update. Send the last-read
+     * value with updates so concurrent edits are detected (409) or merged instead of clobbered. */
+    version?: number | null
 }
 
 export interface ExperimentVelocityStats {
@@ -5783,6 +5788,7 @@ export const API_SCOPE_OBJECTS = [
     'logs',
     'loop',
     'marketing_analytics',
+    'mcp_builtin_agent',
     'mcp_analytics',
     'metrics',
     'notebook',
@@ -6205,7 +6211,11 @@ export interface DataWarehouseViewLinkValidation {
     is_valid: boolean
     msg: string | null
     hogql: string | null
+    columns: string[]
     results: any[]
+    total_rows: number | null
+    matched_rows: number | null
+    match_rate: number | null
 }
 
 export interface QueryTabState {
@@ -7071,6 +7081,7 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
+    | ProductKey.METRICS
     | ProductKey.MCP_ANALYTICS
     | ProductKey.CONVERSATIONS,
     OnboardingProduct
@@ -7591,6 +7602,7 @@ export enum UserRole {
     Leadership = 'leadership',
     Marketing = 'marketing',
     Sales = 'sales',
+    Student = 'student',
     Other = 'other',
 }
 
@@ -7830,34 +7842,6 @@ export enum OnboardingStepKey {
     AUTHORIZED_DOMAINS = 'authorized_domains',
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
-}
-
-export interface Dataset {
-    id: string
-    name: string
-    description: string | null
-    metadata: Record<string, any> | null
-    team: number
-    created_at: string
-    updated_at: string
-    created_by: UserBasicType
-    deleted: boolean
-}
-
-export interface DatasetItem {
-    id: string
-    dataset: string
-    team: number
-    input: Record<string, any> | null
-    output: Record<string, any> | null
-    metadata: Record<string, any> | null
-    ref_trace_id: string | null
-    ref_timestamp: string | null
-    ref_source_id: string | null
-    created_by: UserBasicType
-    updated_at: string
-    created_at: string
-    deleted: boolean
 }
 
 // Managed viewset

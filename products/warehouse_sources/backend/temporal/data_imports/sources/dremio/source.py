@@ -23,6 +23,7 @@ class DremioSource(SimpleSource[DremioSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.DREMIO,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             label="Dremio",
             iconPath="/static/services/dremio.png",
             fields=cast(list[FieldType], []),

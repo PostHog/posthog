@@ -508,6 +508,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsAttributionQuery]: {
+        name: 'Marketing Analytics Attribution',
+        icon: IconHogQL,
+        inMenu: false,
+    },
     [NodeKind.NonIntegratedConversionsTableQuery]: {
         name: 'Non-Integrated Conversions Table',
         icon: IconHogQL,
@@ -546,6 +551,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.WebNotableChangesQuery]: {
         name: 'Notable changes',
         description: 'View notable changes in web analytics metrics.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolCallBreakdownQuery]: {
+        name: 'MCP tool call breakdown',
+        description: 'MCP tool-call volume over time, broken down by tool.',
         icon: IconPieChart,
         inMenu: false,
     },

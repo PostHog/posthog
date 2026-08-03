@@ -167,6 +167,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     # rather than adding to it, and a token must hold every listed scope.
     "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
 }
 
 

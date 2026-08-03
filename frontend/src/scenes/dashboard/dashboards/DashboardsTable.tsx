@@ -201,6 +201,10 @@ export function DashboardsTable({
             DashboardType,
             keyof DashboardType | undefined
         >,
+        atColumn<DashboardType>('last_viewed_at', 'You last viewed') as LemonTableColumn<
+            DashboardType,
+            keyof DashboardType | undefined
+        >,
         hideActions
             ? {}
             : {

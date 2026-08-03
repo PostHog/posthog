@@ -15,6 +15,7 @@
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -27,6 +28,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -3341,6 +3343,11 @@ export interface OrganizationApi {
     readonly customer_id: string | null
     /** @nullable */
     enforce_2fa?: boolean | null
+    /**
+     * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+     * @nullable
+     */
+    enforce_verified_domains?: boolean | null
     /** @nullable */
     members_can_invite?: boolean | null
     /**
