@@ -112,14 +112,16 @@ SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 COPY turbo.json package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json ./
 COPY bin/turbo bin/turbo
 COPY patches/ patches/
-COPY products/canvas/packages/canvas_builder/ products/canvas/packages/canvas_builder/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/plugin_transpiler/ common/plugin_transpiler/
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=4096" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
-    NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build && \
-    cd products/canvas/packages/canvas_builder && npm ci --ignore-scripts --omit=dev
+    NODE_OPTIONS="--max-old-space-size=4096" bin/turbo --filter=@posthog/plugin-transpiler build
+
+COPY products/canvas/packages/canvas_builder/ products/canvas/packages/canvas_builder/
+RUN --mount=type=cache,id=npm,target=/root/.npm \
+    npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
 
 # The transpiler bundle externalizes @babel/standalone (its only external runtime require — a
 # self-contained 24MB package with no deps). Materialize it as real files inside the transpiler's

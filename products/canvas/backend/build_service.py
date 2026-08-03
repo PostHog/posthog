@@ -41,6 +41,14 @@ from posthog.storage import object_storage
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import SYNTHETIC_INDEX_HTML, has_errors, validate_source_project
+from products.tasks.backend.exceptions import (
+    SandboxCleanupError,
+    SandboxExecutionError,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+    SandboxProvisionError,
+    SandboxTimeoutError,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -534,7 +542,13 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
 
     try:
         project = read_source_project(build.source_version)
-    except object_storage.ObjectStorageError as error:
+    except object_storage.ObjectStorageError:
+        if build.attempt_count < MAX_BUILD_ATTEMPTS:
+            CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
+                status=CanvasBuild.STATUS_QUEUED, lease_expires_at=None
+            )
+            raise
+        error = "source storage remained unavailable after retries"
         _finish_failed(
             build,
             [
@@ -562,7 +576,19 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             _finish_failed(build, builder_diagnostics[:500] if isinstance(builder_diagnostics, list) else [])
             return
         files, manifest, diagnostics = validate_builder_output(result)
-    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, RuntimeError, ValueError) as error:
+    except (
+        subprocess.TimeoutExpired,
+        OSError,
+        json.JSONDecodeError,
+        RuntimeError,
+        ValueError,
+        SandboxCleanupError,
+        SandboxExecutionError,
+        SandboxNotFoundError,
+        SandboxNotRunningError,
+        SandboxProvisionError,
+        SandboxTimeoutError,
+    ) as error:
         logger.warning(
             "canvas_build_process_failed",
             build_id=str(build.id),
@@ -610,7 +636,15 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
             manifest_assets[artifact["path"]]["contentType"] = content_type
     except object_storage.ObjectStorageError:
         if uploaded_keys:
-            object_storage.delete_objects(uploaded_keys)
+            try:
+                object_storage.delete_objects(uploaded_keys)
+            except object_storage.ObjectStorageError:
+                logger.warning("canvas_artifact_cleanup_failed", build_id=str(build.id))
+        if build.attempt_count < MAX_BUILD_ATTEMPTS:
+            CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
+                status=CanvasBuild.STATUS_QUEUED, lease_expires_at=None
+            )
+            raise
         _finish_failed(
             build,
             [{"severity": "error", "code": "artifact_upload_failed", "message": "Artifact storage is unavailable."}],

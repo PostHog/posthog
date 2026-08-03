@@ -14,6 +14,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+from django.apps import apps
 from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone as django_timezone
@@ -176,6 +177,12 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
         .exists()
     )
     return str(channel_id) if exists else None
+
+
+def _context_canvas_is_visible(loop: Loop, canvas_id: str) -> bool:
+    canvas_model = apps.get_model("canvas", "Canvas")
+    visible = ~Q(channel__channel_type=Channel.ChannelType.PERSONAL) | Q(channel__created_by_id=loop.created_by_id)
+    return canvas_model.objects.for_team(loop.team_id).filter(Q(id=canvas_id, deleted=False) & visible).exists()
 
 
 def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> PosthogMcpScopes:
@@ -671,6 +678,11 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     context_target = loop.context_target if isinstance(loop.context_target, dict) else {}
     outputs = _context_outputs(context_target)
+    if any(outputs.values()):
+        if _resolve_feed_channel_id(loop) is None:
+            raise ValueError("The loop's context channel is no longer available.")
+        if outputs["canvas_id"] and not _context_canvas_is_visible(loop, outputs["canvas_id"]):
+            raise ValueError("The loop's context canvas is no longer available.")
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)

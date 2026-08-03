@@ -275,6 +275,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """The canvas's source-version history, newest first (metadata only)."""
         canvas = self.get_object()
         versions = canvas.source_versions.select_related("created_by").order_by("-created_at")[:VERSIONS_WINDOW]
+        page = self.paginate_queryset(versions)
+        if page is not None:
+            return self.get_paginated_response(CanvasVersionSerializer(page, many=True).data)
         return Response(CanvasVersionSerializer(versions, many=True).data)
 
     @extend_schema(

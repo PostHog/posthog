@@ -62,8 +62,9 @@ export default function Canvas() {
         setSeries((s.days ?? []).map((day, i) => ({ day, value: s.data?.[i] ?? 0 })))
         setLoading(false)
       })
-      .catch(() => {
+      .catch((error) => {
         if (!cancelled) setLoading(false)
+        throw error
       })
     return () => {
       cancelled = true

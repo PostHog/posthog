@@ -665,7 +665,7 @@ def context_canvas_exists(team_id: int, canvas_id: str, user_id: int | None) -> 
 
     canvas_model = apps.get_model("canvas", "Canvas")
     visible = ~Q(channel__channel_type=Channel.ChannelType.PERSONAL) | Q(channel__created_by_id=user_id)
-    return canvas_model.objects.unscoped().filter(Q(team_id=team_id, id=parsed, deleted=False) & visible).exists()
+    return canvas_model.objects.for_team(team_id).filter(Q(id=parsed, deleted=False) & visible).exists()
 
 
 # --- CRUD ---
