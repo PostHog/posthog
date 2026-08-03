@@ -75,10 +75,9 @@ def _delta_table_folder(schema: ExternalDataSchema) -> str:
 def _delta_storage_options() -> dict[str, str]:
     """Storage options for metadata-only Delta log reads from the consumer pod.
 
-    Prod: credentials come from the pod's ambient AWS chain (IRSA/env), which deltalake's
-    object_store resolves itself — the only options are the proxy carve-out for this bucket.
-    Local dev: MinIO endpoint + keys.
-    (posthog.ducklake.storage.get_deltalake_storage_options is NOT usable
+    Prod: empty — deltalake's object_store resolves the pod's ambient AWS
+    credential chain (IRSA/env) itself. Local dev: MinIO endpoint + keys.
+    (products.managed_warehouse.backend.storage.get_deltalake_storage_options is NOT usable
     here: it requires DuckLake RDS env that consumer pods do not carry.)
     """
     if settings.USE_LOCAL_SETUP:
