@@ -45,11 +45,7 @@ const SCOUT_RUNS_LIMIT = 100
 // at 100); passed explicitly so the cap is visible rather than relying on the server default.
 const SIGNAL_TASKS_LIMIT = 100
 
-/**
- * Consume a `#createScout=<payload>` fragment on any inbox URL: strip it from the address bar
- * (so refresh/back can't re-trigger it), then open the pre-filled create modal if the payload
- * decodes. Decoding is strict and prefill-only — see `scoutTemplateDeepLink.ts`.
- */
+/** Strips `#createScout=` from the URL so a refresh can't re-trigger it, then opens the modal. */
 function consumeScoutTemplateHash(
     actions: { setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => void },
     hashParams: Record<string, any> | undefined
@@ -67,6 +63,7 @@ function consumeScoutTemplateHash(
         lemonToast.error("Couldn't read the scout template from this link")
     }
 }
+
 // How often the Runs tab refetches while it's open, so live runs update in place.
 const RUNS_POLL_INTERVAL_MS = 5000
 
@@ -374,10 +371,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
         runSessionAnalysisFailure: (error: string) => ({ error }),
-        // Scout-template deep link (`/inbox/...#createScout=<payload>`): a decoded payload opens the
-        // scout create modal pre-filled, hosted at the scene level so the link works regardless of
-        // which tab renders or whether the fleet section is mounted. Prefill only — the user still
-        // reviews and submits the form.
+        // A decoded `#createScout=` payload, prefilling the create modal. The user still submits it.
         setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
 

@@ -6,15 +6,8 @@ import type { ScoutCreateInitialValues } from '../logics/scoutCreateModalLogic'
 import { SIGNALS_SCOUT_SKILL_PREFIX } from './scoutRunsWindow'
 
 /**
- * Deep-link payload for pre-filling the scout create modal, e.g. from a template page on
- * posthog.com: `/inbox/config#createScout=<url-safe base64 JSON>`.
- *
- * The payload travels in the URL fragment so it never reaches server logs, mirroring the
- * `posthog-code://plan?plan=<base64>` precedent in the desktop app. Decoding is prefill-only:
- * nothing is created until the user reviews the form and submits it themselves, and the
- * payload can only seed the name/description/body fields — scheduling and emit posture
- * (`config`) are deliberately not accepted from URLs, so a link can never change how or how
- * often anything runs.
+ * `/inbox/config#createScout=<url-safe base64 JSON>`, e.g. from a posthog.com template page.
+ * In the fragment so it never reaches server logs, and prefill-only: no schedule, no emit posture.
  */
 export interface ScoutTemplatePayload {
     name?: string
@@ -31,11 +24,7 @@ export function encodeScoutCreateTemplate(template: ScoutTemplatePayload): strin
     return base64Encode(JSON.stringify(template)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-/**
- * Decode and validate a `#createScout=` fragment value into modal initial values.
- * Returns null for anything malformed, oversized, or empty — callers treat null as
- * "ignore the fragment", never as an error state worth blocking the scene on.
- */
+/** Decodes a `#createScout=` value into modal initial values. Null means ignore the fragment. */
 export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValues | null {
     if (typeof raw !== 'string' || raw.length === 0 || raw.length > MAX_ENCODED_LENGTH) {
         return null
@@ -70,8 +59,7 @@ export function decodeScoutCreateTemplate(raw: unknown): ScoutCreateInitialValue
         cleanName = `${SIGNALS_SCOUT_SKILL_PREFIX}${cleanName}`
     }
     if (cleanName && validateSkillName(cleanName)) {
-        // Invalid skill name: drop it and let the form's default prefix stand — the user
-        // names the scout themselves rather than the link failing outright.
+        // Invalid name: drop it so the form's default prefix stands rather than the link failing.
         cleanName = ''
     }
 

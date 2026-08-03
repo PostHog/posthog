@@ -41,10 +41,8 @@ const LazyScoutCreateModal = React.lazy(async () => {
 })
 
 /**
- * Scene-level host for the `#createScout=<payload>` deep link (e.g. template pages on
- * posthog.com): renders the create modal pre-filled from the decoded payload. Hosted here —
- * not in the fleet section — because on wide screens `/inbox/config` bounces to the setup
- * rail, where the fleet section (and its own modal host) may never mount.
+ * Hosts the `#createScout=` modal at the scene level, not in the fleet section: on wide screens
+ * `/inbox/config` bounces to the setup rail, where the fleet section may never mount.
  */
 function ScoutTemplateDraftModal(): JSX.Element | null {
     const { scoutTemplateDraft } = useValues(inboxSceneLogic)
