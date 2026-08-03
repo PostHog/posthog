@@ -928,6 +928,11 @@ export interface TicketMessageApi {
     readonly author_name: string
     /** True for internal notes not visible to the customer. */
     readonly is_private: boolean
+    /**
+     * The AI reply pipeline's self-reported 0-1 confidence for its draft messages; null for human and customer messages.
+     * @nullable
+     */
+    readonly confidence: number | null
     readonly created_at: string
 }
 
