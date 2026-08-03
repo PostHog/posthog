@@ -569,7 +569,7 @@ class TestLivingArtifacts(TestCase):
             adapter=TaskArtifact.Adapter.SLACK_FILE,
             content_bytes=b"png-bytes",
             content_type="image/png",
-            metadata={"export_asset_id": asset.id},
+            export_asset_id=asset.id,
         )
 
         self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_FILE)
@@ -583,20 +583,23 @@ class TestLivingArtifacts(TestCase):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
         return ExportedAsset.objects.create(team=other_team, export_format=ExportedAsset.ExportFormat.PNG).id
 
+    def _non_image_asset_id(self) -> int:
+        return ExportedAsset.objects.create(team=self.team, export_format=ExportedAsset.ExportFormat.CSV).id
+
     @parameterized.expand(
         [
-            ("no_export_asset_id", lambda _self: None),
-            ("unknown_export_asset_id", lambda _self: {"export_asset_id": 987654}),
-            # export_asset_id is caller-writable, so pointing it at another team's asset must not
-            # buy the scope bypass — delivery refuses to mint for it and the artifact would
-            # otherwise hang pending forever.
-            ("export_asset_id_from_another_team", lambda self: {"export_asset_id": self._foreign_team_asset_id()}),
+            ("no_export_asset", lambda _self: None),
+            ("unknown_export_asset", lambda _self: 987654),
+            ("export_asset_from_another_team", lambda self: self._foreign_team_asset_id()),
+            # An image block is the only thing delivery posts, so a non-image asset must not
+            # mint either — otherwise a leaked reference could pull down a CSV.
+            ("export_asset_that_is_not_an_image", lambda self: self._non_image_asset_id()),
         ]
     )
     @patch("products.tasks.backend.logic.services.living_artifacts._canvas_file_artifacts_enabled", return_value=True)
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_file_adapter_rejects_images_without_a_resolvable_export(
-        self, _name, metadata_factory, mock_integration_for_mapping, _mock_flag
+        self, _name, asset_id_factory, mock_integration_for_mapping, _mock_flag
     ):
         self._create_scopeless_mapping(mock_integration_for_mapping)
 
@@ -608,7 +611,7 @@ class TestLivingArtifacts(TestCase):
                 adapter=TaskArtifact.Adapter.SLACK_FILE,
                 content_bytes=b"png-bytes",
                 content_type="image/png",
-                metadata=metadata_factory(self),
+                export_asset_id=asset_id_factory(self),
             )
 
         self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())

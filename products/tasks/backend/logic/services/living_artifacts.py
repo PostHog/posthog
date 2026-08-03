@@ -126,13 +126,18 @@ def create_living_artifact(
     )
     selected_adapter = _resolve_adapter(run, adapter, artifact_type)
     artifact_id = uuid.uuid4()
+    # The adapter decides the files:write bypass from this, so it must see the sanitized
+    # dict too — a forged export_asset_id must not buy the bypass either.
+    effective_metadata = _caller_owned_metadata(metadata)
+    if export_asset_id is not None:
+        effective_metadata["export_asset_id"] = export_asset_id
     commit = selected_adapter.create(
         run=run,
         name=name,
         artifact_type=artifact_type,
         content=content_payload,
         artifact_id=str(artifact_id),
-        metadata=metadata,
+        metadata=effective_metadata,
     )
 
     with transaction.atomic():
@@ -206,7 +211,7 @@ def edit_living_artifact(
         version=next_version,
         content_type=content_payload.content_type,
         source_artifact=content_payload.source_artifact,
-        metadata=metadata,
+        metadata=_caller_owned_metadata(metadata),
     )
 
     with transaction.atomic():
@@ -737,8 +742,8 @@ def _export_asset_id(metadata: dict[str, Any] | None) -> int | None:
 def _delivery_image_url(team_id: int, metadata: dict[str, Any] | None) -> str | None:
     """Mint the url delivery references for a chart image, or None when there is no export.
 
-    Resolving the id through the exports facade is what makes the url trustworthy: it is
-    minted from the team's own asset rather than read out of caller-writable metadata.
+    The url is trustworthy because it is minted here from an export the chart endpoint
+    linked server-side, never from a url a caller could put in metadata.
     """
     asset_id = _export_asset_id(metadata)
     if asset_id is None:
@@ -746,14 +751,15 @@ def _delivery_image_url(team_id: int, metadata: dict[str, Any] | None) -> str | 
     return get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=_CHART_IMAGE_URL_TTL)
 
 
-def _is_url_backed_image(
-    content_type: str, *, team_id: int, artifact: TaskArtifact | None, metadata: dict[str, Any] | None
-) -> bool:
-    """Whether delivery can post this artifact as an image block instead of an upload."""
+def _is_url_backed_image(content_type: str, *, team_id: int, metadata: dict[str, Any] | None) -> bool:
+    """Whether delivery can post this version as an image block instead of an upload.
+
+    Reads only the metadata being written, so an edit that drops the export link needs
+    files:write for its new bytes rather than passing on the strength of the old render.
+    """
     if not content_type.startswith("image/"):
         return False
-    effective = {**((artifact.metadata if artifact is not None else None) or {}), **(metadata or {})}
-    return _delivery_image_url(team_id, effective) is not None
+    return _delivery_image_url(team_id, metadata) is not None
 
 
 class SlackFileArtifactAdapter(LivingArtifactAdapter):
@@ -789,9 +795,9 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         # upload and therefore no files:write. Everything else (non-images, and images with no
         # resolvable export) goes out as an upload, so it needs the scope up front — accepting it
         # here would leave the artifact pending forever with the agent believing it was delivered.
-        if not _is_url_backed_image(
-            resolved_content_type, team_id=run.team_id, artifact=artifact, metadata=metadata
-        ) and (slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))):
+        if not _is_url_backed_image(resolved_content_type, team_id=run.team_id, metadata=metadata) and (
+            slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
+        ):
             raise ValueError(
                 "Slack file delivery is unavailable: the Slack integration is missing the files:write scope, "
                 "so you do not have this capability. Use adapter=slack_message and summarize the result as text instead."

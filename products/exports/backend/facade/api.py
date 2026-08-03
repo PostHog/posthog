@@ -39,14 +39,18 @@ def _validate_adhoc_export_context(export_context: dict) -> None:
 
 
 def get_delivery_image_url(*, team_id: int, asset_id: int, expiry_delta: timedelta) -> str | None:
-    """Mint a delivery-purposed url for one of the team's own export assets.
+    """Mint a delivery-purposed url for one of the team's own rendered images.
 
     The token authenticates anonymously and bypasses the org's publicly-shared-resources
     setting, so it is minted on demand rather than stored anywhere a lower-privileged
-    reader could reach. ``asset_id`` arrives through caller-writable metadata, hence the
-    team check; the manager also excludes assets past their TTL.
+    reader could reach. Callers are responsible for only passing an ``asset_id`` they
+    established server-side; the format and team filters bound the damage if one leaks —
+    an image url can never be turned into a CSV or XLSX download. The manager also
+    excludes assets past their TTL.
     """
-    asset = ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
+    asset = ExportedAsset.objects.filter(
+        team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG
+    ).first()
     if asset is None:
         return None
     return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
