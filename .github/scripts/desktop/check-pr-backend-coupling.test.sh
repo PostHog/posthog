@@ -89,6 +89,8 @@ while IFS='|' read -r path gated; do
 done <<'CASES'
 posthog/api/insight.py|yes
 posthog/README.md|no
+rust/capture/src/main.rs|yes
+rust/capture/README.md|no
 ee/billing/models.py|yes
 ee/frontend/exports.ts|no
 common/hogql_parser/parser.cpp|yes

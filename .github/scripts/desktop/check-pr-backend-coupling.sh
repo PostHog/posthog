@@ -1,22 +1,25 @@
 #!/usr/bin/env bash
 # Fails any PR that changes both products/desktop/** and backend code that
-# ships in the Django image: desktop releases auto-update users on their own
-# schedule, with no orchestration against backend deploys, so a coupled PR can
-# ship a client that calls endpoints that are not deployed yet.
+# ships in production (the Django image or a rust service): desktop releases
+# auto-update users on their own schedule, with no orchestration against
+# backend deploys, so a coupled PR can ship a client that calls endpoints that
+# are not deployed yet.
 set -euo pipefail
 
 REPOSITORY="${REPOSITORY:?}"
 PR_NUMBER="${PR_NUMBER:?}"
 
-# Deploy-relevant subset of ci-backend.yml's `backend` filter: only paths that
-# ship in the deployed image. Its tooling/test entries (pyproject.toml, uv.lock,
-# conftest.py, docker-compose*, ...) are deliberately excluded so they cannot
-# block an unrelated desktop PR.
+# Deploy-relevant subset of ci-backend.yml's `backend` filter (paths that ship
+# in the Django image) plus rust/** (rust services deploy separately and also
+# serve clients). Tooling/test entries (pyproject.toml, uv.lock, conftest.py,
+# docker-compose*, ...) are deliberately excluded so they cannot block an
+# unrelated desktop PR.
 is_backend_path() {
     case "$1" in
         *.md | *.mdx) return 1 ;;
         products/desktop/*) return 1 ;;
         posthog/*) return 0 ;;
+        rust/*) return 0 ;;
         ee/frontend/*) return 1 ;;
         ee/*) return 0 ;;
         common/__init__.py | common/hogql_parser/* | common/hogvm/* | common/ingestion/* | common/migration_utils/* | common/plugin_transpiler/*) return 0 ;;
