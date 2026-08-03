@@ -2,7 +2,6 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -33,15 +32,15 @@ def test_harness_labels_tuple_matches_multiif_branches() -> None:
     assert emitted == set(mcp_harness.HARNESS_LABELS)
 
 
-@pytest.mark.parametrize(
-    "name,sql",
+@parameterized.expand(
     [
         ("token", mcp_harness.HARNESS_TOKEN_SQL),
+        ("display_name", mcp_harness.HARNESS_DISPLAY_NAME_SQL),
         ("label", mcp_harness.harness_label_sql("h")),
         ("label_or_token", mcp_harness.harness_label_or_token_sql("h")),
-    ],
+    ]
 )
-def test_harness_expressions_are_parseable_hogql(name: str, sql: str) -> None:
+def test_harness_expressions_are_parseable_hogql(_name: str, sql: str) -> None:
     # These are assembled as f-strings and only ever reach the parser inside a query
     # runner, so a syntax slip (an inline comment the grammar rejects, an unbalanced
     # paren) would otherwise surface as a broken dashboard rather than a failing test.
