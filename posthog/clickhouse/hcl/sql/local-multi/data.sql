@@ -1206,7 +1206,8 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   _partition UInt64,
   INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX session_id_idx session_id TYPE bloom_filter(0.01) GRANULARITY 1,
-  INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1
+  INDEX request_id_idx request_id TYPE bloom_filter(0.01) GRANULARITY 1,
+  INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}') ORDER BY (team_id, flag_key, cityHash64(distinct_id)) PARTITION BY toYYYYMMDD(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,

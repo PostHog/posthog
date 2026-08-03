@@ -52,11 +52,7 @@ FLAG_EVALUATIONS_ORDER_BY = "(team_id, flag_key, cityHash64(distinct_id))"
 # tables MUST carry them: an INSERT through a Distributed table fills omitted
 # columns from the Distributed table's own schema before forwarding to the
 # shard, so without them a direct insert via writable_flag_evaluations would
-# store epoch instead of the sharded table's fallback. The sharded data table
-# and the MV's SELECT projection are deliberately not in this sync set — the
-# data table inlines the same columns to carry CODEC/INDEX/DEFAULT
-# annotations, and the MV hand-lists its output columns — so column changes
-# must update all of them in lockstep.
+# store epoch instead of the sharded table's fallback.
 _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
     team_id UInt64,
     uuid UUID,
@@ -92,7 +88,7 @@ _FLAG_EVALUATIONS_COLUMNS_TEMPLATE = """
 """.strip()
 
 FLAG_EVALUATIONS_KAFKA_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default="")
-FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default=" DEFAULT timestamp")
+_FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS = _FLAG_EVALUATIONS_COLUMNS_TEMPLATE.format(ts_default=" DEFAULT timestamp")
 
 
 def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
@@ -102,18 +98,25 @@ def FLAG_EVALUATIONS_DATA_TABLE_ENGINE() -> MergeTreeEngine:
 
 
 # The actual data lives on the sharded main cluster. ZSTD on the plain String
-# columns; LowCardinality columns compress well on their own. Skipping indexes
-# cover point lookups the sort key can't serve (a specific user, session, or
-# flags-service request). The DEFAULTs — mirrored on both Distributed tables,
-# since a Distributed INSERT fills omitted columns from its own schema before
-# forwarding — mean a direct insert that omits evaluated_at or inserted_at
-# (tests, the planned events-table backfill) falls back to the row's own
-# timestamp rather than the wall-clock insert time, so a bulk historical
-# backfill doesn't stamp every row as freshly inserted right now: that would
-# break anything windowing or checkpointing on inserted_at. Neither DEFAULT
-# reproduces the MV's Kafka-path fallback exactly (_timestamp, the Kafka
-# broker time, isn't available to a column default), but timestamp is the
-# closest available proxy for both columns.
+# columns; LowCardinality columns compress well on their own.
+#
+# The bloom filters cover point lookups the sort key can't serve (a specific
+# user, session, or flags-service request). The minmax on inserted_at serves
+# incremental consumers that checkpoint on it: partitioning is on timestamp, so
+# an inserted_at range predicate prunes no partitions on its own and would
+# otherwise read all 90 days. A skip index only covers parts written after it
+# exists, so retrofitting one means a full MATERIALIZE INDEX mutation — much
+# cheaper to declare up front.
+#
+# The DEFAULTs — mirrored on both Distributed tables, since a Distributed INSERT
+# fills omitted columns from its own schema before forwarding — mean a direct
+# insert that omits evaluated_at or inserted_at (tests, the planned events-table
+# backfill) falls back to the row's own timestamp rather than the wall-clock
+# insert time, so a bulk historical backfill doesn't stamp every row as freshly
+# inserted right now: that would break anything windowing or checkpointing on
+# inserted_at. Neither DEFAULT reproduces the MV's Kafka-path fallback exactly
+# (_timestamp, the Kafka broker time, isn't available to a column default), but
+# timestamp is the closest available proxy for both columns.
 FLAG_EVALUATIONS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
@@ -151,7 +154,8 @@ CREATE TABLE IF NOT EXISTS {FLAG_EVALUATIONS_DATA_TABLE}
     group_4 String CODEC(ZSTD(1)),
     INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1,
-    INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1
+    INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {FLAG_EVALUATIONS_DATA_TABLE_ENGINE()}
@@ -170,7 +174,7 @@ def _distributed_table_sql(table_name: str) -> str:
     return f"""
 CREATE TABLE IF NOT EXISTS {table_name}
 (
-    {FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS}
+    {_FLAG_EVALUATIONS_DISTRIBUTED_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
 ENGINE = {Distributed(data_table=FLAG_EVALUATIONS_DATA_TABLE, sharding_key=FLAG_EVALUATIONS_SHARDING_KEY)}

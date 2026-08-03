@@ -6252,6 +6252,11 @@ database "posthog" {
       type        = "bloom_filter(0.01)"
       granularity = 1
     }
+    index "inserted_at_idx" {
+      expr        = "inserted_at"
+      type        = "minmax"
+      granularity = 1
+    }
     engine "replicated_merge_tree" {
       zoo_path     = "/clickhouse/tables/{shard}/posthog.flag_evaluations"
       replica_name = "{replica}"

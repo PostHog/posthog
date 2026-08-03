@@ -6965,7 +6965,8 @@
       group_4 String CODEC(ZSTD(1)),
       INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1,
-      INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1
+      INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
       
   , _timestamp DateTime
   , _offset UInt64
@@ -11932,7 +11933,8 @@
       group_4 String CODEC(ZSTD(1)),
       INDEX distinct_id_idx distinct_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX session_id_idx  session_id  TYPE bloom_filter(0.01) GRANULARITY 1,
-      INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1
+      INDEX request_id_idx  request_id  TYPE bloom_filter(0.01) GRANULARITY 1,
+      INDEX inserted_at_idx inserted_at TYPE minmax GRANULARITY 1
       
   , _timestamp DateTime
   , _offset UInt64
