@@ -70,8 +70,6 @@ from products.notebooks.backend.temporal.sql_v2 import (
     dispatch_sql_v2_run_activity,
     mark_sql_v2_run_failed_activity,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -700,15 +698,17 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbconn1")
         self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/run/"
-        self.source = ExternalDataSource.objects.create(
-            source_id="managed-warehouse-upstream",
-            connection_id="managed-warehouse",
-            destination_id="managed-warehouse-destination",
-            team=self.team,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.POSTGRES,
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        self.source_id = UUIDT()
+        # The source is another product's model, which this one may not import (tach). Notebooks
+        # only ever reaches it through core's resolver, so stub that seam: what this suite owns is
+        # whether notebooks calls it with the right arguments and honors its verdict. The
+        # resolver's own RBAC behavior is covered by the direct-connection tests in core.
+        patcher = patch(
+            "products.notebooks.backend.presentation.views.notebook.get_direct_connection_source",
+            return_value=SimpleNamespace(id=self.source_id),
         )
+        self.mock_resolve_source = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _post(self, **data: Any):
         return self.client.post(self.run_url, data={"node_id": "n1", **data}, format="json")
@@ -728,13 +728,13 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
     def test_connection_reaches_the_enqueued_query(self, mock_enqueue, _mock_enabled):
         # The bug: the cell's connection was dropped at dispatch, so a warehouse query ran
         # against ClickHouse and failed with "Unknown table". The id has to ride the query.
-        response = self._post(code="select * from public.users", connection_id=str(self.source.id))
+        response = self._post(code="select * from public.users", connection_id=str(self.source_id))
         self.assertEqual(response.status_code, 200)
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
-        self.assertEqual(str(run.connection_id), str(self.source.id))
+        self.assertEqual(str(run.connection_id), str(self.source_id))
         self.assertFalse(run.send_raw_query)
         query_json = mock_enqueue.call_args.kwargs["query_json"]
-        self.assertEqual(query_json["connectionId"], str(self.source.id))
+        self.assertEqual(query_json["connectionId"], str(self.source_id))
         self.assertNotIn("sendRawQuery", query_json)
 
     @patch("products.notebooks.backend.sql_v2_direct.enqueue_process_query_task")
@@ -743,7 +743,7 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         # a query the parser did accept must still arrive verbatim inside the row bound.
         response = self._post(
             code="select id::text from credit.billing_credits",
-            connection_id=str(self.source.id),
+            connection_id=str(self.source_id),
             send_raw_query=True,
         )
         self.assertEqual(response.status_code, 200)
@@ -753,10 +753,16 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         query_json = mock_enqueue.call_args.kwargs["query_json"]
         self.assertTrue(query_json["sendRawQuery"])
         self.assertIn("select id::text from credit.billing_credits", query_json["query"])
+        # Raw mode reads whatever the connection exposes, so it must be gated on a pure-direct
+        # source and on this user — a resolver call that dropped either would silently widen access.
+        resolve_kwargs = self.mock_resolve_source.call_args.kwargs
+        self.assertEqual(resolve_kwargs["user"], self.user)
+        self.assertTrue(resolve_kwargs["require_pure_direct"])
 
     @patch("products.notebooks.backend.presentation.views.notebook.enqueue_direct_run")
     def test_unknown_connection_fails_the_dispatch(self, mock_enqueue, _mock_enabled):
         # Fail here rather than stranding a run that can only report an opaque error later.
+        self.mock_resolve_source.return_value = None
         response = self._post(code="select 1", connection_id=str(UUIDT()))
         self.assertEqual(response.status_code, 400)
         self.assertIn("connectionId", response.json()["detail"])
@@ -774,12 +780,12 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         # Both directions: a cell's stored SQL only means anything on the engine that ran it, so
         # inlining it as a CTE elsewhere would silently ship the wrong query.
         self._record_done_run(
-            "node-df1", "select id from events", connection_id=None if run_on_connection else str(self.source.id)
+            "node-df1", "select id from events", connection_id=None if run_on_connection else str(self.source_id)
         )
         response = self._post(
             code="select * from df1",
             refs={"df1": {"node_id": "node-df1"}},
-            connection_id=str(self.source.id) if run_on_connection else None,
+            connection_id=str(self.source_id) if run_on_connection else None,
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("last ran on a different connection", response.json()["detail"])
@@ -789,7 +795,7 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
     def test_python_reading_a_connection_cell_says_what_to_do(self, mock_start, _mock_enabled):
         # A Python cell materializes upstream results through the data plane, which only reaches
         # PostHog — so it must say that, not tell the user to move a Python cell onto a warehouse.
-        self._record_done_run("node-wh", "select * from public.users", connection_id=str(self.source.id))
+        self._record_done_run("node-wh", "select * from public.users", connection_id=str(self.source_id))
         response = self._post(
             code="print(wh_df.head())",
             node_type="python",
@@ -803,34 +809,16 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
     def test_same_connection_reference_still_inlines(self, mock_enqueue, _mock_enabled):
         # The rejection above must not swallow the ordinary case: two cells on one connection
         # still compose, so the guard can't just refuse every ref once a connection is set.
-        self._record_done_run("node-df1", "select id from events", connection_id=str(self.source.id))
+        self._record_done_run("node-df1", "select id from events", connection_id=str(self.source_id))
         response = self._post(
             code="select * from df1",
             refs={"df1": {"node_id": "node-df1"}},
-            connection_id=str(self.source.id),
+            connection_id=str(self.source_id),
         )
         self.assertEqual(response.status_code, 200)
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
         self.assertIn("WITH df1 AS (SELECT id FROM events)", run.code)
         mock_enqueue.assert_called_once()
-
-    def _deny_source_access(self) -> None:
-        # Demote from owner (owner bypasses access control), turn the feature on, and deny this
-        # one source. Query access stays intact — that is the point: it does not imply source access.
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-        ]
-        self.organization.save(update_fields=["available_product_features"])
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save(update_fields=["level"])
-        AccessControl.objects.create(
-            team=self.team,
-            resource="external_data_source",
-            resource_id=str(self.source.id),
-            organization_member=self.organization_membership,
-            access_level="none",
-        )
-        cache.clear()
 
     def test_reading_a_connection_run_needs_source_access(self, _mock_enabled):
         # Dispatch gated the source, but the run row outlives that check and this endpoint serves
@@ -842,7 +830,7 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
                 notebook=self.notebook,
                 node_id="n1",
                 code="select * from public.users",
-                connection_id=self.source.id,
+                connection_id=self.source_id,
                 envelope={"status": "ok", "columns": ["id"], "first_page": [[1]]},
                 status=NotebookNodeRun.Status.DONE,
             )
@@ -850,8 +838,10 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["result"]["first_page"], [[1]])
+        # The read must be resolved for the caller, not for whoever ran the cell.
+        self.assertEqual(self.mock_resolve_source.call_args.kwargs["user"], self.user)
 
-        self._deny_source_access()
+        self.mock_resolve_source.return_value = None
         self.assertEqual(self.client.get(url).status_code, 403)
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
@@ -864,7 +854,7 @@ class TestSQLV2RunOnAConnection(APIBaseTest):
         response = self._post(
             code="select * from new_events",
             refs={"new_events": {"node_id": "node-py", "kind": "local"}},
-            connection_id=str(self.source.id),
+            connection_id=str(self.source_id),
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("Python dataframe", response.json()["detail"])
