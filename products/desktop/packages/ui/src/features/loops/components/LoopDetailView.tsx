@@ -1,4 +1,8 @@
-import { ArrowLeftIcon, LinkIcon } from "@phosphor-icons/react";
+import {
+  ArrowLeftIcon,
+  LinkIcon,
+  PencilSimpleIcon,
+} from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -35,10 +39,11 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { Flex, Text } from "@radix-ui/themes";
+import { Flex, Text, TextField } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useInlineEdit } from "../hooks/useInlineEdit";
 import { useLoop } from "../hooks/useLoop";
 import {
   useDeleteLoop,
@@ -241,10 +246,8 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
           </Button>
 
           <Flex align="center" justify="between" gap="3" wrap="wrap">
-            <Flex align="center" gap="2" wrap="wrap">
-              <Text className="font-bold text-[22px] text-gray-12 leading-tight tracking-tight">
-                {loop.name}
-              </Text>
+            <Flex align="center" gap="2" wrap="wrap" className="min-w-0">
+              <EditableLoopTitle loop={loop} />
               <Badge variant={loopStatusBadgeVariant(loop)}>
                 {loopStatusLabel(loop)}
               </Badge>
@@ -291,11 +294,7 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
             </Flex>
           </Flex>
 
-          {loop.description.trim() ? (
-            <Text className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
-              {loop.description}
-            </Text>
-          ) : null}
+          <EditableLoopDescription loop={loop} />
 
           <PausedNotice loop={loop} />
         </Flex>
@@ -378,6 +377,125 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function EditableLoopTitle({ loop }: { loop: LoopSchemas.Loop }) {
+  const updateLoop = useUpdateLoop(loop.id);
+  const edit = useInlineEdit({
+    current: loop.name,
+    isPending: updateLoop.isPending,
+    commitOnEnter: "enter",
+    onCommit: (name, { reset }) =>
+      updateLoop.mutate(
+        { name },
+        {
+          onSuccess: () => {
+            reset();
+            toast.success("Loop title updated");
+          },
+          onError: (error) => {
+            reset();
+            toast.error("Failed to update loop title", {
+              description: error.message,
+            });
+          },
+        },
+      ),
+  });
+
+  if (edit.isEditing) {
+    return (
+      <TextField.Root
+        value={edit.draft ?? ""}
+        disabled={updateLoop.isPending}
+        autoFocus
+        aria-label="Loop title"
+        className="w-full min-w-72 max-w-2xl flex-1 font-bold text-[22px] tracking-tight"
+        {...edit.inputProps}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      className="group flex min-w-0 items-center gap-1 rounded-(--radius-1) px-1 py-0.5 text-left hover:bg-(--gray-3)"
+      aria-label="Edit loop title"
+      onClick={edit.startEditing}
+    >
+      <Text
+        className="truncate font-bold text-[22px] text-gray-12 leading-tight tracking-tight"
+        title={loop.name}
+      >
+        {loop.name}
+      </Text>
+      <PencilSimpleIcon
+        size={14}
+        className="shrink-0 text-gray-9 opacity-0 group-hover:opacity-100"
+      />
+    </button>
+  );
+}
+
+function EditableLoopDescription({ loop }: { loop: LoopSchemas.Loop }) {
+  const updateLoop = useUpdateLoop(loop.id);
+  const edit = useInlineEdit({
+    current: loop.description,
+    isPending: updateLoop.isPending,
+    allowEmpty: true,
+    onCommit: (description, { reset }) =>
+      updateLoop.mutate(
+        { description },
+        {
+          onSuccess: () => {
+            reset();
+            toast.success("Loop description updated");
+          },
+          onError: (error) => {
+            reset();
+            toast.error("Failed to update loop description", {
+              description: error.message,
+            });
+          },
+        },
+      ),
+  });
+
+  if (edit.isEditing) {
+    return (
+      <Textarea
+        value={edit.draft ?? ""}
+        disabled={updateLoop.isPending}
+        autoFocus
+        aria-label="Loop description"
+        placeholder="Add a description"
+        className="max-w-3xl text-[12.5px] leading-snug"
+        {...edit.inputProps}
+      />
+    );
+  }
+
+  const description = loop.description.trim();
+  return (
+    <button
+      type="button"
+      className="group flex max-w-3xl items-center gap-1 rounded-(--radius-1) px-1 py-0.5 text-left hover:bg-(--gray-3)"
+      aria-label="Edit loop description"
+      onClick={edit.startEditing}
+    >
+      <Text
+        className={`text-[12.5px] leading-snug ${
+          description ? "text-gray-11" : "text-gray-10"
+        }`}
+      >
+        {description || "Add a description"}
+      </Text>
+      <PencilSimpleIcon
+        size={12}
+        className="shrink-0 text-gray-9 opacity-0 group-hover:opacity-100"
+      />
+    </button>
   );
 }
 
@@ -597,41 +715,26 @@ function LoopSkillSummary({ loop }: { loop: LoopSchemas.Loop }) {
 function InstructionsSection({ loop }: { loop: LoopSchemas.Loop }) {
   const updateLoop = useUpdateLoop(loop.id);
   const primarySkill = primaryLoopSkillBundle(loop);
-  const [draft, setDraft] = useState<string | null>(null);
-  // Escape reverts and blurs; skip the resulting onBlur save.
-  const skipCommit = useRef(false);
-
-  const commit = (value: string) => {
-    if (skipCommit.current) {
-      skipCommit.current = false;
-      return;
-    }
-    const trimmed = value.trim();
-    if (!trimmed) {
-      setDraft(null);
-      return;
-    }
-    if (updateLoop.isPending) return;
-    if (trimmed === loop.instructions.trim()) {
-      setDraft(null);
-      return;
-    }
-    updateLoop.mutate(
-      { instructions: trimmed },
-      {
-        onSuccess: () => {
-          setDraft(null);
-          toast.success("Instructions updated");
+  const edit = useInlineEdit({
+    current: loop.instructions,
+    isPending: updateLoop.isPending,
+    onCommit: (instructions, { reset }) =>
+      updateLoop.mutate(
+        { instructions },
+        {
+          onSuccess: () => {
+            reset();
+            toast.success("Instructions updated");
+          },
+          onError: (error) => {
+            reset();
+            toast.error("Failed to update instructions", {
+              description: error.message,
+            });
+          },
         },
-        onError: (error) => {
-          setDraft(null);
-          toast.error("Failed to update instructions", {
-            description: error.message,
-          });
-        },
-      },
-    );
-  };
+      ),
+  });
 
   return (
     <Flex direction="column" gap="3">
@@ -644,19 +747,11 @@ function InstructionsSection({ loop }: { loop: LoopSchemas.Loop }) {
         ) : null}
       </Flex>
       <Textarea
-        value={draft ?? loop.instructions}
+        value={edit.draft ?? loop.instructions}
         disabled={updateLoop.isPending}
         aria-label="Loop instructions"
         className="max-h-[400px] min-h-[200px] bg-(--color-panel-solid) text-[12.5px] leading-relaxed"
-        onChange={(e) => setDraft(e.currentTarget.value)}
-        onBlur={(e) => commit(e.currentTarget.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") {
-            skipCommit.current = true;
-            setDraft(null);
-            e.currentTarget.blur();
-          }
-        }}
+        {...edit.inputProps}
       />
       {primarySkill ? (
         <Text className="text-[11px] text-gray-10 leading-snug">
