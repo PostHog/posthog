@@ -171,8 +171,8 @@ export function ClaudeCodeSettings() {
       <PermissionsSettings />
 
       <SettingRow
-        label="Bypass permissions"
-        description="Skip all permission prompts. Claude will run bash commands, edit files, browse the web and use any tool without asking first"
+        label="Allow bypass permissions mode"
+        description="Adds bypass permissions to the mode menu so you can pick it for a single task. Tasks keep asking for approval until you choose it. A task in that mode runs bash commands, file edits and web requests without asking. This also unlocks Full access in Codex"
         noBorder
       >
         <Switch
@@ -188,9 +188,10 @@ export function ClaudeCodeSettings() {
             <Warning weight="fill" />
           </Callout.Icon>
           <Callout.Text>
-            Bypass Permissions is enabled. All actions (shell commands, file
-            edits, web requests) run without approval. Pick this mode from the
-            mode menu in the prompt input per session.
+            Bypass permissions is now available in the mode menu in the prompt
+            input. Pick it per session when you want that session to run shell
+            commands, file edits and web requests without approval. Other
+            sessions are unaffected.
           </Callout.Text>
         </Callout.Root>
       )}
@@ -204,31 +205,36 @@ export function ClaudeCodeSettings() {
             <Flex align="center" gap="2">
               <Warning size={20} weight="fill" color="var(--red-9)" />
               <Text color="red" className="font-bold">
-                Enable bypass permissions
+                Allow bypass permissions mode
               </Text>
             </Flex>
           </AlertDialog.Title>
           <AlertDialog.Description className="text-sm">
             <Flex direction="column" gap="3">
+              <Text>
+                This makes bypass permissions selectable in the mode menu. It
+                does not turn it on for your tasks. Each session keeps its
+                current mode until you pick bypass for it.
+              </Text>
               <Text color="red" className="font-medium">
-                With bypass enabled, Claude will execute every action without
-                asking -- including shell commands, file edits, web requests and
+                A session running in bypass mode executes every action without
+                asking, including shell commands, file edits, web requests and
                 any installed MCP tools.
               </Text>
               <Text>
-                This mode is intended for sandboxed environments (containers or
-                VMs) with restricted network access that can be easily restored.
+                Pick it for sandboxed environments (containers or VMs) with
+                restricted network access that can be easily restored.
               </Text>
               <Text className="font-medium">
                 By proceeding, you accept all responsibility for actions taken
-                while bypass is enabled.
+                in sessions you run with bypass.
               </Text>
             </Flex>
           </AlertDialog.Description>
           <Flex gap="3" mt="4" justify="end">
             <AlertDialog.Cancel>
               <Button variant="soft" color="gray">
-                No, exit
+                Cancel
               </Button>
             </AlertDialog.Cancel>
             <AlertDialog.Action>
@@ -237,7 +243,7 @@ export function ClaudeCodeSettings() {
                 color="red"
                 onClick={handleConfirmBypassPermissions}
               >
-                Yes, I accept
+                Allow bypass mode
               </Button>
             </AlertDialog.Action>
           </Flex>
