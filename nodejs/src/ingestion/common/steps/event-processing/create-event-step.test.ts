@@ -308,7 +308,6 @@ describe('create-event-step', () => {
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
                     message: mockMessage,
-                    lastStep: 'prepareEventStep',
                 })
 
                 expect(isOkResult(result)).toBe(true)
@@ -340,7 +339,6 @@ describe('create-event-step', () => {
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
                     message: mockMessage,
-                    lastStep: 'prepareEventStep',
                 })
 
                 expect(isOkResult(result)).toBe(true)
