@@ -1,4 +1,4 @@
-import { creditsToUsd, formatCreditCount, formatCredits, formatCreditsRange } from './credits'
+import { creditsToUsd, formatCreditCount, formatCredits, formatCreditsRange, freeTierNote } from './credits'
 
 describe('credits formatting', () => {
     it.each([
@@ -34,5 +34,12 @@ describe('credits formatting', () => {
         [1, 1, '1 of 1 credit'],
     ])('formatCreditsRange(%p, %p) -> %p', (used, total, expected) => {
         expect(formatCreditsRange(used, total)).toBe(expected)
+    })
+
+    it.each([
+        [2500, 'First 2,500 credits each period are free'],
+        [0, null],
+    ])('freeTierNote(%p) -> %p', (freeCredits, expected) => {
+        expect(freeTierNote(freeCredits)).toBe(expected)
     })
 })

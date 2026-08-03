@@ -27,7 +27,7 @@ logger = structlog.get_logger(__name__)
 # Fallback monthly credit cap for orgs billing has never synced (self-hosted, sync gaps, malformed
 # limits). Matches the free plan's allocation so an unsynced org is never better off than a synced
 # free-tier org; self-hosted deployments raise it via the env var.
-MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", 2500, type_cast=int)
+MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
 
 # Billing's usage_key for this product; see ee/billing/quota_limiting.QuotaResource.REPLAY_VISION_CREDITS.
 USAGE_KEY = "replay_vision_credits"

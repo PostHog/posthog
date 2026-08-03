@@ -41,7 +41,6 @@ import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../utils/credits'
-import { hasBillableSpend } from '../utils/quotaProjection'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
@@ -138,8 +137,7 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
-    const { quota } = useValues(visionQuotaLogic)
-    const showUsd = hasBillableSpend(quota)
+    const { showUsd } = useValues(visionQuotaLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
         // Flags load asynchronously, so wait for them before deciding the page doesn't exist.

@@ -28,6 +28,16 @@ export function formatCredits(credits: number): string {
     return `${formatCreditCount(credits)} (≈ ${creditsToUsd(credits)})`
 }
 
+/** `formatCredits` for orgs that can be billed, `formatCreditCount` for orgs whose spend is all free. */
+export function formatCreditsMaybeUsd(credits: number, showUsd: boolean): string {
+    return showUsd ? formatCredits(credits) : formatCreditCount(credits)
+}
+
+/** e.g. 2500 -> "First 2,500 credits each period are free"; null when the plan includes nothing free. */
+export function freeTierNote(freeCredits: number): string | null {
+    return freeCredits > 0 ? `First ${formatCreditCount(freeCredits)} each period are free` : null
+}
+
 /** A "used of limit" pair that names the unit once, e.g. (1200, 5000) -> "1,200 of 5,000 credits". */
 export function formatCreditsRange(used: number, total: number): string {
     return `${Math.round(used).toLocaleString('en-US')} of ${formatCreditCount(total)}`

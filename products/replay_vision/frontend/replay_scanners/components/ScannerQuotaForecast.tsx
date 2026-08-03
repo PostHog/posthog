@@ -1,18 +1,15 @@
 import { useValues } from 'kea'
 
-import { LemonCard, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
-import { urls } from 'scenes/urls'
 
-import { ProductKey } from '~/queries/schema/schema-general'
-
+import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount, freeTierNote } from '../../utils/credits'
 import {
     QUOTA_STATUS_STYLES,
     type QuotaStatus,
-    hasBillableSpend,
     hasCreditLimit,
     projectQuota,
     splitProjectedPct,
@@ -29,7 +26,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const { scanner, scannerEstimate, scannerEstimateLoading, scannerEstimateError } = useValues(
         replayScannerLogic({ id: scannerId })
     )
-    const { displayQuota: quota, startupCapCredits, showStartupCapLine } = useValues(visionQuotaLogic)
+    const { quota, showUsd } = useValues(visionQuotaLogic)
 
     if (!scanner) {
         return null
@@ -42,6 +39,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const hasCap = hasCreditLimit(quota)
     const used = quota?.credits_used ?? 0
     const cap = quota?.credit_limit ?? 0
+    const freeNote = freeTierNote(quota?.free_monthly_credits ?? 0)
 
     // `other_enabled_scanners_monthly_credits` comes from the same estimate response as `projectedCredits`, so the
     // two are a consistent snapshot. Subtracting this scanner's stored estimate from the live fleet sum instead would
@@ -74,11 +72,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     Monthly limit: <strong>{formatCreditCount(cap)}</strong>
                 </div>
             )}
-            {(quota?.free_monthly_credits ?? 0) > 0 && (
-                <div className="text-muted">
-                    First {formatCreditCount(quota?.free_monthly_credits ?? 0)} each period are free
-                </div>
-            )}
+            {freeNote && <div className="text-muted">{freeNote}</div>}
             {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
         </div>
     )
@@ -104,7 +98,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                             ~{formatCreditCount(projectedCredits)}
                             <span className="text-sm font-normal text-muted">/month</span>{' '}
                             <span className="text-sm font-normal text-muted">
-                                {hasBillableSpend(quota) ? `(≈ ${creditsToUsd(projectedCredits)}) · ` : ''}
+                                {showUsd ? `(≈ ${creditsToUsd(projectedCredits)}) · ` : ''}
                                 {(projectedObservations ?? 0).toLocaleString()} observations at{' '}
                                 {formatCreditCount(scannerEstimate?.credits_per_observation ?? 0)} each
                             </span>
@@ -127,10 +121,8 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
 
             {!hasCap && projectedCredits !== null && (
                 <Tooltip title={breakdown}>
-                    <div className={`text-xs ${newFleetMonthly > 0 ? 'text-warning' : 'text-muted'}`}>
-                        No billing limit set. All enabled scanners are projected to use ~
-                        {formatCreditCount(newFleetMonthly)}/month.{' '}
-                        <Link to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>Set a billing limit</Link>
+                    <div>
+                        <NoBillingLimitNote projectedCredits={newFleetMonthly} />
                     </div>
                 </Tooltip>
             )}

@@ -9,10 +9,11 @@ import { urls } from 'scenes/urls'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
+import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { billableCredits, creditsToUsd, formatCreditCount } from '../../utils/credits'
-import { QUOTA_STATUS_STYLES, hasBillableSpend, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
+import { creditsToUsd, formatCreditCount, freeTierNote } from '../../utils/credits'
+import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
 import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
@@ -25,18 +26,12 @@ const COLLECTION_ID = 'replay-vision-list-observations'
 export function VisionMetrics(): JSX.Element {
     const { scannerStats, chartDateFrom, chartDateTo } = useValues(replayScannersLogic)
     const { setChartDateRange } = useActions(replayScannersLogic)
-    const {
-        displayQuota: quota,
-        quotaLoading,
-        startupCapCredits,
-        showStartupCap,
-        showStartupCapLine,
-    } = useValues(visionQuotaLogic)
+    const { quota, quotaLoading, showUsd, billedCredits, billedLimitCredits } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, projectedPct } = projection
     const hasCap = hasCreditLimit(quota)
-    const showUsd = hasBillableSpend(quota)
+    const freeNote = quota ? freeTierNote(quota.free_monthly_credits) : null
     const styles = QUOTA_STATUS_STYLES[status]
 
     // Memoized so a re-render (e.g. stats/quota arriving) can't churn the query and abort an in-flight load.
@@ -135,18 +130,11 @@ export function VisionMetrics(): JSX.Element {
                             </div>
                             {showUsd && (
                                 <div className="text-muted text-sm tabular-nums">
-                                    ≈ {creditsToUsd(billableCredits(quota.credits_used, quota.free_monthly_credits))}{' '}
-                                    billed
-                                    {hasCap
-                                        ? ` / ${creditsToUsd(billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits))} limit`
-                                        : ''}
+                                    ≈ {creditsToUsd(billedCredits)} billed
+                                    {hasCap ? ` / ${creditsToUsd(billedLimitCredits)} limit` : ''}
                                 </div>
                             )}
-                            {quota.free_monthly_credits > 0 && (
-                                <div className="text-muted text-xs">
-                                    First {formatCreditCount(quota.free_monthly_credits)} each period are free
-                                </div>
-                            )}
+                            {freeNote && <div className="text-muted text-xs">{freeNote}</div>}
                             {hasCap ? (
                                 <>
                                     <Tooltip
@@ -197,16 +185,8 @@ export function VisionMetrics(): JSX.Element {
                                     </div>
                                 </>
                             ) : (
-                                <div
-                                    className={`text-xs mt-2 ${
-                                        quota.projected_monthly_credits > 0 ? 'text-warning' : 'text-muted'
-                                    }`}
-                                >
-                                    No billing limit set. Enabled scanners are projected to use ~
-                                    {formatCreditCount(quota.projected_monthly_credits)}/month.{' '}
-                                    <Link to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>
-                                        Set a billing limit
-                                    </Link>
+                                <div className="mt-2">
+                                    <NoBillingLimitNote projectedCredits={quota.projected_monthly_credits} />
                                 </div>
                             )}
                             {showStartupCap && (
