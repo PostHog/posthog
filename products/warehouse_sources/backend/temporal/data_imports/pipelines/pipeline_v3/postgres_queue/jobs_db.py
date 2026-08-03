@@ -389,21 +389,6 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
     """
 
 
-# Retained for the duckgres sink, which still coordinates via session advisory
-# locks (see duckgres/jobs_db.py). The delta queue now uses leases instead.
-async def unlock_advisory_locks(
-    conn: psycopg.AsyncConnection[Any],
-    *,
-    batches: list[PendingBatch],
-    namespace: int,
-) -> None:
-    for batch in batches:
-        await conn.execute(
-            "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
-            {"ns": namespace, "key": f"{batch.team_id}:{batch.schema_id}"},
-        )
-
-
 @dataclass(frozen=True, slots=True)
 class PendingBatch:
     """A batch row fetched from the queue, ready to be processed by the consumer."""
@@ -868,9 +853,8 @@ class BatchQueue:
     ) -> bool:
         """Check whether ``owner_token`` still holds a live group lease for (team_id, schema_id).
 
-        Named ``verify_advisory_lock`` for interface continuity with the
-        consumer engine and the duckgres sink; ownership is now a lease row, not
-        a session advisory lock.
+        Named ``verify_advisory_lock`` for interface continuity with the consumer engine;
+        ownership is a lease row, not a session advisory lock.
         """
         async with conn.cursor() as cur:
             await cur.execute(

@@ -48,9 +48,6 @@ tools:
     data-warehouse-managed-warehouse-data-status-retrieve:
         operation: data_warehouse_managed_warehouse_data_status_retrieve
         enabled: false
-    data-warehouse-managed-warehouse-source-schemas-retrieve:
-        operation: data_warehouse_managed_warehouse_source_schemas_retrieve
-        enabled: false
     data-warehouse-onboard-team-create:
         operation: data_warehouse_onboard_team_create
         enabled: false

@@ -659,7 +659,6 @@ SPECTACULAR_SETTINGS = {
             "backfilling",
             "up_to_date",
             "needs_attention",
-            "sync_paused",
         ],
         # Full signal taxonomy on the report `signals` endpoint; the source-config serializer's
         # subset enums keep their own auto-resolved names.

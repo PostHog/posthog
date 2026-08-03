@@ -85,7 +85,6 @@ export interface DeprovisionWarehouseResponseApi {
  * * `backfilling` - backfilling
  * * `up_to_date` - up_to_date
  * * `needs_attention` - needs_attention
- * * `sync_paused` - sync_paused
  */
 export type ManagedWarehouseReadinessStateEnumApi =
     (typeof ManagedWarehouseReadinessStateEnumApi)[keyof typeof ManagedWarehouseReadinessStateEnumApi]
@@ -96,7 +95,6 @@ export const ManagedWarehouseReadinessStateEnumApi = {
     Backfilling: 'backfilling',
     UpToDate: 'up_to_date',
     NeedsAttention: 'needs_attention',
-    SyncPaused: 'sync_paused',
 } as const
 
 /**
@@ -122,8 +120,7 @@ export interface ManagedWarehouseDatasetStatusApi {
      * * `waiting` - waiting
      * * `backfilling` - backfilling
      * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention
-     * * `sync_paused` - sync_paused */
+     * * `needs_attention` - needs_attention */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the current readiness state. */
     detail: string
@@ -146,56 +143,6 @@ export interface ManagedWarehouseDatasetStatusApi {
     last_updated_at: string | null
 }
 
-export interface ManagedWarehouseSourceSummaryApi {
-    /** Imported source connection identifier. */
-    source_id: string
-    /** Display name for the imported source connection. */
-    source_name: string
-    /** Type of the imported source connection. */
-    source_type: string
-    /** Rolled-up warehouse readiness state across this source's schemas.
-     *
-     * * `not_configured` - not_configured
-     * * `waiting` - waiting
-     * * `backfilling` - backfilling
-     * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention
-     * * `sync_paused` - sync_paused */
-    readiness_state: ManagedWarehouseReadinessStateEnumApi
-    /** Human-readable explanation of this source's readiness state. */
-    detail: string
-    /** Number of this source's schemas visible to the warehouse. */
-    total_schemas: number
-    /** Number of schemas whose one-time historical copy into the warehouse has completed. */
-    backfilled_schemas: number
-    /**
-     * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
-     * @nullable
-     */
-    last_applied_at: string | null
-    /**
-     * Most recent upstream source import completion across this source's schemas.
-     * @nullable
-     */
-    last_synced_at: string | null
-}
-
-export interface ManagedWarehouseSourcesStatusApi {
-    /** Rolled-up readiness state for imported sources.
-     *
-     * * `not_configured` - not_configured
-     * * `waiting` - waiting
-     * * `backfilling` - backfilling
-     * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention
-     * * `sync_paused` - sync_paused */
-    readiness_state: ManagedWarehouseReadinessStateEnumApi
-    /** Human-readable explanation of imported source readiness. */
-    detail: string
-    /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
-    sources: ManagedWarehouseSourceSummaryApi[]
-}
-
 export interface ManagedWarehouseDataStatusResponseApi {
     /** Highest-priority readiness state across all warehouse datasets.
      *
@@ -203,65 +150,14 @@ export interface ManagedWarehouseDataStatusResponseApi {
      * * `waiting` - waiting
      * * `backfilling` - backfilling
      * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention
-     * * `sync_paused` - sync_paused */
+     * * `needs_attention` - needs_attention */
     overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Events backfill readiness. */
     events: ManagedWarehouseDatasetStatusApi
     /** Persons backfill readiness. */
     persons: ManagedWarehouseDatasetStatusApi
-    /** Imported source table readiness. */
-    sources: ManagedWarehouseSourcesStatusApi
     /** When this status snapshot was generated. */
     generated_at: string
-}
-
-export interface ManagedWarehouseSourceTableStatusApi {
-    /** Imported source schema identifier. */
-    schema_id: string
-    /** Imported source connection identifier. */
-    source_id: string
-    /** Display name for the imported source connection. */
-    source_name: string
-    /** Type of the imported source connection. */
-    source_type: string
-    /** Imported table name. */
-    table_name: string
-    /** User-facing warehouse readiness state for this table.
-     *
-     * * `not_configured` - not_configured
-     * * `waiting` - waiting
-     * * `backfilling` - backfilling
-     * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention
-     * * `sync_paused` - sync_paused */
-    readiness_state: ManagedWarehouseReadinessStateEnumApi
-    /** Human-readable explanation of the table's readiness state. */
-    detail: string
-    /** Whether the one-time historical copy into the warehouse has completed for this table. */
-    backfilled: boolean
-    /** Backfill chunks already copied into the warehouse. */
-    completed_chunks: number
-    /**
-     * Total backfill chunks, or null before the copy plan is ready.
-     * @nullable
-     */
-    total_chunks: number | null
-    /**
-     * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
-     * @nullable
-     */
-    last_applied_at: string | null
-    /**
-     * When PostHog most recently completed the upstream source import.
-     * @nullable
-     */
-    last_synced_at: string | null
-}
-
-export interface ManagedWarehouseSourceSchemasResponseApi {
-    /** Per-schema backfill and live import application status for the requested source. */
-    schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
 export interface OnboardWarehouseTeamRequestApi {
@@ -4162,13 +4058,6 @@ export type DataWarehouseCheckSchemaNameRetrieveParams = {
      * @minLength 1
      */
     name: string
-}
-
-export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
-    /**
-     * Imported source connection to fetch per-schema detail for.
-     */
-    source_id: string
 }
 
 export type FixHogqlListParams = {
