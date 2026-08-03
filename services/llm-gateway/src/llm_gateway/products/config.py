@@ -246,12 +246,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     "review_hog": ProductConfig(
         allowed_application_ids=None,
         # The models the review pipeline pins: sonnet-5 (perspectives + one-shots), opus-4-8
-        # (validation), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers), GLM 5.2 (evaluated as reviewer).
+        # (validation), opus-5 (outcome judge), gpt-5.5 / gpt-5.6 sol+luna+terra (Codex reviewers),
+        # GLM 5.2 (evaluated as reviewer).
         allowed_models=frozenset(
             {
                 "@cf/zai-org/glm-5.2",
                 "claude-sonnet-5",
                 "claude-opus-4-8",
+                "claude-opus-5",
                 "gpt-5.5",
                 "gpt-5.6-sol",
                 "gpt-5.6-luna",
