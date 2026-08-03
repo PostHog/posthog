@@ -79,7 +79,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
         })
         void copyToClipboard(
             `${window.location.origin}${addProjectIdIfMissing(urls.inboxScout(skillName, emission.finding_id))}`,
-            'finding link'
+            'signal link'
         )
     }
 
@@ -125,7 +125,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
                 <LemonButton
                     size="xsmall"
                     icon={<IconLink />}
-                    tooltip="Copy a link to this finding"
+                    tooltip="Copy a link to this signal"
                     className="mr-2 shrink-0"
                     onClick={copyFindingLink}
                 />
@@ -170,7 +170,7 @@ export const ScoutEmissionCard = memo(function ScoutEmissionCard({
 
                 {expanded && (
                     <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
-                        <MonoId label="Finding" value={emission.finding_id} />
+                        <MonoId label="Signal" value={emission.finding_id} />
                         {showScout && (
                             <Link
                                 to={urls.inboxScout(skillName)}

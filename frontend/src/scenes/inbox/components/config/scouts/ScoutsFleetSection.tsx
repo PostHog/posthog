@@ -150,7 +150,7 @@ function summarize(summary: FleetSummary | null): string {
     // definition of output (`emitRate`), so the count and the percentage always agree.
     const outputParts: string[] = []
     if (summary.emittedCount > 0) {
-        outputParts.push(pluralize(summary.emittedCount, 'finding'))
+        outputParts.push(pluralize(summary.emittedCount, 'signal'))
     }
     if (summary.touchedReportCount > 0) {
         outputParts.push(`${pluralize(summary.touchedReportCount, 'report')} touched`)

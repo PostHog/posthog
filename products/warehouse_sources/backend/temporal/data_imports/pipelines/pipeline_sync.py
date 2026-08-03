@@ -29,6 +29,9 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
     resolve_table_and_folder_names,
@@ -114,11 +117,14 @@ class PipelineInputs:
 
 async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> None:
     @database_sync_to_async_pool
+    @retry_on_operational_error
     def _update():
         job = ExternalDataJob.objects.get(pk=job_id)
         schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
         schema.last_synced_at = job.created_at
-        schema.save()
+        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
+        # `_get_before_update` SELECT that also needs a pooler connection (see save()).
+        schema.save(skip_activity_log=True)
 
     await _update()
 

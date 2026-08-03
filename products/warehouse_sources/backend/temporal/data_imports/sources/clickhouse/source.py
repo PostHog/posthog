@@ -115,6 +115,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql"],
             releaseStatus=ReleaseStatus.GA,
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",

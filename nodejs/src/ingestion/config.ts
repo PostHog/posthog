@@ -173,6 +173,11 @@ export type IngestionConsumerConfig = {
     // consulting posthog_personlessdistinctid for the version-0 optimization. Comma-separated team
     // IDs, or '*' for all teams; empty means no teams.
     PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: string
+    // Steps 3+4 of the personless-table removal RFC: for these teams, stop writing
+    // posthog_personlessdistinctid (chunk inserts, single-row fallback, merge upserts) and stop
+    // reading the is_merged race hint. Implies always-v1 merge versioning for the team, so the
+    // table's absence can never orphan events. Comma-separated team IDs, or '*' for all teams.
+    PERSONLESS_WRITES_DISABLED_TEAMS: string
 
     // Group batch writing config
     GROUP_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -316,6 +321,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '',
+        PERSONLESS_WRITES_DISABLED_TEAMS: '',
 
         // Group batch writing config
         GROUP_BATCH_WRITING_USE_BATCH_UPDATES: true,
