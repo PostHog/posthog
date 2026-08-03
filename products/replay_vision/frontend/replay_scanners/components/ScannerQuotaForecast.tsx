@@ -1,8 +1,11 @@
 import { useValues } from 'kea'
 
-import { LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
@@ -121,6 +124,16 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     </span>
                 )}
             </div>
+
+            {!hasCap && projectedCredits !== null && (
+                <Tooltip title={breakdown}>
+                    <div className={`text-xs ${newFleetMonthly > 0 ? 'text-warning' : 'text-muted'}`}>
+                        No billing limit set. All enabled scanners are projected to use ~
+                        {formatCreditCount(newFleetMonthly)}/month.{' '}
+                        <Link to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>Set a billing limit</Link>
+                    </div>
+                </Tooltip>
+            )}
 
             {hasCap && projectedCredits !== null && (
                 <>

@@ -197,10 +197,16 @@ export function VisionMetrics(): JSX.Element {
                                     </div>
                                 </>
                             ) : (
-                                <div className="text-xs text-muted mt-2">
-                                    No spend limit set: projected ~{formatCreditCount(quota.projected_monthly_credits)}
-                                    /month from enabled scanners. Set a billing limit in your billing settings to cap
-                                    spend.
+                                <div
+                                    className={`text-xs mt-2 ${
+                                        quota.projected_monthly_credits > 0 ? 'text-warning' : 'text-muted'
+                                    }`}
+                                >
+                                    No billing limit set. Enabled scanners are projected to use ~
+                                    {formatCreditCount(quota.projected_monthly_credits)}/month.{' '}
+                                    <Link to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>
+                                        Set a billing limit
+                                    </Link>
                                 </div>
                             )}
                             {showStartupCap && (
