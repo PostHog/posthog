@@ -437,6 +437,18 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         assert act("pin").json()["pinned"] is True
         assert act("unpin").json()["pinned"] is False
 
+        with patch.object(build_service, "MAX_PINNED_BUILDS_PER_CANVAS", 1):
+            assert act("pin").status_code == status.HTTP_200_OK
+            with team_scope(self.team.id):
+                other = CanvasBuild.objects.create(
+                    team_id=self.team.id,
+                    canvas_id=canvas_id,
+                    source_version_id=build.source_version_id,
+                    status=CanvasBuild.STATUS_QUEUED,
+                )
+            assert act("pin", other.id).status_code == status.HTTP_400_BAD_REQUEST
+            assert act("unpin").status_code == status.HTTP_200_OK
+
         # Cancel the queued build, then retry it.
         response = act("cancel")
         assert response.json()["build_status"] == "failed"

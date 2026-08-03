@@ -45,6 +45,7 @@ from products.canvas.backend.source import SYNTHETIC_INDEX_HTML, has_errors, val
 logger = structlog.get_logger(__name__)
 
 MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM = 20
+MAX_PINNED_BUILDS_PER_CANVAS = 10
 MAX_BUILD_ATTEMPTS = 3
 
 CANVAS_BUILD_OUTCOMES = Counter(
@@ -458,8 +459,15 @@ def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBui
     now = timezone.now()
     with transaction.atomic(), team_scope(canvas.team_id):
         build = CanvasBuild.objects.for_team(canvas.team_id).select_for_update().get(pk=build_id, canvas_id=canvas.id)
-        if action == "pin" or action == "unpin":
-            build.pinned = action == "pin"
+        if action == "pin":
+            Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
+            pinned_count = CanvasBuild.objects.for_team(canvas.team_id).filter(canvas_id=canvas.id, pinned=True).count()
+            if not build.pinned and pinned_count >= MAX_PINNED_BUILDS_PER_CANVAS:
+                raise ValueError(f"A canvas can retain at most {MAX_PINNED_BUILDS_PER_CANVAS} pinned builds.")
+            build.pinned = True
+            build.save(update_fields=["pinned"])
+        elif action == "unpin":
+            build.pinned = False
             build.save(update_fields=["pinned"])
         elif action == "retry":
             if build.status != CanvasBuild.STATUS_FAILED:
