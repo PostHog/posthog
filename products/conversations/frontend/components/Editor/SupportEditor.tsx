@@ -193,7 +193,7 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
 }
 
 /** Keep in sync with the content types the media upload API accepts for the `file` field */
-const ATTACHMENT_EXTENSIONS = ['.pdf', '.txt', '.csv', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']
+const ATTACHMENT_EXTENSIONS = ['.pdf', '.txt', '.csv', '.docx', '.xlsx', '.pptx']
 const ATTACHMENT_ACCEPT = ['image/*', ...ATTACHMENT_EXTENSIONS].join(',')
 
 /** Matches the API, which takes an allowed content type or an allowed extension. A drop bypasses `accept`. */

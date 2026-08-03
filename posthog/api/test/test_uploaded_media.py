@@ -165,6 +165,12 @@ class TestMediaAPI(APIBaseTest):
             ("archive", "bundle.zip", "application/zip"),
             ("executable", "installer.exe", "application/octet-stream"),
             ("no extension", "attachment", "application/octet-stream"),
+            # A caller-declared content type must not let an arbitrary extension through:
+            # the stored name is what the download is saved as
+            ("executable declaring an allowed type", "payload.exe", "application/pdf"),
+            ("executable with a trailing dot", "payload.exe.", "application/pdf"),
+            ("extension disagreeing with an allowed type", "notes.txt", "text/csv"),
+            ("legacy office format", "macros.doc", "application/msword"),
         ]
     )
     def test_rejects_files_outside_the_document_allowlist(self, _name: str, file_name: str, content_type: str) -> None:
@@ -190,6 +196,21 @@ class TestMediaAPI(APIBaseTest):
                 response.json()["content_type"]
                 == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
+
+    def test_strips_bidi_characters_from_the_stored_file_name(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            disguised = SimpleUploadedFile(
+                name="report‮fdp.pdf",
+                content=b"%PDF-1.4",
+                content_type="application/pdf",
+            )
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"file": disguised},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            assert response.json()["name"] == "reportfdp.pdf"
 
     def test_rejects_too_large_document(self) -> None:
         fake_big_file = SimpleUploadedFile(

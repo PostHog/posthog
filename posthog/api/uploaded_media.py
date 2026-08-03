@@ -30,18 +30,19 @@ TEN_MEGABYTES = 10 * 1024 * 1024
 # than embed them (support ticket replies). These are never rendered inline — the
 # download endpoint serves anything outside _INLINE_SAFE_CONTENT_TYPES as an
 # opaque attachment — so the list only needs to cover what people actually send.
+# The legacy OLE formats (.doc/.xls/.ppt) are deliberately absent: nothing scans
+# these bytes, and they can carry VBA that their OpenXML equivalents cannot.
 _DOCUMENT_EXTENSION_CONTENT_TYPES = {
     ".pdf": "application/pdf",
     ".txt": "text/plain",
     ".csv": "text/csv",
-    ".doc": "application/msword",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ".xls": "application/vnd.ms-excel",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    ".ppt": "application/vnd.ms-powerpoint",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 _ALLOWED_DOCUMENT_CONTENT_TYPES = frozenset(_DOCUMENT_EXTENSION_CONTENT_TYPES.values())
+
+MAX_FILE_NAME_LENGTH = 255
 
 # Content types safe to render inline in a browser when served from the
 # unauthenticated /uploaded_media endpoint. Anything outside this set is
@@ -72,17 +73,36 @@ def _is_inline_safe_content_type(content_type: str | None) -> bool:
     return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
-def _resolve_document_content_type(file_name: str | None, content_type: str) -> str | None:
+def _safe_file_name(file_name: str | None) -> str:
+    """Clean up a caller-supplied filename before we store it.
+
+    Both the name and the reported content type come straight from multipart headers.
+    The name is what the download is saved as and what recipients see as link text in
+    an outbound reply, so drop control and bidi-override characters (which can disguise
+    an extension) along with path separators.
+    """
+    cleaned = "".join(ch for ch in (file_name or "") if ch.isprintable())
+    cleaned = cleaned.replace("/", "_").replace("\\", "_").strip()
+    return cleaned[:MAX_FILE_NAME_LENGTH] or "attachment"
+
+
+def _resolve_document_content_type(file_name: str, content_type: str) -> str | None:
     """Pick the content type to store for a document, or None if it isn't an allowed one.
 
-    Browsers report Office files and CSVs inconsistently — a .docx often arrives as
-    application/zip or application/octet-stream depending on what the OS has registered —
-    so the extension gets a say, and what it maps to is what we store.
+    The extension is the gate, because it decides what the recipient's machine opens.
+    The reported content type can't widen that: it only gets consulted to reject a file
+    claiming to be a different allowed document than its extension says. Browsers report
+    Office files and CSVs inconsistently (a .docx often arrives as application/zip or
+    application/octet-stream), so a type outside the allowlist is not itself a reason to
+    reject.
     """
-    if content_type in _ALLOWED_DOCUMENT_CONTENT_TYPES:
-        return content_type
-    extension = os.path.splitext(file_name or "")[1].lower()
-    return _DOCUMENT_EXTENSION_CONTENT_TYPES.get(extension)
+    extension = os.path.splitext(file_name.rstrip("."))[1].lower()
+    resolved = _DOCUMENT_EXTENSION_CONTENT_TYPES.get(extension)
+    if resolved is None:
+        return None
+    if content_type in _ALLOWED_DOCUMENT_CONTENT_TYPES and content_type != resolved:
+        return None
+    return resolved
 
 
 def _attachment_disposition(file_name: str | None) -> str:
@@ -199,9 +219,10 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="""
     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
 
-    Send the file as `image` to only allow images, or as `file` to also allow documents (PDF, plain text, CSV and Office formats).
+    Send the file as `image` to only allow images, or as `file` to also allow documents (PDF, plain text, CSV, .docx, .xlsx and .pptx).
 
-    Images must have a content type beginning with 'image/' and be less than 4MB. Documents must be less than 10MB.
+    Images must have a content type beginning with 'image/' and be less than 4MB. Documents are recognized by
+    their extension and must be less than 10MB.
     """,
         responses={201: OpenApiTypes.OBJECT},
     )
@@ -212,11 +233,12 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             documents_allowed = "file" in request.data
             file = request.data["file"] if documents_allowed else request.data["image"]
 
+            file_name = _safe_file_name(file.name)
             content_type = _normalize_content_type(file.content_type)
             is_image = content_type.startswith("image/")
             if not is_image:
                 document_content_type = (
-                    _resolve_document_content_type(file.name, content_type) if documents_allowed else None
+                    _resolve_document_content_type(file_name, content_type) if documents_allowed else None
                 )
                 if document_content_type is None:
                     raise UnsupportedMediaType(file.content_type)
@@ -232,7 +254,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             uploaded_media = UploadedMedia.save_content(
                 team=self.team,
                 created_by=request.user,
-                file_name=file.name,
+                file_name=file_name,
                 content_type=content_type,
                 content=file.file,
             )
@@ -249,7 +271,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 if not validate_image_file(bytes_to_verify, user=request.user.id):
                     statsd.incr(
                         "uploaded_media.image_failed_validation",
-                        tags={"file_name": file.name, "team": self.team_id},
+                        tags={"file_name": file_name, "team": self.team_id},
                     )
                     # TODO a batch process can delete media with no records in the DB or for deleted teams
                     uploaded_media.delete()
