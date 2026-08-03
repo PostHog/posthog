@@ -736,6 +736,17 @@ class TestErrorTracking(APIBaseTest):
         # cannot assign issues from other teams
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_assigning_issue_with_mismatched_id_returns_400(self) -> None:
+        # A role UUID sent with type "user" used to reach the ORM's integer field prep
+        # unchecked and 500 with a raw ValueError instead of a validation error.
+        issue = self.create_issue()
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": "019fc6a7-0000-7000-8000-000000000000", "type": "user"}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(ErrorTrackingIssueAssignment.objects.count(), 0)
+
     @patch("products.error_tracking.backend.logic.issue_mutations.dispatch_issue_assigned_realtime")
     @patch("products.error_tracking.backend.logic.issue_mutations.send_error_tracking_issue_assigned")
     def test_assign_issue_dispatches_realtime_after_assignment(self, _send_email, mock_realtime):

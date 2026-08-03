@@ -195,6 +195,20 @@ def _assignment_repr(assignment: ErrorTrackingIssueAssignment | None) -> dict[st
     }
 
 
+def _coerce_user_assignee_id(raw_id: Any) -> int:
+    try:
+        return int(raw_id)
+    except (TypeError, ValueError):
+        raise AssigneeValidationError("User assignee id must be an integer.")
+
+
+def _coerce_role_assignee_id(raw_id: Any) -> str:
+    try:
+        return str(UUID(str(raw_id)))
+    except (TypeError, ValueError):
+        raise AssigneeValidationError("Role assignee id must be a UUID.")
+
+
 def _assign_one(
     issue: ErrorTrackingIssue,
     assignee: dict[str, Any] | None,
@@ -207,20 +221,31 @@ def _assign_one(
     serialized_assignment_before = _assignment_repr(assignment_before)
 
     if assignee:
-        if assignee["type"] == "user":
-            if not OrganizationMembership.objects.filter(user_id=assignee["id"], organization=organization).exists():
+        # Callers only pass well-typed ids (int for users, UUID for roles), but the payload can
+        # originate straight from a request body, so a mismatched id (e.g. a role UUID sent with
+        # type "user") must fail here with AssigneeValidationError rather than as a raw ValueError
+        # once it reaches the ORM's integer field prep.
+        assignee_type = assignee.get("type")
+        user_id: int | None = None
+        role_id: str | None = None
+        if assignee_type == "user":
+            user_id = _coerce_user_assignee_id(assignee.get("id"))
+            if not OrganizationMembership.objects.filter(user_id=user_id, organization=organization).exists():
                 raise AssigneeValidationError("Assignee user does not belong to this organization.")
-        elif assignee["type"] == "role":
-            if not Role.objects.filter(id=assignee["id"], organization=organization).exists():
+        elif assignee_type == "role":
+            role_id = _coerce_role_assignee_id(assignee.get("id"))
+            if not Role.objects.filter(id=role_id, organization=organization).exists():
                 raise AssigneeValidationError("Assignee role does not belong to this organization.")
+        else:
+            raise AssigneeValidationError("Assignee type must be 'user' or 'role'.")
 
         # nosemgrep: idor-lookup-without-team (assignee validated against org above)
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={
                 "team_id": issue.team_id,
-                "user_id": None if assignee["type"] != "user" else assignee["id"],
-                "role_id": None if assignee["type"] != "role" else assignee["id"],
+                "user_id": user_id,
+                "role_id": role_id,
             },
         )
 

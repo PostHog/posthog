@@ -86,6 +86,28 @@ class ErrorTrackingIssueWriteSerializer(serializers.Serializer):
     )
 
 
+class ErrorTrackingIssueAssigneeWriteSerializer(serializers.Serializer):
+    type = serializers.ChoiceField(
+        choices=["user", "role"],
+        help_text="Whether the assignee is an organization member or a role.",
+    )
+    id = serializers.CharField(
+        help_text="Id of the assignee: an integer user id for type 'user', or a role UUID for type 'role'.",
+    )
+
+
+class ErrorTrackingIssueAssignRequestSerializer(serializers.Serializer):
+    assignee = ErrorTrackingIssueAssigneeWriteSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Assignee to set on the issue. Omit or pass null to unassign.",
+    )
+
+
+class ErrorTrackingIssueAssignResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the assignment completed successfully.")
+
+
 class ErrorTrackingIssueMergeRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.UUIDField(),
@@ -226,9 +248,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
             raise NotFound("Issue not found")
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
 
+    @validated_request(
+        request_serializer=ErrorTrackingIssueAssignRequestSerializer,
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueAssignResponseSerializer)},
+    )
     @action(methods=["PATCH"], detail=True)
-    def assign(self, request: request.Request, *args: object, pk: object = None, **kwargs: object) -> Response:
-        assignee = request.data.get("assignee", None)
+    def assign(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
+        assignee = request.validated_data.get("assignee")
         try:
             issues_facade.assign_issue(
                 self.team.id,
