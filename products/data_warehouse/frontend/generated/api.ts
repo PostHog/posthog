@@ -16,6 +16,7 @@ import type {
     DataModelingJobsListParams,
     DataWarehouseCheckDatabaseNameRetrieveParams,
     DataWarehouseCheckSchemaNameRetrieveParams,
+    DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
     DataWarehouseModelPathApi,
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryColumnAnnotationApi,
@@ -28,6 +29,7 @@ import type {
     InsightVariableApi,
     InsightVariablesListParams,
     ManagedWarehouseDataStatusResponseApi,
+    ManagedWarehouseSourceSchemasResponseApi,
     OnboardWarehouseTeamRequestApi,
     OnboardWarehouseTeamResponseApi,
     PaginatedDataModelingJobListApi,
@@ -351,7 +353,7 @@ export const getDataWarehouseManagedWarehouseDataStatusRetrieveUrl = (projectId:
 }
 
 /**
- * Get events and persons readiness for the managed warehouse.
+ * Get events, persons, and imported source readiness for the managed warehouse.
  */
 export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
     projectId: string,
@@ -359,6 +361,43 @@ export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
 ): Promise<ManagedWarehouseDataStatusResponseApi> => {
     return apiMutator<ManagedWarehouseDataStatusResponseApi>(
         getDataWarehouseManagedWarehouseDataStatusRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl = (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseSourceSchemasRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_warehouse/managed-warehouse-source-schemas/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_warehouse/managed-warehouse-source-schemas/`
+}
+
+/**
+ * Per-schema backfill and live import status for one source, for the Overview tab's drill-down modal — the main status endpoint only returns a per-source rollup.
+ * @summary Get per-schema detail for one imported source
+ */
+export const dataWarehouseManagedWarehouseSourceSchemasRetrieve = async (
+    projectId: string,
+    params: DataWarehouseManagedWarehouseSourceSchemasRetrieveParams,
+    options?: RequestInit
+): Promise<ManagedWarehouseSourceSchemasResponseApi> => {
+    return apiMutator<ManagedWarehouseSourceSchemasResponseApi>(
+        getDataWarehouseManagedWarehouseSourceSchemasRetrieveUrl(projectId, params),
         {
             ...options,
             method: 'GET',

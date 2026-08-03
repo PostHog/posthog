@@ -13,7 +13,8 @@ behavior change, not a contract improvement.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
+from enum import StrEnum
 from typing import Any
 from uuid import UUID
 

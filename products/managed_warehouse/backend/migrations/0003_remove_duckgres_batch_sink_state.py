@@ -3,7 +3,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("managed_warehouse", "0001_migrate_managed_warehouse_models"),
+        ("managed_warehouse", "0002_managedwarehousesourcejob"),
     ]
 
     operations = [
