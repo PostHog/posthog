@@ -8,8 +8,6 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.tasks.calculate_cohort import trigger_cohort_events_backfill_task
-
 from products.cohorts.backend.backfill.pinning import PersonPinningCapExceeded
 from products.cohorts.backend.backfill.runs import (
     create_backfill_run_for_cohort,
@@ -36,14 +34,6 @@ from products.cohorts.backend.models.cohort import Cohort, CohortType
     BEHAVIORAL_BACKFILL_DURABILITY_ATTESTED=True,
 )
 class TestBackfillRuns(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        feature_patch = mock.patch(
-            "products.cohorts.backend.models.dependencies.posthoganalytics.feature_enabled", return_value=False
-        )
-        feature_patch.start()
-        self.addCleanup(feature_patch.stop)
-
     def _filters(self, event: str = "$pageview", window_days: int = 7) -> dict:
         return {
             "properties": {
@@ -158,12 +148,20 @@ class TestBackfillRuns(BaseTest):
         with self.assertRaisesMessage(ValueError, "Cohorts already have active backfill runs"):
             create_team_backfill_run(self.team.id, "team_enablement")
 
-    def test_celery_task_uses_explicit_team_scope(self) -> None:
+    def test_editing_the_cohort_supersedes_its_active_run(self) -> None:
+        # rust/cohort-seeder claims run rows and replays history from the filters the run pinned, so
+        # if the post_save receiver stops superseding, an edit leaves the seeder on a stale definition.
         cohort = self._cohort()
+        run = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert run is not None
 
-        trigger_cohort_events_backfill_task.run(self.team.id, cohort.id, "cohort_created")
+        with self.captureOnCommitCallbacks(execute=True):
+            cohort.filters = self._filters("signup")
+            cohort.save()
 
-        self.assertEqual(CohortBackfillRun.objects.for_team(self.team.id).filter(cohort=cohort).count(), 1)
+        run.refresh_from_db()
+        self.assertEqual(run.status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertIsNotNone(create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_edited"))
 
 
 @override_settings(
@@ -175,15 +173,6 @@ class TestBackfillRuns(BaseTest):
     BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET=1_000_000,
 )
 class TestPersonBackfillRuns(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        feature_patch = mock.patch(
-            "products.cohorts.backend.models.dependencies.posthoganalytics.feature_enabled",
-            return_value=False,
-        )
-        feature_patch.start()
-        self.addCleanup(feature_patch.stop)
-
     def _filters(
         self,
         *,
