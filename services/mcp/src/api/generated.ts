@@ -12500,6 +12500,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `queued` - queued
+     * * `building` - building
+     * * `ready` - ready
+     * * `failed` - failed
+     */
+    export type BuildStatusEnum = typeof BuildStatusEnum[keyof typeof BuildStatusEnum];
+
+
+    export const BuildStatusEnum = {
+      Queued: 'queued',
+      Building: 'building',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
      * * `partial` - partial
@@ -13127,10 +13143,10 @@ export namespace Schemas {
      * * `error` - error
      * * `warning` - warning
      */
-    export type UtmIssueSeverityEnum = typeof UtmIssueSeverityEnum[keyof typeof UtmIssueSeverityEnum];
+    export type DiagnosticSeverityEnum = typeof DiagnosticSeverityEnum[keyof typeof DiagnosticSeverityEnum];
 
 
-    export const UtmIssueSeverityEnum = {
+    export const DiagnosticSeverityEnum = {
       Error: 'error',
       Warning: 'warning',
     } as const;
@@ -50433,23 +50449,6 @@ export namespace Schemas {
     }
 
     /**
-     * Payload for publishing a freeform canvas's React source via the agent.
-     */
-    export interface PatchedCanvasPublish {
-      /** The complete single-file React source for the canvas. */
-      code?: string;
-      /** Short description of the change, stored on the appended version history entry. */
-      prompt?: string;
-      /** Optional new display name for the canvas (rewrites the leaf segment of its path). */
-      name?: string;
-      /**
-         * Optimistic-concurrency guard: the currentVersionId the publisher based its edits on (null when it read a canvas with no versions yet). When provided and the canvas has since moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 version_conflict instead of overwriting the newer head. Omit to publish unguarded.
-         * @nullable
-         */
-      expected_current_version_id?: string | null;
-    }
-
-    /**
      * Writable canvas fields: metadata only — source changes go through publish/edit.
      */
     export interface PatchedCanvasUpdate {
@@ -50486,9 +50485,6 @@ export namespace Schemas {
       base_version?: number | null;
     }
 
-    /**
-     * Request body for creating (resolve-or-create) or renaming a public channel.
-     */
     export interface PatchedChannelUpdate {
       /**
          * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
@@ -78694,47 +78690,6 @@ export namespace Schemas {
     };
 
     export type DatasetsRevisionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DesktopFileSystemListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopFileSystemInstructionsVersionsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    /**
-     * A search term.
-     */
-    search?: string;
-    };
-
-    export type DesktopFileSystemShortcutListParams = {
     /**
      * Number of results to return per page.
      */
