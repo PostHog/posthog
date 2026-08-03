@@ -67,7 +67,7 @@ export interface CdpCoreServices {
     redis: RedisV2
     /**
      * Shadow Valkey pools used for dual-write/read load testing. Null when
-     * CDP_VALKEY_DUAL_ENABLED is false or CDP_VALKEY_HOST is unset. Consumers
+     * CDP_VALKEY_HOST is unset. Consumers
      * that build their own redis-backed services (e.g. CdpEventsConsumer's
      * HogRateLimiterService) read this to construct mirror instances bound
      * to the shadow Valkey.
@@ -125,7 +125,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_PASSWORD'
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
-        | 'CDP_VALKEY_DUAL_ENABLED'
         | 'CDP_VALKEY_TLS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
@@ -245,7 +244,7 @@ export function createCdpReaderRedisPool(
 
 /**
  * Creates writer + reader pools for the shadow Valkey instance used in dual-write/read mode.
- * Returns null when CDP_VALKEY_DUAL_ENABLED is false or CDP_VALKEY_HOST is unset, in which
+ * Returns null when CDP_VALKEY_HOST is unset, in which
  * case the shadow path is disabled and behavior is identical to today.
  *
  * The reader falls back to the writer pool when CDP_VALKEY_READER_HOST is unset.
@@ -258,14 +257,13 @@ export function createCdpValkeyShadowPools(
         | 'CDP_VALKEY_PASSWORD'
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
-        | 'CDP_VALKEY_DUAL_ENABLED'
         | 'CDP_VALKEY_TLS'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
     >,
     name: string
 ): CdpValkeyShadowPools | null {
-    if (!config.CDP_VALKEY_DUAL_ENABLED || !config.CDP_VALKEY_HOST) {
+    if (!config.CDP_VALKEY_HOST) {
         return null
     }
 
