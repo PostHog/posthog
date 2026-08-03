@@ -3,6 +3,9 @@
 Status: proposal, not implemented.
 Owner: team-self-driving (owner of `products/mcp_store`).
 
+Composio is the worked example here, but the design deliberately puts it behind a provider seam.
+See [Alternatives considered](#alternatives-considered) for the other brokers and for the one change that adds integrations with no broker at all.
+
 ## Context
 
 The MCP store ships 38 servers today, hand-curated in `backend/catalog.py`.
@@ -212,3 +215,62 @@ These are not engineering choices and they gate the work:
 - Integration: `products/mcp_store/backend/test/test_proxy.py` extended with a Composio-backed installation, asserting policy enforcement and audit writes are identical to native.
 - Manual: `hogli start`, feature flag on, `COMPOSIO_API_KEY` set against a Composio dev project. Connect a toolkit from Settings → MCP servers, confirm the round trip lands back on the settings page, tools populate, a `tools/call` proxies and is audited, and a blocked tool returns `-32002`.
 - Check the same installation is reachable from PostHog Desktop and from an agent service account grant, since both consume the facade rather than the views.
+
+## Alternatives considered
+
+### First, the option with no broker at all: CIMD
+
+The store's activation gate is calibrated to a registration mechanism the MCP spec has since demoted.
+`backend/probe.py:38` pins protocol `2025-06-18`, and `AuthFlavor` (`probe.py:46`) knows only `open`, `oauth_dcr`, `oauth_shared`, and `api_key_or_unknown`.
+A server auto-activates only when it supports RFC 7591 dynamic client registration.
+
+In the `2025-11-25` spec revision, [Client ID Metadata Documents](https://workos.com/blog/client-id-metadata-documents-cimd-oauth-client-registration-mcp) became the recommended registration path (SHOULD) and DCR dropped to MAY.
+Under CIMD the `client_id` is simply an HTTPS URL that the client controls, and the authorization server fetches it to learn the client's metadata.
+The reason the spec moved is that DCR makes every new client a database write on the provider's side, which does not survive agents discovering thousands of servers.
+
+For PostHog this is close to free and strictly better than DCR on every axis we care about:
+
+- Host one JSON document at a stable `posthog.com` URL and use that URL as the client id. No registration call, no per-user client minting, no credentials to store.
+- It is white-label **by construction**. The client identity a user consents to literally is a PostHog URL, with no third party anywhere in the flow.
+- It removes the "operator registers an OAuth app by hand, per environment" step for every vendor that supports it.
+
+This does not get us to 1,000 apps, because it still only reaches vendors that run a remote MCP server.
+But that population is growing (Linear, Notion, Atlassian, Canva, MongoDB, Monday, and others ship official servers), and the work is a probe flavor plus a hosted metadata document rather than a vendor relationship.
+**Do this regardless of which broker wins**, and probably before it.
+
+### The brokers
+
+Assessed against what actually constrains us: per-user auth embedded in our UI, white-label depth, an MCP endpoint rather than a bespoke tool API, catalog breadth, and whether it can run in EU Cloud or a self-hosted instance.
+
+| Platform               | Breadth                                        | Deployment                                           | White-label                                                                                                                         | Notes                                                                                                                                                                                                              |
+| ---------------------- | ---------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Composio**           | ~1,000 toolkits, 20,000+ tools                 | Cloud; VPC/on-prem on Enterprise                     | Own OAuth app per toolkit; Connect Link branding is global                                                                          | Biggest catalog, MCP-native sessions, programmatic auth configs. Metered per tool call.                                                                                                                            |
+| **Pipedream Connect**  | ~3,000 apps, 10,000+ tools                     | Cloud                                                | Bring-your-own OAuth clients supported, but **contested**                                                                           | Largest catalog of the set and a mature MCP deployment. Their own community threads report users still seeing "Pipedream" in the Connect frontend SDK with a custom OAuth client. Verify before betting on it.     |
+| **Zapier White Label** | Zapier's full app graph                        | Cloud                                                | Strongest wrapper story: users never create a Zapier account or get billed by Zapier; partner-signed JWT + JWKS for tenant identity | **Limited access, sales-gated.** Model is actions and Zaps rather than an MCP endpoint per user. Zapier MCP proper targets individuals wiring up their own client, not multi-tenant embedding.                     |
+| **Paragon ActionKit**  | ~130 connectors                                | Cloud                                                | Core product. Connect Portal is white-labeled, with a headless option                                                               | Built precisely for embedded B2B integrations, open-source MCP server with multi-tenant JWT. An order of magnitude fewer connectors, no public pricing, connected-user contracts. Wrong shape for "hundreds more". |
+| **Arcade.dev**         | 7,000+ tools                                   | **Managed, self-host, VPC, on-prem, air-gapped**     | Per-user OAuth delegation is the core competency                                                                                    | The only one whose deployment story answers both EU residency and self-hosted PostHog. Fewer integrations than Composio or Pipedream. Partly priced per server-hour.                                               |
+| **Nango**              | 900+ APIs for auth, 600+ prebuilt integrations | **Open source (Elastic License 2.0), self-hostable** | White-label Connect UI is a first-class feature                                                                                     | Culturally the closest fit to PostHog. Catch: the free self-hosted edition covers auth and the proxy only. The MCP server, syncs, and functions need Enterprise self-hosting or Cloud.                             |
+| **Klavis AI**          | ~600 tools                                     | Open source, hosted or self-host (Strata)            | Markets white-label OAuth explicitly                                                                                                | Youngest and smallest of the set. Worth watching.                                                                                                                                                                  |
+| **Merge, Unified.to**  | Category-limited unified APIs                  | Cloud                                                | n/a                                                                                                                                 | Normalize a category (CRM, HRIS, ticketing) behind one schema. Not the shape of a broad MCP catalog.                                                                                                               |
+
+Treat the comparative claims above with care: a lot of the public material is vendors writing about each other.
+Anything load-bearing should be verified in a bake-off rather than taken from a comparison post.
+
+### What actually separates them
+
+Two observations that cut through the feature lists.
+
+**Nobody can white-label the consent screen for you.** "Composio wants to access your account" is a property of whose OAuth client id is in the request, not a vendor feature one platform has and another lacks.
+Every broker on this list requires our own registered OAuth app per vendor to change that text.
+What differs is only the surrounding wrapper: the hosted connect page, the redirect domain, the post-auth page.
+Zapier White Label and Paragon's Connect Portal are strongest there, Nango and Klavis market it, Pipedream's is disputed, Composio's needs the logo upload plus a callback proxy.
+
+**The UX work is vendor-independent.** Search-first marketplace, server-side pagination and ranking, lazy icons, curated tool subsets: all of that is ours no matter who supplies the catalog, and none of it needs a vendor decision to start.
+
+### Recommendation
+
+1. Ship the provider seam (`resolve_upstream`) and the marketplace UX work now. Both are vendor-agnostic, and the seam is what keeps this reversible.
+2. Add CIMD support to the native path. Cheapest integrations we will ever add, no vendor, no metering, no residency question.
+3. Then pick a broker for the long tail, with the choice driven by the residency and self-hosting answer rather than by catalog size:
+   - If EU Cloud and self-hosted must be covered, the shortlist is **Arcade** (VPC, on-prem, air-gapped) or **Nango** (open source, self-hostable), not Composio.
+   - If they need not be covered at launch, **Composio** and **Pipedream** win on breadth, and the tie-break is a bake-off on five real toolkits measuring white-label depth end to end, tool schema quality, and latency through their MCP endpoint.
