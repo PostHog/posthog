@@ -6,8 +6,13 @@ import { InsightPage } from '../page-models/insightPage'
 import { expect, test, PlaywrightWorkspaceSetupResult } from '../utils/workspace-test-base'
 
 async function expectSaveOptions(page: Page, expectedOption: string): Promise<void> {
-    await page.getByTestId('sql-editor-save-options-button').click()
-    await expect(page.getByRole('menuitem', { name: expectedOption, exact: true })).toBeVisible({ timeout: 30_000 })
+    const saveOption = page.getByRole('menuitem', { name: expectedOption, exact: true })
+
+    await expect(async () => {
+        await page.keyboard.press('Escape')
+        await page.getByTestId('sql-editor-save-options-button').click()
+        await expect(saveOption).toBeVisible({ timeout: 5_000 })
+    }).toPass({ timeout: 30_000 })
     await page.keyboard.press('Escape')
 }
 
