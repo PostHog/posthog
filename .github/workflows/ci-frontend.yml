@@ -329,6 +329,17 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+            # Pure filesystem walk (no install), so it runs before pnpm to fail fast.
+            # The -f guard keeps open PRs that predate the script from failing here —
+            # they'd otherwise break before their own tests ran.
+            - name: Check product UI is not growing in frontend/src/scenes
+              run: |
+                  if [ -f .github/scripts/check-scene-product-split.py ]; then
+                      python3 .github/scripts/check-scene-product-split.py
+                  else
+                      echo "check-scene-product-split.py not present on this branch; skipping."
+                  fi
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
