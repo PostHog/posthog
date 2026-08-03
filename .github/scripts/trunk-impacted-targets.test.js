@@ -64,6 +64,32 @@ const CONTEXT = {
 // What a widening decision now uploads in place of the "ALL" sentinel.
 const EVERYTHING = allKnownTargets(CONTEXT)
 
+// A graph that declares all three products, so their importer sets are bounded.
+// The base CONTEXT deliberately declares none, which covers the case where a
+// product sits outside `tach check` and has to keep widening.
+const TACH_DECLARED_CONTEXT = {
+    ...CONTEXT,
+    tachGraph: {
+        graph: parseTachModules(`
+[[modules]]
+path = "products.alpha"
+depends_on = []
+layer = "modules"
+
+[[modules]]
+path = "products.beta"
+depends_on = ["products.gamma"]
+layer = "modules"
+
+[[modules]]
+path = "products.gamma"
+depends_on = []
+layer = "modules"
+`),
+        tachDependents,
+    },
+}
+
 // gamma vendors its own pnpm workspace; alpha and beta keep the conventional
 // backend/ + frontend/ layout, so the cases above stay on the old behavior.
 const WORKSPACE_CONTEXT = {
@@ -541,12 +567,50 @@ layer = "modules"
     ])
 })
 
-test('a non-isolated product change widens to every backend target', () => {
+// The base CONTEXT keeps an empty tach graph, so no product is declared in it.
+// A product `tach check` does not constrain has no bounded importer set: any
+// module may import it, so its change still has to reach every backend lane.
+test('a product absent from the tach graph widens to every backend target', () => {
     const targets = computeTargets(['products/gamma/backend/api.py'], CONTEXT)
     assert.equal(targets.includes('py:core'), true)
     for (const product of CONTEXT.products) {
         assert.equal(targets.includes(`py:product:${product}`), true, `expected py:product:${product}`)
     }
+})
+
+// The lane only has to answer whether another PR can reference the symbols this
+// one changed, and tach.toml answers exactly that. Isolation is the stronger,
+// separate claim that the product's own suite is sufficient — which lets CI
+// skip the full Django suite, and which products/architecture.md says tach
+// cannot prove. A product can be too unsealed for that and still be bounded
+// here, which is why gamma (non-isolated) narrows the same way alpha does.
+test('a non-isolated product tach declares claims its own lane and its importers', () => {
+    assert.deepEqual(computeTargets(['products/gamma/backend/api.py'], TACH_DECLARED_CONTEXT), [
+        'py:product:beta',
+        'py:product:gamma',
+    ])
+    // Every backend file seeds, because a product with no declared contract
+    // surface has no way to say a file is internal.
+    assert.deepEqual(
+        computeTargets(['products/gamma/backend/internal/helper.py'], TACH_DECLARED_CONTEXT),
+        computeTargets(['products/gamma/backend/api.py'], TACH_DECLARED_CONTEXT)
+    )
+})
+
+// Isolation still governs the narrower question of which of a product's own
+// files seed the cascade at all, which is what a contract surface declares.
+test('isolation still buys a narrowed contract surface on top of the lane', () => {
+    const context = {
+        ...TACH_DECLARED_CONTEXT,
+        isolatedProducts: new Set([...CONTEXT.isolatedProducts, 'gamma']),
+        contractSurfaces: new Map([['gamma', compileContractMatcher(['backend/facade/**'])]]),
+    }
+    // Internals keep the product's own lane, with no cascade to beta.
+    assert.deepEqual(computeTargets(['products/gamma/backend/internal/helper.py'], context), ['py:product:gamma'])
+    assert.deepEqual(computeTargets(['products/gamma/backend/facade/api.py'], context), [
+        'py:product:beta',
+        'py:product:gamma',
+    ])
 })
 
 // 63 of the products are non-isolated, and their package.json carries the
@@ -571,9 +635,10 @@ test("a non-isolated product's declarations still seed the dependent cascade", (
     ])
 })
 
-// The narrowing is scoped to the declarations. Backend code in a non-isolated
-// product has no declared boundary, which is the whole reason it widens.
-test('a non-isolated product keeps widening on everything that is not a declaration', () => {
+// Declarations narrow even for a product tach does not declare, because they
+// configure only this product's own tasks. Its other files have neither a
+// declared boundary nor a bounded importer set, so they still widen.
+test('an undeclared product keeps widening on everything that is not a declaration', () => {
     for (const file of ['products/gamma/backend/api.py', 'products/gamma/mcp/tools.yaml']) {
         assert.equal(computeTargets([file], CONTEXT).includes('py:product:alpha'), true, file)
     }
