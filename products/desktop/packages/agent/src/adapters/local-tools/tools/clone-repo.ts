@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { createGitClient } from "@posthog/git/client";
+import { getCleanEnv } from "@posthog/git/operation-manager";
 import { getCurrentBranch } from "@posthog/git/queries";
 import { CloneSaga } from "@posthog/git/sagas/clone";
 import { parseGithubUrl } from "@posthog/git/utils";
@@ -24,6 +25,28 @@ const cloneRepoSchema = {
 
 function fail(text: string): LocalToolResult {
   return { content: [{ type: "text", text }], isError: true };
+}
+
+function githubAuthEnv(token: string | undefined): Record<string, string> {
+  if (!token) return {};
+  const basicAuth = Buffer.from(`x-access-token:${token}`).toString("base64");
+  return {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "http.extraHeader",
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${basicAuth}`,
+  };
+}
+
+function hasHttpCredentials(remoteUrl: string): boolean {
+  try {
+    const url = new URL(remoteUrl);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      Boolean(url.username || url.password)
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -61,6 +84,11 @@ export const cloneRepoTool = defineLocalTool({
     const slug = `${parsed.owner}/${parsed.repo}`;
     const repoName = parsed.repo;
     const targetPath = path.join(ctx.cwd, "repos", slug);
+    const cloneUrl = `https://github.com/${slug}.git`;
+    const authenticatedGitEnv = {
+      ...getCleanEnv(),
+      ...githubAuthEnv(token),
+    };
 
     const done = async (note?: string): Promise<LocalToolResult> => {
       const checkedOut = (await getCurrentBranch(targetPath)) ?? branch ?? null;
@@ -78,15 +106,38 @@ export const cloneRepoTool = defineLocalTool({
 
     const checkout = async (): Promise<LocalToolResult | null> => {
       if (!branch) return null;
+      const git = createGitClient(targetPath, { allowConfigEnv: true }).env(
+        authenticatedGitEnv,
+      );
       try {
-        await createGitClient(targetPath).checkout(branch);
+        await git.checkout(branch);
         return null;
-      } catch (err) {
-        return fail(
-          `Cloned ${slug} to ${targetPath} but failed to check out branch "${branch}": ${redact(
-            err instanceof Error ? err.message : String(err),
-          )}. The default branch is checked out instead.`,
-        );
+      } catch {
+        try {
+          const refspec = `+refs/heads/${branch}:refs/remotes/origin/${branch}`;
+          await git.raw([
+            "fetch",
+            "--depth",
+            "1",
+            "--no-tags",
+            "origin",
+            refspec,
+          ]);
+          const configuredRefspecs = (
+            await git.raw(["config", "--get-all", "remote.origin.fetch"])
+          ).split("\n");
+          if (!configuredRefspecs.includes(refspec)) {
+            await git.raw(["config", "--add", "remote.origin.fetch", refspec]);
+          }
+          await git.checkout(["-b", branch, "--track", `origin/${branch}`]);
+          return null;
+        } catch (err) {
+          return fail(
+            `Cloned ${slug} to ${targetPath} but failed to check out branch "${branch}": ${redact(
+              err instanceof Error ? err.message : String(err),
+            )}. The previously checked out branch is still active.`,
+          );
+        }
       }
     };
 
@@ -94,28 +145,41 @@ export const cloneRepoTool = defineLocalTool({
     // the repo in place. Reuse it instead of letting git abort on a non-empty
     // destination, which the agent would receive as an opaque error.
     if (fs.existsSync(path.join(targetPath, ".git"))) {
+      const git = createGitClient(targetPath);
+      try {
+        const originUrl = await git.remote(["get-url", "origin"]);
+        if (
+          typeof originUrl === "string" &&
+          hasHttpCredentials(originUrl.trim())
+        ) {
+          await git.remote(["set-url", "origin", cloneUrl]);
+        }
+      } catch (err) {
+        return fail(
+          `clone_repo couldn't secure the existing origin: ${redact(
+            err instanceof Error ? err.message : String(err),
+          )}`,
+        );
+      }
       return (
         (await checkout()) ??
         (await done(`${slug} already cloned at ${targetPath}`))
       );
     }
 
-    // GitHub accepts a token as the basic-auth username for https clones; this
-    // covers private repos. Public repos clone fine without it.
-    const cloneUrl = token
-      ? `https://x-access-token:${token}@github.com/${slug}.git`
-      : `https://github.com/${slug}.git`;
-
     try {
       const result = await new CloneSaga().run({
         repoUrl: cloneUrl,
         targetPath,
+        branch,
+        shallow: true,
+        env: githubAuthEnv(token),
       });
       if (!result.success) {
         return fail(`clone_repo failed: ${redact(result.error)}`);
       }
 
-      return (await checkout()) ?? (await done());
+      return done();
     } catch (err) {
       return fail(
         `clone_repo failed: ${redact(

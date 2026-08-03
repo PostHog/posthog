@@ -58,6 +58,7 @@ process.stdin.resume();
           JSON.stringify({
             providerOptions: { apiKey: "proxy-key" },
             projectTrusted: true,
+            channelMode: false,
           }),
         );
       });
@@ -67,17 +68,22 @@ process.stdin.resume();
     }
   });
 
-  it("runs the RPC host with Electron's Node mode enabled", async () => {
+  it("passes channel mode privately and enables Electron's Node mode", async () => {
     const directory = await mkdtemp(join(tmpdir(), "pi-electron-node-mode-"));
     const hostPath = join(directory, "host.mjs");
     const capturePath = join(directory, "capture.txt");
     await writeFile(
       hostPath,
       `
-import { closeSync, writeFileSync } from "node:fs";
+import { closeSync, readFileSync, writeFileSync } from "node:fs";
 
+const bootstrap = JSON.parse(readFileSync(3, "utf8"));
 closeSync(3);
-writeFileSync(${JSON.stringify(capturePath)}, process.env.ELECTRON_RUN_AS_NODE ?? "");
+writeFileSync(${JSON.stringify(capturePath)}, JSON.stringify({
+  nodeMode: process.env.ELECTRON_RUN_AS_NODE ?? "",
+  channelMode: bootstrap.channelMode,
+  apiKey: bootstrap.providerOptions.apiKey,
+}));
 process.stdin.resume();
 `,
     );
@@ -85,12 +91,19 @@ process.stdin.resume();
       cliPath: hostPath,
       cwd: directory,
       providerOptions: { apiKey: "proxy-key" },
+      channelMode: true,
     });
 
     try {
       await client.start();
       await vi.waitFor(async () => {
-        await expect(readFile(capturePath, "utf8")).resolves.toBe("1");
+        await expect(readFile(capturePath, "utf8")).resolves.toBe(
+          JSON.stringify({
+            nodeMode: "1",
+            channelMode: true,
+            apiKey: "proxy-key",
+          }),
+        );
       });
     } finally {
       await client.stop();
