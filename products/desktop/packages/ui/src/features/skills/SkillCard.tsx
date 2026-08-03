@@ -93,7 +93,7 @@ export function SkillCard({
             </Badge>
           )}
           {skill.disableModelInvocation && (
-            <Tooltip content="The agent won't use this skill on its own — only when you invoke it">
+            <Tooltip content="The agent won't use this skill on its own. It runs only when you invoke it">
               <Badge size="1" variant="soft" color="gray" className="shrink-0">
                 Manual
               </Badge>

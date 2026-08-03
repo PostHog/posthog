@@ -288,7 +288,7 @@ export function SkillDetailPanel({
             </Badge>
           )}
           {skill.disableModelInvocation && (
-            <Tooltip content="The agent won't use this skill on its own — only when you invoke it">
+            <Tooltip content="The agent won't use this skill on its own. It runs only when you invoke it">
               <Badge size="1" variant="soft" color="gray">
                 <HandTap size={10} className="text-gray-9" />
                 Manual-only

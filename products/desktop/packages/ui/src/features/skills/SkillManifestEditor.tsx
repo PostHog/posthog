@@ -90,8 +90,8 @@ export function SkillManifestEditor({
               Manual invocation only
             </Text>
             <Text className="block text-[11px] text-gray-10">
-              The agent won't use this skill on its own — only when you invoke
-              it
+              The agent won't use this skill on its own. It runs only when you
+              invoke it
             </Text>
           </Box>
           <Switch
