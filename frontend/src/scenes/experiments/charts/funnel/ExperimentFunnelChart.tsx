@@ -9,6 +9,7 @@ import {
 } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import {
     ExperimentFunnelMetric,
@@ -129,7 +130,7 @@ export function ExperimentFunnelChart({
     }
 
     return (
-        <div className="h-96 flex flex-col">
+        <LemonCard hoverEffect={false} className="h-96 flex flex-col p-2">
             <FunnelChart<VariantFunnelMeta>
                 steps={steps}
                 series={series}
@@ -142,6 +143,6 @@ export function ExperimentFunnelChart({
                 )}
                 dataAttr="experiment-funnel-chart"
             />
-        </div>
+        </LemonCard>
     )
 }
