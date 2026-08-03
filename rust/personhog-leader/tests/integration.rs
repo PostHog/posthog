@@ -2662,6 +2662,28 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
 /// pod with no fallback pool configured.
 #[tokio::test]
 async fn a_fence_with_an_unknown_outcome_keeps_both_its_version_and_its_cache_entry() {
+    for (staged, expected) in [
+        (
+            personhog_leader::fencing::FencedProduceError::FencedUncertain("staged".to_string()),
+            tonic::Code::FailedPrecondition,
+        ),
+        (
+            personhog_leader::fencing::FencedProduceError::Indeterminate("staged".to_string()),
+            tonic::Code::Unknown,
+        ),
+    ] {
+        an_unknown_outcome_keeps_its_version(staged, expected).await;
+    }
+}
+
+/// Both doubt arms carry the same obligation: the record may be in the
+/// log, so the version stays spent and the cached entry stays put. They
+/// differ only in what the caller is told — an ownership bounce when the
+/// partition also moved, plain doubt when it did not.
+async fn an_unknown_outcome_keeps_its_version(
+    staged: personhog_leader::fencing::FencedProduceError,
+    expected: tonic::Code,
+) {
     let topic = format!("fenced_uncertain_{}", uuid::Uuid::new_v4().simple());
     let cache = Arc::new(PartitionedCache::new(1 << 20));
     let (_mock_cluster, kafka_producer) = create_test_kafka().await;
@@ -2715,20 +2737,16 @@ async fn a_fence_with_an_unknown_outcome_keeps_both_its_version_and_its_cache_en
         .expect("a fenced write with a held fence must succeed");
 
     // The outcome a broker fault inside a transaction would produce.
-    fenced.stage_failure_for_test(
-        0,
-        personhog_leader::fencing::FencedProduceError::FencedUncertain(
-            "staged for test".to_string(),
-        ),
-    );
+    fenced.stage_failure_for_test(0, staged);
     let bounced = service
         .update_person_properties(update(2))
         .await
         .expect_err("an uncertain fence must not be acked");
     assert_eq!(
         bounced.code(),
-        tonic::Code::FailedPrecondition,
-        "the router still needs the ownership answer"
+        expected,
+        "the caller's answer: {}",
+        bounced.message()
     );
 
     assert_eq!(
