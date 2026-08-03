@@ -442,6 +442,7 @@ export class OAuthService {
     authUrl.searchParams.set("code_challenge_method", "S256");
     authUrl.searchParams.set("scope", OAUTH_SCOPES.join(" "));
     authUrl.searchParams.set("required_access_level", "project");
+    authUrl.searchParams.set("prompt", "select_account");
     return authUrl;
   }
 

@@ -34,7 +34,6 @@ export function InviteCodeScreen() {
       variant="ghost"
       color="gray"
       onClick={() => logoutMutation.mutate()}
-      className="opacity-50"
     >
       <SignOut size={14} />
       Log out
