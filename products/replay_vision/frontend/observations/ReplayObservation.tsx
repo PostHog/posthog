@@ -502,7 +502,9 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     {observation.recording_subject_email ?? observation.distinct_id}
                                 </Link>
                             ) : observation.recording_subject_email ? (
-                                <span>{observation.recording_subject_email}</span>
+                                <Link to={`mailto:${observation.recording_subject_email}`}>
+                                    {observation.recording_subject_email}
+                                </Link>
                             ) : (
                                 <span className="text-muted">—</span>
                             )}

@@ -16,7 +16,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
 import { formatCurrency } from 'lib/utils/currency'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
-import { isURL } from 'lib/utils/url'
+import { isEmail, isURL } from 'lib/utils/url'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
@@ -50,6 +50,22 @@ import { aiObservabilityColumnRenderers } from 'products/ai_observability/fronte
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
 export const DATETIME_KEYS = ['timestamp', 'created_at', 'last_seen', 'last_seen_at', 'session_start', 'session_end']
+
+// A bare URL or email string reads as a link but isn't clickable otherwise, so linkify it wherever it
+// falls through to plain text (HogQL/SQL results have no schema to tell us the column is a link).
+function linkifyValue(value: string): JSX.Element | undefined {
+    if (isURL(value)) {
+        return (
+            <Link to={value} target="_blank" targetBlankIcon>
+                {value}
+            </Link>
+        )
+    }
+    if (isEmail(value)) {
+        return <Link to={`mailto:${value}`}>{value}</Link>
+    }
+    return undefined
+}
 
 // Wraps the JSON viewer in a horizontally scrollable container so wide or deeply
 // nested objects stay readable inside fixed-width table cells, where the surrounding
@@ -189,6 +205,10 @@ export function renderColumn(
                         timestampStyle={query.showAbsoluteTime ? 'absolute' : 'relative'}
                     />
                 )
+            }
+            const link = linkifyValue(value)
+            if (link) {
+                return link
             }
         }
         if (typeof value === 'object') {
@@ -476,12 +496,11 @@ export function renderColumn(
         }
     }
 
-    if (typeof value === 'string' && isURL(value)) {
-        return (
-            <Link to={value} target="_blank" targetBlankIcon>
-                {value}
-            </Link>
-        )
+    if (typeof value === 'string') {
+        const link = linkifyValue(value)
+        if (link) {
+            return link
+        }
     }
 
     return String(value)

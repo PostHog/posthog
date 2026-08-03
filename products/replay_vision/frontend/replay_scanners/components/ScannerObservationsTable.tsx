@@ -7,6 +7,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { DateMappingOption } from '~/types'
@@ -137,12 +138,17 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             key: 'recording_subject',
             sorter: true,
             render: (_, obs) =>
-                obs.recording_subject_email ? (
-                    <Tooltip title={obs.distinct_id ?? undefined}>
-                        <span className="truncate block max-w-[16rem]">{obs.recording_subject_email}</span>
-                    </Tooltip>
-                ) : obs.distinct_id ? (
-                    <span className="font-mono text-xs text-muted truncate block max-w-[16rem]">{obs.distinct_id}</span>
+                obs.distinct_id ? (
+                    <PersonDisplay
+                        person={{ distinct_id: obs.distinct_id, properties: {} }}
+                        displayName={obs.recording_subject_email ?? undefined}
+                        href={urls.personByDistinctId(obs.distinct_id)}
+                        className="max-w-[16rem]"
+                    />
+                ) : obs.recording_subject_email ? (
+                    <Link to={`mailto:${obs.recording_subject_email}`} className="truncate block max-w-[16rem]">
+                        {obs.recording_subject_email}
+                    </Link>
                 ) : (
                     <span className="text-muted">—</span>
                 ),
