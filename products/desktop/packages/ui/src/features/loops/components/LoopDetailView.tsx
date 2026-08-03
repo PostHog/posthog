@@ -12,7 +12,6 @@ import {
   AlertDialogTitle,
   Badge,
   Button,
-  Switch,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
@@ -296,12 +295,15 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
               <Badge>{loop.visibility}</Badge>
             </Flex>
             <Flex align="center" gap="2">
-              <Switch
-                checked={loop.enabled}
+              <Button
+                variant="outline"
+                size="sm"
+                loading={updateLoop.isPending}
                 disabled={updateLoop.isPending}
-                aria-label={loop.enabled ? "Pause loop" : "Enable loop"}
-                onCheckedChange={handleToggleEnabled}
-              />
+                onClick={() => handleToggleEnabled(!loop.enabled)}
+              >
+                {loop.enabled ? "Pause" : "Resume"}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
