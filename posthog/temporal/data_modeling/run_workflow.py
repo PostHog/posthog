@@ -424,6 +424,7 @@ async def handle_error(
         job.status = DataModelingJob.Status.FAILED
         job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
+        job.last_run_at = dt.datetime.now(dt.UTC)
         await database_sync_to_async(job.save)()
     await queue.put(
         QueueMessage(status=ModelStatus.FAILED, label=model.label, error=strip_hostname_from_error(error_str))
@@ -444,6 +445,7 @@ async def handle_cancelled(
         job.status = DataModelingJob.Status.CANCELLED
         job.rows_materialized = 0
         job.error = strip_hostname_from_error(error_str)
+        job.last_run_at = dt.datetime.now(dt.UTC)
         await database_sync_to_async(job.save)()
     await queue.put(
         QueueMessage(status=ModelStatus.FAILED, label=model.label, error=strip_hostname_from_error(error_str))
@@ -766,6 +768,7 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     job.status = DataModelingJob.Status.FAILED
     job.rows_materialized = 0
     job.error = strip_hostname_from_error(error_message)
+    job.last_run_at = dt.datetime.now(dt.UTC)
     await database_sync_to_async(job.save)()
 
 
@@ -1496,6 +1499,7 @@ def _preempt_running_jobs(team_id: int, saved_query_ids: list[str] | None = None
             rows_materialized=0,
             error="Preempted: This job did not complete before the next scheduled job was triggered.",
             updated_at=dt.datetime.now(dt.UTC),
+            last_run_at=dt.datetime.now(dt.UTC),
         )
 
         return orphaned_jobs
@@ -1636,7 +1640,7 @@ async def cancel_jobs_activity(inputs: CancelJobsActivityInputs) -> None:
 
     await database_sync_to_async(
         DataModelingJob.objects.filter(workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id).update
-    )(status=DataModelingJob.Status.CANCELLED, rows_materialized=0)
+    )(status=DataModelingJob.Status.CANCELLED, rows_materialized=0, last_run_at=dt.datetime.now(dt.UTC))
     await logger.ainfo(
         "Cancelled data modeling jobs", workflow_id=inputs.workflow_id, workflow_run_id=inputs.workflow_run_id
     )

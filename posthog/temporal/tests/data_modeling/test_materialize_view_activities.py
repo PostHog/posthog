@@ -82,19 +82,48 @@ class TestCreateDataModelingJobActivity:
 
 
 class TestFailMaterializationActivity:
-    async def test_marks_job_as_failed(self, activity_environment, ateam, anode, ajob, adag):
+    @pytest.mark.parametrize(
+        "cancelled,expected_status",
+        [(False, DataModelingJob.Status.FAILED), (True, DataModelingJob.Status.CANCELLED)],
+    )
+    async def test_marks_job_as_terminal(
+        self, activity_environment, ateam, anode, ajob, adag, cancelled, expected_status
+    ):
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
             dag_id=str(adag.id),
             job_id=str(ajob.id),
             error="Test error message",
+            cancelled=cancelled,
         )
         await activity_environment.run(fail_materialization_activity, inputs)
         await database_sync_to_async(ajob.refresh_from_db)()
-        assert ajob.status == DataModelingJob.Status.FAILED
+        assert ajob.status == expected_status
         assert ajob.rows_materialized == 0
         assert ajob.error == "Test error message"
+        # The UI derives run duration and the log-search window from last_run_at, so a
+        # terminal transition must stamp it (the model default is the job's start time).
+        assert ajob.last_run_at > ajob.created_at
+
+    async def test_does_not_overwrite_already_terminal_job(self, activity_environment, ateam, anode, ajob, adag):
+        ajob.status = DataModelingJob.Status.COMPLETED
+        await database_sync_to_async(ajob.save)()
+        await database_sync_to_async(ajob.refresh_from_db)()
+        completed_last_run_at = ajob.last_run_at
+
+        inputs = FailMaterializationInputs(
+            team_id=ateam.pk,
+            node_id=str(anode.id),
+            dag_id=str(adag.id),
+            job_id=str(ajob.id),
+            error="Late failure",
+        )
+        await activity_environment.run(fail_materialization_activity, inputs)
+        await database_sync_to_async(ajob.refresh_from_db)()
+        assert ajob.status == DataModelingJob.Status.COMPLETED
+        assert ajob.error is None
+        assert ajob.last_run_at == completed_last_run_at
 
     async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = FailMaterializationInputs(
