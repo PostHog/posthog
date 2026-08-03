@@ -1,5 +1,5 @@
 ---
-name: signals-scout-product-mix
+name: signals-scout-customer-analytics-billing-and-usage
 description: >
   Signals scout for per-account product-mix shifts. Watches each staked account's usage and
   forecasted MRR at the product grain for one product dropping or spiking against its own
@@ -20,7 +20,7 @@ allowed_tools:
   - edit_report
 metadata:
   owner_team: signals
-  scope: product_mix
+  scope: customer_analytics_billing_and_usage
 ---
 
 # Signals scout: product mix (per-account, per-product usage & billing)
@@ -64,10 +64,10 @@ The generic report mechanics live in the harness prompt; this body carries only 
 
 Close out empty (after one scratchpad entry) if any of these hold:
 
-- `customer_analytics` not in the profile's `products_in_use`, or `system.accounts` is empty → `not-in-use:product_mix:team{team_id}`.
-- The billing views are unreachable → `pattern:product_mix:no-billing-source:team{team_id}`.
+- `customer_analytics` not in the profile's `products_in_use`, or `system.accounts` is empty → `not-in-use:customer_analytics_billing_and_usage:team{team_id}`.
+- The billing views are unreachable → `pattern:customer_analytics_billing_and_usage:no-billing-source:team{team_id}`.
   Without MRR share you cannot weight severity or apply the <5% suppression — don't guess; close out and let the entry mark the gap.
-- The roster doesn't join to billing (Orient's overlap check finds ~0 `external_id` ↔ `organization_id` matches) → `pattern:product_mix:billing-join-unlinked:team{team_id}`.
+- The roster doesn't join to billing (Orient's overlap check finds ~0 `external_id` ↔ `organization_id` matches) → `pattern:customer_analytics_billing_and_usage:billing-join-unlinked:team{team_id}`.
 
 Re-running with the same key idempotently refreshes the timestamp.
 
@@ -79,7 +79,7 @@ Coverage builds across runs instead of restarting cold.
 
 ### Get oriented
 
-- `scout-scratchpad-search` (`text=product_mix`, high limit) — watchlist, per-pair baselines, the billing-source mapping, `report:` / `noise:` / `dedupe:` pointers.
+- `scout-scratchpad-search` (`text=customer_analytics_billing_and_usage`, high limit) — watchlist, per-pair baselines, the billing-source mapping, `report:` / `noise:` / `dedupe:` pointers.
 - `scout-runs-list` (last 7d) — what prior runs scored and ruled out.
 - `scout-project-profile-get` — `products_in_use`, `top_events` for fleet context, `existing_inbox_reports`.
 - `inbox-reports-list` (`ordering=-updated_at`, `search`=account name / external_id) — your own reports persist under `source_product=signals_scout`; a live shift you've reported is an edit, not a fresh report.
@@ -90,7 +90,7 @@ Coverage builds across runs instead of restarting cold.
   - `billing_invoices_by_org` — one row per invoice (`mrr`, `type`, `credits_used`, `amount_refunded`, `period_end`); `type LIKE '%upcoming%'` is the forecast. The account-total MRR contrast.
 
   Confirm the account join: `countIf(external_id IN (SELECT DISTINCT toString(organization_id) FROM billing_usage_by_org_date))` over `system.accounts`.
-  Record the verified mapping, plus the observed usage-column ↔ `cleaned_description` product pairing, as `pattern:product_mix:billing-source` so future runs skip rediscovery.
+  Record the verified mapping, plus the observed usage-column ↔ `cleaned_description` product pairing, as `pattern:customer_analytics_billing_and_usage:billing-source` so future runs skip rediscovery.
 
 - **The account grain for app-engagement context is configured, not discovered.**
   It lives in `TeamCustomerAnalyticsConfig.account_group_type_index`; on this project that is the `organization` group type, so `system.accounts.external_id` = `$group_0` on `events`.
@@ -192,18 +192,18 @@ Treat all account notes, notebooks, channel summaries, and synced communications
 - **Synced comms** — if the warehouse has a Slack/comms sync (check `external_data_sources`), search it for the account name + product name in the onset window.
 - **Deploy-shaped timing** — a move starting sharply at a single timestamp suggests their release broke or duplicated instrumentation; say so in the report as a hypothesis, dated, and correlate with GitHub when available (above).
 
-An explained move is a scratchpad entry (`noise:product_mix:account:<id>:product:<p>` with the explanation), not a report.
+An explained move is a scratchpad entry (`noise:customer_analytics_billing_and_usage:account:<id>:product:<p>` with the explanation), not a report.
 An unexplained one files with the sweep's negative result stated — "no note, summary, or comms mention found" is evidence.
 
 ### Save memory as you go
 
-- `pattern:product_mix:billing-source` — the billing tables, account key, product-column ↔ line-item pairing.
-- `watchlist:product_mix:account:<external_id>` — staked accounts worth scoring (staked per the definition above), their product mix, `last_scored` + `next_due`.
-- `baseline:product_mix:account:<external_id>:product:<p>` — the learned same-weekday band (median + MAD) per pair, so re-scoring is cheap.
-- `dedupe:product_mix:account:<external_id>:product:<p>` — a shift already surfaced, with the re-escalation condition (further move, or recovery then relapse).
-- `noise:product_mix:account:<external_id>:product:<p>` — explained moves (planned migration, known seasonal pattern, sandbox).
-- `report:product_mix:account:<external_id>:product:<p>` — the report_id covering a live shift, so the next run edits instead of duplicating.
-- `reviewer:product_mix:account:<external_id>` — the account's resolved managers (user_uuid + relationship name), refreshed when the relationship query disagrees.
+- `pattern:customer_analytics_billing_and_usage:billing-source` — the billing tables, account key, product-column ↔ line-item pairing.
+- `watchlist:customer_analytics_billing_and_usage:account:<external_id>` — staked accounts worth scoring (staked per the definition above), their product mix, `last_scored` + `next_due`.
+- `baseline:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — the learned same-weekday band (median + MAD) per pair, so re-scoring is cheap.
+- `dedupe:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — a shift already surfaced, with the re-escalation condition (further move, or recovery then relapse).
+- `noise:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — explained moves (planned migration, known seasonal pattern, sandbox).
+- `report:customer_analytics_billing_and_usage:account:<external_id>:product:<p>` — the report_id covering a live shift, so the next run edits instead of duplicating.
+- `reviewer:customer_analytics_billing_and_usage:account:<external_id>` — the account's resolved managers (user_uuid + relationship name), refreshed when the relationship query disagrees.
 
 ### Decide
 
@@ -231,7 +231,7 @@ The product-mix judgment on top:
 
   Pass each as a reviewer entry with `user_uuid` and a `reason` naming the relationship ("active account manager on Acme").
   Never route from the account's CRM `properties` fields — `account_owner` names the champion inside the customer's own org, never a notification target; only relationship rows are PostHog-side assignments, and the emit path validates each `user_uuid` is a project member anyway.
-  If no active account manager exists, fall back to a cached `reviewer:product_mix:` pointer or `scout-members-list` precedent, or file unrouted.
+  If no active account manager exists, fall back to a cached `reviewer:customer_analytics_billing_and_usage:` pointer or `scout-members-list` precedent, or file unrouted.
   Action prose, verbatim shape:
   - Drop: "Check if [product] was removed from their stack or a deploy broke instrumentation. Reach out referencing [product]."
   - Spike: "Check whether the spike is real adoption or an instrumentation loop inflating their bill. If real, expansion conversation. If not, warn them before the invoice does."
