@@ -8,6 +8,10 @@
         {
             "scopes": ["cohort", "cohorts"],
             "labels": ["team/feature-flags", "feature/cohorts"]
+        },
+        {
+            "scopes": ["desktop", "tasks", "agent-proxy"],
+            "labels": ["feature/desktop"]
         }
     ]
 }

@@ -85,6 +85,9 @@ common/*/dist
 packages/quill/**/node_modules
 packages/quill/**/dist
 products/**/node_modules
+# Nested standalone workspace, not imported by any server image; `!products` above
+# would otherwise pull ~56 MiB of desktop assets into every image build context.
+products/desktop
 nodejs/node_modules
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
 # artifacts out of the plugin-server build context.

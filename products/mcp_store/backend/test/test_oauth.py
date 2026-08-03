@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.oauth import (
     TIMEOUT,
+    DcrClientRegistration,
     OAuthTokenExchangeError,
     SSRFBlockedError,
     TokenRefreshError,
@@ -942,12 +943,12 @@ class TestRegisterDCRClient(SimpleTestCase):
             (
                 "drops_secret_when_server_honors_public_client",
                 {"client_id": "abc", "token_endpoint_auth_method": "none"},
-                ("abc", None, "none"),
+                DcrClientRegistration(client_id="abc", client_secret=None, token_endpoint_auth_method="none"),
             ),
             (
                 "drops_secret_when_server_omits_it",
                 {"client_id": "abc", "token_endpoint_auth_method": "none", "client_secret": ""},
-                ("abc", None, "none"),
+                DcrClientRegistration(client_id="abc", client_secret=None, token_endpoint_auth_method="none"),
             ),
             (
                 "keeps_secret_when_server_registered_confidential_client_post",
@@ -956,7 +957,9 @@ class TestRegisterDCRClient(SimpleTestCase):
                     "client_secret": "minted-secret",
                     "token_endpoint_auth_method": "client_secret_post",
                 },
-                ("abc", "minted-secret", "client_secret_post"),
+                DcrClientRegistration(
+                    client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_post"
+                ),
             ),
             (
                 "keeps_secret_when_server_registered_confidential_client_basic",
@@ -965,12 +968,16 @@ class TestRegisterDCRClient(SimpleTestCase):
                     "client_secret": "minted-secret",
                     "token_endpoint_auth_method": "client_secret_basic",
                 },
-                ("abc", "minted-secret", "client_secret_basic"),
+                DcrClientRegistration(
+                    client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_basic"
+                ),
             ),
             (
                 "keeps_secret_with_basic_auth_when_auth_method_unspecified",
                 {"client_id": "abc", "client_secret": "minted-secret"},
-                ("abc", "minted-secret", "client_secret_basic"),
+                DcrClientRegistration(
+                    client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_basic"
+                ),
             ),
         ]
     )
@@ -1015,7 +1022,9 @@ class TestRegisterDCRClient(SimpleTestCase):
             "https://app.posthog.com/callback",
         )
 
-        assert result == ("abc", "minted-secret", "client_secret_post")
+        assert result == DcrClientRegistration(
+            client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_post"
+        )
         payload = mock_post.call_args.kwargs["json"]
         assert payload["grant_types"] == ["authorization_code", "refresh_token"]
         assert payload["token_endpoint_auth_method"] == "client_secret_post"
@@ -1043,7 +1052,9 @@ class TestRegisterDCRClient(SimpleTestCase):
             "https://app.posthog.com/callback",
         )
 
-        assert result == ("abc", "minted-secret", "client_secret_basic")
+        assert result == DcrClientRegistration(
+            client_id="abc", client_secret="minted-secret", token_endpoint_auth_method="client_secret_basic"
+        )
         assert mock_post.call_args.kwargs["json"]["token_endpoint_auth_method"] == "client_secret_basic"
 
     def test_scope_selection_prefers_protected_resource_scopes(self):

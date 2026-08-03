@@ -4,6 +4,7 @@ import datetime as dt
 import dataclasses
 from typing import Any, NoReturn, Optional
 
+from django.db import InterfaceError, OperationalError
 from django.db.models import Prefetch
 
 from structlog.contextvars import bind_contextvars
@@ -36,7 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     SchemaColumnTypeChangedException,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
@@ -344,7 +345,8 @@ async def _handle_import_error(
     the activity; only that marker type does. ``RESTClientRetryableError`` gets the same treatment
     by type, since it's already a ``NonReportableError`` subclass and every REST-based source hits
     that condition already. A transient object-store hiccup talking to our own data-warehouse
-    bucket is re-raised as ``NonReportableError`` the same way.
+    bucket is re-raised as ``NonReportableError`` the same way, as is a Django
+    ``OperationalError``/``InterfaceError`` (a connection-pool blip against our own app DB).
 
     Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
@@ -397,6 +399,18 @@ async def _handle_import_error(
     if is_transient_object_store_error(error):
         await logger.awarning(error_msg)
         await logger.adebug("Transient object-store error - re-raising for Temporal retry")
+        raise NonReportableError(error_msg) from error
+
+    # A Django OperationalError/InterfaceError here comes from a lookup against PostHog's own app
+    # DB (e.g. resolving a team or CustomPropertySource for the person-property staging hook) —
+    # every source that talks to a customer's own database (Postgres, MySQL, Redshift) does so over
+    # a raw driver connection, never Django's ORM, so this exception type can only mean a transient
+    # connection-pool blip on our side (e.g. a PgBouncer query_wait_timeout under load), not a
+    # customer data or config problem. Same classification already used for app-DB blips in
+    # delta_table_helper.is_transient_maintenance_error.
+    if isinstance(error, OperationalError | InterfaceError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Transient app-DB error - re-raising for Temporal retry")
         raise NonReportableError(error_msg) from error
 
     # Cross-source non-retryable errors (missing primary key on an incremental table, bad SSH tunnel
