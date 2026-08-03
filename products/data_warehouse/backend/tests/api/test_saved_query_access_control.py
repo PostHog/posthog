@@ -356,6 +356,18 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_materializing_the_node_is_denied_when_the_query_reads_a_denied_table(self):
+        # The single-node endpoint dispatches the same materialization workflow as `run`, so it is
+        # yet another door onto the same declassification.
+        dag = DAG.objects.create(team=self.team, name="dag")
+        node = Node.objects.create(
+            team=self.team, dag=dag, name=self.view.name, saved_query=self.view, type=NodeType.VIEW
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/data_modeling_nodes/{node.id}/materialize/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_materialize_allowed_without_a_table_denial(self):
         AccessControl.objects.filter(resource="warehouse_table", resource_id=str(self.table.id)).delete()
 

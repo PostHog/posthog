@@ -464,6 +464,12 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Publishes the same rows as a DAG run of this node, so it needs the same check as `run`.
+        # A DB constraint guarantees non-table nodes have a saved query, so the None branch never
+        # skips the check for a real node; it exists because the FK is typed as nullable.
+        if node.saved_query is not None:
+            assert_user_can_read_query(node.saved_query.query, self.team_id, cast(User, req.user))
+
         start_node_materialization(node, is_v2=_is_v2_backend_enabled(cast(User, req.user), self.team))
 
         return response.Response(status=status.HTTP_200_OK)
