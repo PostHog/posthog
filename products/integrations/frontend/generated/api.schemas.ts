@@ -389,6 +389,28 @@ export interface LinearTeamsResponseApi {
     teams: LinearTeamApi[]
 }
 
+export interface GitHubAvailableInstallationApi {
+    /** GitHub installation ID to pass to github/link_existing when linking this installation. */
+    installation_id: string
+    /**
+     * GitHub account (organization or user) the installation belongs to, for display in the picker.
+     * @nullable
+     */
+    account_name: string | null
+    /**
+     * GitHub account type, e.g. 'Organization' or 'User'.
+     * @nullable
+     */
+    account_type: string | null
+    /** A project in the organization that already has this installation linked. */
+    source_team_id: number
+}
+
+export interface GitHubAvailableInstallationsResponseApi {
+    /** Distinct GitHub installations in the organization available to link to this project. */
+    installations: GitHubAvailableInstallationApi[]
+}
+
 export interface GitHubLinkExistingRequestApi {
     /**
      * Sibling team in the same organization whose GitHub installation should be reused.

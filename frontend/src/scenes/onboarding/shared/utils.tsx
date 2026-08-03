@@ -319,6 +319,23 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Logs,
         setupEffort: 'low',
     },
+    [ProductKey.METRICS]: {
+        name: 'Metrics',
+        description: 'Chart and alert on the metrics your services already expose',
+        userCentricDescription: 'See how your services are performing over time',
+        capabilities: ['Prometheus and OpenTelemetry ingest', 'Metric charts and dashboards', 'Anomaly detection'],
+        valueProps: [
+            { title: 'Bring your existing metrics', problem: 'Scrape a Prometheus endpoint without changing your app' },
+            { title: 'Charts and dashboards', problem: 'Watch latency, throughput, and error rates over time' },
+            { title: 'Metric to trace links', problem: 'Jump from a spike straight to the trace behind it' },
+        ],
+        hedgehog: HedgehogChart,
+        icon: 'IconGraph',
+        iconColor: 'var(--color-product-metrics-light)',
+        url: urls.metrics(),
+        scene: Scene.Metrics,
+        setupEffort: 'low',
+    },
     [ProductKey.MCP_ANALYTICS]: {
         name: 'MCP analytics',
         description: 'See how AI agents use your MCP server — tool calls, intent, and failures',

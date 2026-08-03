@@ -5,18 +5,17 @@ description: >
   Use when asked to stack PRs, split a large change into a stack, add a layer to a stack,
   restack or rebase a stack, adopt existing branches or PRs into a stack, check out
   someone else's stack, or land a stack. Covers creating and submitting stacks
-  (draft-first), cascade rebases with `gh stack sync`, and how to merge a stack here:
-  `gh stack merge --yes --squash` for a whole stack, or `gh pr merge <n> --squash`
-  one layer at a time. Squash is the only merge method this repo allows.
+  (draft-first), cascade rebases with `gh stack sync`, and landing one bottom-first
+  via `/merging-prs` rather than `gh stack merge`.
 ---
 
 # Stacked PRs with `gh stack`
 
-GitHub native Stacked PRs is in [public preview](https://github.blog/changelog/2026-07-30-stacked-pull-requests-are-now-in-public-preview/) and enabled on this repo.
-A stack is an ordered chain of PRs where each PR targets the branch of the PR below it; the bottom PR targets `master`.
-GitHub links them into a first-class stack object: the PR UI shows a stack map, branch protections (code owner approval, required checks) are enforced on **every** layer including mid-stack ones, and CI that runs on `master` PRs runs on every layer.
+GitHub's native stacked PRs are enabled on this repo.
+A stack is an ordered chain of PRs where each one targets the branch of the PR below it; the bottom PR targets `master`.
+GitHub tracks the chain as a first-class object: the PR UI shows a stack map, branch protections (code owner approval, required checks) apply to **every** layer including mid-stack ones, and CI that runs on `master` PRs runs on every layer.
 
-Setup — `gh stack merge` needs v0.1.0 or newer, so upgrade an older install:
+Setup (this skill is written against `gh-stack` v0.1.0):
 
 ```bash
 gh extension install github/gh-stack   # or: gh extension upgrade stack
@@ -35,7 +34,7 @@ gh stack add -Am "add UI" my-feature-ui   # stage all + commit in one step
 ```
 
 - Adopt existing local branches (bottom to top): `gh stack init branch1 branch2 branch3`.
-- Link PRs that already exist on GitHub, without local tracking: `gh stack link 41 42 43` (bottom to top; also accepts branch names and PR URLs). Pass a stack number first to append to an existing stack: `gh stack link 75391 76001`.
+- Link PRs that already exist on GitHub, without local tracking: `gh stack link <pr> <pr> <pr>`, bottom to top (branch names and PR URLs work too). Pass a stack number first to append to an existing stack: `gh stack link <stack> <pr>`.
 - Slice by reviewable unit: migration / backend / frontend, or mechanical-rename / behavior-change. Each PR must make sense to review and merge alone.
 - Keep stacks shallow (2–4 layers). Every layer multiplies CI cost and rebase churn, and deep-stack pushes can trip GitHub's dispatch cap (see AGENTS.md, "Stacked PRs").
 
@@ -48,7 +47,8 @@ gh stack submit --auto
 Pushes all branches, creates each PR with the correct base, and links the stack on GitHub.
 `--auto` creates new PRs **as drafts**, the right default here, since drafts run the narrowed CI matrix.
 Mark layers ready individually with `gh pr ready <n>`, or pass `--open` to mark everything ready.
-Running `gh stack submit` with no flags opens an interactive editor for titles and descriptions instead; in that editor new PRs default to ready-for-review, so flip the "CREATE AS" toggle if you want drafts.
+Running `gh stack submit` with no flags opens an interactive editor for titles and descriptions instead.
+New PRs default to ready-for-review in that editor, so flip its "CREATE AS" toggle if you want drafts.
 
 Each layer is a normal PR: it needs a conventional-commit title and a description filled from `.github/pull_request_template.md`.
 
@@ -68,35 +68,33 @@ gh stack sync --prune    # also delete local branches for merged PRs
 
 ## Merging
 
-Squash is the only merge method this repo allows, and the Trunk merge queue is paused (see AGENTS.md, "Merging PRs"), so a stack merges directly.
-Branch protection still applies to every layer: approving review, code owner review, required checks, signed commits. GitHub evaluates all of it when the merge runs, and rule bypass is not supported for stacks.
-
-Land the whole stack in one operation once every layer is approved and green:
-
-```bash
-gh stack merge --yes --squash            # current stack
-gh stack merge <pr-number> --yes --squash   # everything up to and including that PR
-```
-
-Merging any PR also merges every unmerged PR below it. You cannot land a mid-stack layer on its own, so don't reach for `gh stack merge` until the layers underneath are reviewed too.
-
-To land one layer at a time instead, merge the bottom PR the normal way:
+A stack lands bottom-first, one layer at a time.
+Merge the layer based on `master` via `/merging-prs`, exactly as you would an unstacked PR; being in a stack changes nothing about how it reaches `master`.
+GitHub then retargets the next layer onto `master` and updates the stack:
 
 ```bash
-gh pr merge <n> --squash
+gh stack sync --prune   # replay the remaining layers onto the squashed commit, drop the merged branch
 ```
 
-Either way, once a layer lands GitHub retargets the next PR onto `master` and updates the stack. Run `gh stack sync --prune` to replay the remaining layers onto the squashed commit and drop the merged local branch.
+Repeat for the new bottom layer.
 
-Auto-merge is not supported for stacked PRs, so `--auto` won't help you here.
+Do **not** use `gh stack merge`.
+It merges the whole chain straight through GitHub's API, so the bottom layer reaches `master` outside the path AGENTS.md requires ("Merging PRs").
+Merging any layer also merges every unmerged layer below it, so a mid-stack merge is only safe once those layers are reviewed and green.
 
-If the Trunk queue is re-enabled, `gh stack merge` routes onto the queue instead of merging directly, and the usual queue rule applies: never `gh stack sync`, `rebase`, or `push` while a layer sits in it, since the force-push kicks it out. `gh stack push` skips branches queued in _GitHub's_ merge queue, but it knows nothing about Trunk's.
+Every layer is gated on its own approving review, code owner review, required checks, and signed commits.
+Rule bypass and auto-merge are both unsupported for stacks, so `--auto` won't help you here.
+
+Never `gh stack sync`, `rebase`, or `push` while a layer sits in the merge queue; the force-push kicks it out.
+`gh stack push` knows to skip branches queued in _GitHub's_ merge queue, but it can't see Trunk's.
 
 ## Scripting
 
 - List stacks: `gh api repos/{owner}/{repo}/stacks`; one stack: `.../stacks/<stack-number>`. Stack numbers come from the same sequence as PR numbers, so they never collide.
 - Local stack state: `gh stack view --json`.
 
-## Limits (preview)
+## Limits
 
-All branches must live in the same repository (no cross-fork stacks), the chain must be strictly linear (no branching structures, and every layer must be rebased before it can merge), auto-merge is unsupported, and GitHub Desktop doesn't support stacks.
+All branches must live in the same repository (no cross-fork stacks), and the chain must be strictly linear: no branching structures, and every layer needs a rebase before it can merge.
+GitHub Desktop doesn't support stacks at all.
+These are preview-era constraints, so check the [upstream docs](https://docs.github.com/en/pull-requests/reference/stacked-prs-cli-commands) before concluding something is impossible.

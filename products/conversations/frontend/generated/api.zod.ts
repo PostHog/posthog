@@ -365,13 +365,131 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
 
 export const conversationsViewsCreateBodyNameMax = 400
 
+export const conversationsViewsCreateBodyFiltersOneSearchMax = 200
+
 export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(conversationsViewsCreateBodyNameMax),
     filters: zod
-        .record(zod.string(), zod.unknown())
+        .object({
+            status: zod
+                .array(
+                    zod
+                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .describe(
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                        )
+                )
+                .optional()
+                .describe('Ticket statuses to include. Empty or omitted means all statuses.'),
+            priority: zod
+                .array(
+                    zod
+                        .enum(['low', 'medium', 'high', 'critical'])
+                        .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical')
+                )
+                .optional()
+                .describe('Ticket priorities to include. Empty or omitted means all priorities.'),
+            channel: zod
+                .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
+                .describe(
+                    '\* `widget` - widget\n\* `email` - email\n\* `slack` - slack\n\* `teams` - teams\n\* `github` - github\n\* `all` - all'
+                )
+                .optional()
+                .describe(
+                    "Channel the ticket originated from. 'all' disables the filter.\n\n\* `widget` - widget\n\* `email` - email\n\* `slack` - slack\n\* `teams` - teams\n\* `github` - github\n\* `all` - all"
+                ),
+            sla: zod
+                .enum(['breached', 'at-risk', 'on-track', 'all'])
+                .describe('\* `breached` - breached\n\* `at-risk` - at-risk\n\* `on-track` - on-track\n\* `all` - all')
+                .optional()
+                .describe(
+                    "SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.\n\n\* `breached` - breached\n\* `at-risk` - at-risk\n\* `on-track` - on-track\n\* `all` - all"
+                ),
+            aiTriageResult: zod
+                .array(
+                    zod
+                        .enum([
+                            'persisted',
+                            'escalated_with_best',
+                            'escalated_no_reply',
+                            'skipped_unactionable',
+                            'blocked_unsafe',
+                            'blocked_unsafe_reply',
+                            'in_progress',
+                        ])
+                        .describe(
+                            '\* `persisted` - persisted\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `in_progress` - in_progress'
+                        )
+                )
+                .optional()
+                .describe("AI triage outcomes to include. 'in_progress' matches tickets still being triaged."),
+            assignee: zod
+                .array(
+                    zod.union([
+                        zod.enum(['me', 'unassigned']),
+                        zod.object({
+                            type: zod.enum(['user', 'role']),
+                            id: zod.union([zod.string(), zod.number()]),
+                        }),
+                    ])
+                )
+                .optional()
+                .describe(
+                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list."
+                ),
+            tags: zod.array(zod.string()).optional().describe('Tag names to match, combined according to tagsMatch.'),
+            tagsMatch: zod
+                .enum(['any', 'all'])
+                .describe('\* `any` - any\n\* `all` - all')
+                .optional()
+                .describe(
+                    "'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).\n\n\* `any` - any\n\* `all` - all"
+                ),
+            tagsExclude: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tickets carrying any of these tags are excluded.'),
+            dateFrom: zod
+                .string()
+                .nullish()
+                .describe(
+                    "Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound."
+                ),
+            dateTo: zod
+                .string()
+                .nullish()
+                .describe('Only include tickets updated on or before this date. Same format as dateFrom.'),
+            sorting: zod
+                .union([
+                    zod.object({
+                        columnKey: zod
+                            .string()
+                            .describe(
+                                'Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at.'
+                            ),
+                        order: zod
+                            .union([zod.literal(1), zod.literal(-1)])
+                            .describe('\* `1` - 1\n\* `-1` - -1')
+                            .describe('1 for ascending, -1 for descending.\n\n\* `1` - 1\n\* `-1` - -1'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Sort order for the ticket list.'),
+            search: zod
+                .string()
+                .max(conversationsViewsCreateBodyFiltersOneSearchMax)
+                .optional()
+                .describe(
+                    "Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content."
+                ),
+        })
+        .describe(
+            "Canonical shape of a saved ticket view's filters. Every field is optional; an omitted\nfield (or an 'all' sentinel) leaves that dimension unfiltered."
+        )
         .optional()
         .describe(
-            'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+            'Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search.'
         ),
     is_favorited: zod
         .boolean()
@@ -383,13 +501,131 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
 
 export const conversationsViewsPartialUpdateBodyNameMax = 400
 
+export const conversationsViewsPartialUpdateBodyFiltersOneSearchMax = 200
+
 export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(conversationsViewsPartialUpdateBodyNameMax).optional(),
     filters: zod
-        .record(zod.string(), zod.unknown())
+        .object({
+            status: zod
+                .array(
+                    zod
+                        .enum(['new', 'open', 'pending', 'on_hold', 'resolved'])
+                        .describe(
+                            '\* `new` - New\n\* `open` - Open\n\* `pending` - Pending\n\* `on_hold` - On hold\n\* `resolved` - Resolved'
+                        )
+                )
+                .optional()
+                .describe('Ticket statuses to include. Empty or omitted means all statuses.'),
+            priority: zod
+                .array(
+                    zod
+                        .enum(['low', 'medium', 'high', 'critical'])
+                        .describe('\* `low` - Low\n\* `medium` - Medium\n\* `high` - High\n\* `critical` - Critical')
+                )
+                .optional()
+                .describe('Ticket priorities to include. Empty or omitted means all priorities.'),
+            channel: zod
+                .enum(['widget', 'email', 'slack', 'teams', 'github', 'all'])
+                .describe(
+                    '\* `widget` - widget\n\* `email` - email\n\* `slack` - slack\n\* `teams` - teams\n\* `github` - github\n\* `all` - all'
+                )
+                .optional()
+                .describe(
+                    "Channel the ticket originated from. 'all' disables the filter.\n\n\* `widget` - widget\n\* `email` - email\n\* `slack` - slack\n\* `teams` - teams\n\* `github` - github\n\* `all` - all"
+                ),
+            sla: zod
+                .enum(['breached', 'at-risk', 'on-track', 'all'])
+                .describe('\* `breached` - breached\n\* `at-risk` - at-risk\n\* `on-track` - on-track\n\* `all` - all')
+                .optional()
+                .describe(
+                    "SLA state: 'breached' is past due, 'at-risk' is due within the next hour, 'on-track' has more than an hour remaining. 'all' disables the filter.\n\n\* `breached` - breached\n\* `at-risk` - at-risk\n\* `on-track` - on-track\n\* `all` - all"
+                ),
+            aiTriageResult: zod
+                .array(
+                    zod
+                        .enum([
+                            'persisted',
+                            'escalated_with_best',
+                            'escalated_no_reply',
+                            'skipped_unactionable',
+                            'blocked_unsafe',
+                            'blocked_unsafe_reply',
+                            'in_progress',
+                        ])
+                        .describe(
+                            '\* `persisted` - persisted\n\* `escalated_with_best` - escalated_with_best\n\* `escalated_no_reply` - escalated_no_reply\n\* `skipped_unactionable` - skipped_unactionable\n\* `blocked_unsafe` - blocked_unsafe\n\* `blocked_unsafe_reply` - blocked_unsafe_reply\n\* `in_progress` - in_progress'
+                        )
+                )
+                .optional()
+                .describe("AI triage outcomes to include. 'in_progress' matches tickets still being triaged."),
+            assignee: zod
+                .array(
+                    zod.union([
+                        zod.enum(['me', 'unassigned']),
+                        zod.object({
+                            type: zod.enum(['user', 'role']),
+                            id: zod.union([zod.string(), zod.number()]),
+                        }),
+                    ])
+                )
+                .optional()
+                .describe(
+                    "Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. The legacy single-value shape is accepted and normalized to a list."
+                ),
+            tags: zod.array(zod.string()).optional().describe('Tag names to match, combined according to tagsMatch.'),
+            tagsMatch: zod
+                .enum(['any', 'all'])
+                .describe('\* `any` - any\n\* `all` - all')
+                .optional()
+                .describe(
+                    "'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).\n\n\* `any` - any\n\* `all` - all"
+                ),
+            tagsExclude: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tickets carrying any of these tags are excluded.'),
+            dateFrom: zod
+                .string()
+                .nullish()
+                .describe(
+                    "Only include tickets updated on or after this date. Accepts absolute dates (2026-01-01) or relative ones (-7d). 'all' or null disables the bound."
+                ),
+            dateTo: zod
+                .string()
+                .nullish()
+                .describe('Only include tickets updated on or before this date. Same format as dateFrom.'),
+            sorting: zod
+                .union([
+                    zod.object({
+                        columnKey: zod
+                            .string()
+                            .describe(
+                                'Ticket column to sort by (updated_at, sla_due_at, snoozed_until, created_at, ticket_number). Unknown columns fall back to updated_at.'
+                            ),
+                        order: zod
+                            .union([zod.literal(1), zod.literal(-1)])
+                            .describe('\* `1` - 1\n\* `-1` - -1')
+                            .describe('1 for ascending, -1 for descending.\n\n\* `1` - 1\n\* `-1` - -1'),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe('Sort order for the ticket list.'),
+            search: zod
+                .string()
+                .max(conversationsViewsPartialUpdateBodyFiltersOneSearchMax)
+                .optional()
+                .describe(
+                    "Free-text search. A numeric value matches a ticket number exactly; otherwise matches the customer's name or email, the email subject, or message content."
+                ),
+        })
+        .describe(
+            "Canonical shape of a saved ticket view's filters. Every field is optional; an omitted\nfield (or an 'all' sentinel) leaves that dimension unfiltered."
+        )
         .optional()
         .describe(
-            'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+            'Saved ticket filter criteria: status, priority, channel, sla, aiTriageResult, assignee, tags, tagsMatch, tagsExclude, dateFrom, dateTo, sorting, and search.'
         ),
     is_favorited: zod
         .boolean()
