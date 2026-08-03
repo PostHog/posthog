@@ -48551,6 +48551,33 @@ export namespace Schemas {
       results: TaskRunDetailDTO[];
     }
 
+    export interface TaskRunPortForwardDTO {
+      id: string;
+      task_id: string;
+      run_id: string;
+      team_id: number;
+      port: number;
+      name: string;
+      status: string;
+      created_at: string;
+      updated_at: string;
+      /** @nullable */
+      expires_at?: string | null;
+      /** @nullable */
+      last_accessed_at?: string | null;
+      /** @nullable */
+      preview_url?: string | null;
+    }
+
+    export interface PaginatedTaskRunPortForwardDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskRunPortForwardDTO[];
+    }
+
     /**
      * * `not_started` - Not Started
      * * `queued` - Queued
@@ -72481,6 +72508,26 @@ export namespace Schemas {
     export interface TaskRunLivingArtifactsResponse {
       /** Living artifacts for this task run. */
       artifacts: TaskRunLivingArtifactResponse[];
+    }
+
+    export interface TaskRunPortForwardCreateRequest {
+      /**
+         * @minimum 1
+         * @maximum 65535
+         */
+      port: number;
+      /** @maxLength 80 */
+      name?: string;
+    }
+
+    export interface TaskRunPortForwardTokenResponse {
+      /** Short-lived JWT authorizing this forwarded port */
+      token: string;
+      /**
+         * Authenticated preview URL. Null when the agent-proxy public URL is not configured.
+         * @nullable
+         */
+      preview_url: string | null;
     }
 
     export interface TaskRunRelayMessageRequest {

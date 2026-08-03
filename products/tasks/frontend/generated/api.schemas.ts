@@ -3025,6 +3025,53 @@ export interface ConnectionTokenResponseApi {
     token: string
 }
 
+export interface TaskRunPortForwardDTOApi {
+    id: string
+    task_id: string
+    run_id: string
+    team_id: number
+    port: number
+    name: string
+    status: string
+    created_at: string
+    updated_at: string
+    /** @nullable */
+    expires_at?: string | null
+    /** @nullable */
+    last_accessed_at?: string | null
+    /** @nullable */
+    preview_url?: string | null
+}
+
+export interface PaginatedTaskRunPortForwardDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TaskRunPortForwardDTOApi[]
+}
+
+export interface TaskRunPortForwardCreateRequestApi {
+    /**
+     * @minimum 1
+     * @maximum 65535
+     */
+    port: number
+    /** @maxLength 80 */
+    name?: string
+}
+
+export interface TaskRunPortForwardTokenResponseApi {
+    /** Short-lived JWT authorizing this forwarded port */
+    token: string
+    /**
+     * Authenticated preview URL. Null when the agent-proxy public URL is not configured.
+     * @nullable
+     */
+    preview_url: string | null
+}
+
 export interface TaskRunRelayMessageRequestApi {
     /**
      * Joined message body. Used when text_parts is absent.

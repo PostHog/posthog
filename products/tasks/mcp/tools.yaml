@@ -505,6 +505,18 @@ tools:
     tasks-runs-partial-update:
         operation: tasks_runs_partial_update
         enabled: false
+    tasks-runs-ports-create:
+        operation: tasks_runs_ports_create
+        enabled: false
+    tasks-runs-ports-retrieve:
+        operation: tasks_runs_ports_retrieve
+        enabled: false
+    tasks-runs-ports-stop-create:
+        operation: tasks_runs_ports_stop_create
+        enabled: false
+    tasks-runs-ports-token-create:
+        operation: tasks_runs_ports_token_create
+        enabled: false
     tasks-runs-relay-message-create:
         operation: tasks_runs_relay_message_create
         enabled: false

@@ -2755,6 +2755,20 @@ export const TasksRunsCommandCreateBody = /* @__PURE__ */ zod
     .describe('JSON-RPC request to send a command to the agent server in the sandbox.')
 
 /**
+ * Expose an explicit localhost port from a live cloud task sandbox.
+ * @summary Create task run port forward
+ */
+export const tasksRunsPortsCreateBodyPortMax = 65535
+
+export const tasksRunsPortsCreateBodyNameDefault = ``
+export const tasksRunsPortsCreateBodyNameMax = 80
+
+export const TasksRunsPortsCreateBody = /* @__PURE__ */ zod.object({
+    port: zod.number().min(1).max(tasksRunsPortsCreateBodyPortMax),
+    name: zod.string().max(tasksRunsPortsCreateBodyNameMax).default(tasksRunsPortsCreateBodyNameDefault),
+})
+
+/**
  * Queue a Slack relay workflow to post a run message into the mapped Slack thread.
  * @summary Relay run message to Slack
  */

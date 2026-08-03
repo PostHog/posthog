@@ -41,6 +41,7 @@ import type {
     PaginatedTaskDetailDTOListApi,
     PaginatedTaskMentionDTOListApi,
     PaginatedTaskRunDetailDTOListApi,
+    PaginatedTaskRunPortForwardDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
     PatchedChannelInstructionsWriteApi,
@@ -101,6 +102,9 @@ import type {
     TaskRunLivingArtifactOpenResponseApi,
     TaskRunLivingArtifactResponseApi,
     TaskRunLivingArtifactsResponseApi,
+    TaskRunPortForwardCreateRequestApi,
+    TaskRunPortForwardDTOApi,
+    TaskRunPortForwardTokenResponseApi,
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
@@ -1758,6 +1762,94 @@ export const tasksRunsConnectionTokenRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getTasksRunsPortsRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/ports/`
+}
+
+/**
+ * List forwarded ports configured for this task run.
+ * @summary List task run port forwards
+ */
+export const tasksRunsPortsRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PaginatedTaskRunPortForwardDTOListApi> => {
+    return apiMutator<PaginatedTaskRunPortForwardDTOListApi>(getTasksRunsPortsRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsPortsCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/ports/`
+}
+
+/**
+ * Expose an explicit localhost port from a live cloud task sandbox.
+ * @summary Create task run port forward
+ */
+export const tasksRunsPortsCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    taskRunPortForwardCreateRequestApi: TaskRunPortForwardCreateRequestApi,
+    options?: RequestInit
+): Promise<TaskRunPortForwardDTOApi> => {
+    return apiMutator<TaskRunPortForwardDTOApi>(getTasksRunsPortsCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskRunPortForwardCreateRequestApi),
+    })
+}
+
+export const getTasksRunsPortsStopCreateUrl = (projectId: string, taskId: string, id: string, forwardId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/ports/${forwardId}/stop/`
+}
+
+/**
+ * Stop exposing a forwarded port for this task run.
+ * @summary Stop task run port forward
+ */
+export const tasksRunsPortsStopCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    forwardId: string,
+    options?: RequestInit
+): Promise<TaskRunPortForwardDTOApi> => {
+    return apiMutator<TaskRunPortForwardDTOApi>(getTasksRunsPortsStopCreateUrl(projectId, taskId, id, forwardId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getTasksRunsPortsTokenCreateUrl = (projectId: string, taskId: string, id: string, forwardId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/ports/${forwardId}/token/`
+}
+
+/**
+ * Generate a short-lived authenticated preview URL for a forwarded port.
+ * @summary Get task run port forward token
+ */
+export const tasksRunsPortsTokenCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    forwardId: string,
+    options?: RequestInit
+): Promise<TaskRunPortForwardTokenResponseApi> => {
+    return apiMutator<TaskRunPortForwardTokenResponseApi>(
+        getTasksRunsPortsTokenCreateUrl(projectId, taskId, id, forwardId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
