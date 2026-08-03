@@ -356,13 +356,11 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["post"], url_path="spawn", required_scopes=["task:write"])
     def spawn(self, request, **kwargs):
-        from products.tasks.backend.feature_flags import is_tasks_orchestration_enabled
-
         serializer = TaskSpawnRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = dict(serializer.validated_data)
 
-        if not is_tasks_orchestration_enabled(
+        if not tasks_facade.tasks_orchestration_enabled(
             distinct_id=str(request.user.distinct_id), organization_id=str(self.organization.id)
         ):
             return Response({"detail": "Task orchestration is not enabled"}, status=status.HTTP_403_FORBIDDEN)

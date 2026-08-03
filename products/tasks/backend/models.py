@@ -144,6 +144,7 @@ PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
 class Task(DeletedMetaFields, models.Model):
+    _creation_event_properties: dict[str, Any]
     class Runtime(models.TextChoices):
         ACP = "acp", "ACP"
         PI = "pi", "Pi"

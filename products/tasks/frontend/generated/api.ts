@@ -106,6 +106,7 @@ import type {
     TaskRunStartRequestApi,
     TaskSessionResponseApi,
     TaskSessionSyncResponseApi,
+    TaskSpawnRequestApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
     TaskStagedArtifactsPrepareUploadRequestApi,
@@ -2341,6 +2342,27 @@ export const tasksSlackThreadContextRetrieve = async (
     return apiMutator<SlackThreadContextResponseApi>(getTasksSlackThreadContextRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTasksSpawnCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/spawn/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ * @summary Spawn a child task
+ */
+export const tasksSpawnCreate = async (
+    projectId: string,
+    taskSpawnRequestApi: TaskSpawnRequestApi,
+    options?: RequestInit
+): Promise<TaskDetailDTOApi> => {
+    return apiMutator<TaskDetailDTOApi>(getTasksSpawnCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskSpawnRequestApi),
     })
 }
 
