@@ -5,7 +5,6 @@ from django.db.models import Q
 DEFAULT_SURFACE = "web"
 
 
-
 def surface_q(surface: str) -> Q:
     """Build the read filter for a surface. The default surface also matches legacy NULL rows."""
     if surface == DEFAULT_SURFACE:

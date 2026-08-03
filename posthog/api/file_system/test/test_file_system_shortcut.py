@@ -175,6 +175,7 @@ class TestFileSystemShortcutAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+
 class TestFileSystemShortcutAccessLevels(APIBaseTest):
     def setUp(self):
         super().setUp()

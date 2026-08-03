@@ -147,4 +147,3 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         refreshed = self.filter_queryset(self.get_queryset())
         return Response(self.get_serializer(refreshed, many=True).data)
-

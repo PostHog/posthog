@@ -9,7 +9,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "1265_delete_duckgresserverteam"),
         ("tasks", "0077_taskartifact_export_asset_id"),
@@ -160,9 +159,7 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "posthog_task_channel_star",
                 "constraints": [
-                    models.UniqueConstraint(
-                        fields=("channel", "user"), name="unique_channel_star_per_user"
-                    )
+                    models.UniqueConstraint(fields=("channel", "user"), name="unique_channel_star_per_user")
                 ],
             },
         ),

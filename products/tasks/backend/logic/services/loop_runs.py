@@ -168,9 +168,7 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
     channel_id = (loop.context_target or {}).get("channel_id")
     if not channel_id:
         return None
-    exists = (
-        Channel.objects.for_team(loop.team_id, canonical=True).filter(id=channel_id, deleted=False).exists()
-    )
+    exists = Channel.objects.for_team(loop.team_id, canonical=True).filter(id=channel_id, deleted=False).exists()
     return str(channel_id) if exists else None
 
 
