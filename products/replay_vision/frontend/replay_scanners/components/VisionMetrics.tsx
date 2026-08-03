@@ -16,7 +16,7 @@ import { creditsToUsd, formatCreditCount, freeTierNote } from '../../utils/credi
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
-import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
+import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -29,7 +29,7 @@ export function VisionMetrics(): JSX.Element {
     const { quota, quotaLoading, showUsd, billedCredits, billedLimitCredits } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
-    const { resetsOn, status, percentLabel, usedPct, projectedPct } = projection
+    const { resetsOn, status, percentLabel, usedPct, usedFreePct, projectedPct } = projection
     const hasCap = hasCreditLimit(quota)
     const freeNote = quota ? freeTierNote(quota.free_monthly_credits) : null
     const styles = QUOTA_STATUS_STYLES[status]
@@ -169,13 +169,21 @@ export function VisionMetrics(): JSX.Element {
                                         <QuotaMeterBar
                                             className="mt-2"
                                             usedPct={usedPct}
+                                            usedFreePct={usedFreePct}
                                             projected={[{ pct: projectedPct, barClass: styles.bar, striped: true }]}
                                             valueNow={percentLabel}
                                             label={`Projected ${percentLabel}% of the monthly spend limit`}
                                         />
                                     </Tooltip>
                                     <div className="flex items-center gap-3 text-xs text-muted mt-1.5">
-                                        <QuotaMeterLegendItem>Spent</QuotaMeterLegendItem>
+                                        {usedFreePct > 0 && (
+                                            <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS}>
+                                                Free
+                                            </QuotaMeterLegendItem>
+                                        )}
+                                        <QuotaMeterLegendItem>
+                                            {usedFreePct > 0 ? 'Billed' : 'Spent'}
+                                        </QuotaMeterLegendItem>
                                         <QuotaMeterLegendItem barClass={styles.bar} striped>
                                             Projected
                                         </QuotaMeterLegendItem>

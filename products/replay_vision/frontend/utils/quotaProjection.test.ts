@@ -91,6 +91,17 @@ describe('projectQuota', () => {
         expect(clamped.projectedPct).toBe(0)
     })
 
+    it.each([
+        // Cap 10,000 with a 2,500 free allocation.
+        ['all spend still inside the free tier', 1_000, 10, 10],
+        ['free portion caps at the allocation', 4_000, 40, 25],
+        ['nothing spent, nothing free', 0, 0, 0],
+    ])('usedFreePct: %s', (_name, creditsUsed, expectedUsedPct, expectedFreePct) => {
+        const proj = projectQuota(makeQuota({ credits_used: creditsUsed }))
+        expect(proj.usedPct).toBe(expectedUsedPct)
+        expect(proj.usedFreePct).toBe(expectedFreePct)
+    })
+
     it('reports unclamped percentages on overshoot', () => {
         // 8,000 used + 30,000/month × 20 days = 20,000 more → 280% of the 10,000 cap.
         const proj = projectQuota(makeQuota({ credits_used: 8_000, projected_monthly_credits: 30_000 }))

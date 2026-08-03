@@ -22,6 +22,8 @@ export interface QuotaProjection {
     resetsOn: string | null
     /** Actual spend as a percentage of the limit; `QuotaMeterBar` clamps for display. */
     usedPct: number
+    /** The slice of `usedPct` covered by non-billable credits, so the meter can shade it separately. */
+    usedFreePct: number
     /** Projected additional spend as a percentage of the limit, unclamped. */
     projectedPct: number
 }
@@ -33,6 +35,7 @@ const EMPTY: QuotaProjection = {
     percentLabel: 0,
     resetsOn: null,
     usedPct: 0,
+    usedFreePct: 0,
     projectedPct: 0,
 }
 
@@ -110,6 +113,7 @@ export function projectQuota(
         percentLabel: Math.round(projectedPeriodEndRatio * 100),
         resetsOn,
         usedPct: (used / cap) * 100,
+        usedFreePct: (Math.min(used, quota.free_monthly_credits) / cap) * 100,
         projectedPct: (projectedAdditional / cap) * 100,
     }
 }

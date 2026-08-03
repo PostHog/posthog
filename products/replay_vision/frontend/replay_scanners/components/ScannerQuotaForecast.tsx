@@ -15,7 +15,7 @@ import {
     splitProjectedPct,
 } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
+import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
 interface Props {
@@ -49,7 +49,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     // projectQuota wants a delta off the stored fleet total, so compute the new fleet total (others + this) and pass the difference.
     const newFleetMonthly = projectedCredits !== null ? othersMonthly + projectedCredits : fleetMonthly
     const projection = projectQuota(quota, newFleetMonthly - fleetMonthly)
-    const { status, percentLabel, resetsOn, usedPct, projectedPct } = projection
+    const { status, percentLabel, resetsOn, usedPct, usedFreePct, projectedPct } = projection
 
     const effectiveStatus: QuotaStatus = projectedCredits === null ? 'safe' : status
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
@@ -134,6 +134,7 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     <Tooltip title={breakdown}>
                         <QuotaMeterBar
                             usedPct={usedPct}
+                            usedFreePct={usedFreePct}
                             projected={[
                                 { pct: othersPct, barClass: 'bg-accent' },
                                 { pct: thisScannerPct, barClass: styles.bar, striped: true },
@@ -145,7 +146,12 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                         />
                     </Tooltip>
                     <div className="flex items-center gap-3 text-xs text-muted">
-                        <QuotaMeterLegendItem>Spent</QuotaMeterLegendItem>
+                        {usedFreePct > 0 && (
+                            <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS}>Free</QuotaMeterLegendItem>
+                        )}
+                        {usedPct > usedFreePct && (
+                            <QuotaMeterLegendItem>{usedFreePct > 0 ? 'Billed' : 'Spent'}</QuotaMeterLegendItem>
+                        )}
                         <QuotaMeterLegendItem barClass="bg-accent">Projected (other scanners)</QuotaMeterLegendItem>
                         <QuotaMeterLegendItem barClass={styles.bar} striped>
                             Projected (this scanner)
