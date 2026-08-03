@@ -972,7 +972,7 @@ class LoopGithubTriggerValidationAPITest(LoopsAPITestCase):
     def setUp(self) -> None:
         super().setUp()
         self.integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
-        mock_github = self._start_patch("products.tasks.backend.facade.loops.GitHubIntegration")
+        mock_github = self._start_patch("products.tasks.backend.github_repository_access.GitHubIntegration")
         mock_github.return_value.list_all_cached_repositories.return_value = [{"full_name": "acme/repo"}]
 
     def _github_trigger(self, events: list, filters: dict | None = None) -> dict:
@@ -1264,7 +1264,7 @@ class LoopInternalFacadeTest(LoopsAPITestCase):
                 },
             )
 
-    @patch("products.tasks.backend.facade.loops.GitHubIntegration")
+    @patch("products.tasks.backend.github_repository_access.GitHubIntegration")
     def test_repository_access_requires_an_exact_cache_match(self, mock_github):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
         mock_github.return_value.list_all_cached_repositories.return_value = [{"full_name": "acme/allowed"}]
@@ -1274,7 +1274,7 @@ class LoopInternalFacadeTest(LoopsAPITestCase):
         )
         self.assertFalse(loops_facade.repository_accessible_via_integration(self.team.id, integration.id, "acme/other"))
 
-    @patch("products.tasks.backend.facade.loops.GitHubIntegration")
+    @patch("products.tasks.backend.github_repository_access.GitHubIntegration")
     def test_repository_access_fails_closed_when_the_repo_list_is_unavailable(self, mock_github):
         # A cold or invalidated cache that can't be refreshed must reject, not authorize: otherwise a
         # member could point a loop at another project's private repo reachable by the shared install.

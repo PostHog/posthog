@@ -38,7 +38,7 @@ async def s3_client(bucket_name, s3_key_prefix):
     the contents of the bucket under the key prefix we are testing. This opens up the door
     to bugs that could delete all other data in your bucket. I *strongly* recommend
     using a disposable bucket to run these tests or sticking to other tests that use the
-    local development MinIO.
+    local development object storage.
     """
     async with aioboto3.Session().client("s3") as s3_client:
         yield s3_client

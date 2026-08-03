@@ -31,16 +31,15 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.service import SUPPORTED_FILTER_TYPES, BackfillDetails
 from products.batch_exports.backend.temporal.metrics import get_metric_meter
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
-from products.batch_exports.backend.temporal.sql import (
+from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     SELECT_FROM_EVENTS_WORKFLOWS,
-    SELECT_FROM_PERSONS,
-    SELECT_FROM_PERSONS_BACKFILL,
 )
+from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
 
 LOGGER = get_write_only_logger(__name__)
 

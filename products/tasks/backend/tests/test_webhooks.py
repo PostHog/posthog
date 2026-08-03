@@ -74,6 +74,7 @@ class TestGitHubPRWebhook(TestCase):
             task=cls.task,
             team=cls.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
         )
 
@@ -197,7 +198,16 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(response.status_code, 200)
 
         run.refresh_from_db()
-        self.assertEqual(run.output, {"pr_url": "https://github.com/posthog/posthog/pull/10"})
+        self.assertEqual(
+            run.output,
+            {
+                "pr_url": "https://github.com/posthog/posthog/pull/10",
+                "pr_urls": [
+                    "https://github.com/posthog/posthog/pull/10",
+                    "https://github.com/posthog/posthog/pull/11",
+                ],
+            },
+        )
 
     def _merged_pr_payload(self, pr_url: str) -> dict:
         return {
@@ -227,7 +237,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=status,
-            state=state,
+            state={**state, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url, **extra_output},
         )
 
@@ -251,14 +261,14 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
         terminal_run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.FAILED,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
         payload = {
@@ -288,7 +298,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -334,7 +344,7 @@ class TestGitHubPRWebhook(TestCase):
             team=self.team,
             status=status,
             environment=environment,
-            state=state,
+            state={**state, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -362,7 +372,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -445,6 +455,7 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], pr_url)
+        self.assertEqual(run.state["verified_pr_urls"], [pr_url])
 
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
@@ -563,6 +574,10 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], existing)
+        self.assertEqual(
+            run.output["pr_urls"],
+            [existing, "https://github.com/posthog/posthog/pull/901"],
+        )
 
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     def test_invalid_signature_rejected(self, mock_get_secret):
@@ -720,6 +735,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/42"]},
             output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
         )
         self.report = SignalReport.objects.create(
@@ -978,6 +994,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
         )
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
         self.assertEqual(result, task_run)
@@ -991,6 +1008,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         # Created later, so a purely newest-first lookup would wrongly pick this one.
         TaskRun.objects.create(
@@ -998,6 +1016,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         self.assertEqual(find_task_run(pr_url=pr_url), active_run)
 
@@ -1008,6 +1027,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         self.assertIsNone(find_task_run(pr_url=pr_url, repository="acme/other"))
 
@@ -1021,12 +1041,29 @@ class TestFindTaskRun(TestCase):
         result = find_task_run(branch="feature/my-branch", repository="posthog/posthog")
         self.assertEqual(result, task_run)
 
+    def test_finds_multi_repository_run_from_snapshot(self):
+        self.task.repositories = ["posthog/posthog", "posthog/code"]
+        self.task.save(update_fields=["repositories"])
+        task_run = self.task.create_run(branch="feature/my-branch")
+        task_run.output = {"pr_urls": ["https://github.com/posthog/code/pull/123"]}
+        task_run.state["verified_pr_urls"] = ["https://github.com/posthog/code/pull/123"]
+        task_run.save(update_fields=["output", "state"])
+
+        self.assertEqual(
+            find_task_run(
+                pr_url="https://github.com/posthog/code/pull/123",
+                repository="posthog/code",
+            ),
+            task_run,
+        )
+
     def test_pr_url_takes_priority_over_branch(self):
         pr_run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
             branch="feature/other-branch",
         )
         TaskRun.objects.create(
@@ -1041,6 +1078,17 @@ class TestFindTaskRun(TestCase):
             repository="posthog/posthog",
         )
         self.assertEqual(result, pr_run)
+
+    def test_caller_reported_pr_url_is_not_trusted_for_lookup(self):
+        pr_url = "https://github.com/posthog/posthog/pull/123"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": pr_url, "pr_urls": [pr_url]},
+        )
+
+        self.assertIsNone(find_task_run(pr_url=pr_url, repository="posthog/posthog"))
 
     def test_falls_back_to_branch_when_pr_url_not_found(self):
         branch_run = TaskRun.objects.create(
@@ -1166,6 +1214,7 @@ class TestGitHubWebhookFanout(TestCase):
             task=cls.task,
             team=cls.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/myorg/myrepo/pull/99"]},
             output={"pr_url": "https://github.com/myorg/myrepo/pull/99"},
         )
         cls.integration = Integration.objects.create(

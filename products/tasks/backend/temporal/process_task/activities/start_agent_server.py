@@ -109,26 +109,26 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
     repeated 5-minute attempts surfacing as a misleading "Failed to start agent server". Check
     the directory upfront and fail non-retryably with the actual reason instead.
     """
-    if not ctx.repository:
+    if not ctx.repositories:
         return
-    repo_path = sandbox_repo_path(ctx.repository)
-    result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
-    if result.exit_code == 0:
-        return
-    raise SandboxMissingRepositoryError(
-        f"Repository {ctx.repository} is not present in the sandbox at {repo_path} — it was never "
-        "cloned (no snapshot restored and no usable GitHub credentials for this task)",
-        {
-            "task_id": ctx.task_id,
-            "run_id": ctx.run_id,
-            "sandbox_id": sandbox.id,
-            "repository": ctx.repository,
-            "repo_path": repo_path,
-            "github_integration_id": ctx.github_integration_id,
-            "github_user_integration_id": ctx.github_user_integration_id,
-        },
-        cause=RuntimeError(f"missing repository directory {repo_path}"),
-    )
+    for repository in ctx.repositories:
+        repo_path = sandbox_repo_path(repository)
+        result = sandbox.execute(f"test -d {shlex.quote(repo_path)}", timeout_seconds=10)
+        if result.exit_code != 0:
+            raise SandboxMissingRepositoryError(
+                f"Repository {repository} is not present in the sandbox at {repo_path} — it was never "
+                "cloned (no snapshot restored and no usable GitHub credentials for this task)",
+                {
+                    "task_id": ctx.task_id,
+                    "run_id": ctx.run_id,
+                    "sandbox_id": sandbox.id,
+                    "repository": repository,
+                    "repo_path": repo_path,
+                    "github_integration_id": ctx.github_integration_id,
+                    "github_user_integration_id": ctx.github_user_integration_id,
+                },
+                cause=RuntimeError(f"missing repository directory {repo_path}"),
+            )
 
 
 @dataclass
@@ -332,7 +332,7 @@ def _invoke_start_agent_server(
 ) -> None:
     try:
         sandbox.start_agent_server(
-            repository=ctx.repository,
+            repository=ctx.repository if len(ctx.repositories) <= 1 else None,
             task_id=ctx.task_id,
             run_id=ctx.run_id,
             mode=ctx.mode,
