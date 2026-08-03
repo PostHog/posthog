@@ -4619,7 +4619,7 @@ def _create_unique_named_integration(
         raise DuplicateNameError(f"An integration named '{name}' already exists")
 
 
-def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: str, kind: _AWSKindType) -> bool:
+def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: str) -> bool:
     """Check if the AWS role is only in one organization.
 
     This is used as a security measure to block multiple organizations from
@@ -4633,7 +4633,7 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     has_same_aws_role_integrations = (
         Integration.objects.select_related("team__organization")
         .filter(
-            kind=kind,
+            kind__in=(Integration.IntegrationKind.AWS_S3, Integration.IntegrationKind.AWS_REDSHIFT),
             config__aws_role_arn=aws_role_arn,
         )
         .exclude(team__organization_id=organization_id)
@@ -4719,7 +4719,7 @@ class AWSRoleBasedIntegration:
         if not aws_role_arn:
             raise AWSCredentialIntegrationError("A valid role ARN is required for an AWS integration")
 
-        if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id, cls.integration_kind):
+        if not is_unique_aws_role_by_organization_id(aws_role_arn, organization_id):
             raise ValidationError("Cannot create AWS integration: Invalid role")
 
         return _create_unique_named_integration(
