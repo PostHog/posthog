@@ -58,24 +58,14 @@ class TestDefaultBucketRegion:
 class TestDuckgresDataImportsTableName:
     @parameterized.expand(
         [
-            ("copy_mysql", None, "copy_v1", "MySQL", "SalesEU", "orders", "mysql_saleseu_orders"),
-            ("copy_google_ads", None, "copy_v1", "GoogleAds", None, "video", "googleads_video"),
-            ("legacy_batch_tiktok", None, "legacy_batch_v1", "TikTokAds", None, "video", "tik_tok_ads_video"),
-            (
-                "pinned_name",
-                "googleads_video_4f12abcd",
-                "legacy_batch_v1",
-                "GoogleAds",
-                None,
-                "video",
-                "googleads_video_4f12abcd",
-            ),
+            ("copy_mysql", "copy_v1", "MySQL", "SalesEU", "orders", "mysql_saleseu_orders"),
+            ("copy_google_ads", "copy_v1", "GoogleAds", None, "video", "googleads_video"),
+            ("legacy_batch_tiktok", "legacy_batch_v1", "TikTokAds", None, "video", "tik_tok_ads_video"),
         ]
     )
-    def test_pinned_name_wins_and_null_uses_the_org_policy(
+    def test_uses_the_org_policy(
         self,
         _name: str,
-        pinned_name: str | None,
         naming_version: str,
         source_type: str,
         prefix: str | None,
@@ -83,7 +73,6 @@ class TestDuckgresDataImportsTableName:
         expected: str,
     ) -> None:
         schema = MagicMock()
-        schema.duckgres_table_name = pinned_name
         schema.source.source_type = source_type
         schema.source.prefix = prefix
         schema.normalized_name = normalized_name
@@ -92,13 +81,8 @@ class TestDuckgresDataImportsTableName:
         with patch(
             "products.managed_warehouse.backend.team_state.data_imports_table_naming_version",
             return_value=naming_version,
-        ) as mock_version:
+        ):
             assert duckgres_data_imports_table_name(schema) == expected
-
-        if pinned_name:
-            mock_version.assert_not_called()
-        else:
-            mock_version.assert_called_once_with(1)
 
 
 TEST_CONFIG = {

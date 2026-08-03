@@ -23,10 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 @pytest.fixture(autouse=True)
 def _stub_schema_resolver():
-    # These no-DB unit tests pin the control-plane-backed schema resolver.
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.duckgres_data_imports_schema",
-        return_value="posthog_data_imports_team_1",
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.duckgres_data_imports_schema",
+            return_value="posthog_data_imports_team_1",
+        ),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.processor.duckgres_data_imports_table_name",
+            return_value="stripe_customers",
+        ),
     ):
         yield
 
@@ -62,7 +67,6 @@ def _make_schema() -> Mock:
     schema = Mock()
     schema.team_id = 1
     schema.normalized_name = "customers"
-    schema.duckgres_table_name = "stripe_customers"
     schema.source.source_type = "Stripe"
     schema.source.prefix = None
     return schema

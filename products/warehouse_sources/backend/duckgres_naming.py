@@ -4,7 +4,7 @@ import re
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
-_IDENTIFIER_SANITIZE_RE = re.compile(r"[^A-Za-z0-9_]+")
+_IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
 _DUCKGRES_IDENTIFIER_MAX_LENGTH = 63
 
 

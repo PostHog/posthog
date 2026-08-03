@@ -95,7 +95,7 @@ def data_imports_schema(team_id: int) -> str:
 
 
 def data_imports_table_naming_version(team_id: int) -> str:
-    """The organization-stable naming version used when a Duckgres writer first binds a table."""
+    """The organization-level naming policy shared by Duckgres data-import readers and writers."""
     row = _get_cp_row(team_id)
     if row is None:
         return "copy_v1"
