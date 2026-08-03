@@ -610,17 +610,22 @@ impl PodHandle {
     /// ownership state. Purely local: no etcd writes, callable with no
     /// lease.
     ///
-    /// The order per partition is load-bearing: `release_partition`
-    /// unfences and drops the cache without waiting, so releasing first
-    /// would let a write admitted before the lease was lost complete
-    /// its produce and ack after the replacement owner's warm — an
-    /// acked write the new owner never sees. Draining first (fence,
-    /// then wait for the inflight counter) guarantees that once this
-    /// returns, nothing this pod admitted can ack. Each drain is
-    /// bounded by the drain timeout; a partition that cannot quiesce
-    /// fails the fence, which the caller poisons — the process restart
-    /// then clears the stuck in-flight work by death, exactly as the
-    /// pre-supervisor design did. The window before the lease loss is
+    /// The order per partition is load-bearing for what release
+    /// exposes, not for the writes already in flight: an admitted write
+    /// completes its produce and acks whatever this function does —
+    /// neither the fence nor a withheld release can stop it. Draining
+    /// first (fence, then wait for the inflight counter) means the
+    /// release that follows unfences a partition with nothing left in
+    /// flight — no fresh admission lands on a leaseless pod, and the
+    /// cache is not dropped out from under a handler still using it —
+    /// and once this returns cleanly, everything this pod admitted had
+    /// acked before any partition was let go. Each drain is bounded by
+    /// the drain timeout; a partition that cannot quiesce stays fenced,
+    /// held, and unreleased — its in-flight work's fate belongs to the
+    /// broker (fenced, or committed below the successor's cutoff; with
+    /// fencing off it is the documented unfenced residual) — and the
+    /// caller poisons the run so the process restart clears it by
+    /// death, exactly as the pre-supervisor design did. The window before the lease loss is
     /// even *detected* (up to one heartbeat tick) remains the
     /// documented zombie residual; this closes only the part the local
     /// fence itself controls.
@@ -678,19 +683,26 @@ impl PodHandle {
         // cache and serving authority — and clear the local ownership
         // state for it.
         //
-        // Only the ones that quiesced. Release unfences and drops the
-        // cache without waiting, so releasing a partition whose drain
-        // was cut off mid-flight lets a write admitted before the lease
-        // was lost ack after the replacement owner has warmed — the very
-        // ordering Phase 1 exists to establish. One left fenced and
-        // unreleased stays that way until the process restarts, which is
-        // the outcome its drain timing out already implies.
+        // Only the ones that quiesced. A write still in flight acks
+        // whether or not its partition is released — nothing can stop
+        // it — so what releasing an un-quiesced partition would actually
+        // do is unfence fresh admissions on a pod with no lease, drop
+        // the cache out from under the handlers still using it, and
+        // erase the record that the partition was never given up. One
+        // left fenced and unreleased stays that way until the process
+        // restarts, which is the outcome its drain timing out already
+        // implies.
         for partition in held {
             if !quiesced.contains(&partition) {
                 continue;
             }
             if let Err(e) = self.handler.release_partition(partition).await {
                 failures.push(format!("release of partition {partition}: {e}"));
+                // Still held: the handler may retain the cache and the
+                // serving authority, so forgetting it here would make the
+                // closing gauge read a partition as given up that was
+                // not. The run is about to end poisoned either way.
+                continue;
             }
             self.warmed_partitions.lock().await.remove(&partition);
             self.fenced_partitions.lock().await.remove(&partition);
@@ -1050,16 +1062,21 @@ impl PodHandle {
                 tracing::info!(pod, partition, "warmed ack written");
             }
             DesiredState::Released => {
-                let was_warmed = self
-                    .warmed_partitions
-                    .lock()
-                    .await
-                    .remove(&partition)
-                    .is_some();
-                let was_fenced = self.fenced_partitions.lock().await.remove(&partition);
+                // Forgotten only after the handler returns, matching the
+                // discipline the other arms document. Removing first put
+                // a suspension point between forgetting and releasing: a
+                // lane dropped there — or a release that failed — left
+                // the partition in neither map, so no convergence ever
+                // dispatched for it again and its cache, floors, and
+                // producer leaked for the life of the process. Release is
+                // idempotent, so a retry that re-runs it costs nothing.
+                let was_warmed = self.warmed_partitions.lock().await.contains_key(&partition);
+                let was_fenced = self.fenced_partitions.lock().await.contains(&partition);
                 if was_warmed || was_fenced {
                     tracing::info!(pod, partition, "converging to Released: releasing");
                     self.handler.release_partition(partition).await?;
+                    self.warmed_partitions.lock().await.remove(&partition);
+                    self.fenced_partitions.lock().await.remove(&partition);
                     counter!("personhog_coordination_partition_releases_total").increment(1);
                     self.drain_notify.notify_one();
                     did_work = true;

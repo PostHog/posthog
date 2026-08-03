@@ -136,7 +136,7 @@ pub struct LeaderBackend {
 /// outcome unknown) that is deliberately not counted here, since
 /// admission refusals are the ordinary traffic of every handoff and
 /// counting the class would swamp the signal.
-fn counts_as_possibly_applied(reason: BounceReason) -> bool {
+pub(crate) fn counts_as_possibly_applied(reason: BounceReason) -> bool {
     match reason {
         BounceReason::Transport => true,
         BounceReason::Fenced | BounceReason::Unrouted => false,

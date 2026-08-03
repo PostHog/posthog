@@ -294,6 +294,88 @@ pub fn start_pod_with_flaky_resume(
     }
 }
 
+/// A handler whose first `failures` release attempts fail — the shape of
+/// a release that has to give back broker state and hits a transient
+/// error.
+pub struct FlakyReleaseHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    remaining_failures: AtomicUsize,
+}
+
+#[async_trait]
+impl HandoffHandler for FlakyReleaseHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        if self.remaining_failures.load(Ordering::SeqCst) > 0 {
+            self.remaining_failures.fetch_sub(1, Ordering::SeqCst);
+            return Err(personhog_coordination::error::Error::invalid_state(
+                "release failed (test)",
+            ));
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose first `failures` release attempts fail.
+pub fn start_pod_with_flaky_release(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    failures: usize,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = FlakyReleaseHandler {
+        events: Arc::clone(&events),
+        remaining_failures: AtomicUsize::new(failures),
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl: 10,
+            heartbeat_interval: Duration::from_secs(3),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
+}
+
 /// A handler whose `drain_partition_inflight` always fails for one
 /// partition — the shape of a drain that cannot quiesce whatever the
 /// pod does.
@@ -354,6 +436,86 @@ pub fn start_pod_with_stuck_drain(
     let handler = StuckDrainHandler {
         events: Arc::clone(&events),
         stuck,
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl,
+            heartbeat_interval: Duration::from_secs((lease_ttl / 5).max(1) as u64),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
+}
+
+/// A handler whose `drain_partition_inflight` hangs forever for one
+/// partition — the shape of in-flight work that never quiesces, which
+/// only the self-fence's own timeout can end.
+pub struct HangingDrainHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    hung: u32,
+}
+
+#[async_trait]
+impl HandoffHandler for HangingDrainHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        if partition == self.hung {
+            pending::<()>().await;
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose drain hangs forever for exactly one partition.
+pub fn start_pod_with_hanging_drain(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    hung: u32,
+    lease_ttl: i64,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = HangingDrainHandler {
+        events: Arc::clone(&events),
+        hung,
     };
     let pod = PodHandle::new(
         store,

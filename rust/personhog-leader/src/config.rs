@@ -77,8 +77,10 @@ pub struct Config {
     pub grpc_max_connection_age_secs: u64,
 
     /// Maximum concurrent in-flight gRPC requests before the server sheds
-    /// load with RESOURCE_EXHAUSTED so the router retries on another pod.
-    /// 0 = disabled.
+    /// load with RESOURCE_EXHAUSTED. That code is terminal end to end —
+    /// the router treats a delivered response as an outcome and the
+    /// client does not retry it — so this is backpressure to the caller,
+    /// not a redirect. 0 = disabled.
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
 
@@ -436,15 +438,6 @@ impl Config {
             .min(self.lease_fence_runway())
     }
 
-    /// How long the broker may hold one of this pod's transactions open
-    /// before abandoning it.
-    ///
-    /// A window lives from `begin_transaction` through its admission
-    /// interval, its sends, and its commit, so the broker's patience has
-    /// to cover all three — bounding it by the commit alone would let the
-    /// broker abort a window this pod is still legitimately filling, and
-    /// the resulting epoch bump reads exactly like a fence from a real
-    /// successor.
     /// Ceiling on the drain's wait for an open window to commit.
     ///
     /// The wait exists to catch a committer about to fire anyway — it
@@ -471,6 +464,15 @@ impl Config {
         Duration::from_secs(2)
     }
 
+    /// How long the broker may hold one of this pod's transactions open
+    /// before abandoning it.
+    ///
+    /// A window lives from `begin_transaction` through its admission
+    /// interval, its sends, and its commit, so the broker's patience has
+    /// to cover all three — bounding it by the commit alone would let the
+    /// broker abort a window this pod is still legitimately filling, and
+    /// the resulting epoch bump reads exactly like a fence from a real
+    /// successor.
     pub fn fencing_broker_txn_timeout(&self) -> Duration {
         // Every transaction-timeout-bounded call the window can make, not
         // just the first: a commit that retries, or a commit followed by
@@ -817,14 +819,12 @@ mod fencing_timescale_tests {
         }
     }
 
-    /// Acquisition is two broker round trips and happens fleet-wide
-    /// during a deploy. Nothing asserted on its budget, and tying it to
-    /// the write path's once already shortened it by a quarter as a side
-    /// effect of re-budgeting writes.
     /// The pre-revoke self-fence allows three seconds for a whole drain,
     /// and the drain is `wait_until_empty` *then* this wait. A budget
     /// that ate the whole allowance would turn every shutdown with an
-    /// open window into a reported drain failure.
+    /// open window into a reported drain failure — while a budget under
+    /// the admission window cannot outwait the window it exists to
+    /// settle.
     #[test]
     fn settling_fits_inside_the_shutdown_fence_bound() {
         for lease_ttl in [21, 30, 60, 300, 3599] {
@@ -838,9 +838,24 @@ mod fencing_timescale_tests {
                  inside the self-fence's three-second allowance",
                 config.fencing_settle_budget()
             );
+            // The wait exists to catch a committer that sleeps for the
+            // window and then commits, so a budget at or under the window
+            // can never see one fire: every drain with an open window
+            // would abandon the records it was meant to commit.
+            assert!(
+                config.fencing_settle_budget() > Duration::from_millis(config.fencing_window_ms),
+                "LEASE_TTL={lease_ttl}: settle budget {:?} cannot outwait the {}ms admission \
+                 window it exists to settle",
+                config.fencing_settle_budget(),
+                config.fencing_window_ms
+            );
         }
     }
 
+    /// Acquisition is two broker round trips and happens fleet-wide
+    /// during a deploy. Nothing asserted on its budget, and tying it to
+    /// the write path's once already shortened it by a quarter as a side
+    /// effect of re-budgeting writes.
     #[test]
     fn acquisition_keeps_its_own_budget() {
         for lease_ttl in [21, 30, 60, 300] {
