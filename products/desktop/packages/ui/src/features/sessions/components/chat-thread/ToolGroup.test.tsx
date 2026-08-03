@@ -35,7 +35,7 @@ function subagentItem(
 }
 
 describe("ToolGroup", () => {
-  it("labels Codex spawn batches as subagents", () => {
+  it("shows the current tool name and context and starts collapsed", () => {
     render(
       <ServiceProvider container={new Container()}>
         <Theme>
@@ -46,10 +46,15 @@ describe("ToolGroup", () => {
       </ServiceProvider>,
     );
 
-    expect(screen.getByText("Used Subagents")).toBeInTheDocument();
+    expect(screen.getByText("Subagents")).toBeInTheDocument();
+    expect(screen.getByText("Subagent")).toBeInTheDocument();
+    expect(screen.getByRole("button")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 
-  it("labels unresolved Codex spawn batches as active subagents", () => {
+  it("shows the current tool while a batch is active", () => {
     render(
       <ServiceProvider container={new Container()}>
         <Theme>
@@ -69,6 +74,11 @@ describe("ToolGroup", () => {
       </ServiceProvider>,
     );
 
-    expect(screen.getByText("Using Subagents")).toBeInTheDocument();
+    expect(screen.getByText("Subagents")).toBeInTheDocument();
+    expect(screen.getByText("Subagent")).toBeInTheDocument();
+    expect(screen.getByRole("button")).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
   });
 });

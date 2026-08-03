@@ -1,4 +1,3 @@
-import { Wrench } from "@phosphor-icons/react";
 import {
   ChatMarker,
   ChatMarkerContent,
@@ -75,13 +74,11 @@ export function isToolActive(item: ToolGroupItem["tools"][number]): boolean {
 }
 
 /**
- * Summary `ChatMarker` for a batch of consecutive tool calls. The trigger row reads as natural
- * language — "Using Toolsearch" while a tool is still running, "Used Toolsearch" once done, or
- * "Used N tools" when the batch mixes tools — with a single representative leading icon. The
- * collapsible body holds each tool's own marker via `SessionUpdateView` (which dispatches through
- * `ToolCallBlock` → `ToolRow` → `ChatMarker`).
- *
- * Expanded by default while the turn is still running (live visibility), collapsed once complete.
+ * Summary `ChatMarker` for a batch of consecutive tool calls. The trigger follows the most recent
+ * call so a collapsed live turn still says exactly what the agent is doing: spinner, tool name,
+ * short tool-provided context, and the `ChatMarker` chevron. The collapsible body holds each tool's
+ * own marker via `SessionUpdateView` (which dispatches through `ToolCallBlock` → `ToolRow` →
+ * `ChatMarker`). Tool groups always start collapsed, including while a turn is streaming.
  */
 export const ToolGroup = memo(function ToolGroup({
   tools,
@@ -97,24 +94,23 @@ export const ToolGroup = memo(function ToolGroup({
    */
   mayStillGrow?: boolean;
 }) {
-  const turnComplete = tools[0]?.turnContext.turnComplete ?? false;
   const isActive = tools.some(isToolActive) || mayStillGrow;
 
-  // Uniform when every tool in the run shares the same name/kind — then we can name it.
-  const keys = tools.map(toolKey);
-  const uniform = keys.every((k) => k === keys[0]);
-
-  const verb = isActive ? "Using" : "Used";
-  const object = uniform ? friendlyName(keys[0]) : `${tools.length} tools`;
-
-  const first = resolveTool(tools[0]);
-  const LeadIcon = uniform
-    ? iconForToolCall(first.toolCall, first.toolName)
-    : Wrench;
+  const currentItem =
+    [...tools].reverse().find(isToolActive) ?? tools[tools.length - 1];
+  const current = resolveTool(currentItem);
+  const currentName = friendlyName(toolKey(currentItem));
+  const currentContext =
+    current.toolCall.title &&
+    current.toolCall.title.toLocaleLowerCase() !==
+      currentName.toLocaleLowerCase()
+      ? current.toolCall.title
+      : null;
+  const LeadIcon = iconForToolCall(current.toolCall, current.toolName);
 
   return (
     <ChatMarker
-      defaultOpen={!turnComplete}
+      defaultOpen={false}
       body={tools.map((item) => (
         <SessionUpdateView
           key={item.id}
@@ -130,9 +126,17 @@ export const ToolGroup = memo(function ToolGroup({
     >
       <ChatMarkerIcon>{isActive ? <Spinner /> : <LeadIcon />}</ChatMarkerIcon>
       <ChatMarkerContent
-        className={cn("text-muted-foreground text-sm", isActive && "shimmer")}
+        className={cn(
+          "flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm",
+          isActive && "shimmer",
+        )}
       >
-        {verb} {object}
+        <span className="shrink-0 font-medium">{currentName}</span>
+        {currentContext ? (
+          <span className="truncate text-muted-foreground/70">
+            {currentContext}
+          </span>
+        ) : null}
       </ChatMarkerContent>
     </ChatMarker>
   );
