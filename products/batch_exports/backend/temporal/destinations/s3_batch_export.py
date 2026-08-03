@@ -94,6 +94,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     "S3IntegrationNotFoundError",
     # The linked Integration is the wrong kind or has invalid/missing credentials
     "S3CredentialIntegrationError",
+    "AWSCredentialIntegrationError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
