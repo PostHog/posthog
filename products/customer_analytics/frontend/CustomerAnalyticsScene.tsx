@@ -111,6 +111,12 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
 
     if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
         tabs.push({
+            key: 'feed',
+            label: 'Feed',
+            content: <FeedTabContent />,
+            link: combineUrl(urls.customerAnalyticsFeed(), searchParams).url,
+        })
+        tabs.push({
             key: 'accounts',
             label: 'Accounts',
             content: <AccountsTabContent />,
@@ -127,12 +133,6 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             label: 'Announcements',
             content: <AnnouncementsTabContent />,
             link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
-        })
-        tabs.push({
-            key: 'feed',
-            label: 'Feed',
-            content: <FeedTabContent />,
-            link: combineUrl(urls.customerAnalyticsFeed(), searchParams).url,
         })
     }
 
