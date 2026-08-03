@@ -22,12 +22,23 @@ const DATA_SOURCE_LABELS: Record<DataSourceEnumApi, string> = {
     data_warehouse: 'Data warehouse',
 }
 
-function daysSince(timestamp: string): number {
-    return dayjs().diff(dayjs(timestamp), 'day')
+// Short forms for the row label, where a full product name would crowd out the project name.
+const DATA_SOURCE_SHORT_LABELS: Record<DataSourceEnumApi, string> = {
+    product_analytics: 'Analytics',
+    session_replay: 'Replay',
+    error_tracking: 'Errors',
+    llm_analytics: 'LLM',
+    surveys: 'Surveys',
+    feature_flags: 'Flags',
+    logs: 'Logs',
+    apm: 'Tracing',
+    destinations: 'Destinations',
+    messaging: 'Messaging',
+    data_warehouse: 'Warehouse',
 }
 
-function QuietDot({ className }: { className?: string }): JSX.Element {
-    return <span className={cn('size-1.5 rounded-full bg-warning shrink-0', className)} />
+function daysSince(timestamp: string): number {
+    return dayjs().diff(dayjs(timestamp), 'day')
 }
 
 function SourceBreakdown({
@@ -57,9 +68,55 @@ function SourceBreakdown({
     )
 }
 
+function describe(
+    freshness: DataFreshnessProjectApi,
+    quietAfterDays: number,
+    lookbackDays: number
+): { label: string; headline: string; isAlarming: boolean } {
+    if (freshness.freshness === 'never') {
+        return {
+            label: 'No data yet',
+            headline: 'This project has not received any data yet.',
+            isAlarming: false,
+        }
+    }
+
+    if (freshness.freshness === 'quiet') {
+        if (!freshness.last_data_at) {
+            return {
+                label: `Quiet ${lookbackDays}d+`,
+                headline: `No data of any kind has reached this project in the last ${lookbackDays} days.`,
+                isAlarming: true,
+            }
+        }
+        const days = daysSince(freshness.last_data_at)
+        return {
+            label: `Quiet ${days}d`,
+            headline: `No data of any kind has reached this project in ${days} days.`,
+            isAlarming: true,
+        }
+    }
+
+    const quietSources = freshness.sources.filter((source) => daysSince(source.last_data_at) >= quietAfterDays)
+    return {
+        // Naming the one dead source is the whole point of this state, so it goes in the row
+        // rather than hiding behind a hover. Beyond one, the count is all that fits.
+        label:
+            quietSources.length === 1
+                ? `${DATA_SOURCE_SHORT_LABELS[quietSources[0].data_source] ?? quietSources[0].data_source} quiet`
+                : `${quietSources.length} sources quiet`,
+        headline: 'Data is still arriving, but some sources have gone quiet.',
+        isAlarming: false,
+    }
+}
+
 /**
  * Says something only when there is something to say: a project where everything is still
  * arriving renders nothing, so the switcher stays quiet until a project doesn't.
+ *
+ * Matches the "Pending invite" label in this same list rather than inventing a second visual
+ * language for row status: one right-aligned text run, no icon, so every row lines up and
+ * color is left to carry severity.
  */
 export function ProjectFreshnessIndicator({
     freshness,
@@ -74,24 +131,7 @@ export function ProjectFreshnessIndicator({
         return null
     }
 
-    let label: string | null = null
-    let headline: string
-
-    if (freshness.freshness === 'never') {
-        headline = 'This project has not received any data yet.'
-        label = 'No data yet'
-    } else if (freshness.freshness === 'quiet') {
-        if (freshness.last_data_at) {
-            const days = daysSince(freshness.last_data_at)
-            headline = `No data of any kind has reached this project in ${days} days.`
-            label = `Quiet ${days}d`
-        } else {
-            headline = `No data of any kind has reached this project in the last ${lookbackDays} days.`
-            label = 'No recent data'
-        }
-    } else {
-        headline = 'Data is still arriving, but some sources have gone quiet.'
-    }
+    const { label, headline, isAlarming } = describe(freshness, quietAfterDays, lookbackDays)
 
     return (
         <Tooltip
@@ -103,8 +143,12 @@ export function ProjectFreshnessIndicator({
                 </div>
             }
         >
-            <span className="ml-auto flex items-center gap-1 shrink-0 text-xxs text-tertiary">
-                {freshness.freshness !== 'never' && <QuietDot />}
+            <span
+                className={cn(
+                    'text-xxs shrink-0 ml-1 whitespace-nowrap',
+                    isAlarming ? 'text-warning' : 'text-tertiary'
+                )}
+            >
                 {label}
             </span>
         </Tooltip>
