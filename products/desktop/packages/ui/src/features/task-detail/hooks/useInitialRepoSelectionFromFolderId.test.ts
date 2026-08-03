@@ -359,6 +359,7 @@ type HookArgs = {
   folderRepository?: string;
   requestId?: string;
   folders: RegisteredFolder[];
+  foldersLoaded?: boolean;
   repositories: string[];
   reposLoaded: boolean;
   currentMode: WorkspaceMode;
@@ -376,6 +377,7 @@ function renderRepoSelectionHook(initial: HookArgs) {
         folderRepository: props.folderRepository,
         requestId: props.requestId,
         folders: props.folders,
+        foldersLoaded: props.foldersLoaded ?? true,
         repositories: props.repositories,
         reposLoaded: props.reposLoaded,
         currentMode: props.currentMode,
@@ -470,6 +472,7 @@ describe("useInitialRepoSelectionFromFolderId", () => {
     const { rerender, setSelectedDirectory } = renderRepoSelectionHook({
       folderId: "a",
       folders: [],
+      foldersLoaded: false,
       repositories: [],
       reposLoaded: false,
       currentMode: "local",
@@ -481,11 +484,30 @@ describe("useInitialRepoSelectionFromFolderId", () => {
     rerender({
       folderId: "a",
       folders: [folder("a", "/repos/a")],
+      foldersLoaded: true,
       repositories: [],
       reposLoaded: false,
       currentMode: "local",
     });
     expect(setSelectedDirectory).toHaveBeenCalledExactlyOnceWith("/repos/a");
+  });
+
+  it("still selects the repo when a removed folder's id never resolves", () => {
+    // A task can carry the id of a folder the user has since removed. Waiting on
+    // it forever would leave the picker on the last-used repo, the very bug the
+    // group's repo slug is here to prevent.
+    const { setSelectedRepository } = renderRepoSelectionHook({
+      folderId: "gone",
+      folderRepository: "posthog/posthog.com",
+      folders: [folder("a", "/repos/a", "posthog/posthog")],
+      foldersLoaded: true,
+      repositories: ["posthog/posthog", "posthog/posthog.com"],
+      reposLoaded: true,
+      currentMode: "cloud",
+    });
+    expect(setSelectedRepository).toHaveBeenCalledExactlyOnceWith(
+      "posthog/posthog.com",
+    );
   });
 
   it("does not re-sync when folders changes but folderId stays the same", () => {

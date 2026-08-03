@@ -161,6 +161,8 @@ export interface UseInitialRepoSelectionParams {
    */
   requestId?: string;
   folders: RegisteredFolder[];
+  /** Whether the folders list has finished loading. */
+  foldersLoaded: boolean;
   /** Lower-cased `owner/repo` slugs the user can use in cloud mode. */
   repositories: string[];
   /** Whether the integrations list has finished loading (gate the mode switch). */
@@ -193,6 +195,7 @@ export function useInitialRepoSelectionFromFolderId({
   folderRepository,
   requestId,
   folders,
+  foldersLoaded,
   repositories,
   reposLoaded,
   currentMode,
@@ -224,9 +227,10 @@ export function useInitialRepoSelectionFromFolderId({
     const folder = folderId
       ? folders.find((f) => f.id === folderId)
       : undefined;
-    // Wait for a folder that is expected but hasn't loaded yet; a group with no
-    // registered folder at all resolves from `folderRepository` alone.
-    if (folderId && !folder) return;
+    // Wait for a folder that is expected but hasn't loaded yet. Only while the
+    // list is loading, though: a folderId left over from a removed folder never
+    // resolves, and blocking on it would strand the repo prefill for good.
+    if (folderId && !folder && !foldersLoaded) return;
 
     const selection = resolveRepoSelectionForFolder({
       folder,
@@ -258,6 +262,7 @@ export function useInitialRepoSelectionFromFolderId({
     folderRepository,
     requestId,
     folders,
+    foldersLoaded,
     repositories,
     reposLoaded,
     lastUsedLocalMode,
