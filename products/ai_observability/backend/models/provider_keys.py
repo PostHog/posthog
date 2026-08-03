@@ -21,6 +21,7 @@ class LLMProvider(models.TextChoices):
     TOGETHER_AI = "together_ai", "Together AI"
     MINIMAX = "minimax", "MiniMax"
     ZEABUR = "zeabur", "Zeabur AI Hub"
+    OPENAI_COMPATIBLE = "openai_compatible", "OpenAI-compatible"
 
 
 class LLMProviderKey(UUIDTModel):
@@ -61,6 +62,8 @@ class LLMProviderKey(UUIDTModel):
                 "azure_endpoint": self.encrypted_config.get("azure_endpoint", ""),
                 "api_version": self.encrypted_config.get("api_version", ""),
             }
+        if self.provider == LLMProvider.OPENAI_COMPATIBLE:
+            return {"base_url": self.encrypted_config.get("base_url", "")}
         return {}
 
 

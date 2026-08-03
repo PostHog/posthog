@@ -93,7 +93,7 @@ class Client:
 
 
 def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "Provider":
-    """Get provider by name. For Azure, reads extra config from provider_key."""
+    """Get provider by name. Azure and OpenAI-compatible read extra config from provider_key."""
     from typing import cast
 
     from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter
@@ -102,6 +102,7 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
     from products.ai_observability.backend.llm.providers.gemini import GeminiAdapter
     from products.ai_observability.backend.llm.providers.minimax import MiniMaxAdapter
     from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
+    from products.ai_observability.backend.llm.providers.openai_compatible import OpenAICompatibleAdapter
     from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
     from products.ai_observability.backend.llm.providers.together import TogetherAdapter
     from products.ai_observability.backend.llm.providers.zeabur import ZeaburAdapter
@@ -132,5 +133,8 @@ def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "P
                     api_version=config.get("api_version", DEFAULT_API_VERSION),
                 ),
             )
+        case "openai_compatible":
+            config = provider_key.encrypted_config if provider_key else {}
+            return cast("Provider", OpenAICompatibleAdapter(base_url=config.get("base_url", "")))
         case _:
             raise UnsupportedProviderError(name)
