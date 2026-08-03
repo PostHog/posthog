@@ -166,7 +166,7 @@ The available-columns picker defaults to an "All columns" category that searches
 
 The Accounts list exposes one contextual tool, `open_account`, so Max can show an account on screen.
 
-1. Backend `OpenAccountTool` (`products/customer_analytics/backend/max_tools/open_account.py`) resolves the account by `external_id` or name and returns `{ account_id, account_name, external_id, tab }`.
+1. Backend `OpenAccountTool` (`products/customer_analytics/backend/max_tools.py`) resolves the account by `external_id` or name and returns `{ account_id, account_name, external_id, tab }`.
 2. `AccountsMaxTools.tsx` registers it with `useMaxTool({ identifier: 'open_account', callback })`; the callback calls `accountsLogic.openAccount(accountId, externalId, name, tab)`.
 3. `accountsLogic.openAccount`:
    - **Reveal** — if the account isn't in the current results (checks the bound data node's rows by name-cell `id`), it clears the excluding filters and searches by `external_id`/name so the row will render. This avoids a silent no-op when Max references an account that's filtered out.
