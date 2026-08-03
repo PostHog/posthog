@@ -141,6 +141,12 @@ jobs:
               run: |
                   echo "::add-matcher::.github/ty-problem-matcher.json"
 
+            - name: Check ty type checking
+              shell: bash
+              run: |
+                  echo "📊 Feedback welcome in #team-devex"
+                  uv run ty check
+
             - name: Add mypy Problem Matcher
               shell: bash
               run: |
@@ -153,6 +159,19 @@ jobs:
                   key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
                   restore-keys: |
                       mypy-cache-${{ runner.os }}-3.12-mypy2-
+
+            - name: Check static typing
+              shell: bash -e {0}
+              env:
+                  MYPY_NUM_WORKERS: 2
+              run: mypy --version && mypy --cache-fine-grained .
+
+            - name: Save mypy cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .mypy_cache
+                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
 
             - name: Check if "schema.py" is up to date
               shell: bash
@@ -167,18 +186,6 @@ jobs:
                   - name: Check formatting
                     shell: bash
                     run: ruff format --check --diff .
-
-                  - name: Check ty type checking
-                    shell: bash
-                    run: |
-                        echo "📊 Feedback welcome in #team-devex"
-                        uv run ty check
-
-                  - name: Check static typing
-                    shell: bash -e {0}
-                    env:
-                        MYPY_NUM_WORKERS: 2
-                    run: mypy --version && mypy --cache-fine-grained .
 
                   - name: Check hogli manifest completeness
                     shell: bash
@@ -207,13 +214,6 @@ jobs:
                   - name: Run dependency detection script tests
                     shell: bash
                     run: pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
-
-            - name: Save mypy cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: .mypy_cache
-                  key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
