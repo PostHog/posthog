@@ -13,10 +13,12 @@ const assert = require('node:assert/strict')
 const {
     computeTargets,
     compileContractMatcher,
+    compileWorkspaceMatcher,
     globToRegExp,
     isProductDirectory,
     isTripwire,
     parseCrateDependencies,
+    parseWorkspacePackageGlobs,
     reverseClosure,
     ALL,
 } = require('./trunk-impacted-targets')
@@ -42,6 +44,13 @@ const CONTEXT = {
         // Mirrors turbo-discover's dashed-name contract at the boundary.
         tachDependents: (changed) => (changed.includes('alpha') ? ['beta', 'gamma'] : []),
     },
+}
+
+// gamma vendors its own pnpm workspace; alpha and beta keep the conventional
+// backend/ + frontend/ layout, so the cases above stay on the old behavior.
+const WORKSPACE_CONTEXT = {
+    ...CONTEXT,
+    productWorkspaces: new Map([['gamma', compileWorkspaceMatcher(['apps/*', 'packages/*', 'tooling/*'])]]),
 }
 
 test('every tripwire forces ALL', () => {
@@ -393,6 +402,68 @@ test('a product file that is neither backend nor frontend claims both domains', 
     const targets = computeTargets(['products/beta/mcp/tools.yaml'], CONTEXT)
     assert.equal(targets.includes('py:product:beta'), true)
     assert.equal(targets.includes('fe:product:beta'), true)
+})
+
+// A product vendoring its own pnpm workspace has no backend/ + frontend/ split,
+// so its manifests and configs land in the "claims both domains" case above and
+// drag every backend lane along. Narrowing them is the whole point of reading
+// the workspace declaration.
+test('a file inside a declared workspace package claims only the product lane', () => {
+    for (const file of [
+        'products/gamma/packages/agent/package.json',
+        'products/gamma/apps/code/snapshots.yml',
+        'products/gamma/tooling/config/biome.json',
+        'products/gamma/apps/code/assets/icon.svg',
+    ]) {
+        assert.deepEqual(computeTargets([file], WORKSPACE_CONTEXT), ['fe:product:gamma'], file)
+    }
+})
+
+// The narrowing direction is the dangerous one: a backend lane that stops being
+// claimed lets Trunk run this PR beside a conflicting backend PR. The workspace
+// declaration says a directory holds a JS package, not that Python cannot be
+// checked into it.
+test('python inside a declared workspace package still claims the backend lanes', () => {
+    const targets = computeTargets(['products/gamma/packages/agent/scripts/codegen.py'], WORKSPACE_CONTEXT)
+    assert.equal(targets.includes('py:core'), true)
+})
+
+// Only the declared package subtrees narrow. The product root holds the files
+// that decide isolation and contract surface, and anything else under the
+// product is unclassified in the same way it was before.
+test('files outside the declared workspace packages keep widening', () => {
+    for (const file of ['products/gamma/package.json', 'products/gamma/scripts/release.mjs']) {
+        assert.equal(computeTargets([file], WORKSPACE_CONTEXT).includes('py:core'), true, file)
+    }
+})
+
+// A real pnpm-workspace.yaml carries a catalog: block right after packages:,
+// and reading past the list would turn catalog entries into package globs.
+test('workspace globs are read only from the packages block', () => {
+    assert.deepEqual(
+        parseWorkspacePackageGlobs(
+            [
+                'packages:',
+                "  - 'apps/*'",
+                '  - packages/*',
+                '  - "!packages/legacy"',
+                '',
+                'catalog:',
+                '  hono: ^1.0.0',
+            ].join('\n')
+        ),
+        ['apps/*', 'packages/*', '!packages/legacy']
+    )
+})
+
+test('a negated workspace glob excludes its subtree from the narrowing', () => {
+    const matcher = compileWorkspaceMatcher(['packages/*', '!packages/legacy'])
+    assert.equal(matcher('packages/agent/package.json'), true)
+    assert.equal(matcher('packages/legacy/package.json'), false)
+})
+
+test('a workspace declaration with no packages block yields no matcher', () => {
+    assert.equal(compileWorkspaceMatcher(parseWorkspacePackageGlobs('catalog:\n  hono: ^1.0.0\n')), null)
 })
 
 // tools/ is not one bucket. phrocs is Go with its own CI and nothing imports

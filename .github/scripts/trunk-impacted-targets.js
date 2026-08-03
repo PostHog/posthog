@@ -284,6 +284,103 @@ function listIsolatedProducts(repoRoot, products) {
     return isolated
 }
 
+// --- Nested JS workspaces ---
+
+// A product that vendors its own pnpm workspace (products/desktop is the one
+// today) has an apps/ + packages/ layout instead of the backend/ + frontend/
+// split the product rules assume. Its manifests, configs, and assets are none
+// of .py, backend/, or .tsx, so they land in the "could be either" bucket and
+// widen to every backend lane — a package.json under packages/ serializing a
+// TypeScript-only PR against all of Python.
+//
+// The workspace file is the product's own declaration of which subtrees are JS
+// packages, so it is a safer signal than an extension allowlist: a path only
+// narrows when the product itself says a JS package lives there. Anything
+// outside those subtrees (the product's root manifests, scripts/, backend/)
+// keeps the old widening behavior.
+const WORKSPACE_DECLARATION = 'pnpm-workspace.yaml'
+
+// Minimal reader for the `packages:` block of a pnpm workspace file. Only the
+// list-of-globs form is understood; anything else yields no globs, which leaves
+// the product on the old behavior rather than guessing.
+function parseWorkspacePackageGlobs(text) {
+    const globs = []
+    let inPackages = false
+    for (const rawLine of text.split('\n')) {
+        const line = rawLine.replace(/#.*$/, '').trimEnd()
+        if (!line.trim()) {
+            continue
+        }
+        if (/^packages:\s*$/.test(line)) {
+            inPackages = true
+            continue
+        }
+        if (!inPackages) {
+            continue
+        }
+        const item = line.match(/^\s+-\s+(.+)$/)
+        if (!item) {
+            break
+        }
+        globs.push(item[1].trim().replace(/^['"]|['"]$/g, ''))
+    }
+    return globs
+}
+
+function compileWorkspaceMatcher(globs) {
+    const include = []
+    const exclude = []
+    for (const glob of globs) {
+        const negated = glob.startsWith('!')
+        const matcher = globToRegExp(negated ? glob.slice(1) : glob)
+        ;(negated ? exclude : include).push(matcher)
+    }
+    if (include.length === 0) {
+        return null
+    }
+    // The globs name package directories, so a file is inside the workspace
+    // when one of its ancestor directories matches. Testing the file path
+    // itself would miss everything below the package root.
+    return (relativePath) => {
+        const segments = relativePath.split('/')
+        for (let depth = 1; depth < segments.length; depth++) {
+            const dir = segments.slice(0, depth).join('/')
+            if (include.some((re) => re.test(dir)) && !exclude.some((re) => re.test(dir))) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+function loadProductWorkspaces(repoRoot, products) {
+    const workspaces = new Map()
+    for (const product of products) {
+        const declaration = path.join(repoRoot, 'products', product, WORKSPACE_DECLARATION)
+        if (!fs.existsSync(declaration)) {
+            continue
+        }
+        let matcher
+        try {
+            matcher = compileWorkspaceMatcher(parseWorkspacePackageGlobs(fs.readFileSync(declaration, 'utf8')))
+        } catch (error) {
+            console.error(
+                `Could not read products/${product}/${WORKSPACE_DECLARATION} (${error.message}); its files keep widening to every backend lane`
+            )
+            continue
+        }
+        if (matcher) {
+            workspaces.set(product, matcher)
+        }
+    }
+    return workspaces
+}
+
+function isInProductWorkspace(product, file, productWorkspaces) {
+    const matcher = productWorkspaces.get(product)
+    return matcher ? matcher(file.slice(`products/${product}/`.length)) : false
+}
+
 // --- Contract surfaces ---
 
 const CONTRACT_TASK = 'backend:contract-check'
@@ -593,7 +690,14 @@ const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
 function computeTargets(changedFiles, context) {
-    const { products, isolatedProducts, rustGraph, tachGraph, contractSurfaces = new Map() } = context
+    const {
+        products,
+        isolatedProducts,
+        rustGraph,
+        tachGraph,
+        contractSurfaces = new Map(),
+        productWorkspaces = new Map(),
+    } = context
     const targets = new Set()
 
     const allPyProducts = () => {
@@ -735,11 +839,16 @@ function computeTargets(changedFiles, context) {
             }
             const isBackend = segments[2] === 'backend' || file.endsWith('.py')
             const isFrontend = segments[2] === 'frontend' || /\.tsx?$/.test(file)
+            // Only reached for a file that is neither, and only inside a
+            // package the product's own pnpm workspace declares. A .py there
+            // is still backend: the workspace says the directory holds a JS
+            // package, not that Python cannot be checked into it.
+            const isWorkspaceOnly = !isBackend && !isFrontend && isInProductWorkspace(product, file, productWorkspaces)
 
             if (isFrontend || (!isBackend && !isFrontend)) {
                 targets.add(feProduct(product))
             }
-            if (isBackend || (!isBackend && !isFrontend)) {
+            if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
                 if (isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
                     if (touchesContractSurface(product, file, contractSurfaces)) {
@@ -853,6 +962,7 @@ function buildContext(repoRoot) {
         products,
         isolatedProducts: listIsolatedProducts(repoRoot, products),
         contractSurfaces: loadContractSurfaces(repoRoot, products),
+        productWorkspaces: loadProductWorkspaces(repoRoot, products),
         rustGraph: loadRustGraph(repoRoot),
         tachGraph: loadTachGraph(repoRoot),
     }
@@ -862,9 +972,11 @@ module.exports = {
     computeTargets,
     buildContext,
     compileContractMatcher,
+    compileWorkspaceMatcher,
     globToRegExp,
     isProductDirectory,
     isTripwire,
+    parseWorkspacePackageGlobs,
     parseCrateDependencies,
     parseCrateName,
     reverseClosure,
