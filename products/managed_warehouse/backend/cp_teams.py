@@ -56,6 +56,7 @@ class CPTeam:
     persons_table_name: str | None
     schema_data_imports_name: str | None
     earliest_event_date: date | None
+    data_imports_table_naming_version: str = "legacy_batch_v1"
 
     @property
     def resolved_events_table(self) -> str:
@@ -112,6 +113,7 @@ def team_from_row(row: dict, *, organization_id: str | None = None) -> CPTeam | 
         persons_table_name=row.get("persons_table_name") or None,
         schema_data_imports_name=row.get("schema_data_imports_name") or None,
         earliest_event_date=_parse_earliest_event_date(row.get("earliest_event_date")),
+        data_imports_table_naming_version=str(row.get("data_imports_table_naming_version") or "legacy_batch_v1"),
     )
 
 

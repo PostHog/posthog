@@ -22,9 +22,11 @@ from posthog.models import Team
 
 from products.managed_warehouse.backend.facade.api import (
     duckgres_data_imports_schema,
+    duckgres_data_imports_table_name,
     get_duckgres_query_server_config,
     setup_duckgres_session,
 )
+from products.warehouse_sources.backend.duckgres_table_binding import bind_duckgres_data_imports_table_name
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
@@ -243,6 +245,8 @@ def process_batch(batch: PendingBatch) -> None:
         if job.schema is None:
             raise ValueError(f"ExternalDataJob {batch.job_id} has no schema")
         schema = job.schema
+
+    bind_duckgres_data_imports_table_name(schema)
 
     kind = "backfill" if _is_backfill_batch(batch) else "live"
     # One ORM lookup serves both the cache key and the connection config; it is
@@ -604,14 +608,7 @@ def _duckgres_schema_name(team_id: int) -> str:
 
 
 def _duckgres_table_name(schema: ExternalDataSchema) -> str:
-    source_type = schema.source.source_type
-    normalized_name = schema.normalized_name
-    raw_name = (
-        f"{source_type}_{schema.source.prefix}_{normalized_name}"
-        if schema.source.prefix
-        else f"{source_type}_{normalized_name}"
-    )
-    return NamingConvention.normalize_identifier(raw_name, max_length=63)
+    return duckgres_data_imports_table_name(schema)
 
 
 def _should_replace_table(batch: PendingBatch) -> bool:

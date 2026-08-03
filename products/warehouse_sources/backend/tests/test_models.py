@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from posthog.models.signals import model_activity_signal
 
+from products.warehouse_sources.backend.duckgres_table_binding import bind_duckgres_data_imports_table_name
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -76,17 +77,20 @@ def test_resolved_s3_folder_name(
 
 
 class TestExternalDataSchemaSave(BaseTest):
-    def _source(self) -> ExternalDataSource:
+    def _source(self, source_type: str = "Postgres", prefix: str | None = None) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             status="Completed",
-            source_type="Postgres",
+            source_type=source_type,
+            prefix=prefix,
         )
 
-    def _create(self, name: str, **kwargs) -> ExternalDataSchema:
-        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name, **kwargs)
+    def _create(self, name: str, *, source: ExternalDataSource | None = None, **kwargs) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=source or self._source(), name=name, **kwargs
+        )
 
     def test_save_populates_s3_folder_name_from_name(self) -> None:
         # The folder is the normalized name — never NULL for a new row.
@@ -114,6 +118,48 @@ class TestExternalDataSchemaSave(BaseTest):
         schema.save(update_fields=["status", "updated_at"])
         schema.refresh_from_db()
         assert schema.s3_folder_name == "orders"
+
+    def test_new_schema_waits_for_a_duckgres_writer_to_pin_its_name(self) -> None:
+        schema = self._create("customer_orders", source=self._source("MySQL", "SalesEU"))
+        assert schema.duckgres_table_name is None
+
+    @parameterized.expand(
+        [
+            ("copy", "copy_v1", "tiktokads_ad_report"),
+            ("legacy_batch", "legacy_batch_v1", "tik_tok_ads_ad_report"),
+        ]
+    )
+    def test_duckgres_writer_binds_the_org_naming_policy(self, _name: str, naming_version: str, expected: str) -> None:
+        schema = self._create("ad_report", source=self._source("TikTokAds"))
+
+        with patch(
+            "products.warehouse_sources.backend.duckgres_table_binding.team_state.data_imports_table_naming_version",
+            return_value=naming_version,
+        ):
+            assert bind_duckgres_data_imports_table_name(schema) == expected
+
+        schema.refresh_from_db()
+        assert schema.duckgres_table_name == expected
+
+    def test_duckgres_writer_keeps_the_first_name_when_another_writer_wins(self) -> None:
+        schema = self._create("ad_report", source=self._source("TikTokAds"))
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(duckgres_table_name="already_bound")
+
+        with patch(
+            "products.warehouse_sources.backend.duckgres_table_binding.team_state.data_imports_table_naming_version",
+            return_value="copy_v1",
+        ):
+            assert bind_duckgres_data_imports_table_name(schema) == "already_bound"
+
+        assert schema.duckgres_table_name == "already_bound"
+
+    def test_existing_schema_without_pin_stays_on_legacy_naming(self) -> None:
+        schema = self._create("orders", source=self._source("MySQL", "SalesEU"))
+        schema.status = "Completed"
+        schema.save(update_fields=["status", "updated_at"])
+        schema.refresh_from_db()
+
+        assert schema.duckgres_table_name is None
 
 
 class TestExternalDataSchemaActivityLogging(BaseTest):

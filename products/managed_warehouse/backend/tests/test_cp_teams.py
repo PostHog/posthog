@@ -22,6 +22,7 @@ def _row(**overrides) -> dict:
         "persons_table_name": None,
         "schema_data_imports_name": None,
         "earliest_event_date": None,
+        "data_imports_table_naming_version": "copy_v1",
     }
     row.update(overrides)
     return row
@@ -81,7 +82,17 @@ class TestTeamFromRow:
             persons_table_name=None,
             schema_data_imports_name=None,
             earliest_event_date=date(2020, 6, 15),
+            data_imports_table_naming_version="copy_v1",
         )
+
+    def test_missing_naming_version_defaults_to_legacy_batch_during_rolling_deploy(self) -> None:
+        row = _row()
+        row.pop("data_imports_table_naming_version")
+
+        team = team_from_row(row)
+
+        assert team is not None
+        assert team.data_imports_table_naming_version == "legacy_batch_v1"
 
     @parameterized.expand(
         [
