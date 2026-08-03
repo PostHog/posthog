@@ -408,6 +408,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         AccessControlLevel.Editor
     )
 
+    const continueInNotebookAccessDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Notebook,
+        AccessControlLevel.Editor
+    )
+
     const secondarySaveMenuItems = useMemo(
         () =>
             saveAsMenuItems.secondary.map((item) => ({
@@ -531,24 +536,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         : editingView
           ? 'Close this view and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
           : 'Reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
-    const convertToNotebookButton = (
-        <AccessControlAction
-            resourceType={AccessControlResourceType.Notebook}
-            minAccessLevel={AccessControlLevel.Editor}
-        >
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconNotebook />}
-                onClick={() => convertToNotebook()}
-                loading={notebooksLoading}
-                disabledReason={queryInput?.trim() ? undefined : 'Write a SQL query before converting'}
-                data-attr="sql-editor-convert-to-notebook-button"
-            >
-                Convert to notebook
-            </LemonButton>
-        </AccessControlAction>
-    )
+    const continueInNotebookDisabledReason = queryInput?.trim()
+        ? continueInNotebookAccessDisabledReason
+        : 'Write a SQL query before continuing'
+    const continueInNotebookIsPrimary = saveAsMenuItems.primary.action === 'insight'
 
     return (
         <>
@@ -682,19 +673,14 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     History
                                 </LemonButton>
-                                {convertToNotebookButton}
                                 <LemonButton
-                                    disabledReason={
-                                        !isSourceQueryLastRun
-                                            ? 'Run latest query changes before saving'
-                                            : !updateInsightButtonEnabled
-                                              ? 'No updates to save'
-                                              : undefined
-                                    }
-                                    loading={insightLoading}
+                                    disabledReason={continueInNotebookDisabledReason}
+                                    loading={notebooksLoading}
                                     type="primary"
                                     size="small"
-                                    onClick={() => updateInsight()}
+                                    icon={<IconNotebook />}
+                                    onClick={() => convertToNotebook()}
+                                    data-attr="sql-editor-continue-in-notebook-button"
                                     sideAction={{
                                         icon: <IconChevronDown />,
                                         dropdown: {
@@ -702,6 +688,17 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             overlay: (
                                                 <LemonMenuOverlay
                                                     items={[
+                                                        {
+                                                            label: 'Update insight',
+                                                            disabledReason: insightLoading
+                                                                ? 'Updating insight...'
+                                                                : !isSourceQueryLastRun
+                                                                  ? 'Run latest query changes before saving'
+                                                                  : !updateInsightButtonEnabled
+                                                                    ? 'No updates to save'
+                                                                    : undefined,
+                                                            onClick: () => updateInsight(),
+                                                        },
                                                         {
                                                             label: 'Save as new insight...',
                                                             disabledReason: saveAsDisabledReason,
@@ -730,7 +727,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                         },
                                     }}
                                 >
-                                    Update insight
+                                    Continue in a notebook
                                 </LemonButton>
                                 <LemonButton
                                     onClick={() => closeEditingObject()}
@@ -779,40 +776,55 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 />
                             </>
                         ) : (
-                            <>
-                                {saveAsMenuItems.primary.action === 'insight' && convertToNotebookButton}
-                                <LemonButton
-                                    type="primary"
-                                    size="small"
-                                    onClick={onPrimarySaveClick}
-                                    disabledReason={
-                                        saveAsDisabledReason ??
-                                        (saveAsMenuItems.primary.action === 'endpoint'
-                                            ? saveAsEndpointAccessDisabledReason
-                                            : saveAsMenuItems.primary.action === 'view'
-                                              ? saveAsViewAccessDisabledReason
-                                              : undefined)
-                                    }
-                                    sideAction={{
-                                        icon: <IconChevronDown />,
-                                        'data-attr': 'sql-editor-save-options-button',
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <LemonMenuOverlay
-                                                    items={secondarySaveMenuItems.map((item) => ({
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                icon={continueInNotebookIsPrimary ? <IconNotebook /> : undefined}
+                                onClick={continueInNotebookIsPrimary ? () => convertToNotebook() : onPrimarySaveClick}
+                                loading={continueInNotebookIsPrimary && notebooksLoading}
+                                disabledReason={
+                                    continueInNotebookIsPrimary
+                                        ? continueInNotebookDisabledReason
+                                        : (saveAsDisabledReason ??
+                                          (saveAsMenuItems.primary.action === 'endpoint'
+                                              ? saveAsEndpointAccessDisabledReason
+                                              : saveAsMenuItems.primary.action === 'view'
+                                                ? saveAsViewAccessDisabledReason
+                                                : undefined))
+                                }
+                                data-attr={
+                                    continueInNotebookIsPrimary ? 'sql-editor-continue-in-notebook-button' : undefined
+                                }
+                                sideAction={{
+                                    icon: <IconChevronDown />,
+                                    'data-attr': 'sql-editor-save-options-button',
+                                    dropdown: {
+                                        placement: 'bottom-end',
+                                        overlay: (
+                                            <LemonMenuOverlay
+                                                items={[
+                                                    ...(continueInNotebookIsPrimary
+                                                        ? [
+                                                              {
+                                                                  label: saveAsMenuItems.primary.label,
+                                                                  onClick: onPrimarySaveClick,
+                                                                  disabledReason: saveAsDisabledReason,
+                                                              },
+                                                          ]
+                                                        : []),
+                                                    ...secondarySaveMenuItems.map((item) => ({
                                                         ...item,
                                                         disabledReason:
                                                             saveAsDisabledReason ?? item.accessDisabledReason,
-                                                    }))}
-                                                />
-                                            ),
-                                        },
-                                    }}
-                                >
-                                    {saveAsMenuItems.primary.label}
-                                </LemonButton>
-                            </>
+                                                    })),
+                                                ]}
+                                            />
+                                        ),
+                                    },
+                                }}
+                            >
+                                {continueInNotebookIsPrimary ? 'Continue in a notebook' : saveAsMenuItems.primary.label}
+                            </LemonButton>
                         )}
                     </div>
                 }
