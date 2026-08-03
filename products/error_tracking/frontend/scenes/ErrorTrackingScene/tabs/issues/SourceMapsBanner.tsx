@@ -48,10 +48,8 @@ function SourceMapsBannerContent({ percent, lookbackHours }: { percent: number; 
 
     return (
         <>
-            {/* mb-6 rather than mb-2: the sticky filter bar below (IssuesList's SceneStickyBar)
-                pulls itself up with -mt-4 to sit flush under the tab bar when it's the first
-                element — the extra bottom margin absorbs that pull so the bar doesn't paint
-                over the card's bottom edge. */}
+            {/* Use mb-6 (not mb-2) because IssuesList's SceneStickyBar uses -mt-4 to pull up under the tab bar.
+                The extra bottom margin prevents the sticky bar from overlapping the card's bottom edge. */}
             <div className="mb-6">
                 <div className="rounded-lg border border-border bg-bg-light pl-3 pr-4 py-3 mt-2">
                     <div className="flex items-center gap-4">
