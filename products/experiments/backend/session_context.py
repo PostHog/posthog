@@ -28,7 +28,6 @@ from functools import partial
 from typing import Optional
 
 from django.conf import settings
-from django.core.cache import cache
 from django.db.models import Q, QuerySet
 
 import pydantic
@@ -42,10 +41,11 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, uuidv7_session_lower_bound
-from posthog.utils import get_safe_cache
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -198,7 +198,7 @@ def get_session_experiment_context(
     items = computed[session_id]
     # A capped single session is still cached: with one session there is no batch union, so a
     # recompute would drop the same metrics again and caching the capped result loses nothing.
-    cache.set(cache_key, items, timeout=SESSION_CONTEXT_CACHE_TTL)
+    safe_cache_set(cache_key, items, timeout=SESSION_CONTEXT_CACHE_TTL)
     return items
 
 
@@ -262,7 +262,7 @@ def get_session_experiment_contexts(
             # single-session endpoint computes; it is returned best-effort and left for
             # on-demand recompute instead.
             if session_id not in capped_session_ids:
-                cache.set(_cache_key(team, user, session_id), items, timeout=SESSION_CONTEXT_CACHE_TTL)
+                safe_cache_set(_cache_key(team, user, session_id), items, timeout=SESSION_CONTEXT_CACHE_TTL)
         results.update(computed)
 
     return {session_id: results[session_id] for session_id in unique_ids if session_id in results}
@@ -405,6 +405,13 @@ def _compute_session_experiment_contexts(
     # built for; no scan may pass its own modifiers. Postgres foreign-key lazy joins are
     # skipped — the single most expensive build step, and these queries only ever read the
     # events table.
+    # Tagged here, not at the entry points: the recording-metadata lookup above is replay's own
+    # query and tags itself as such, so an earlier tag would be overwritten and these scans would
+    # bill to replay. The scans are experiments' own — exposure criteria and metric definitions
+    # over the events table — and follow the convention of tagging the product whose logic and
+    # cost they are, not the surface they render on.
+    tag_queries(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk)
+
     hogql_modifiers = create_default_modifiers_for_team(team)
     shared_hogql = SharedHogQLDatabase(
         database=Database.create_for(

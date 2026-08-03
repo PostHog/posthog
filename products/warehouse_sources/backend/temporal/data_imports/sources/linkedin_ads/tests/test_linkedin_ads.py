@@ -13,6 +13,10 @@ from parameterized import parameterized
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    evolve_pyarrow_schema,
+    table_from_py_list,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
     LinkedinAdsSourceConfig,
@@ -32,6 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_a
     linkedin_ads_client,
     linkedin_ads_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.schemas import (
+    FLOAT_FIELDS,
+    INT_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -41,6 +49,20 @@ def _make_resume_manager(can_resume: bool = False, loaded_state: object = None) 
     manager.can_resume.return_value = can_resume
     manager.load_state.return_value = loaded_state
     return manager
+
+
+def _stats_schema(field_names: list[str], *, name: str = "creative_stats") -> LinkedinAdsSchema:
+    """A minimal stats schema, for the metric-coercion tests."""
+    return LinkedinAdsSchema(
+        name=name,
+        primary_keys=[],
+        field_names=field_names,
+        partition_keys=[],
+        partition_mode=None,
+        partition_format=None,
+        is_stats=True,
+        partition_size=1,
+    )
 
 
 def _small_batcher_factory(chunk_size: int):
@@ -151,19 +173,9 @@ class TestFlattenLinkedinRecord:
 
     def test_flatten_integer_fields(self):
         """Test conversion of integer fields."""
-        record = {"impressions": 1000, "clicks": 50}
-        schema = LinkedinAdsSchema(
-            name="test",
-            primary_keys=[],
-            field_names=["impressions", "clicks"],
-            partition_keys=[],
-            partition_mode=None,
-            partition_format=None,
-            is_stats=True,
-            partition_size=1,
-        )
+        schema = _stats_schema(["impressions", "clicks"])
 
-        result = _flatten_linkedin_record(record, schema)
+        result = _flatten_linkedin_record({"impressions": 1000, "clicks": 50}, schema)
         assert result is not None
 
         assert result["impressions"] == 1000
@@ -175,25 +187,130 @@ class TestFlattenLinkedinRecord:
             ("costInUsd", "25.50", 25.50),
             ("costInLocalCurrency", "30.75", 30.75),
             ("conversionValueInLocalCurrency", "12.34", 12.34),
+            # LinkedIn flips these between JSON number and string, and omits them when zero.
+            ("costInUsd", 25, 25.0),
+            ("conversionValueInLocalCurrency", "", 0.0),
+            ("conversionValueInLocalCurrency", None, 0.0),
         ],
     )
-    def test_flatten_float_fields(self, field_name: str, raw_value: str, expected: float):
+    def test_flatten_float_fields(self, field_name: str, raw_value: typing.Any, expected: float):
         record = {field_name: raw_value}
-        schema = LinkedinAdsSchema(
-            name="test",
-            primary_keys=[],
-            field_names=[field_name],
-            partition_keys=[],
-            partition_mode=None,
-            partition_format=None,
-            is_stats=True,
-            partition_size=1,
-        )
+        schema = _stats_schema([field_name])
 
         result = _flatten_linkedin_record(record, schema)
         assert result is not None
 
         assert result[field_name] == expected
+        assert isinstance(result[field_name], float)
+
+    @pytest.mark.parametrize(
+        "raw_value, expected",
+        [
+            (3, 3),
+            (3.0, 3),
+            ("3", 3),
+            ("3.0", 3),
+            (" 3 ", 3),
+            ("", 0),
+            (None, 0),
+            # Fractional counts get rounded, consistently whichever way they were encoded.
+            (3.7, 4),
+            ("3.7", 4),
+            # Beyond float's 53-bit mantissa, so it must not round-trip through float.
+            (9007199254740993, 9007199254740993),
+        ],
+    )
+    def test_flatten_int_fields_parses_all_json_shapes(self, raw_value: typing.Any, expected: int):
+        """Count metrics land as int regardless of how LinkedIn encoded them."""
+        schema = _stats_schema(["impressions"])
+
+        result = _flatten_linkedin_record({"impressions": raw_value}, schema)
+        assert result is not None
+
+        assert result["impressions"] == expected
+        assert isinstance(result["impressions"], int)
+
+    def test_flatten_omitted_float_metric_becomes_typed_zero(self):
+        """Regression test: LinkedIn omits zero-valued metrics, and a batch where every row omitted
+        one used to infer as arrow `null` → `string`, which then failed to merge with a numeric
+        batch (`ArrowTypeError: ... conversion_value_in_local_currency ... string vs double`)."""
+        float_fields = ["costInUsd", "costInLocalCurrency", "conversionValueInLocalCurrency"]
+        schema = _stats_schema(float_fields)
+
+        result = _flatten_linkedin_record({}, schema)
+        assert result is not None
+
+        for field_name in float_fields:
+            assert result[field_name] == 0.0
+            assert isinstance(result[field_name], float)
+
+    def test_flatten_omitted_int_metric_becomes_typed_zero(self):
+        """Same as above for the count metrics, which were previously uncoerced entirely."""
+        int_fields = sorted(INT_FIELDS)
+        schema = _stats_schema(int_fields)
+
+        result = _flatten_linkedin_record({}, schema)
+        assert result is not None
+
+        for field_name in int_fields:
+            assert result[field_name] == 0
+            assert isinstance(result[field_name], int)
+
+    @pytest.mark.parametrize(
+        "field_name, raw_value, expected",
+        [
+            ("impressions", "n/a", 0),
+            ("costInUsd", "N/A", 0.0),
+        ],
+    )
+    def test_flatten_unparseable_metric_logs_and_defaults_to_zero(
+        self, field_name: str, raw_value: str, expected: float
+    ):
+        """An unparseable cell must not raise — that would kill a whole multi-year backfill."""
+        schema = _stats_schema([field_name])
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.linkedin_ads.module_logger"
+        ) as mock_logger:
+            result = _flatten_linkedin_record({field_name: raw_value}, schema)
+
+        assert result is not None
+        assert result[field_name] == expected
+        assert mock_logger.warning.call_args[0][0] == "linkedin_ads.unparseable_metric"
+
+    def test_flatten_metric_types_are_stable_across_records(self):
+        """The cross-batch invariant, expressed without arrow: a populated record and a record where
+        LinkedIn omitted everything must agree on the python type of every metric column."""
+        schema = _stats_schema([*sorted(INT_FIELDS), *sorted(FLOAT_FIELDS)])
+
+        populated = _flatten_linkedin_record({"impressions": 5, "costInUsd": "1.5"}, schema)
+        omitted = _flatten_linkedin_record({}, schema)
+        assert populated is not None and omitted is not None
+
+        for field_name in populated:
+            assert type(populated[field_name]) is type(omitted[field_name]), field_name
+
+    def test_omitted_metric_batch_merges_with_populated_batch(self):
+        """End-to-end guard: this is the assertion that actually pins the reported failure. Two
+        batches — one where LinkedIn omitted the metric for every row, one with values — must
+        produce mergeable arrow schemas."""
+        schema = _stats_schema(["conversionValueInLocalCurrency", "impressions"])
+
+        omitted = _flatten_linkedin_record({}, schema)
+        populated = _flatten_linkedin_record({"conversionValueInLocalCurrency": 1.5, "impressions": 10}, schema)
+        assert omitted is not None and populated is not None
+
+        omitted_schema = evolve_pyarrow_schema(table_from_py_list([omitted]), None).schema
+        populated_schema = evolve_pyarrow_schema(table_from_py_list([populated]), None).schema
+
+        pa.unify_schemas([omitted_schema, populated_schema])
+
+        # And confirm the pre-fix shape (an uncoerced None) is what used to break it, so this test
+        # fails loudly if the coercion is ever removed.
+        null_schema = evolve_pyarrow_schema(table_from_py_list([{"conversionValueInLocalCurrency": None}]), None).schema
+        value_schema = evolve_pyarrow_schema(table_from_py_list([{"conversionValueInLocalCurrency": 1.5}]), None).schema
+        with pytest.raises(pa.ArrowTypeError, match="incompatible types"):
+            pa.unify_schemas([null_schema, value_schema])
 
     def test_flatten_change_audit_stamps(self):
         """Test flattening changeAuditStamps field."""
@@ -314,6 +431,32 @@ class TestFlattenLinkedinRecord:
         result = _flatten_linkedin_record(record, schema)
 
         assert result is None
+
+    def test_flatten_stats_row_without_date_range_is_dropped(self):
+        """`date_start` is the PK and partition key for stats resources — a row without one is
+        unusable, and an all-null `date_start` column has the same merge-failure exposure."""
+        schema = _stats_schema(["dateRange", "impressions"])
+
+        assert _flatten_linkedin_record({}, schema) is None
+        assert _flatten_linkedin_record({"dateRange": {"start": None, "end": None}}, schema) is None
+
+    def test_flatten_non_stats_row_without_date_range_is_kept(self):
+        """The drop only applies to stats resources."""
+        schema = LinkedinAdsSchema(
+            name="campaigns",
+            primary_keys=[],
+            field_names=["dateRange", "name"],
+            partition_keys=[],
+            partition_mode=None,
+            partition_format=None,
+            is_stats=False,
+            partition_size=1,
+        )
+
+        result = _flatten_linkedin_record({"name": "Q1"}, schema)
+
+        assert result is not None
+        assert result["date_start"] is None
 
     def test_flatten_created_at_long_to_virtual_columns(self):
         """`createdAt` / `lastModifiedAt` longs → `created_time` / `last_modified_time` virtual cols."""

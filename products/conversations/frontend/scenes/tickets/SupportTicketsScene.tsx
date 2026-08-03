@@ -317,6 +317,9 @@ export function SupportTicketsTableFilters({ embedded = false }: SupportTicketsT
                     onChange={setSearchQuery}
                     size="small"
                     className="min-w-64"
+                    // Matches MAX_SEARCH_LENGTH in ticket_filters.py — the backend ignores
+                    // longer searches and rejects saving them in a view.
+                    maxLength={200}
                 />
                 <Tooltip
                     title={
