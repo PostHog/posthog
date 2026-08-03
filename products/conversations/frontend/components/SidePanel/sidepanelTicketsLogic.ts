@@ -718,8 +718,10 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.openPendingTicket()
             }
         },
-        sidePanelOpen: () => {
-            if (values.isEnabled) {
+        sidePanelOpen: (open: boolean) => {
+            // Only on open — a close-triggered fetch is wasted (nothing renders the result), and the
+            // full-screen tickets scene closes the panel as it opens, which would double-fetch
+            if (open && values.isEnabled) {
                 actions.loadTickets()
             }
         },

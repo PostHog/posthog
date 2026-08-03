@@ -63,6 +63,31 @@ class GithubEndpointConfig:
     # an incremental fan-out skips parents whose value predates the child watermark — they can
     # hold no unseen children — keeping the reconciliation window cheap to re-walk every sync.
     fan_out_parent_recency_field: Optional[str] = None
+    # Query-param shape for the list request.
+    #   "issue_list" — the original shape: per_page + state=all + a created/updated sort pair.
+    #   "sorted"     — same minus `state`, whose enum differs per endpoint (the alert endpoints
+    #                  reject `state=all`) while `sort`/`direction` are accepted as usual.
+    #   "plain"      — per_page plus `extra_params` only, for endpoints that accept no sort at all
+    #                  (or accept a different sort enum, e.g. milestones' due_on/completeness).
+    param_style: Literal["issue_list", "sorted", "plain"] = "issue_list"
+    # Endpoint honors GitHub's `since` filter, so an incremental sync is bounded server-side rather
+    # than by walking pages until the watermark. (issues and commits predate this flag and are
+    # matched by name in github.py.)
+    supports_since_param: bool = False
+    # Endpoint returns newest-first whatever params we send, so rows are emitted desc on every sync
+    # — the first one included — and SourceResponse.sort_mode has to say so or the pipeline
+    # checkpoints the watermark assuming ascending order. workflow_runs and deployments are the
+    # original cases and are matched by name via _ALWAYS_NEWEST_FIRST_ENDPOINTS in github.py.
+    always_desc: bool = False
+
+
+def _datetime_field(field: str) -> IncrementalField:
+    return {
+        "label": field,
+        "type": IncrementalFieldType.DateTime,
+        "field": field,
+        "field_type": IncrementalFieldType.DateTime,
+    }
 
 
 GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
@@ -365,6 +390,373 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # past 5,000 members at 100/page. 400 pages bounds a runaway paginator at 40,000
         # memberships per team while clearing any plausible real team; the cap still logs.
         max_pages_per_parent=400,
+    ),
+    # --- Repository metadata --------------------------------------------------------------
+    "repository": GithubEndpointConfig(
+        name="repository",
+        # Returns the repository object itself rather than a list; a body transform in github.py
+        # wraps it as the single row of a one-row-per-repo table.
+        path="/repos/{repository}",
+        incremental_fields=[],
+        param_style="plain",
+    ),
+    "topics": GithubEndpointConfig(
+        name="topics",
+        # {"names": [...]} — the body transform emits one row per topic.
+        path="/repos/{repository}/topics",
+        incremental_fields=[],
+        primary_key="name",
+        param_style="plain",
+    ),
+    "languages": GithubEndpointConfig(
+        name="languages",
+        # A {language: bytes} map — the body transform emits one row per language.
+        path="/repos/{repository}/languages",
+        incremental_fields=[],
+        primary_key="language",
+        param_style="plain",
+    ),
+    "community_profile": GithubEndpointConfig(
+        name="community_profile",
+        path="/repos/{repository}/community/profile",
+        incremental_fields=[],
+        # One row per repository, so the injected repository column is the only stable key.
+        primary_key="repository",
+        param_style="plain",
+    ),
+    # --- Issue and review discussion ------------------------------------------------------
+    "issue_comments": GithubEndpointConfig(
+        name="issue_comments",
+        path="/repos/{repository}/issues/comments",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("updated_at"), _datetime_field("created_at")],
+        default_incremental_field="updated_at",
+        param_style="sorted",
+        supports_since_param=True,
+    ),
+    "pull_request_comments": GithubEndpointConfig(
+        name="pull_request_comments",
+        # Repo-wide review comments (the inline code comments on pull requests), so unlike reviews
+        # this needs no fan-out over pull requests.
+        path="/repos/{repository}/pulls/comments",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("updated_at"), _datetime_field("created_at")],
+        default_incremental_field="updated_at",
+        param_style="sorted",
+        supports_since_param=True,
+    ),
+    "issue_events": GithubEndpointConfig(
+        name="issue_events",
+        # Labeled / assigned / closed / reopened transitions, repo-wide. The endpoint takes no time
+        # filter and always answers newest-first, so incremental syncs paginate down and stop at the
+        # watermark, the same way workflow_runs does.
+        path="/repos/{repository}/issues/events",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("created_at")],
+        default_incremental_field="created_at",
+        param_style="plain",
+        sort_mode="desc",
+        always_desc=True,
+    ),
+    "labels": GithubEndpointConfig(
+        name="labels",
+        path="/repos/{repository}/labels",
+        incremental_fields=[],
+        param_style="plain",
+    ),
+    "milestones": GithubEndpointConfig(
+        name="milestones",
+        # Its sort enum is due_on/completeness, so the generic created/updated sort would be
+        # rejected — send only state and paginate in the API's default order.
+        path="/repos/{repository}/milestones",
+        partition_key="created_at",
+        incremental_fields=[],
+        param_style="plain",
+        extra_params={"state": "all"},
+    ),
+    # --- Git refs and people ---------------------------------------------------------------
+    "branches": GithubEndpointConfig(
+        name="branches",
+        path="/repos/{repository}/branches",
+        incremental_fields=[],
+        primary_key="name",  # Branches carry no id; the name is unique within the repository.
+        param_style="plain",
+    ),
+    "tags": GithubEndpointConfig(
+        name="tags",
+        path="/repos/{repository}/tags",
+        incremental_fields=[],
+        primary_key="name",  # Tags carry no id either.
+        param_style="plain",
+    ),
+    "contributors": GithubEndpointConfig(
+        name="contributors",
+        path="/repos/{repository}/contributors",
+        incremental_fields=[],
+        param_style="plain",
+    ),
+    "collaborators": GithubEndpointConfig(
+        name="collaborators",
+        path="/repos/{repository}/collaborators",
+        incremental_fields=[],
+        param_style="plain",
+        # Needs push access to the repository, which a read-only connection lacks; leave it
+        # deselected so a default connection doesn't enable a table whose first sync would 403.
+        should_sync_default=False,
+    ),
+    "subscribers": GithubEndpointConfig(
+        name="subscribers",
+        path="/repos/{repository}/subscribers",
+        incremental_fields=[],
+        param_style="plain",
+    ),
+    "forks": GithubEndpointConfig(
+        name="forks",
+        # Defaults to sort=newest, so rows arrive newest-first on every sync and incremental
+        # pagination can stop at the watermark.
+        path="/repos/{repository}/forks",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("created_at")],
+        default_incremental_field="created_at",
+        param_style="plain",
+        extra_params={"sort": "newest"},
+        sort_mode="desc",
+        always_desc=True,
+    ),
+    # --- Deploys and CI --------------------------------------------------------------------
+    # deployments and deployment_statuses are defined above with full webhook-fed incremental sync.
+    "environments": GithubEndpointConfig(
+        name="environments",
+        path="/repos/{repository}/environments",
+        partition_key="created_at",
+        incremental_fields=[],
+        param_style="plain",
+        response_data_path="environments",
+    ),
+    "workflows": GithubEndpointConfig(
+        name="workflows",
+        path="/repos/{repository}/actions/workflows",
+        partition_key="created_at",
+        incremental_fields=[],
+        param_style="plain",
+        response_data_path="workflows",
+    ),
+    "artifacts": GithubEndpointConfig(
+        name="artifacts",
+        path="/repos/{repository}/actions/artifacts",
+        partition_key="created_at",
+        incremental_fields=[],
+        param_style="plain",
+        response_data_path="artifacts",
+    ),
+    "runners": GithubEndpointConfig(
+        name="runners",
+        path="/repos/{repository}/actions/runners",
+        incremental_fields=[],
+        param_style="plain",
+        response_data_path="runners",
+        # Self-hosted runners need the repository administration permission.
+        should_sync_default=False,
+    ),
+    "actions_caches": GithubEndpointConfig(
+        name="actions_caches",
+        path="/repos/{repository}/actions/caches",
+        partition_key="created_at",
+        incremental_fields=[],
+        param_style="plain",
+        response_data_path="actions_caches",
+    ),
+    "check_runs": GithubEndpointConfig(
+        name="check_runs",
+        # Child of commits: {ref} is filled per parent commit during fan-out. GitHub exposes no
+        # repo-wide check-runs list, so per-commit CI signal can only be assembled one commit at a
+        # time, the same way reviews are assembled per pull request.
+        path="/repos/{repository}/commits/{ref}/check-runs",
+        # started_at is nullable while a run is queued, so it works as a cursor but not as a
+        # partition key — this table stays unpartitioned.
+        incremental_fields=[_datetime_field("started_at"), _datetime_field("completed_at")],
+        default_incremental_field="started_at",
+        # Check run ids are globally unique (GitHub exposes /repos/{repo}/check-runs/{id}), so no
+        # composite key is needed even though this is a fan-out child.
+        primary_key="id",
+        sort_mode="desc",  # Rows land parent-newest-first, like workflow_jobs and reviews.
+        response_data_path="check_runs",
+        fan_out_parent="commits",
+        fan_out_path_param="ref",
+        fan_out_parent_field="sha",
+        # filter=all returns every check run for the ref, not just the latest per check name —
+        # required for re-run and flake analysis.
+        extra_params={"filter": "all"},
+        # One call per commit, so a first incremental sync would otherwise crawl the repo's entire
+        # commit history against a shared, rate-limited budget. Floor it at a recent window; later
+        # syncs advance from the watermark. A deliberate full refresh still pulls everything.
+        initial_lookback_days=7,
+        # A commit-grained fan-out is far more expensive than the repo-wide tables, so leave it
+        # deselected and let users opt in rather than paying for it on every default connection.
+        should_sync_default=False,
+    ),
+    "commit_statuses": GithubEndpointConfig(
+        name="commit_statuses",
+        # Child of commits, like check_runs: the statuses API is per-ref only.
+        path="/repos/{repository}/commits/{ref}/statuses",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("created_at"), _datetime_field("updated_at")],
+        default_incremental_field="created_at",
+        # GitHub documents no single-status lookup, so treat the id as unique only within its
+        # commit and key on the injected sha as well — a fan-out child's key must be unique
+        # table-wide or every later merge multi-matches.
+        primary_key=["commit_sha", "id"],
+        sort_mode="desc",
+        fan_out_parent="commits",
+        fan_out_path_param="ref",
+        fan_out_parent_field="sha",
+        # A status carries no sha of its own, so inject the commit it was posted against.
+        fan_out_include_parent_fields={"sha": "commit_sha"},
+        initial_lookback_days=7,
+        should_sync_default=False,  # Same commit-grained fan-out cost as check_runs.
+    ),
+    # --- Security posture ------------------------------------------------------------------
+    "code_scanning_alerts": GithubEndpointConfig(
+        name="code_scanning_alerts",
+        path="/repos/{repository}/code-scanning/alerts",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("updated_at"), _datetime_field("created_at")],
+        default_incremental_field="updated_at",
+        # Alerts are numbered within the repository and carry no id.
+        primary_key="number",
+        param_style="sorted",
+        # Needs the code scanning alerts read grant, which a plain repo connection lacks.
+        should_sync_default=False,
+    ),
+    "dependabot_alerts": GithubEndpointConfig(
+        name="dependabot_alerts",
+        path="/repos/{repository}/dependabot/alerts",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("updated_at"), _datetime_field("created_at")],
+        default_incremental_field="updated_at",
+        primary_key="number",
+        param_style="sorted",
+        should_sync_default=False,
+    ),
+    "secret_scanning_alerts": GithubEndpointConfig(
+        name="secret_scanning_alerts",
+        path="/repos/{repository}/secret-scanning/alerts",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("updated_at"), _datetime_field("created_at")],
+        default_incremental_field="updated_at",
+        primary_key="number",
+        param_style="sorted",
+        # Ask GitHub to leave the leaked credential out of the response. github.py also strips it
+        # from every row, so the guarantee doesn't rest on the pinned API version honoring this.
+        extra_params={"hide_secret": "true"},
+        should_sync_default=False,
+    ),
+    "security_advisories": GithubEndpointConfig(
+        name="security_advisories",
+        path="/repos/{repository}/security-advisories",
+        partition_key="created_at",
+        incremental_fields=[_datetime_field("updated_at"), _datetime_field("created_at")],
+        default_incremental_field="updated_at",
+        primary_key="ghsa_id",  # Repository advisories are keyed by GHSA id, not a numeric id.
+        param_style="sorted",
+        should_sync_default=False,
+    ),
+    "dependency_sbom": GithubEndpointConfig(
+        name="dependency_sbom",
+        # One SPDX document per repository; the body transform emits one row per package, which is
+        # the grain a dependency inventory is actually queried at.
+        path="/repos/{repository}/dependency-graph/sbom",
+        incremental_fields=[],
+        primary_key="spdx_id",
+        param_style="plain",
+    ),
+    "rulesets": GithubEndpointConfig(
+        name="rulesets",
+        path="/repos/{repository}/rulesets",
+        partition_key="created_at",
+        incremental_fields=[],
+        param_style="plain",
+    ),
+    "hooks": GithubEndpointConfig(
+        name="hooks",
+        path="/repos/{repository}/hooks",
+        partition_key="created_at",
+        incremental_fields=[],
+        param_style="plain",
+        # Reading webhooks needs admin:repo_hook (or the repository webhooks read permission).
+        should_sync_default=False,
+    ),
+    # --- Traffic and statistics ------------------------------------------------------------
+    # GitHub only retains traffic for the last 14 days and recomputes the stats aggregates
+    # asynchronously, so these are full-refresh tables that upsert on each sync.
+    "traffic_views": GithubEndpointConfig(
+        name="traffic_views",
+        path="/repos/{repository}/traffic/views",
+        partition_key="timestamp",
+        incremental_fields=[],
+        primary_key="timestamp",
+        param_style="plain",
+        response_data_path="views",
+        should_sync_default=False,  # Traffic needs push access to the repository.
+    ),
+    "traffic_clones": GithubEndpointConfig(
+        name="traffic_clones",
+        path="/repos/{repository}/traffic/clones",
+        partition_key="timestamp",
+        incremental_fields=[],
+        primary_key="timestamp",
+        param_style="plain",
+        response_data_path="clones",
+        should_sync_default=False,
+    ),
+    "traffic_referrers": GithubEndpointConfig(
+        name="traffic_referrers",
+        path="/repos/{repository}/traffic/popular/referrers",
+        incremental_fields=[],
+        primary_key="referrer",
+        param_style="plain",
+        should_sync_default=False,
+    ),
+    "traffic_paths": GithubEndpointConfig(
+        name="traffic_paths",
+        path="/repos/{repository}/traffic/popular/paths",
+        incremental_fields=[],
+        primary_key="path",
+        param_style="plain",
+        should_sync_default=False,
+    ),
+    "contributor_stats": GithubEndpointConfig(
+        name="contributor_stats",
+        path="/repos/{repository}/stats/contributors",
+        incremental_fields=[],
+        # The author is nested; github.py flattens the id and login onto the row.
+        primary_key="author_id",
+        param_style="plain",
+    ),
+    "commit_activity_stats": GithubEndpointConfig(
+        name="commit_activity_stats",
+        path="/repos/{repository}/stats/commit_activity",
+        incremental_fields=[],
+        # week is the unix timestamp of the week start, so it identifies the bucket.
+        primary_key="week",
+        param_style="plain",
+    ),
+    "participation_stats": GithubEndpointConfig(
+        name="participation_stats",
+        # {"all": [...], "owner": [...]} — a rolling 52-week window, so it is one row per repo
+        # rather than one per week (the week offsets shift on every sync).
+        path="/repos/{repository}/stats/participation",
+        incremental_fields=[],
+        primary_key="repository",
+        param_style="plain",
+    ),
+    "code_frequency_stats": GithubEndpointConfig(
+        name="code_frequency_stats",
+        # Returns positional arrays ([week, additions, deletions]); the body transform names them.
+        path="/repos/{repository}/stats/code_frequency",
+        incremental_fields=[],
+        primary_key="week",
+        param_style="plain",
     ),
 }
 

@@ -152,6 +152,9 @@ jobs:
                         # (skills/, scripts/). Catch any .py change so the
                         # backend job triggers when only those files move.
                         - 'products/**/*.py'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
@@ -438,6 +441,7 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Restore test durations from cache
               # Shard counts are derived from .test_durations (Amdahl). Restore the newest
@@ -669,7 +673,8 @@ jobs:
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix — turbo-tests handles them (warehouse_sources runs its own temporal suite there).
+                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
+                  # their own temporal suites there.
                   core=()
                   poe=()
                   temporal=()
@@ -806,26 +811,29 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure
 
+            # Dedicated app: this product matrix alone is ~half the offloadable
+            # setup-action volume, enough to threaten any shared 15k/hr bucket.
             - name: Mint setup-action GitHub token
               id: setup-gh-token
               if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -1926,7 +1934,9 @@ jobs:
             - name: Post CH migration SQL to CI report comment
               # Sticky section in the shared CI report comment so pushes don't spam the PR.
               # GITHUB_TOKEN is read-only for fork PRs, so only comment on same-repo PRs.
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   HAS_CHANGES: ${{ steps.render_ch_sql.outputs.has_changes }}
                   CH_MIGRATION_COUNT: ${{ steps.render_ch_sql.outputs.migration_count }}

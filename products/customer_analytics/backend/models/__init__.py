@@ -3,6 +3,8 @@ from .account_channel_summary import AccountChannelSummary, SlackSummaryCadence
 from .announcement import Announcement
 from .announcement_delivery import AnnouncementDelivery
 from .custom_property_definition import (
+    CANONICAL_DISPLAY_TYPE_BY_NAME,
+    CANONICAL_LAST_SLACK_MESSAGE_AT,
     DATA_TYPE_BY_DISPLAY_TYPE,
     CustomPropertyDefinition,
     DataType,
@@ -19,6 +21,8 @@ from .relationship import AccountRelationship, AccountRelationshipDefinition
 from .team_customer_analytics_config import TeamCustomerAnalyticsConfig
 
 __all__ = [
+    "CANONICAL_DISPLAY_TYPE_BY_NAME",
+    "CANONICAL_LAST_SLACK_MESSAGE_AT",
     "DATA_TYPE_BY_DISPLAY_TYPE",
     "Account",
     "AccountChannelSummary",

@@ -21,6 +21,8 @@ How scouts get discovered, scheduled, and dispatched; the two distribution paths
   The body is the system prompt; the agent orients, explores, files reports or remembers, and writes a one-paragraph summary to the run row.
 
 Pausing a scout = `enabled=false`.
+That records `status=paused_by_user`, which automatic lifecycle sweeps never resume or re-pause; `enabled=true` resumes from any pause, including a system-applied one (`status=paused_by_system`, cause in the read-only `pause_reason`).
+Config responses expose `status` and `pause_reason` read-only; writes flow through `enabled`.
 Slowing it = a larger `run_interval_minutes`.
 Dry-running it = `emit=false`.
 All three via `posthog:scout-config-update` (get the `id` from `-config-list`), or set at creation time in the nested `config` object passed to `posthog:scout-create-prepare`.

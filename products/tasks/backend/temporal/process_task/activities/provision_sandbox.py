@@ -11,7 +11,11 @@ from temporalio import activity
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
+from products.tasks.backend.constants import (
+    DEV_STACK_IMAGE_NAME,
+    SNAPSHOT_KIND_FILESYSTEM,
+    filter_user_sandbox_env_vars,
+)
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
@@ -24,14 +28,14 @@ from products.tasks.backend.logic.services.connection_token import (
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
-    increment_sandbox_created,
     increment_snapshot_restore,
     increment_snapshot_usage,
+    record_sandbox_created,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -296,6 +300,18 @@ def get_fresh_image_source_for_context(ctx: TaskProcessingContext) -> tuple[str,
         snapshot=None,
         custom_image_name=ctx.custom_image_name if ctx.use_modal_vm_sandbox else None,
     )
+
+
+def _sandbox_image_kind(image_source: str, custom_image_name: str | None) -> str:
+    if image_source == "resume_snapshot":
+        return "resume_snapshot"
+    if image_source == "repository_snapshot":
+        return "repository_snapshot"
+    if custom_image_name == DEV_STACK_IMAGE_NAME:
+        return "dev_stack"
+    if custom_image_name:
+        return "custom"
+    return "base"
 
 
 def _build_environment_variables(
@@ -626,7 +642,12 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         )
         increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
 
-        increment_sandbox_created("vm" if use_vm_sandbox else "gvisor")
+        record_sandbox_created(
+            "vm" if use_vm_sandbox else "gvisor",
+            _sandbox_image_kind(prepared.image_source, config.custom_image_name),
+            sandbox.config.image_fallback is not None,
+            create_ms,
+        )
 
         credentials = sandbox.get_connect_credentials()
 
@@ -689,10 +710,35 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                 branch=ctx.branch if is_resume else None,
             )
 
+            if is_resume and ctx.branch and _is_missing_remote_branch_clone_error(clone_result):
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    f"Resume branch {ctx.branch} is unavailable; cloning the repository default branch so the agent can restore its git checkpoint",
+                )
+                clone_result = sandbox.clone_repository(
+                    input.repository,
+                    github_token=input.github_token,
+                    shallow=input.shallow_clone,
+                    branch=None,
+                )
+
         if clone_result.exit_code != 0:
             raise RuntimeError(f"Failed to clone repository {input.repository}: {clone_result.stderr}")
 
         return CloneRepositoryInSandboxOutput(clone_ms=clone_timer.elapsed_ms)
+
+
+def _is_missing_remote_branch_clone_error(result: ExecutionResult) -> bool:
+    if result.exit_code == 0:
+        return False
+
+    output = f"{result.stdout}\n{result.stderr}".casefold()
+    return (
+        "could not find remote branch" in output
+        or ("remote branch" in output and "not found in upstream origin" in output)
+        or "couldn't find remote ref" in output
+    )
 
 
 @activity.defn

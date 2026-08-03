@@ -1254,6 +1254,9 @@ tools:
     experiments-create-from-prompt-create:
         operation: experiments_create_from_prompt_create
         enabled: false
+    experiments-flag-cleanup-target-retrieve:
+        operation: experiments_flag_cleanup_target_retrieve
+        enabled: false
     experiments-flag-cleanup-task-retrieve:
         operation: experiments_flag_cleanup_task_retrieve
         enabled: false

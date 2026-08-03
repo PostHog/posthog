@@ -382,6 +382,21 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         # A teammate with no relationship to the task sees nothing.
         self.assertEqual(self._rows(self.peer_client), [])
 
+    @parameterized.expand(
+        [
+            ("internal", {"internal": True}),
+            ("archived", {"archived": True}),
+        ]
+    )
+    def test_hidden_tasks_are_excluded_from_activity(self, _name, task_updates):
+        Task.objects.filter(id=self.task.id).update(**task_updates)
+        self._awaiting_input()
+
+        page = self.author_client.get(self._activity_url()).json()
+
+        self.assertEqual(page["results"], [])
+        self.assertEqual(page["unread_count"], 0)
+
     def test_authored_message_shows_as_message_with_snippet(self):
         self._post_message(self.peer_client, "looking into this")
         row = self._row_for(self.peer_client, self.task)

@@ -181,6 +181,114 @@ class TestStatisticalDetectors:
         for key in ["q1", "q3", "iqr", "raw_distance"]:
             assert key in result.metadata
 
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector),
+            ("iqr", IQRDetector),
+            ("mad", MADDetector),
+        ]
+    )
+    def test_rejects_data_that_only_covers_the_undiffed_window(self, _name: str, detector_cls: Any) -> None:
+        # With diffs_n=1, the training window needs one extra raw point beyond
+        # window+1, otherwise first_difference()'s synthetic leading value (a
+        # zero) would land inside the fit window and silently shrink it by one
+        # genuine point. window+1 must be rejected outright, not scored — a
+        # scored-but-not-anomalous flat series would also report is_anomaly=False,
+        # so assert the rejection path specifically via its empty metadata/score.
+        data = np.array([10, 10, 10, 10, 10, 10])  # len == window + 1
+        detector = detector_cls({"threshold": 0.9, "window": 5, "preprocessing": {"diffs_n": 1}})
+        result = detector.detect(data)
+        assert result.is_anomaly is False
+        assert result.score is None
+        assert result.metadata == {}
+
+    @parameterized.expand(
+        [
+            # zscore's mean/std and MAD's median tolerate the flat baseline BATCH_DATA
+            # uses; IQR's fences collapse to zero width on a flat window (a separate,
+            # pre-existing gap in IQR's zero-IQR handling), so it needs a baseline with
+            # some spread.
+            ("zscore", ZScoreDetector, BATCH_DATA, 6),
+            ("iqr", IQRDetector, np.array([10, 8, 12, 9, 11, 10, 8, 12, 9, 11, 100, 8, 12, 9]), 10),
+            ("mad", MADDetector, BATCH_DATA, 6),
+        ]
+    )
+    def test_batch_triggered_indices_align_with_raw_series_when_diffing(
+        self, _name: str, detector_cls: Any, data: Any, spike_index: int
+    ) -> None:
+        # detect_batch trims preprocess()'s synthetic leading point internally, so the
+        # first scorable position is window + diffs_n + offset - 1, not window alone.
+        # triggered_indices/all_scores must be shifted back so callers (which map
+        # indices to dates on the original series) don't get an off-by-one against
+        # every date after the first.
+        detector = detector_cls({"threshold": 0.9, "window": 5, "preprocessing": {"diffs_n": 1}})
+        result = detector.detect_batch(data)
+        assert len(result.all_scores) == len(data)
+        assert result.all_scores[:6] == [None] * 6
+        assert result.all_scores[6] is not None
+        assert all(0 <= i < len(data) for i in result.triggered_indices)
+        # A diffed detector may also flag the reversion right after the spike, but
+        # never an index outside the raw series.
+        assert spike_index in result.triggered_indices
+
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector, np.array([9, 11, 10, 9, 11, 10, 30, 11, 14])),
+            ("iqr", IQRDetector, np.array([9, 11, 10, 9, 11, 10, 30, 11, 20])),
+            ("mad", MADDetector, np.array([9, 11, 10, 9, 11, 10, 30, 11, 14])),
+        ]
+    )
+    def test_detect_honors_training_offset_n(self, _name: str, detector_cls: Any, data: Any) -> None:
+        # Changing training_offset_n must change which historical points enter the
+        # training window: a spike that falls inside the offset=1 window but outside
+        # the offset=4 one must flip whether the same trailing point is flagged.
+        offset_1 = detector_cls({"threshold": 0.9, "window": 5, "training_offset_n": 1})
+        offset_4 = detector_cls({"threshold": 0.9, "window": 5, "training_offset_n": 4})
+        assert offset_1.detect(data).is_anomaly is False
+        assert offset_4.detect(data).is_anomaly is True
+
+    @parameterized.expand(
+        [
+            ("zscore", ZScoreDetector),
+            ("iqr", IQRDetector),
+            ("mad", MADDetector),
+        ]
+    )
+    def test_handles_explicit_none_preprocessing(self, _name: str, detector_cls: Any) -> None:
+        # Serializers round-trip a detector_config with an explicit "preprocessing": None
+        # key (not merely omitted) when no preprocessing was configured. `config.get(key,
+        # {})` only falls back to `{}` when the key is absent, so a present-but-None value
+        # used to reach detect()/detect_batch() as None and crash on `.get("diffs_n", ...)`.
+        detector = detector_cls({"threshold": 0.9, "window": 5, "preprocessing": None})
+        data = np.arange(20, dtype=float)
+        detector.detect(data)
+        detector.detect_batch(data)
+
+    @parameterized.expand(
+        [
+            (f"{name}_diffs_{diffs_n}", detector_type, detector_cls, diffs_n)
+            for name, detector_type, detector_cls in (
+                ("zscore", "zscore", ZScoreDetector),
+                ("iqr", "iqr", IQRDetector),
+                ("mad", "mad", MADDetector),
+            )
+            for diffs_n in (0, 1, 2)
+        ]
+    )
+    def test_detect_scores_the_sample_count_the_check_fetches(
+        self, _name: str, detector_type: str, detector_cls: Any, diffs_n: int
+    ) -> None:
+        # A check only fetches _compute_min_samples_for_detector() points, so any detector
+        # demanding more silently returns the _validate_data rejection (score None) forever
+        # instead of firing. preprocess_data treats diffs_n as a boolean toggle, so a
+        # detector counting it as a pass count over-reserves once diffs_n > 1 and drifts
+        # out of agreement with the fetch.
+        window = 30
+        config = {"type": detector_type, "window": window, "preprocessing": {"diffs_n": diffs_n}}
+        data = np.array([10.0] * (_compute_min_samples_for_detector(config) - 1) + [500.0])
+        result = detector_cls({"threshold": 0.9, "window": window, "preprocessing": {"diffs_n": diffs_n}}).detect(data)
+        assert result.score is not None
+
 
 class TestPyODDetectors:
     @parameterized.expand(PYOD_DETECTORS_FOR_ANOMALY_TEST)
