@@ -13,9 +13,7 @@ export interface MetricsExemplar {
 const RADIUS = 4
 
 /** Traced emissions as clickable dots along the baseline of the metrics chart — the metric→trace
- *  pivot without opening the Samples tab. Renders as a child of a quill chart, positioning each dot
- *  by interpolating its timestamp between the two buckets bracketing it, so a dot sits where the
- *  emission actually happened rather than snapping to a bucket. */
+ *  pivot without opening the Samples tab. */
 export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExemplar[] }): JSX.Element | null {
     const { scales, dimensions, labels } = useChartLayout()
 
@@ -41,8 +39,11 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
                         type="button"
                         aria-label={`Open the trace emitted at ${dayjs(exemplar.timeMs).format('D MMM YYYY HH:mm:ss')}`}
                         data-attr="metrics-exemplar-marker"
-                        onClick={exemplar.onClick}
-                        className="absolute rounded-full border cursor-pointer transition-transform hover:scale-150"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            exemplar.onClick()
+                        }}
+                        className="absolute pointer-events-auto rounded-full border cursor-pointer transition-transform hover:scale-150"
                         style={{
                             left: x - RADIUS,
                             top: baseline - RADIUS,
@@ -58,18 +59,20 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
     )
 }
 
-/** Pixel x for a timestamp, linearly interpolated between the buckets bracketing it. Null when the
- *  timestamp falls outside the plotted range or its bucket has no resolvable position. */
+/** Pixel x for a timestamp, linearly interpolated between the buckets bracketing it. */
 function exemplarX(
     timeMs: number,
     bucketTimes: number[],
     labels: string[],
     xScale: (label: string) => number | undefined
 ): number | null {
-    if (timeMs < bucketTimes[0] || timeMs > bucketTimes[bucketTimes.length - 1]) {
+    const last = bucketTimes.length - 1
+    // Labels mark bucket starts, so the plotted range extends one bucket span past the last label.
+    const bucketWidth = last > 0 ? bucketTimes[last] - bucketTimes[last - 1] : 0
+    if (timeMs < bucketTimes[0] || timeMs >= bucketTimes[last] + bucketWidth) {
         return null
     }
-    let index = bucketTimes.length - 1
+    let index = last
     while (index > 0 && bucketTimes[index] > timeMs) {
         index--
     }
@@ -77,9 +80,12 @@ function exemplarX(
     if (start === undefined || !isFinite(start)) {
         return null
     }
-    const span = bucketTimes[index + 1] - bucketTimes[index]
     const end = index + 1 < labels.length ? xScale(labels[index + 1]) : undefined
-    if (end === undefined || !isFinite(end) || span <= 0) {
+    if (end === undefined || !isFinite(end)) {
+        return start
+    }
+    const span = bucketTimes[index + 1] - bucketTimes[index]
+    if (span <= 0) {
         return start
     }
     return start + ((timeMs - bucketTimes[index]) / span) * (end - start)

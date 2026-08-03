@@ -32,8 +32,6 @@ describe('MetricsSeriesChart', () => {
 
     afterEach(() => cleanup())
 
-    // The dashboard tile and the Viewer both mount this; a broken series mapping renders an empty
-    // chart rather than throwing, so assert every group-by series actually reaches the canvas.
     it('draws one line per series', () => {
         renderChart([seriesWith({ service: 'checkout' }, [1, 2, 3]), seriesWith({ service: 'billing' }, [4, 5, 6])])
         expect(getHogChart().seriesCount).toBe(2)
@@ -69,5 +67,15 @@ describe('MetricsSeriesChart', () => {
         const chart = getHogChart()
         const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 1, BUCKETS.length))
         expect(tooltip.value('http.requests')).toBe('0')
+    })
+
+    // Guards createXAxisTickCallback and the tz-aware labelFormatter wiring: a regression here
+    // renders raw ISO strings on every tick and tooltip header instead of formatted dates.
+    it('formats the x-axis ticks and tooltip label as tz-aware dates', async () => {
+        renderChart([seriesWith({}, [1, 2, 3])])
+        const chart = getHogChart()
+        expect(chart.xTicks()).toEqual(['10:00', '11:00', '12:00'])
+        const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 1, BUCKETS.length))
+        expect(tooltip.label()).toBe('1 Aug 2026 11:00:00')
     })
 })

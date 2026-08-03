@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
@@ -23,12 +22,10 @@ export function MetricsSeriesChart({
     series,
     fallbackName,
     exemplars,
-    className,
 }: {
     series: MetricsChartSeries[]
     fallbackName: string
     exemplars?: MetricsExemplar[]
-    className?: string
 }): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const theme = useChartTheme()
@@ -60,7 +57,7 @@ export function MetricsSeriesChart({
     )
 
     return (
-        <div className={clsx('relative flex h-full w-full min-h-0 flex-col', className)}>
+        <div className="relative flex h-full w-full min-h-0 flex-col">
             <TimeSeriesLineChart series={chartSeries} labels={labels} theme={theme} config={config}>
                 {exemplars?.length ? <MetricsExemplarMarkers exemplars={exemplars} /> : null}
             </TimeSeriesLineChart>

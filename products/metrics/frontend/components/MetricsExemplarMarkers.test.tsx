@@ -32,13 +32,14 @@ function markerLefts(): number[] {
 describe('MetricsExemplarMarkers', () => {
     afterEach(() => cleanup())
 
-    // A dot that snaps to its bucket start (or lands a bucket off) points the user at the wrong
-    // moment in time, and clicking it opens a trace that isn't the one under the cursor.
     it.each([
         ['on the first bucket', '2026-08-01T10:00:00Z', 100],
         ['a quarter into the first bucket', '2026-08-01T10:15:00Z', 125],
         ['halfway between buckets', '2026-08-01T11:30:00Z', 250],
         ['on the last bucket', '2026-08-01T12:00:00Z', 300],
+        // The last label marks the final bucket's start, not its end — an exemplar inside that
+        // still-open bucket must clamp to the bucket's position rather than being dropped.
+        ['inside the final (partial) bucket', '2026-08-01T12:30:00Z', 300],
     ])('positions an exemplar %s', (_, timestamp, expectedX) => {
         renderMarkers([timestamp])
         expect(markerLefts()).toEqual([expectedX - RADIUS])
@@ -48,7 +49,7 @@ describe('MetricsExemplarMarkers', () => {
     // wider-window response must not pile dots onto the first and last buckets.
     it.each([
         ['before the first bucket', '2026-08-01T09:59:00Z'],
-        ['after the last bucket', '2026-08-01T12:00:01Z'],
+        ['a bucket span past the last bucket', '2026-08-01T13:00:01Z'],
     ])('drops an exemplar %s instead of clamping it to the edge', (_, timestamp) => {
         renderMarkers([timestamp])
         expect(screen.queryAllByTestId('metrics-exemplar-marker')).toHaveLength(0)

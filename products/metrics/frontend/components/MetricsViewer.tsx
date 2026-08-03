@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import {
     LemonButton,
@@ -112,6 +112,10 @@ const DATE_OPTIONS: DateMappingOption[] = [
     },
 ]
 
+function renderLabel(label: string): string {
+    return dayjs(label).format('D MMM YYYY HH:mm:ss')
+}
+
 export const MetricsViewer = (): JSX.Element => {
     const logic = metricsViewerLogic()
     // Keep the picker logic mounted alongside the viewer so the chosen metric's
@@ -220,8 +224,6 @@ export const MetricsViewer = (): JSX.Element => {
         [pickerItems, metricName]
     )
     const recommendedAggregation = selectedMetricType ? RECOMMENDED_AGGREGATION_BY_TYPE[selectedMetricType] : undefined
-
-    const renderLabel = useCallback((label: string): string => dayjs(label).format('D MMM YYYY HH:mm:ss'), [])
 
     const hasResults = sparklineValues.length > 0
 

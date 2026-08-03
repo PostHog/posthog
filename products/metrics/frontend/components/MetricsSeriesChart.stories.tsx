@@ -13,6 +13,9 @@ const meta: Meta<typeof MetricsSeriesChart> = {
         layout: 'centered',
         viewMode: 'story',
         mockDate: '2026-08-01 12:00:00',
+        // Quill charts paint to canvas asynchronously; skip the draw so the snapshot stays
+        // deterministic. The legend and exemplar dots are DOM and still render.
+        testOptions: { skipCanvasDraw: true },
     },
     // The component fills its parent (`h-full w-full`), mirroring how the Viewer and the
     // dashboard tile mount it, so the story supplies the sized box rather than a className.
@@ -51,8 +54,7 @@ export const MultipleSeriesWithLegend: Story = {
 export const WithTracedExemplars: Story = {
     args: {
         series: [series({}, wave(48, 120, 40, 0))],
-        // Deliberately off-bucket timestamps: the dots interpolate between buckets rather than
-        // snapping to one, so an emission mid-bucket lands mid-bucket.
+        // Deliberately off-bucket timestamps.
         exemplars: [4.5, 11.2, 11.9, 26.3, 40.7].map((hoursIn) => ({
             timeMs: dayjs(START)
                 .add(hoursIn * 60, 'minutes')
