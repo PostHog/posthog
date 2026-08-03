@@ -45,6 +45,9 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
             return 'flutter'
         case 'posthog-elixir':
             return 'elixir'
+        // posthog-server is the current java server SDK identifier; posthog-java is the
+        // tombstoned legacy SDK, kept so already-ingested events still resolve.
+        case 'posthog-server':
         case 'posthog-java':
         case 'analytics-java':
             return 'java'
