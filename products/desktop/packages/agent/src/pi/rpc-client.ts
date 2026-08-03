@@ -21,6 +21,11 @@ export interface PiRpcProviderOptions {
   baseUrl?: string;
 }
 
+interface PiRpcBootstrap {
+  providerOptions: PiRpcProviderOptions;
+  channelMode?: boolean;
+}
+
 type RpcClientProcessAccess = {
   process?: ChildProcess;
 };
@@ -84,6 +89,7 @@ class SecurePiRpcClient extends RpcClient {
   constructor(
     private readonly secureOptions: RpcClientOptions,
     private readonly providerOptions: PiRpcProviderOptions,
+    private readonly channelMode: boolean,
   ) {
     super(secureOptions);
   }
@@ -162,7 +168,10 @@ class SecurePiRpcClient extends RpcClient {
     const bootstrapPipe = child.stdio[3] as Writable | null;
     bootstrapPipe?.on("error", () => {});
     bootstrapPipe?.end(
-      JSON.stringify({ providerOptions: this.providerOptions }),
+      JSON.stringify({
+        providerOptions: this.providerOptions,
+        channelMode: this.channelMode,
+      } satisfies PiRpcBootstrap),
     );
 
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -265,10 +274,11 @@ export type PiRpcClientOptions = Pick<
 > & {
   sessionFile?: string;
   providerOptions: PiRpcProviderOptions;
+  channelMode?: boolean;
 };
 
 export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
-  const { sessionFile, providerOptions, ...rpcOptions } = options;
+  const { sessionFile, providerOptions, channelMode, ...rpcOptions } = options;
   const args = sessionFile ? ["--session-file", sessionFile] : [];
   const cliPath =
     rpcOptions.cliPath ??
@@ -281,5 +291,6 @@ export function createPiRpcClient(options: PiRpcClientOptions): PiRpcClient {
       provider: "posthog",
     },
     providerOptions,
+    channelMode === true,
   );
 }
