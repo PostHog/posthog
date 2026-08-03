@@ -210,14 +210,17 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
     })
 
     const handlePortForward = async (c: HonoCtx, forwardId: string, mode: PortForwardMode): Promise<Response> => {
-        const token = extractPortForwardToken(c, { allowCookie: mode === 'host' })
-        if (token === null) {
+        const auth = extractPortForwardToken(c, { allowCookie: mode === 'host' })
+        if (auth === null) {
             return c.json({ error: 'Missing port forward token' }, 401)
+        }
+        if (auth.source === 'cookie' && !isSamePreviewOriginRequest(c, config)) {
+            return c.json({ error: 'Cross-origin port preview requests are not allowed' }, 403)
         }
 
         let claims: TaskPortForwardTokenPayload
         try {
-            claims = await validateTaskPortForwardToken(token, publicKeys)
+            claims = await validateTaskPortForwardToken(auth.token, publicKeys)
         } catch (err: unknown) {
             const code = err instanceof Error ? err.constructor.name : 'UnknownError'
             return c.json({ error: 'Invalid port forward token', code }, 401)
@@ -226,7 +229,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return c.json({ error: 'Token does not match port forward' }, 403)
         }
 
-        const resolved = await resolvePortForward(config, token)
+        const resolved = await resolvePortForward(config, auth.token)
         if (resolved === null) {
             return c.json({ error: 'Port forward is not available' }, 404)
         }
@@ -310,13 +313,18 @@ function extractStreamReadToken(c: { req: { header: (name: string) => string | u
     return token || null
 }
 
+interface ExtractedPortForwardToken {
+    token: string
+    source: 'bearer' | 'cookie'
+}
+
 function extractPortForwardToken(
     c: { req: { header: (name: string) => string | undefined } },
     { allowCookie }: { allowCookie: boolean }
-): string | null {
+): ExtractedPortForwardToken | null {
     const bearer = extractStreamReadToken(c)
     if (bearer) {
-        return bearer
+        return { token: bearer, source: 'bearer' }
     }
     if (!allowCookie) {
         return null
@@ -330,7 +338,7 @@ function extractPortForwardToken(
         return null
     }
     const token = decodeURIComponent(pathCookie.slice(PORT_FORWARD_AUTH_COOKIE.length + 1))
-    return token || null
+    return token ? { token, source: 'cookie' } : null
 }
 
 interface ResolvedPortForward {
@@ -346,7 +354,65 @@ interface ResolvedPortForward {
 
 type PortForwardMode = 'host' | 'path'
 
+function isSamePreviewOriginRequest(c: HonoCtx, config: Config): boolean {
+    const expectedOrigin = previewOriginFromHost(c, config)
+    if (expectedOrigin === null) {
+        return false
+    }
+
+    const secFetchSite = c.req.header('Sec-Fetch-Site') ?? c.req.header('sec-fetch-site')
+    if (secFetchSite && !['same-origin', 'none'].includes(secFetchSite.toLowerCase())) {
+        return false
+    }
+
+    const origin = c.req.header('Origin') ?? c.req.header('origin')
+    if (origin && normalizeOrigin(origin) !== expectedOrigin) {
+        return false
+    }
+
+    const referer = c.req.header('Referer') ?? c.req.header('referer')
+    if (referer) {
+        const refererOrigin = normalizeOrigin(referer)
+        if (refererOrigin === null || refererOrigin !== expectedOrigin) {
+            return false
+        }
+    }
+
+    return true
+}
+
 function previewForwardIdFromHost(c: HonoCtx, config: Config): string | null {
+    const previewHost = previewHostFromRequest(c, config)
+    if (previewHost === null) {
+        return null
+    }
+    const { previewHostname, publicHostname } = previewHost
+    const suffix = `.${publicHostname}`
+    const forwardId = previewHostname.slice(0, -suffix.length)
+    if (!forwardId || forwardId.includes('.')) {
+        return null
+    }
+    return forwardId
+}
+
+function previewOriginFromHost(c: HonoCtx, config: Config): string | null {
+    const previewHost = previewHostFromRequest(c, config)
+    if (previewHost === null) {
+        return null
+    }
+    const { publicUrl, requestUrl } = previewHost
+    const port = requestUrl.port ? `:${requestUrl.port}` : ''
+    return `${publicUrl.protocol}//${requestUrl.hostname.toLowerCase()}${port}`
+}
+
+interface PreviewHost {
+    publicUrl: URL
+    requestUrl: URL
+    previewHostname: string
+    publicHostname: string
+}
+
+function previewHostFromRequest(c: HonoCtx, config: Config): PreviewHost | null {
     if (!config.tasksAgentProxyPublicUrl) {
         return null
     }
@@ -374,11 +440,17 @@ function previewForwardIdFromHost(c: HonoCtx, config: Config): string | null {
         return null
     }
 
-    const forwardId = previewHostname.slice(0, -suffix.length)
-    if (!forwardId || forwardId.includes('.')) {
+    return { publicUrl, requestUrl, previewHostname, publicHostname }
+}
+
+function normalizeOrigin(rawUrl: string): string | null {
+    let url: URL
+    try {
+        url = new URL(rawUrl)
+    } catch {
         return null
     }
-    return forwardId
+    return `${url.protocol}//${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ''}`
 }
 
 async function exchangePortForwardTicket(config: Config, ticket: string): Promise<string | null> {

@@ -244,6 +244,100 @@ describe('app onError', () => {
         expect(await res.json()).toEqual({ error: 'Missing port forward token' })
     })
 
+    it('rejects cookie-authenticated requests from sibling preview origins', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+
+        const res = await app.request('/some/path', {
+            method: 'POST',
+            headers: {
+                Host: 'forward-123.agent-proxy.example.com',
+                Cookie: '__Host-ph_task_port_forward=tok',
+                Origin: 'https://attacker.agent-proxy.example.com',
+                'Sec-Fetch-Site': 'same-site',
+            },
+            body: 'state=change',
+        })
+
+        expect(res.status).toBe(403)
+        expect(await res.json()).toEqual({ error: 'Cross-origin port preview requests are not allowed' })
+    })
+
+    it('rejects cookie-authenticated same-site fetches without an Origin header', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+
+        const res = await app.request('/some/path', {
+            method: 'POST',
+            headers: {
+                Host: 'forward-123.agent-proxy.example.com',
+                Cookie: '__Host-ph_task_port_forward=tok',
+                'Sec-Fetch-Site': 'same-site',
+            },
+            body: 'state=change',
+        })
+
+        expect(res.status).toBe(403)
+        expect(await res.json()).toEqual({ error: 'Cross-origin port preview requests are not allowed' })
+    })
+
+    it('allows bearer-authenticated preview requests with browser origin headers', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                Response.json({
+                    run_id: 'run-123',
+                    task_id: 'task-abc',
+                    team_id: 42,
+                    forward_id: 'forward-123',
+                    port: 8000,
+                    sandbox_url: 'https://sandbox.modal.run',
+                    connection_token: 'sandbox-jwt',
+                })
+            )
+            .mockResolvedValueOnce(new Response('ok', { status: 200 }))
+
+        const res = await app.request('/some/path', {
+            headers: {
+                Host: 'forward-123.agent-proxy.example.com',
+                Authorization: 'Bearer tok',
+                Origin: 'https://attacker.agent-proxy.example.com',
+                'Sec-Fetch-Site': 'same-site',
+            },
+        })
+
+        expect(res.status).toBe(200)
+        expect(await res.text()).toBe('ok')
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        fetchMock.mockRestore()
+    })
+
     it('rejects resolved port-forward targets outside allowed sandbox hosts', async () => {
         const redis = {} as unknown as Redis
         const { app } = createApp(
