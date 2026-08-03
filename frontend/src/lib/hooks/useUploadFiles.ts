@@ -5,6 +5,11 @@ import api from 'lib/api'
 
 import { MediaUploadResponse } from '~/types'
 
+export interface UploadedMediaResponse extends MediaUploadResponse {
+    /** Content type the API stored, which for documents can differ from what the browser reported */
+    content_type?: string
+}
+
 export const lazyImageBlobReducer = async (blob: Blob): Promise<Blob> => {
     try {
         const blobReducer = (await import('image-blob-reduce')).default()
@@ -74,7 +79,7 @@ function canReduceThisBlobType(file: File): boolean {
 export async function uploadFile(
     file: File,
     { allowDocuments = false }: { allowDocuments?: boolean } = {}
-): Promise<MediaUploadResponse> {
+): Promise<UploadedMediaResponse> {
     const isImage = file.type.startsWith('image/')
     if (!isImage && !allowDocuments) {
         throw new Error('File is not an image')
