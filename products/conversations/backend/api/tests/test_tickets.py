@@ -2117,8 +2117,43 @@ class TestTicketMessagesAPI(APIBaseTest):
             "author_type",
             "author_name",
             "is_private",
+            "confidence",
             "created_at",
         }
+
+    def test_messages_confidence_passthrough(self, mock_on_commit):
+        base = timezone.now()
+        ai_comment = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="AI draft reply",
+            item_context={
+                "author_type": "AI",
+                "is_private": True,
+                "citations": [],
+                "confidence": 0.85,
+            },
+        )
+        Comment.objects.filter(id=ai_comment.id).update(created_at=base)
+        human_comment = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Human reply",
+            item_context={"author_type": "support", "is_private": False},
+        )
+        Comment.objects.filter(id=human_comment.id).update(created_at=base + timedelta(seconds=1))
+
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert len(results) == 2
+        assert results[0]["author_type"] == "AI"
+        assert results[0]["confidence"] == 0.85
+        assert results[1]["author_type"] == "support"
+        assert results[1]["confidence"] is None
 
     def test_messages_lookup_by_ticket_number(self, mock_on_commit):
         Comment.objects.create(

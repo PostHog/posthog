@@ -89,6 +89,11 @@ class TicketMessageSerializer(serializers.Serializer):
     is_private = serializers.BooleanField(
         read_only=True, help_text="True for internal notes not visible to the customer."
     )
+    confidence = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="The AI reply pipeline's self-reported 0-1 confidence for its draft messages; null for human and customer messages.",
+    )
     created_at = serializers.DateTimeField(read_only=True)
 
 
@@ -1094,6 +1099,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             "author_type": author_type,
             "author_name": author_name,
             "is_private": item_context.get("is_private") is True,
+            "confidence": item_context.get("confidence"),
             "created_at": comment.created_at,
         }
 
