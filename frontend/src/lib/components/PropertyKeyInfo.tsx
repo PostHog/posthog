@@ -11,26 +11,12 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { pluralize } from 'lib/utils/strings'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'
-import { CoreFilterDefinition, PropertyDefinitionType } from '~/types'
+import { CoreFilterDefinition } from '~/types'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
 const SURVEY_RESPONSE_PREFIX = '$survey_response_'
-
-/** Maps the taxonomic group types that carry a corresponding `propertyDefinitionsModel` type, so
- * non-taxonomy (custom) property keys can still resolve a definition from the team's own metadata. */
-const TAXONOMIC_GROUP_TYPE_TO_PROPERTY_DEFINITION_TYPE: Partial<
-    Record<TaxonomicFilterGroupType, PropertyDefinitionType>
-> = {
-    [TaxonomicFilterGroupType.EventProperties]: PropertyDefinitionType.Event,
-    [TaxonomicFilterGroupType.PersonProperties]: PropertyDefinitionType.Person,
-    [TaxonomicFilterGroupType.EventMetadata]: PropertyDefinitionType.EventMetadata,
-    [TaxonomicFilterGroupType.PersonMetadata]: PropertyDefinitionType.PersonMetadata,
-    [TaxonomicFilterGroupType.SessionProperties]: PropertyDefinitionType.Session,
-}
-const GROUP_TAXONOMIC_TYPE_REGEX = /^groups_(\d+)$/
 
 function SourceLogo({ source }: { source: 'posthog' | 'langfuse' }): JSX.Element {
     if (source === 'posthog') {
@@ -50,6 +36,13 @@ export interface PropertyKeyInfoProps {
     /** @default true */
     ellipsis?: boolean
     className?: string
+    /**
+     * Definition to fall back to when `value` isn't in the static core taxonomy, e.g. sourced from
+     * the team's own `propertyDefinitionsModel` by the caller. Lets non-taxonomy (custom) property
+     * keys still get a definition popover, without this component depending on that app-level model
+     * itself (it's reachable from the toolbar bundle, which must not import app code).
+     */
+    customDefinition?: CoreFilterDefinition | null
 }
 
 const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoProps>(function PropertyKeyInfoBase(
@@ -61,6 +54,7 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
         ellipsis = true,
         className = '',
         displayText,
+        customDefinition,
     },
     ref
 ): JSX.Element {
@@ -69,19 +63,6 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
     value = value?.toString() ?? ''
 
     const coreDefinition = getCoreFilterDefinition(value, type)
-
-    const groupMatch = type.match(GROUP_TAXONOMIC_TYPE_REGEX)
-    const propertyDefinitionType = groupMatch
-        ? PropertyDefinitionType.Group
-        : TAXONOMIC_GROUP_TYPE_TO_PROPERTY_DEFINITION_TYPE[type]
-    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
-    const customPropertyDefinition =
-        !coreDefinition && propertyDefinitionType
-            ? getPropertyDefinition(value, propertyDefinitionType, groupMatch ? Number(groupMatch[1]) : undefined)
-            : null
-    const customDefinition: CoreFilterDefinition | null = customPropertyDefinition
-        ? { label: customPropertyDefinition.name, description: customPropertyDefinition.description }
-        : null
     const effectiveDefinition = coreDefinition || customDefinition
 
     const valueDisplayText = displayText || ((effectiveDefinition ? effectiveDefinition.label : value)?.trim() ?? '')

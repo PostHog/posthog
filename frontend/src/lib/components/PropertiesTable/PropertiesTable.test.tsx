@@ -6,6 +6,8 @@ import { useState } from 'react'
 
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 
+import { useMocks } from '~/mocks/jest'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { initKeaTests } from '~/test/init'
 import { PropertyDefinitionType } from '~/types'
 
@@ -284,6 +286,41 @@ describe('PropertiesTable inline editor', () => {
                 </Provider>
             )
             expect(screen.getByText('This distinct ID has no person profile')).toBeInTheDocument()
+        })
+    })
+
+    describe('custom property key definitions', () => {
+        it('gives a non-taxonomy property key click affordance once its definition loads from the team', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/property_definitions/': {
+                        count: 1,
+                        results: [
+                            {
+                                id: 'a',
+                                name: 'referral_cost_usd',
+                                description: 'Cost of the referral in USD',
+                                type: PropertyDefinitionType.Person,
+                            },
+                        ],
+                        next: undefined,
+                    },
+                },
+            })
+            propertyDefinitionsModel.mount()
+
+            render(
+                <Provider>
+                    <PropertiesTable type={PropertyDefinitionType.Person} properties={{ referral_cost_usd: 12 }} />
+                </Provider>
+            )
+
+            // Before the definition loads, the custom key has no popover affordance yet.
+            expect(screen.getByText('referral_cost_usd').closest('.PropertyKeyInfo')).not.toHaveClass('cursor-pointer')
+
+            await waitFor(() =>
+                expect(screen.getByText('referral_cost_usd').closest('.PropertyKeyInfo')).toHaveClass('cursor-pointer')
+            )
         })
     })
 })

@@ -257,6 +257,7 @@ export function PropertiesTable({
     const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
 
     const hasAnyProperties =
         !!properties && !Array.isArray(properties) && isObject(properties) && Object.keys(properties).length > 0
@@ -423,16 +424,30 @@ export function PropertiesTable({
                 // Minimize the width of the key column when nested
                 style: nestingLevel > 0 ? { width: '0px' } : undefined,
                 render: function Key(_, item: any): JSX.Element {
+                    // $set/$set_once properties on an event are person properties, not event properties.
+                    const definitionLookupType =
+                        rootKey && type === 'event' && ['$set', '$set_once'].includes(rootKey)
+                            ? PropertyDefinitionType.Person
+                            : type
+                    const customPropertyDefinition = getPropertyDefinition(item[0], definitionLookupType)
                     return (
                         <div className="properties-table-key">
                             <PropertyKeyInfo
                                 value={item[0]}
                                 type={
-                                    rootKey && type === 'event' && ['$set', '$set_once'].includes(rootKey)
+                                    definitionLookupType === PropertyDefinitionType.Person
                                         ? TaxonomicFilterGroupType.PersonProperties
                                         : isKeyOf(type, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE)
                                           ? PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
                                           : undefined
+                                }
+                                customDefinition={
+                                    customPropertyDefinition
+                                        ? {
+                                              label: customPropertyDefinition.name,
+                                              description: customPropertyDefinition.description,
+                                          }
+                                        : null
                                 }
                             />
                         </div>
