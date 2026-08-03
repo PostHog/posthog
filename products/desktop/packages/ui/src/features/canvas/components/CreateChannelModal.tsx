@@ -58,17 +58,17 @@ function RotatingDescriptionPlaceholder({ visible }: { visible: boolean }) {
   return (
     <AnimatePresence initial={false} mode="wait">
       {visible && (
-        <motion.span
+        <motion.div
           key={exampleIndex}
           aria-hidden="true"
-          className="pointer-events-none absolute inset-x-2 top-2 text-muted-foreground text-xs"
+          className="pointer-events-none absolute inset-0 border border-transparent px-2 py-2 text-muted-foreground text-xs leading-4"
           initial={reduceMotion ? false : { opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
           transition={{ duration: reduceMotion ? 0 : 0.2 }}
         >
           {DESCRIPTION_EXAMPLES[exampleIndex]}
-        </motion.span>
+        </motion.div>
       )}
     </AnimatePresence>
   );
@@ -266,7 +266,7 @@ export function CreateChannelModal({
           id="context-description"
           aria-describedby={descriptionHelperId}
           rows={4}
-          className="max-h-[40vh] overflow-y-auto"
+          className="max-h-[40vh] overflow-y-auto text-xs leading-4"
           value={description}
           disabled={busy}
           onChange={(e) => setDescription(e.target.value)}
