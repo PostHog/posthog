@@ -1,5 +1,8 @@
 import './ToolbarLaunch.scss'
 
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+
 import { IconFlag, IconFlask, IconPieChart, IconSearch } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
@@ -16,7 +19,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ToolbarUserIntent } from '~/types'
 
 export const scene: SceneExport = {
     component: ToolbarLaunch,
@@ -31,6 +34,12 @@ export function ToolbarLaunch(): JSX.Element {
         inStorybook() || inStorybookTestRunner()
             ? true
             : userHasAccess(AccessControlResourceType.WebAnalytics, AccessControlLevel.Editor)
+
+    const { searchParams } = useValues(router)
+    // Carries the intent from entry points like the actions list's "New action" menu, so this
+    // otherwise-generic settings scene can explain why the user landed here and how to get back.
+    const userIntent = searchParams.userIntent as ToolbarUserIntent | undefined
+    const cameFromActions = searchParams.from === 'actions'
 
     const features: FeatureHighlightProps[] = [
         {
@@ -76,8 +85,15 @@ export function ToolbarLaunch(): JSX.Element {
             />
 
             <SceneSection title="Authorized URLs for Toolbar" description="Click on the URL to launch the toolbar.">
+                {cameFromActions && (
+                    <LemonBanner type="info">
+                        Creating a new action. Pick a site below to launch the toolbar and select an element on it, or{' '}
+                        <Link to={urls.actions()}>go back to actions</Link>.
+                    </LemonBanner>
+                )}
                 <AuthorizedUrlList
                     type={AuthorizedUrlListType.TOOLBAR_URLS}
+                    userIntent={userIntent}
                     addText="Add authorized URL"
                     allowAdd={canEdit}
                     allowDelete={canEdit}

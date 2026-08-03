@@ -57,11 +57,11 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
                                     <LemonButton
                                         fullWidth
                                         icon={<IconCursorClick />}
-                                        to={urls.toolbarLaunch()}
+                                        to={`${urls.toolbarLaunch()}?userIntent=add-action&from=actions`}
                                         data-attr="new-action-inspect"
                                     >
                                         <div className="flex flex-col items-start">
-                                            <span>Inspect element on site</span>
+                                            <span>Choose a site to open the toolbar on</span>
                                             <span className="text-xs text-secondary font-normal">
                                                 Use the toolbar to visually select elements on your site.{' '}
                                                 <Link

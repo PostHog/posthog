@@ -234,10 +234,10 @@ function AutocaptureFields({
 }): JSX.Element {
     const onSelectElement = (): void => {
         LemonDialog.open({
-            title: 'Select an element',
+            title: 'Open the toolbar on your site',
             description: actionId
-                ? 'Choose the domain on which to edit this action'
-                : 'Choose the domain on which to create this action',
+                ? "Choose a site to launch the toolbar on. You'll pick the element there to edit this action."
+                : "Choose a site to launch the toolbar on. You'll pick the element there to create this action.",
             content: (
                 <>
                     <AuthorizedUrlList actionId={actionId} type={AuthorizedUrlListType.TOOLBAR_URLS} />
@@ -259,7 +259,7 @@ function AutocaptureFields({
                     sideIcon={<IconOpenInApp />}
                     disabledReason={disabledReason}
                 >
-                    Select element on site
+                    Choose a site to open the toolbar on
                 </LemonButton>
                 <Link to={`${learnMoreLink}#1-autocapture`} target="_blank">
                     See documentation.

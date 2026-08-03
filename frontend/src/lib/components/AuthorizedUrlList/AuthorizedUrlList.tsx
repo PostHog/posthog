@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconCopy, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 
@@ -7,6 +8,7 @@ import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ExperimentIdType, ToolbarUserIntent } from '~/types'
@@ -61,11 +63,53 @@ export function AuthorizedUrlList({
     const { urlsKeyed, launchUrl, editUrlIndex, isAddUrlFormVisible, onlyAllowDomains } = useValues(logic)
     const { addUrl, removeUrl, newUrl, setEditUrlIndex, copyLaunchCode } = useActions(logic)
 
+    // window.open()/navigating away gives no visual feedback on its own, so a click otherwise
+    // looks like a dead click. Track which row is launching to show a brief loading state and
+    // confirm (or point at the "copy launch code" fallback) once the window has been asked to open.
+    const [launchingUrl, setLaunchingUrl] = useState<string | null>(null)
+
     const noAuthorizedUrls = !urlsKeyed.some((url) => url.type === 'authorized')
 
     // toolbar and web analytics urls are sent through the backend to be validated and have toolbar auth
     // information added; other urls are simply opened directly
     const isLaunchableType = type === AuthorizedUrlListType.TOOLBAR_URLS || type === AuthorizedUrlListType.WEB_ANALYTICS
+
+    // Opens the target via a real anchor navigation (window.open with a script-provided URL can be
+    // blocked as a popup even on a genuine click, whereas a plain <a target=_blank> click is not),
+    // then shows a brief loading state and confirmation so the click doesn't look like it did nothing.
+    const confirmLaunch = (url: string): void => {
+        setLaunchingUrl(url)
+        window.setTimeout(() => {
+            setLaunchingUrl(null)
+            if (!launchInSameTab) {
+                lemonToast.success(isLaunchableType ? 'Opened the toolbar in a new tab' : 'Opened in a new tab')
+            }
+        }, 400)
+    }
+
+    // The row itself isn't a real anchor, so it opens the target with window.open and can detect
+    // (and warn about) a blocked popup, which a plain click on the Launch button below cannot.
+    const launchAndConfirmFromRow = (url: string, launchTarget: string): void => {
+        setLaunchingUrl(url)
+        let opened: Window | null = null
+        if (launchInSameTab) {
+            window.location.href = launchTarget
+        } else {
+            opened = window.open(launchTarget, '_blank', 'noopener,noreferrer')
+        }
+        window.setTimeout(() => {
+            setLaunchingUrl(null)
+            if (!launchInSameTab) {
+                if (opened) {
+                    lemonToast.success(isLaunchableType ? 'Opened the toolbar in a new tab' : 'Opened in a new tab')
+                } else {
+                    lemonToast.error(
+                        'Your browser blocked the new tab. Allow popups for this site, or use the "copy launch code" option instead.'
+                    )
+                }
+            }
+        }, 400)
+    }
 
     return (
         <div className="flex flex-col gap-2" data-attr="authorized-urls-table">
@@ -114,13 +158,7 @@ export function AuthorizedUrlList({
                 // The whole row mirrors the Launch button, so the card-like row is a real click target instead of
                 // a dead click. Suggestions (handled separately) and wildcard domains can't be launched.
                 const isRowLaunchable = showLaunch && keyedURL.type === 'authorized' && !keyedURL.url.includes('*')
-                const launchFromRow = (): void => {
-                    if (launchInSameTab) {
-                        window.location.href = launchTarget
-                    } else {
-                        window.open(launchTarget, '_blank', 'noopener,noreferrer')
-                    }
-                }
+                const launchFromRow = (): void => launchAndConfirmFromRow(keyedURL.url, launchTarget)
 
                 return editUrlIndex === index ? (
                     <div key={keyedURL.url} className="border rounded p-2 bg-surface-primary">
@@ -185,6 +223,8 @@ export function AuthorizedUrlList({
                                             icon={<IconOpenInApp />}
                                             to={launchTarget}
                                             targetBlank={!launchInSameTab}
+                                            onClick={() => confirmLaunch(keyedURL.url)}
+                                            loading={launchingUrl === keyedURL.url}
                                             tooltip={
                                                 isLaunchableType
                                                     ? 'Open the toolbar on this page'
