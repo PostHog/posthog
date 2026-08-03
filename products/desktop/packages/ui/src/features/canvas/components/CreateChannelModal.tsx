@@ -5,29 +5,74 @@ import {
   DialogBody,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   Field,
+  FieldDescription,
   FieldError,
   FieldLabel,
   Input,
   Textarea,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
+import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
-import { type CSSProperties, useRef, useState } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { type CSSProperties, useEffect, useId, useRef, useState } from "react";
 
 // Matches Slack's "Create a channel" naming constraint.
 const MAX_CONTEXT_NAME_LENGTH = 80;
 
-const DESCRIPTION_PLACEHOLDER =
-  "Grab all files relating to X feature, get all relevant pull requests, in this X repo(s)";
+const DESCRIPTION_EXAMPLES = [
+  "Feature flags help teams control feature access, target specific users, and manage gradual rollouts.",
+  "The onboarding experience guides new customers from creating an account to completing their first successful setup.",
+  "We're migrating our billing system to Stripe while preserving existing subscriptions and minimizing disruption.",
+  "Authentication includes sign-in, account recovery, session management, roles, and permissions across our applications.",
+  "The mobile redesign aims to simplify navigation, improve accessibility, and make common workflows faster.",
+];
+
+const DESCRIPTION_ROTATION_INTERVAL_MS = 5000;
+
+function RotatingDescriptionPlaceholder({ visible }: { visible: boolean }) {
+  const [exampleIndex, setExampleIndex] = useState(0);
+  const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!visible || reduceMotion) return;
+
+    const interval = window.setInterval(() => {
+      setExampleIndex((current) => (current + 1) % DESCRIPTION_EXAMPLES.length);
+    }, DESCRIPTION_ROTATION_INTERVAL_MS);
+
+    return () => window.clearInterval(interval);
+  }, [reduceMotion, visible]);
+
+  return (
+    <AnimatePresence initial={false} mode="wait">
+      {visible && (
+        <motion.div
+          key={exampleIndex}
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 border border-transparent px-2 py-2 text-muted-foreground text-xs leading-4"
+          initial={reduceMotion ? false : { opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
+          transition={{ duration: reduceMotion ? 0 : 0.2 }}
+        >
+          {DESCRIPTION_EXAMPLES[exampleIndex]}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 interface CreateChannelModalProps {
   open: boolean;
@@ -56,11 +101,17 @@ export function CreateChannelModal({
   const spacesLayout = useChannelsLayout();
   const { createChannel, isCreating } = useChannelMutations();
   const { generate, isStarting } = useGenerateContext();
+  const linkRepositories = useUpdateTaskChannelRepositories();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [repositories, setRepositories] = useState<string[]>([]);
+  const [repoIntegration, setRepoIntegration] = useState<number | null>(null);
   // Create mode's step. Describe mode has no name step, so it starts past it.
-  const [step, setStep] = useState<"name" | "describe">("name");
+  const [step, setStep] = useState<"name" | "describe" | "repositories">(
+    "name",
+  );
+  const descriptionHelperId = useId();
 
   // Reset the fields each time the modal opens so a previous draft never
   // lingers. Adjusted inline during render (prev-prop comparison) rather than in
@@ -71,6 +122,8 @@ export function CreateChannelModal({
     if (open) {
       setName("");
       setDescription("");
+      setRepositories([]);
+      setRepoIntegration(null);
       setStep("name");
     }
   }
@@ -80,10 +133,8 @@ export function CreateChannelModal({
   const remaining = MAX_CONTEXT_NAME_LENGTH - name.length;
   const nameError = isDescribeMode ? null : validateChannelName(trimmedName);
 
-  const busy = isCreating || isStarting;
+  const busy = isCreating || isStarting || linkRepositories.isPending;
   const canAdvance = !busy && !!trimmedName && !nameError;
-  // "Create" seeds the plan session, so it needs the description; "Skip" is the
-  // way through without one.
   const canDescribe = !busy && !!trimmedDescription;
 
   // `busy` only disables the buttons a render after the mutation starts, so a
@@ -101,10 +152,7 @@ export function CreateChannelModal({
     }
   };
 
-  // Create the channel and land in its feed — the intro (name, creation line,
-  // context.md card) and "joined" row there are derived from the channel row.
-  // With a description, also launch the plan session that builds context.md.
-  const submitCreate = async (withContextMd: boolean) => {
+  const submitCreate = async ({ withRepos }: { withRepos: boolean }) => {
     let contextId: string;
     try {
       const channel = await createChannel(trimmedName);
@@ -127,7 +175,21 @@ export function CreateChannelModal({
       return;
     }
 
-    if (withContextMd && trimmedDescription) {
+    if (withRepos && repositories.length > 0) {
+      try {
+        await linkRepositories.mutateAsync({
+          channelId: contextId,
+          githubIntegration: repoIntegration,
+          repositories,
+        });
+      } catch (error) {
+        toast.error("Couldn't link repositories", {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (trimmedDescription) {
       track(ANALYTICS_EVENTS.CONTEXT_ACTION, {
         action_type: "generate_started",
         channel_id: contextId,
@@ -174,14 +236,12 @@ export function CreateChannelModal({
     });
   };
 
-  // The description step's primary action: seed context.md, for a channel that
-  // already exists (describe mode) or one this dialog is about to create.
   const submitDescribeStep = async () => {
-    if (!canDescribe) return;
     if (isDescribeMode) {
+      if (!canDescribe) return;
       await submitDescribe();
-    } else {
-      await submitCreate(true);
+    } else if (!busy) {
+      setStep("repositories");
     }
   };
 
@@ -190,28 +250,39 @@ export function CreateChannelModal({
       {/* In create mode the nested dialog's title asks the question, so the
           label would just repeat it. */}
       {isDescribeMode && (
-        <FieldLabel htmlFor="context-description">
-          What's this {spacesLayout ? "space" : "channel"} about?
-        </FieldLabel>
+        <>
+          <FieldLabel htmlFor="context-description">
+            What's this {spacesLayout ? "space" : "channel"} about?
+          </FieldLabel>
+          <FieldDescription id={descriptionHelperId}>
+            Tell PostHog about this {spacesLayout ? "space" : "channel"}. We'll
+            use it to create a CONTEXT.md file with relevant information for
+            future tasks.
+          </FieldDescription>
+        </>
       )}
-      <Textarea
-        id="context-description"
-        autoFocus
-        rows={4}
-        className="max-h-[40vh] overflow-y-auto"
-        value={description}
-        placeholder={DESCRIPTION_PLACEHOLDER}
-        disabled={busy}
-        onChange={(e) => setDescription(e.target.value)}
-        onKeyDown={(e) => {
-          // ⌘/Ctrl+Enter submits; a bare Enter stays a newline. Held down it
-          // repeats, so it goes through the same latch as the buttons.
-          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            void submitOnce(submitDescribeStep);
-          }
-        }}
-      />
+      <div className="relative">
+        <Textarea
+          id="context-description"
+          aria-describedby={descriptionHelperId}
+          rows={4}
+          className="max-h-[40vh] overflow-y-auto text-xs leading-4"
+          value={description}
+          disabled={busy}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => {
+            // ⌘/Ctrl+Enter submits; a bare Enter stays a newline. Held down it
+            // repeats, so it goes through the same latch as the buttons.
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void submitOnce(submitDescribeStep);
+            }
+          }}
+        />
+        <RotatingDescriptionPlaceholder
+          visible={description.length === 0 && !busy}
+        />
+      </div>
     </Field>
   );
 
@@ -321,12 +392,12 @@ export function CreateChannelModal({
           </Button>
         </DialogFooter>
 
-        {/* Step two, nested inside step one rather than replacing it: quill
-            scales and dims a parent that has a nested dialog open, so the name
-            step stays visible behind — the stack is the affordance that says
-            there's another step. Dismissing it (Escape) returns here. */}
+        {/* Step two (About), nested inside step one rather than replacing it:
+            quill scales and dims a parent that has a nested dialog open, so the
+            name step stays visible behind. It stays open behind the optional
+            repositories step too, so the stack reads first-on-top. */}
         <Dialog
-          open={step === "describe"}
+          open={step === "describe" || step === "repositories"}
           onOpenChange={(next) => {
             if (!busy && !next) setStep("name");
           }}
@@ -346,6 +417,11 @@ export function CreateChannelModal({
               <DialogTitle>
                 What's this {spacesLayout ? "space" : "channel"} about?
               </DialogTitle>
+              <DialogDescription id={descriptionHelperId}>
+                Tell PostHog about this {spacesLayout ? "space" : "channel"}.
+                We'll use it to create a CONTEXT.md file with relevant
+                information for future tasks.
+              </DialogDescription>
             </DialogHeader>
 
             <DialogBody viewportClassName="flex flex-col gap-4">
@@ -353,24 +429,101 @@ export function CreateChannelModal({
             </DialogBody>
 
             <DialogFooter>
-              {/* Skip still creates the channel — it only forgoes the
-                  context.md, which the channel's intro card offers later. */}
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => setStep("name")}
+              >
+                Back
+              </Button>
               <Button
                 variant="default"
                 disabled={busy}
-                onClick={() => void submitOnce(() => submitCreate(false))}
+                onClick={() => {
+                  setDescription("");
+                  setStep("repositories");
+                }}
               >
                 Skip
               </Button>
               <Button
                 variant="primary"
                 disabled={!canDescribe}
-                loading={busy}
                 onClick={() => void submitOnce(submitDescribeStep)}
               >
-                Create
+                Next
               </Button>
             </DialogFooter>
+
+            {/* Step three (Repositories, optional), nested inside step two. */}
+            <Dialog
+              open={step === "repositories"}
+              onOpenChange={(next) => {
+                if (!busy && !next) setStep("describe");
+              }}
+            >
+              <DialogContent
+                showCloseButton={false}
+                className="sm:max-w-lg"
+                style={
+                  {
+                    "--quill-dialog-top-gap": "max(1rem, 10vh + 3rem)",
+                  } as CSSProperties
+                }
+              >
+                <DialogHeader>
+                  <DialogTitle>Link repositories</DialogTitle>
+                </DialogHeader>
+
+                <DialogBody viewportClassName="flex flex-col gap-3">
+                  <p className="text-[13px] text-muted-foreground">
+                    New tasks in this {spacesLayout ? "space" : "channel"} can
+                    work across these repositories. You can change them later.
+                  </p>
+                  <RepositoriesField
+                    selected={repositories}
+                    integrationId={repoIntegration}
+                    disabled={busy}
+                    onChange={(nextRepositories, nextIntegration) => {
+                      setRepositories(nextRepositories);
+                      setRepoIntegration(nextIntegration);
+                    }}
+                  />
+                </DialogBody>
+
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => setStep("describe")}
+                  >
+                    Back
+                  </Button>
+                  {/* Skip creates the space without linking repos; Create links
+                      the selected ones. Either way a description seeds
+                      context.md. */}
+                  <Button
+                    variant="default"
+                    disabled={busy}
+                    onClick={() =>
+                      void submitOnce(() => submitCreate({ withRepos: false }))
+                    }
+                  >
+                    Skip
+                  </Button>
+                  <Button
+                    variant="primary"
+                    disabled={busy || repositories.length === 0}
+                    loading={busy}
+                    onClick={() =>
+                      void submitOnce(() => submitCreate({ withRepos: true }))
+                    }
+                  >
+                    Create
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </DialogContent>
         </Dialog>
       </DialogContent>
