@@ -8,9 +8,9 @@ Tool mechanics (exact call shapes, confirmation flows, config fields) live in `a
 
 A new custom event ("`checkout_v2_completed`", "`ai_summary_generated`") that no canonical scout knows about.
 
-1. Confirm the event actually captures: `read-data-schema` for its shape, a quick `execute-sql` for volume.
+1. Confirm the event actually captures: `posthog:read-data-schema` for its shape, a quick `posthog:execute-sql` for volume.
    No data yet? Wait until it flows — a scout can't baseline an empty stream.
-2. Check the roster (`scout-config-list` descriptions): if the event belongs to a surface a specialist already watches (an error, a survey response, a flag call), a **note** telling that scout about the new event is enough.
+2. Check the roster (`posthog:scout-config-list` descriptions): if the event belongs to a surface a specialist already watches (an error, a survey response, a flag call), a **note** telling that scout about the new event is enough.
 3. Otherwise author a **custom single-event scout** via `authoring-scouts` — the custom single-event pattern in its `references/scout-patterns.md` is the template.
    Give it a real discriminator ("volume drops >50% against the trailing week while site traffic holds") rather than "watch for anything odd".
 
@@ -18,7 +18,7 @@ A new custom event ("`checkout_v2_completed`", "`ai_summary_generated`") that no
 
 Almost always already covered — the canonical fleet ships anomaly watchers for error tracking, logs, web analytics, and most other surfaces.
 
-1. Find the specialist in `scout-config-list` and confirm it's `enabled` with `emit: true` — and that the project can emit at all (`emit_eligibility.can_emit` on `scout-project-profile-get`; when false, writes are silently dropped fleet-wide).
+1. Find the specialist in `posthog:scout-config-list` and confirm it's `enabled` with `emit: true` — and that the project can emit at all (`emit_eligibility.can_emit` on `posthog:scout-project-profile-get`; when false, writes are silently dropped fleet-wide; a 404 just means no fresh cached profile, so fall back to `posthog:inbox-source-configs-list` and treat eligibility as unknown).
 2. If the ask has a specific edge ("especially the checkout service", "only production"), leave the scout a **note** with that focus.
 3. Only escalate to a skill edit if the scout structurally can't see what you care about (wrong threshold, missing disqualifier) — and it keeps proving that across runs.
 
@@ -27,7 +27,7 @@ Almost always already covered — the canonical fleet ships anomaly watchers for
 The textbook note use case — no authoring at all:
 
 ```json
-scout-notes-create
+posthog:scout-notes-create
 {
   "content": "We think the EU signup funnel regressed after Tuesday's deploy — prioritize it this week. Baseline: ~4.2% visitor→signup.",
   "skill_name": "signals-scout-product-analytics",
@@ -68,7 +68,7 @@ Diagnose which scout, then climb the ladder — don't pause the fleet wholesale.
 2. **Dismiss the noise well.** Dismissal notes are forwarded to the filing scout (when the dismisser has scout-steering access) — three specific notes ("staging hosts", "known crawler", "internal test org") often quiet a scout with zero editing.
 3. Still noisy? A **note** stating the pattern generally ("traffic from `*.dev.example.com` is ours, never report it").
 4. Structurally noisy? Edit the body via `authoring-scouts`: add the disqualifier, raise the threshold.
-5. Right signal, wrong volume? Slow it down: `scout-config-update` with a larger `run_interval_minutes` — and if the config has a `run_cron_schedule`, clear or update it too, since a cron schedule takes precedence over the interval.
+5. Right signal, wrong volume? Slow it down: `posthog:scout-config-update` with a larger `run_interval_minutes` — and if the config has a `run_cron_schedule`, clear or update it too, since a cron schedule takes precedence over the interval.
    Pause (`enabled: false`) is the last resort — a paused scout learns nothing.
 
 ## "The scouts never find anything"
@@ -76,10 +76,10 @@ Diagnose which scout, then climb the ladder — don't pause the fleet wholesale.
 Quiet is often correct — most runs should close out empty.
 Before loosening anything:
 
-1. Confirm the project is still enrolled (`scout-metadata-get` — config rows outlive enrollment, so a full-looking roster can belong to a drained fleet), that the fleet is actually on (`scout-config-list`: `enabled`, `emit` — dry-run scouts write nothing), and that runs execute (`exploring-scouts` health check).
-2. Read a few run summaries: a scout narrating "surface at baseline" is working; if it keeps saying "no data for X", the watched surface may not capture data (`scout-project-profile-get` shows what's in use).
+1. Confirm the project is still enrolled (`posthog:scout-metadata-get` — config rows outlive enrollment, so a full-looking roster can belong to a drained fleet), that the fleet is actually on (`posthog:scout-config-list`: `enabled`, `emit` — dry-run scouts write nothing), and that runs execute (`exploring-scouts` health check).
+2. Read a few run summaries: a scout narrating "surface at baseline" is working; if it keeps saying "no data for X", the watched surface may not capture data (`posthog:scout-project-profile-get` shows what's in use).
 3. Only then consider the bar: a threshold edit via `authoring-scouts`, or a note pointing at what the team considers report-worthy that the scout is skipping.
-4. Check the inbox default view isn't hiding output: suppressed reports (judged not-actionable) don't surface — `inbox-reports-list` with `status: "suppressed"` plus the `scout: "<skill_name>"` filter shows whether _this_ scout is finding things that get filtered (without the scout filter you'd be reading the whole project's suppressed reports).
+4. Check the inbox default view isn't hiding output: suppressed reports (judged not-actionable) don't surface — `posthog:inbox-reports-list` with `status: "suppressed"` plus the `scout: "<skill_name>"` filter shows whether _this_ scout is finding things that get filtered (without the scout filter you'd be reading the whole project's suppressed reports).
 
 ## "Get reports to the right person"
 
@@ -94,8 +94,8 @@ Reports reach people via `suggested_reviewers` — the inbox floats a report to 
 
 For a scout you expect to be chatty, expensive, or high-stakes:
 
-1. Create it with **both** `enabled: false` and `emit: false` in the nested config at `scout-create-prepare` time.
+1. Create it with **both** `enabled: false` and `emit: false` in the nested config at `posthog:scout-create-prepare` time.
    `emit: false` (dry-run) makes it log what it _would_ report without touching the inbox; `enabled: false` matters too, because a fresh enabled config has no `last_run_at` and the coordinator treats it as immediately due — it could burn a scheduled run (or 409 your manual one) before your controlled test.
-2. Spend one `scout-run-now` (it works on a disabled scout), then read the run via `exploring-scouts` to see what it would have written.
+2. Spend one `posthog:scout-run-now` (it works on a disabled scout), then read the run via `exploring-scouts` to see what it would have written.
    Runs are metered against the project's daily budget — dogfood the queries by hand for iteration and save real runs for end-to-end checks.
 3. Calibrate, then set `enabled: true` and `emit: true`, and let the normal act-and-feed-back loop take over.

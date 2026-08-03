@@ -37,13 +37,14 @@ Don't delegate to a fleet that isn't there.
 Two reads answer it: `posthog:scout-metadata-get` says whether the project is **enrolled** to run scouts at all, and `posthog:scout-config-list` is the roster — one row per scout with its schedule, `enabled`, `emit` posture, and `description`.
 Check enrollment first, whatever the roster shows — config rows outlive enrollment, so a drained project can carry a roster of enabled scouts that never run (stale `last_run_at` across the board is the tell).
 (Scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, try the legacy `signals-scout-*` name.)
+One access rule covers everything here: scout rows live on the project's **canonical parent**, so every scout read and write — this roster read included, plus the notes and config steering below — returns 403 for a credential scoped only to a child environment; work from the parent project (or a credential that covers it).
 
 - **Not enrolled** — point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/code) onboarding rather than inventing activity.
 - **Enrolled, empty roster** — likely newly enrolled and awaiting the first coordinator tick (configs auto-register then); say so instead of re-sending the user through onboarding.
 - **Enrolled, rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
   A paused or dry-run scout explains most "scouts aren't doing anything" complaints before any deeper digging.
   Also check `emit_eligibility` on `posthog:scout-project-profile-get`: when `can_emit` is false (the org hasn't approved AI processing, or the `signals_scout` source is disabled), every scout write is silently dropped even on an enabled `emit: true` scout — surface its `remediation` line before promising coverage.
-  (For read callers the profile is a cached snapshot built by scout runs, so a 404 means no fresh profile exists — not ineligibility; fall back to checking the `signals_scout` source config via `inbox-source-configs-list` and treat eligibility as unknown rather than blocking on the profile.)
+  (For read callers the profile is a cached snapshot built by scout runs, so a 404 means no fresh profile exists — not ineligibility; fall back to checking the `signals_scout` source config via `posthog:inbox-source-configs-list` and treat eligibility as unknown rather than blocking on the profile.)
 
 The `description` on each row says what that scout watches — scan it to answer "which scout covers X?" without loading any skill bodies.
 (A row with an empty description is usually an orphan whose skill was since deleted — it can't run, so don't count it as coverage.)
@@ -72,14 +73,14 @@ When you want something watched, pick the cheapest path that gets it watched —
 | A canonical scout already covers the surface                            | Nothing to build — confirm it's enabled, and leave it a **note** if you want its attention pointed somewhere specific.                                                                                                                      |
 | The surface is covered but you want a temporary or specific focus       | Leave a **note** (optionally with `expires_at`) — "watch the EU signup funnel this week", "we shipped a new checkout Tuesday, shifts after that are expected".                                                                              |
 | A covered scout keeps missing (or over-reporting) something structural  | **Adapt** it — a disqualifier, threshold, or scope edit via `authoring-scouts`. Prefer a new differently-named scout for purely additive behavior, since editing a canonical scout's row marks it diverged and stops upstream improvements. |
-| No scout covers it (a custom event, a niche funnel, an external system) | **Author a custom scout** via `authoring-scouts` (`scout-create-prepare` → user confirms → `-execute`).                                                                                                                                     |
+| No scout covers it (a custom event, a niche funnel, an external system) | **Author a custom scout** via `authoring-scouts` (`posthog:scout-create-prepare` → user confirms → `-execute`).                                                                                                                             |
 | You want an answer _now_, once                                          | Don't use a scout at all — just query the data directly. Scouts are for standing watches, not one-off questions.                                                                                                                            |
 
 [`references/delegation-recipes.md`](references/delegation-recipes.md) has worked recipes for the common asks — watching a freshly shipped event, a time-boxed funnel watch, a daily digest, an external status page, quieting a noisy fleet, and more.
 
 Two delegation habits that pay off:
 
-- **Ground the job in real data first.** Before pointing a scout at an event or surface, confirm it exists (`posthog:scout-project-profile-get`, `read-data-schema`) and actually has volume (a quick `execute-sql` count over a recent window — the profile and schema tools don't return counts for a new or rare event) — a watch on data the project doesn't capture is dead on arrival.
+- **Ground the job in real data first.** Before pointing a scout at an event or surface, confirm it exists (`posthog:scout-project-profile-get`, `posthog:read-data-schema`) and actually has volume (a quick `posthog:execute-sql` count over a recent window — the profile and schema tools don't return counts for a new or rare event) — a watch on data the project doesn't capture is dead on arrival.
 - **State the job in terms of what's worth interrupting a human for.** Scouts hold a report bar ("would you own this finding end-to-end?"); a steer like "tell me about anything interesting" produces noise, while "tell me when checkout conversion drops while entrants hold steady" produces signal.
 
 ## Acting on what comes back
@@ -92,7 +93,8 @@ Report triage mechanics live in `inbox-exploration`; what matters here is how ac
 - **The dismissal note is a steering message.** On a dismiss or snooze, the `dismissal_note` is forwarded to the scout that filed the report, and every future run reads it as prior context.
   Write it for that reader: name the evidence that settles it ("staging traffic — hosts match `*.dev.example.com`, ignore this pattern"), not just the verdict.
   A well-written dismissal is the cheapest scout edit you will ever make; a bare dismissal teaches nothing and the report comes back.
-  One caveat: forwarding is best-effort and requires the dismisser to hold scout-steering (skill-editor) access — without it the note still lands on the report but never reaches the scout, so for a steer that must stick, confirm it arrived (`scout-notes-list`) or have someone authorized leave a note directly.
+  One caveat: forwarding is best-effort and requires the dismisser to hold scout-steering (skill-editor) access — without it the note still lands on the report but never reaches the scout, so for a steer that must stick, confirm it arrived (`posthog:scout-notes-list`) or have someone authorized leave a note directly.
+  The forwarded note also expires after ~30 days — it becomes durable only if the scout folds it into scratchpad memory, so a steer that must outlive that belongs up the ladder as a skill edit.
 - **Reports route to people.** A scout that can name a plausible owner sets `suggested_reviewers`, and the inbox floats those reports to the top of that person's view.
   If reports for a surface keep landing unrouted or misrouted, that's fixable: make sure org members have linked GitHub identities, and steer the scout (note or skill edit) toward the right owner for the area.
 
@@ -102,10 +104,10 @@ When you want a scout to behave differently, climb this ladder from cheapest to 
 
 1. **React to its output.** Dismiss / snooze with a specific, evidence-bearing note (forwarded to the scout automatically).
    Right for: one wrong report, a known-noise pattern surfacing for the first time.
-2. **Leave a note** (`scout-notes-create`, per-scout or fleet-wide, optionally time-boxed with `expires_at`).
+2. **Leave a note** (`posthog:scout-notes-create`, per-scout or fleet-wide, optionally time-boxed with `expires_at`).
    Right for: feedback, pointers, and context with a shelf life — "the spike you keep flagging is known noise", "dig into EU signups this week", "new checkout shipped Tuesday".
    Notes are advisory: they direct attention but never lower the evidence bar or force a report.
-3. **Tune the config** (`scout-config-update`).
+3. **Tune the config** (`posthog:scout-config-update`).
    Right for: _when and whether_ it runs, not _what it looks at_ — slow a chatty scout (`run_interval_minutes`; if the config carries a `run_cron_schedule`, that takes precedence, so update or clear it too), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), or exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`).
 4. **Edit the skill body, or author a new scout** (via `authoring-scouts`).
    Right for: permanent policy — a disqualifier, a threshold, a scope change, a new surface.
@@ -122,7 +124,7 @@ Note hygiene stays with humans — scouts never delete notes, so retire acted-on
 Some feedback loops run on their own — knowing they exist changes how you work:
 
 - **Scratchpad memory.** Scouts write durable per-team memory (baselines, noise patterns, dedupe gates, allowlists) and get quieter and sharper across runs.
-  When a scout stops flagging something, check the scratchpad (`scout-scratchpad-search` for `noise:` / `addressed:` / `dedupe:` / `allowlist:` entries) before assuming it's broken — it may have deliberately learned to suppress it.
+  When a scout stops flagging something, check the scratchpad (`posthog:scout-scratchpad-search` for `noise:` / `addressed:` / `dedupe:` / `allowlist:` entries) before assuming it's broken — it may have deliberately learned to suppress it.
 - **Auto-pause.** A scout whose reports nobody acts on is warned (`status=pending_pause`) and then paused (`paused_by_system`, `pause_reason=ignored`).
   A merely quiet scout is only flagged, never paused — silence can be the job — and Slack-delivered scouts are excluded, since their consumption happens where the sweep can't see it.
   Re-enabling a scout this sweep paused marks it `auto_pause_exempt`, so the sweep never overrules a person twice (resuming a `repeated_failures` pause or a user pause grants no such exemption).
@@ -137,9 +139,9 @@ A fleet left alone drifts; a fleet reviewed occasionally compounds.
 Every few weeks (or when someone says "are the scouts even worth it?"), run a calibration pass:
 
 1. **Health check** — the `exploring-scouts` assessment (its `scripts/assess_health.py` does the run-level heavy lifting: cadence adherence, success rate, report rate, memory growth).
-   Two blind spots to cover yourself: the script only assesses scouts with runs in the window, so walk the roster for enabled scouts with no recent run rows (often the most broken ones); and it counts report writes, not outcomes, so judge signal-to-noise by resolving written reports via `inbox-reports-list` and reading their statuses.
+   Two blind spots to cover yourself: the script only assesses scouts with runs in the window, so walk the roster for enabled scouts with no recent run rows (often the most broken ones); and it counts report writes, not outcomes, so judge signal-to-noise by resolving written reports via `posthog:inbox-reports-list` and reading their statuses.
    Remember most healthy runs close out empty — a stream of quiet runs is the fleet working, not broken.
-2. **Review the fleet's asks** — sweep `scout-scratchpad-search {"text": "improve:"}` and the `Scout self-improvement:` inbox reports; apply the re-confirmed ones.
+2. **Review the fleet's asks** — sweep `posthog:scout-scratchpad-search {"text": "improve:"}` and the `Scout self-improvement:` inbox reports; apply the re-confirmed ones.
    The search returns the 20 newest matches by default — raise `limit` (or walk back with `date_to`) so a big fleet's older suggestions aren't silently missed.
 3. **Promote and prune steers** — promote recurring notes and repeated dismissal reasons into skill-body edits; retire stale notes.
 4. **Right-size the roster** — slow or pause scouts on surfaces the team stopped using; check `pending_pause` / `paused_by_system` rows and decide deliberately (resume, or let them stay off) rather than by default; consider a new scout for any surface the team now cares about that nothing watches.
