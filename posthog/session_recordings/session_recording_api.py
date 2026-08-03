@@ -1042,7 +1042,13 @@ class SessionRecordingViewSet(
     def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         """Latest event properties for the recording's session, for the capture diagnostics panel."""
         recording = self.get_object()
-        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        try:
+            properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        except Exception as e:
+            # This panel is supplementary - a ClickHouse blip shouldn't 500 the whole endpoint,
+            # it should just render empty like a session with no matching event would.
+            capture_exception(e)
+            properties = None
         return Response({"properties": properties})
 
     # Returns metadata about the recording

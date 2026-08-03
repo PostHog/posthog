@@ -1267,6 +1267,11 @@ export interface LoopRunViewedProperties {
   is_manual_run: boolean;
 }
 
+export interface LoopLinkCopiedProperties {
+  loop_id: string;
+  visibility: "personal" | "team";
+}
+
 // Event names as constants
 export const ANALYTICS_EVENTS = {
   // App lifecycle
@@ -1451,6 +1456,7 @@ export const ANALYTICS_EVENTS = {
   LOOP_RUN_STARTED: "Loop run started",
   LOOP_RUN_BLOCKED: "Loop run blocked",
   LOOP_RUN_VIEWED: "Loop run viewed",
+  LOOP_LINK_COPIED: "Loop link copied",
 } as const;
 
 // Event property mapping
@@ -1629,6 +1635,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_RUN_STARTED]: LoopRunStartedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_BLOCKED]: LoopRunBlockedProperties;
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
+  [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
 };
 
 /**

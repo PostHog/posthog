@@ -145,9 +145,9 @@ snapshots:
     components-cards-insight-card--access-control-viewer-access--light:
         hash: v1.k794b7964.bf2be6132e7d881f5648da794c30b861a8970b30aad98024e1470afa20fb1184.QjEzM0TKMP1UfPhiAgRyZW3hsOIKbNn5o8Un7s1Yswc
     components-cards-insight-card--insight-card--dark:
-        hash: v1.k794b7964.cf96222fc255d95aabfdacded279a5a956137ecc837686d5a5a1ffac238b3aa1.CHawJz0YmnigXNjoCjjX3AU9q7gxjCwYioh0R-ZlL6k
+        hash: v1.k794b7964.5d882ea13f1124c1b72f3b2984771d975f08fd7a56f188a74ffc3a4d4924b44f.dcyABXlgAlX_q28LSWghLYQ3Z7rstaSJUIIxlm4ETcw
     components-cards-insight-card--insight-card--light:
-        hash: v1.k794b7964.bbb3f9393068a2bfbe6e68235d521be001c99d791d3e580b91be9040c2806a97.7eFGp37eVD9-ZlHTtMIrzcxhQQzWnhpNrnxKZ2OQiYw
+        hash: v1.k794b7964.623afbadbac0c53b481d42f50439e0fdc6353f01a3779b2d3d829b0247300d18.J36MTIFPey57K8AJiKNlIl8uivEtrCDx_29HJqocehA
     components-cards-insight-details--dashboard-filter-overrides--dark:
         hash: v1.k794b7964.a329bf8c33e5ba0f777352aedd989c5c6cdc9a052c5ff20941331ee8ad004e93.sVMhyuYiG4BcFfCwwkJG9Vbr6QsQx5bOawB9bbVAQ44
     components-cards-insight-details--dashboard-filter-overrides--light:
@@ -5002,10 +5002,14 @@ snapshots:
         hash: v1.k794b7964.bbf4ff6c95e15c066d88d166ec8cb78cb339cb1d4df2cb558ee00695ef86aa37.V3S60_fvrTNlrAmUI5gXoP3-KDwPQ-551cAMEUy3dHY
     replay-overview-tab--wide-overview-tab--light:
         hash: v1.k794b7964.deb71477c91ae3fb89eaa9c6c9a45e665db4fa8363df4de30b3737c655930825.n5T9fmKBWN7qXDwbX9sYPEtdRgVYiaUgrJfvtail2tg
+    replay-overview-tab-experiments--current-experiment-not-exposed--dark:
+        hash: v1.k794b7964.260d2ae6bbf96cea5304b80598f13848d8fd392d628a0c6cfcb7fbcba790725d.lw64avOMM64AbRIjmpa5BWAYh71AMIHd1sn4GMu8b7E
+    replay-overview-tab-experiments--current-experiment-not-exposed--light:
+        hash: v1.k794b7964.3df16a2a43537af9a1c3cf4feb182529a7633cc5d4fc01011b80ee0a129281e8.YLJI9RsTHmIC0QasDoX6Djt-U_PGNo4FfTRSVKOwPLs
     replay-overview-tab-experiments--default--dark:
-        hash: v1.k794b7964.d8d0a5076deebd369360b47f2ae86bbd0645d082ba0e271202ae5dfc9fdbe71f._l-QzxbiRIMLOQNEH2rreVSC-AoglFfLN8V-qdtKe1M
+        hash: v1.k794b7964.79330e398cb2b6402ab847a6ab8e2ee61e71bd531473a6db0624b0d31538ad67.VS3PPJVIbJk5jHfGaUd7LjpdfWGQApwqjdvAKZhlInA
     replay-overview-tab-experiments--default--light:
-        hash: v1.k794b7964.75111a9a147dfe4dad586d19e47092c919f6a27173e6409223104337f9acb08d.kdrOerNCwGkoznYgvK6S_Y6dat9EJ-mIbVwjcrHKD14
+        hash: v1.k794b7964.40d99fa3c1d49cb1f4b21f3b9f727ad298ddf24767716bca7101ed3bf05192b4.F8N5B6OxXWv_eLUhNzKlkuuU5PqwKvSYqKb3nVLCkcs
     replay-overview-tab-experiments--empty--dark:
         hash: v1.k794b7964.13e51a486b40a1455fde0075af333e3dff21f25491d06cc59ab10c24200eb1d2.Fn0OHVeRm39HLB3-xcZUZavR375CxuNraJZdmfxTS-U
     replay-overview-tab-experiments--empty--light:
