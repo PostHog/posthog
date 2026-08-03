@@ -9,14 +9,16 @@ One row per `(team, skill_name)`.
 Returned by `scout-config-list`.
 This is the scout's control surface, separate from its instruction body (the `LLMSkill`).
 
-| Field                  | Meaning                                                                                       |
-| ---------------------- | --------------------------------------------------------------------------------------------- |
-| `id`                   | Config id — the handle `scout-config-update` takes to tune it.                                |
-| `skill_name`           | The `signals-scout-*` skill this config controls. Fixed; one config per skill per team.       |
-| `enabled`              | `false` = paused. The coordinator skips disabled scouts entirely.                             |
-| `emit`                 | `false` = **dry-run**: the scout runs and reasons every tick but writes nothing to the inbox. |
-| `run_interval_minutes` | Cadence, 30–43200. Default 1440 (daily). The coordinator dispatches when due.                 |
-| `last_run_at`          | When it last fired. `null` = never run. Drives the due-check.                                 |
+| Field                  | Meaning                                                                                                                                                                                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                   | Config id — the handle `scout-config-update` takes to tune it.                                                                                                                                                                                             |
+| `skill_name`           | The `signals-scout-*` skill this config controls. Fixed; one config per skill per team.                                                                                                                                                                    |
+| `enabled`              | `false` = paused. The coordinator skips disabled scouts entirely. Derived from `status`.                                                                                                                                                                   |
+| `status`               | Who owns the pause: `active`, `pending_pause` (still runs, flagged to pause soon; any config edit clears it), `paused_by_system` (automatic — resumable with `enabled: true`), `paused_by_user` (a person switched it off; the system never overrides it). |
+| `pause_reason`         | Why the system paused or warned: `no_output`, `ignored`, or `repeated_failures`. Null outside `pending_pause` / `paused_by_system`.                                                                                                                        |
+| `emit`                 | `false` = **dry-run**: the scout runs and reasons every tick but writes nothing to the inbox.                                                                                                                                                              |
+| `run_interval_minutes` | Cadence, 30–43200. Default 1440 (daily). The coordinator dispatches when due.                                                                                                                                                                              |
+| `last_run_at`          | When it last fired. `null` = never run. Drives the due-check.                                                                                                                                                                                              |
 
 A scout that is `enabled: true, emit: false` is alive and working — it just can't post reports.
 This is the intended posture for a new or freshly-edited scout, and the most common cause of "my scout does nothing" reports.

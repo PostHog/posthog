@@ -97,6 +97,10 @@ EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
     # (SchemaColumnTypeChangedException) — delta-rs can't widen in place, so the fix is a
     # user-driven reset and full re-sync, not a code change
     "Source column type changed",
+    # the schema or job was deleted (e.g. the user removed the source) while a batch for it
+    # was still in flight — an upstream/customer action, not a pipeline bug
+    "ExternalDataSchema matching query does not exist",
+    "ExternalDataJob matching query does not exist",
 )
 
 # How long an "alive" job-status lookup stays cached before re-checking the app DB.
@@ -646,13 +650,18 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
     if existing is not None:
         return
 
-    update_external_job_status(
-        job_id=job_id,
-        team_id=team_id,
-        status=ExternalDataJob.Status.FAILED,
-        logger=structlog.get_logger(),
-        latest_error=error,
-    )
+    try:
+        update_external_job_status(
+            job_id=job_id,
+            team_id=team_id,
+            status=ExternalDataJob.Status.FAILED,
+            logger=structlog.get_logger(),
+            latest_error=error,
+        )
+    except ExternalDataJob.DoesNotExist:
+        # The job row itself was deleted between the check above and this write (e.g. its
+        # source/schema was removed mid-sync) — nothing left to mark failed.
+        pass
 
 
 def mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:

@@ -71,7 +71,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         return SourceConfig(
             name=SchemaExternalDataSourceType.REDSHIFT,
             category=DataWarehouseSourceCategory.DATABASES,
-            keywords=["aws redshift", "amazon redshift"],
+            keywords=["aws redshift", "amazon redshift", "sql"],
             caption="Enter your Redshift credentials to automatically pull your Redshift data into the PostHog Data warehouse",
             iconPath="/static/services/redshift.png",
             docsUrl="https://posthog.com/docs/cdp/sources/redshift",
@@ -161,7 +161,21 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             "Network is unreachable": None,
+            # `InsufficientPrivilege` is the psycopg exception class name. It only appears once
+            # Temporal wraps the activity failure (`ApplicationError` stringifies as
+            # "InsufficientPrivilege: ..."), so it matches at the workflow layer but NOT in the
+            # activity-level check, where `error_msg = str(e)` is the raw psycopg message —
+            # Redshift's SQLSTATE 42501 text "permission denied for ...". Match that message
+            # substring too so the role-lacks-SELECT case (including a materialized view whose
+            # base relation isn't separately granted) is caught at both layers instead of burning
+            # the activity's full retry budget on a denial that can't resolve itself.
             "InsufficientPrivilege": None,
+            "permission denied for": (
+                "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
+                '(Redshift reported "permission denied"). If this is a materialized view, Redshift also '
+                "requires the connecting role to have SELECT on its underlying base table(s), not just the "
+                "view. Grant the connecting role SELECT on those tables, then re-enable the sync."
+            ),
             "No route to host": None,
             "password authentication failed connection": None,
             "connection timeout expired": None,

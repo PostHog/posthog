@@ -404,12 +404,12 @@ export interface alertFormLogicMeta {
         hogqlAlertPreview: (
             insightData: Record<string, any>,
             arg: AlertConfig,
-            arg2: InsightsThresholdBounds | undefined
+            arg2: InsightsThresholdBounds | null | undefined
         ) => HogQLAlertPreview | null
         funnelAlertPreview: (
             insightData: Record<string, any>,
             arg: AlertConfig,
-            arg2: InsightsThresholdBounds | undefined,
+            arg2: InsightsThresholdBounds | null | undefined,
             arg3: AlertConditionType,
             arg4: InsightThresholdType
         ) => FunnelAlertPreview | null
@@ -890,6 +890,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
+                const validationErrors = Object.values(values.alertFormValidationErrors).filter(
+                    (error): error is string => typeof error === 'string'
+                )
+                if (validationErrors.length > 0) {
+                    const message = validationErrors.map((error) => error.replace(/[.!?]+$/, '')).join('. ')
+                    lemonToast.error(`Couldn't save alert: ${message}`)
+                }
             },
             submitAlertFormSuccess: async () => {
                 // Background sync to pick up any server-side changes

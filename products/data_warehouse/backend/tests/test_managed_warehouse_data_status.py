@@ -7,8 +7,6 @@ from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
-from posthog.ducklake.cp_teams import CPTeam
-from posthog.ducklake.models import DuckgresSinkSchemaState
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
@@ -21,6 +19,14 @@ from products.data_warehouse.backend.logic.managed_warehouse_data_status import 
     source_table_readiness,
 )
 from products.data_warehouse.backend.models import ManagedWarehouseBackfillPartition
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresSinkState,
+    DuckgresSinkStateCreateInput,
+    DuckgresSinkStateRecord,
+    ManagedWarehouseTableNames,
+    ManagedWarehouseTeamMembership,
+)
+from products.managed_warehouse.backend.facade.testing import create_sink_state
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 Granularity = ManagedWarehouseBackfillPartition.Granularity
@@ -32,25 +38,25 @@ class TestSourceTableReadiness(SimpleTestCase):
         [
             (
                 "persistent_failure_streak_needs_attention_even_mid_backfill",
-                DuckgresSinkSchemaState.State.BACKFILLING,
+                DuckgresSinkState.BACKFILLING,
                 3,
                 "needs_attention",
             ),
             (
                 "pending_backfill_is_waiting",
-                DuckgresSinkSchemaState.State.PENDING_BACKFILL,
+                DuckgresSinkState.PENDING_BACKFILL,
                 0,
                 "waiting",
             ),
             (
                 "backfilling_reports_backfilling",
-                DuckgresSinkSchemaState.State.BACKFILLING,
+                DuckgresSinkState.BACKFILLING,
                 0,
                 "backfilling",
             ),
             (
                 "primed_schema_is_up_to_date",
-                DuckgresSinkSchemaState.State.PRIMED,
+                DuckgresSinkState.PRIMED,
                 0,
                 "up_to_date",
             ),
@@ -59,11 +65,12 @@ class TestSourceTableReadiness(SimpleTestCase):
     def test_state_precedence(
         self,
         _name: str,
-        lifecycle_state: str,
+        lifecycle_state: DuckgresSinkState,
         consecutive_failures: int,
         expected_readiness: ReadinessState,
     ) -> None:
-        state = DuckgresSinkSchemaState(
+        state = DuckgresSinkStateRecord(
+            id=uuid4(),
             team_id=1,
             schema_id=uuid4(),
             state=lifecycle_state,
@@ -97,16 +104,18 @@ class TestDatasetStatus(SimpleTestCase):
             updated_at=datetime(2026, 7, 12, tzinfo=UTC),
         )
 
-    def _backfill(self, earliest_event_date: date | None = date(2026, 3, 14)) -> CPTeam:
-        return CPTeam(
+    def _backfill(self, earliest_event_date: date | None = date(2026, 3, 14)) -> ManagedWarehouseTeamMembership:
+        return ManagedWarehouseTeamMembership(
             team_id=1,
             organization_id="org-a",
             schema_name="prod",
             enabled=True,
             backfill_enabled=True,
-            events_table_name=None,
-            persons_table_name=None,
-            schema_data_imports_name=None,
+            table_names=ManagedWarehouseTableNames(
+                events_table="events_prod",
+                persons_table="persons_prod",
+                data_imports_schema="posthog_data_imports_prod",
+            ),
             earliest_event_date=earliest_event_date,
         )
 
@@ -317,13 +326,19 @@ class TestRollupSources(SimpleTestCase):
         assert summary["last_synced_at"] == newer
         assert summary["last_applied_at"] == newer
 
-    def test_a_paused_schema_outranks_up_to_date_but_not_a_real_problem(self) -> None:
-        # A source where some schemas aren't being kept current at all shouldn't read as fully
-        # healthy, but an active problem elsewhere in the same source still has to win.
+    def test_a_paused_schema_is_deprioritized_below_healthy_active_schemas(self) -> None:
+        # Users often sync only a subset of a source, so an intentional pause should not mask the
+        # health of schemas that are actively syncing. A source with only paused schemas stays paused.
         source_id = str(uuid4())
+        paused = _table(
+            source_id=source_id,
+            source_name="Stripe",
+            table_name="invoices",
+            readiness_state="sync_paused",
+        )
         mostly_healthy = [
             _table(source_id=source_id, source_name="Stripe", table_name="charges", readiness_state="up_to_date"),
-            _table(source_id=source_id, source_name="Stripe", table_name="invoices", readiness_state="sync_paused"),
+            paused,
         ]
         with_a_real_problem = [
             *mostly_healthy,
@@ -331,9 +346,11 @@ class TestRollupSources(SimpleTestCase):
         ]
 
         [healthy_summary] = _rollup_sources(mostly_healthy)
+        [paused_summary] = _rollup_sources([paused])
         [problem_summary] = _rollup_sources(with_a_real_problem)
 
-        assert healthy_summary["readiness_state"] == "sync_paused"
+        assert healthy_summary["readiness_state"] == "up_to_date"
+        assert paused_summary["readiness_state"] == "sync_paused"
         assert problem_summary["readiness_state"] == "needs_attention"
 
     def test_a_paused_schema_still_counts_toward_backfilled(self) -> None:
@@ -371,11 +388,11 @@ class TestGetSourceSchemaStatuses(TestCase):
         )
         schema_a = ExternalDataSchema.objects.create(team=team, name="charges", source=source_a)
         schema_b = ExternalDataSchema.objects.create(team=team, name="orders", source=source_b)
-        DuckgresSinkSchemaState.objects.create(
-            team=team, schema_id=schema_a.id, state=DuckgresSinkSchemaState.State.PRIMED
+        create_sink_state(
+            DuckgresSinkStateCreateInput(team_id=team.id, schema_id=schema_a.id, state=DuckgresSinkState.PRIMED)
         )
-        DuckgresSinkSchemaState.objects.create(
-            team=team, schema_id=schema_b.id, state=DuckgresSinkSchemaState.State.PRIMED
+        create_sink_state(
+            DuckgresSinkStateCreateInput(team_id=team.id, schema_id=schema_b.id, state=DuckgresSinkState.PRIMED)
         )
 
         result = get_source_schema_statuses(team.id, str(source_a.id))
@@ -390,8 +407,8 @@ class TestGetSourceSchemaStatuses(TestCase):
             team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
         )
         paused_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source, should_sync=False)
-        DuckgresSinkSchemaState.objects.create(
-            team=team, schema_id=paused_schema.id, state=DuckgresSinkSchemaState.State.PRIMED
+        create_sink_state(
+            DuckgresSinkStateCreateInput(team_id=team.id, schema_id=paused_schema.id, state=DuckgresSinkState.PRIMED)
         )
 
         [result] = get_source_schema_statuses(team.id, str(source.id))
@@ -405,8 +422,8 @@ class TestGetSourceSchemaStatuses(TestCase):
             team=team, source_id="a", connection_id="ca", source_type="Stripe", status="Running"
         )
         deleted_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source, deleted=True)
-        DuckgresSinkSchemaState.objects.create(
-            team=team, schema_id=deleted_schema.id, state=DuckgresSinkSchemaState.State.PRIMED
+        create_sink_state(
+            DuckgresSinkStateCreateInput(team_id=team.id, schema_id=deleted_schema.id, state=DuckgresSinkState.PRIMED)
         )
 
         result = get_source_schema_statuses(team.id, str(source.id))
@@ -423,11 +440,13 @@ class TestGetSourceSchemaStatuses(TestCase):
         )
         schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source)
         applied_at = datetime(2026, 7, 14, 12, 0, tzinfo=UTC)
-        DuckgresSinkSchemaState.objects.create(
-            team=team,
-            schema_id=schema.id,
-            state=DuckgresSinkSchemaState.State.PRIMED,
-            queue_last_applied_at=applied_at,
+        create_sink_state(
+            DuckgresSinkStateCreateInput(
+                team_id=team.id,
+                schema_id=schema.id,
+                state=DuckgresSinkState.PRIMED,
+                queue_last_applied_at=applied_at,
+            )
         )
 
         [result] = get_source_schema_statuses(team.id, str(source.id))

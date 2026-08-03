@@ -70,6 +70,42 @@ describe('metricsIngestionLogic', () => {
             .toNotHaveDispatchedActions([firstIngestIntent()])
     })
 
+    // Copying the agent snippet is the strongest pre-ingest signal a team is taking
+    // the scrape path — it must register a distinct intent (not the generic docs one)
+    // so activation can attribute the scrape funnel, once per variant per session.
+    it('records a scrape-path intent when an agent snippet is copied, once per variant', async () => {
+        jest.mocked(metricsHasMetricsRetrieve).mockResolvedValue({ hasMetrics: false } as any)
+        logic = metricsIngestionLogic()
+        logic.mount()
+
+        const scrapeIntent = (): any =>
+            teamLogic.actionCreators.addProductIntent({
+                product_type: ProductKey.METRICS,
+                intent_context: ProductIntentContext.METRICS_SCRAPE_AGENT_SNIPPET_COPIED,
+                metadata: { variant: 'docker' },
+            })
+
+        await expectLogic(logic, () => {
+            logic.actions.reportScrapeSnippetCopied('docker')
+        }).toDispatchActions([scrapeIntent()])
+
+        // The same variant again is not a new intent...
+        await expectLogic(logic, () => {
+            logic.actions.reportScrapeSnippetCopied('docker')
+        }).toNotHaveDispatchedActions([scrapeIntent()])
+
+        // ...but the other variant is.
+        await expectLogic(logic, () => {
+            logic.actions.reportScrapeSnippetCopied('kubernetes')
+        }).toDispatchActions([
+            teamLogic.actionCreators.addProductIntent({
+                product_type: ProductKey.METRICS,
+                intent_context: ProductIntentContext.METRICS_SCRAPE_AGENT_SNIPPET_COPIED,
+                metadata: { variant: 'kubernetes' },
+            }),
+        ])
+    })
+
     it('does not check ingestion without metrics viewer access', async () => {
         window.POSTHOG_APP_CONTEXT = {
             ...window.POSTHOG_APP_CONTEXT,

@@ -85,6 +85,14 @@ class TestPreamble:
         assert "asterisks" in rendered
         assert "not a bug" in rendered.lower()
 
+    def test_preamble_forbids_reproducing_personal_data_verbatim(self) -> None:
+        # Masking hides PII in the video, but the events tool / navigation URLs can expose it in the clear;
+        # the model must reason about such values generically, never echo them into its output.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
+        assert "<output_privacy>" in rendered
+        assert "email address" in rendered
+        assert "verbatim" in rendered
+
     def test_preamble_exposes_events_via_tool_not_inline(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
         rendered = scanner.preamble(team_name="Acme")

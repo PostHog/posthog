@@ -1281,6 +1281,23 @@ class TestNonRetryableErrors:
             ({"error": {"code": 10}}, True),
             ({"error": {"code": 200}}, True),
             ({"error": {"code": 299}}, True),
+            # Real-world "(#100) Unsupported get request" — the token's own account could no
+            # longer be resolved, surfaced under the generic "Invalid parameter" code instead
+            # of one of the dedicated auth codes above.
+            (
+                {
+                    "error": {
+                        "message": "(#100) Unsupported get request. Please read the Graph API documentation "
+                        "at https://developers.facebook.com/docs/graph-api",
+                        "type": "OAuthException",
+                        "code": 100,
+                    }
+                },
+                True,
+            ),
+            # A different code-100 message is a genuine malformed-request bug, not an auth
+            # failure — it must not be swept into the same reclassification.
+            ({"error": {"message": "Invalid parameter", "code": 100}}, False),
             # Transient / retryable errors — Meta still tags some of these OAuthException.
             ({"error": {"code": 2, "type": "OAuthException"}}, False),
             ({"error": {"code": 1, "error_subcode": 99}}, False),
