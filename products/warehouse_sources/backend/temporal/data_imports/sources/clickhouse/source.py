@@ -91,9 +91,11 @@ ClickHouseErrors: dict[str, str] = {
     "connection refused": "Could not connect to ClickHouse on the given host/port",
     "connection timed out": "Connection to ClickHouse timed out. Does your database have our IP addresses allow-listed?",
     # Must stay above the generic "ssl" entry, which would otherwise match first and send the
-    # user to the wrong toggle. Expected over an SSH tunnel: we connect to the tunnel's local
-    # address, which a certificate issued for the database's own hostname doesn't cover.
-    "hostname mismatch": "The server's TLS certificate doesn't cover the address we connect to. Set 'Verify SSL certificate?' to No, or use a host the certificate covers.",
+    # user to the wrong toggle. Verification runs against the configured ClickHouse host even
+    # over an SSH tunnel (server_hostname), so a mismatch is real: the certificate doesn't
+    # cover the host the user configured. Deliberately does not suggest turning verification
+    # off — that would train users into a MITM-able setup.
+    "hostname mismatch": "The server's TLS certificate doesn't cover the ClickHouse host configured for this source. Use a host name the certificate covers.",
     "ssl": "TLS/SSL handshake failed. If your server does not use TLS, disable the HTTPS toggle.",
     # The host answered but isn't serving the ClickHouse HTTP interface on this
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
@@ -367,6 +369,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 query_timeout=query_timeout,
                 settings=settings,
                 bypass_env_proxy=self._bypass_env_proxy(config, team_id),
+                server_hostname=config.host,
             )
             try:
                 yield client
@@ -397,6 +400,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 verify=config.verify,
                 names=names,
                 bypass_env_proxy=bypass_env_proxy,
+                server_hostname=config.host,
             )
 
             row_counts: dict[str, int] = {}
@@ -411,6 +415,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                     verify=config.verify,
                     names=names,
                     bypass_env_proxy=bypass_env_proxy,
+                    server_hostname=config.host,
                 )
 
             detected_pks = get_clickhouse_primary_keys_for_schemas(
@@ -423,6 +428,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 verify=config.verify,
                 table_names=list(db_schemas.keys()),
                 bypass_env_proxy=bypass_env_proxy,
+                server_hostname=config.host,
             )
 
         for table_name, columns in db_schemas.items():
@@ -518,6 +524,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 secure=config.secure,
                 verify=config.verify,
                 bypass_env_proxy=self._bypass_env_proxy(config, team_id),
+                server_hostname=config.host,
             )
 
     def source_for_pipeline(self, config: ClickHouseSourceConfig, inputs: SourceInputs) -> SourceResponse:
@@ -544,6 +551,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             row_filters=inputs.row_filters,
             enabled_columns=inputs.enabled_columns,
             bypass_env_proxy=self._bypass_env_proxy(config, inputs.team_id),
+            server_hostname=config.host,
         )
 
     def reconcile_schema_metadata(

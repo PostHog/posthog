@@ -226,20 +226,33 @@ class _NoRedirectPoolManager(PoolManager):
 
 
 @functools.cache
-def _no_env_proxy_pool_manager(verify: bool) -> Any:
+def _no_env_proxy_pool_manager(verify: bool, server_hostname: str | None = None) -> Any:
     """A shared urllib3 pool manager that never consults HTTP(S)_PROXY env vars.
 
     clickhouse-connect only checks the proxy env vars when it builds its own
     pool manager, so handing it one is the sanctioned per-code-path opt-out
     from the egress proxy (see posthog/security/outbound_proxy.py for the
     requests/httpx equivalents). Cached because clients don't own an injected
-    manager (`close()` leaves it alive), so per-call managers would leak.
+    manager (`close()` leaves it alive), so per-call managers would leak; the
+    cache is bounded by the set of distinct tunneled HTTPS hostnames a worker
+    sees, which is small.
+
+    `server_hostname` keeps TLS verification honest through an SSH tunnel: we dial the
+    tunnel's loopback bind, but SNI and hostname validation must run against the database's
+    own hostname or the certificate can never match. Mirrors what clickhouse-connect does
+    with `server_host_name` when it builds its own manager — a branch it skips entirely
+    when handed a `pool_mgr`.
 
     Built from clickhouse-connect's own options factory so the TCP keepalive tuning and
     certificate handling match a direct connection, then recorded where the library tracks
     its own managers so connection expiry and interpreter-exit cleanup cover this one too.
     """
-    manager = _NoRedirectPoolManager(**httputil.get_pool_manager_options(verify=verify))
+    options = httputil.get_pool_manager_options(verify=verify)
+    if server_hostname:
+        if verify:
+            options["assert_hostname"] = server_hostname
+        options["server_hostname"] = server_hostname
+    manager = _NoRedirectPoolManager(**options)
     httputil.all_managers[manager] = int(time.time())
     return manager
 
@@ -256,6 +269,7 @@ def _get_client(
     query_timeout: int = DATA_QUERY_TIMEOUT_SECONDS,
     settings: Optional[dict[str, Any]] = None,
     bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> ClickHouseClient:
     """Create a ClickHouse HTTP client.
 
@@ -273,9 +287,18 @@ def _get_client(
     in the path, so the tunnel claim is checked against the address here: the
     flag and the host travel to this point independently, and a caller pairing
     "tunnel_loopback" with a non-loopback host has lost that pairing.
+
+    `server_hostname` (tunnel only) is the database's own hostname, so TLS SNI
+    and certificate hostname validation run against it rather than against the
+    loopback address we dial — disabling verification is not the supported way
+    to make HTTPS work through a tunnel.
     """
     if bypass_env_proxy == "tunnel_loopback":
         _require_loopback(host)
+    pool_mgr = None
+    if bypass_env_proxy:
+        tunnel_tls_hostname = server_hostname if bypass_env_proxy == "tunnel_loopback" and secure else None
+        pool_mgr = _no_env_proxy_pool_manager(verify, tunnel_tls_hostname)
     attempt = 0
     while True:
         try:
@@ -292,7 +315,7 @@ def _get_client(
                 send_receive_timeout=query_timeout,
                 query_limit=0,  # we manage limits ourselves
                 compress=True,
-                pool_mgr=_no_env_proxy_pool_manager(verify) if bypass_env_proxy else None,
+                pool_mgr=pool_mgr,
             )
         except (ClickHouseError, OSError, ssl.SSLError) as e:
             # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
@@ -398,6 +421,7 @@ def get_schemas(
     verify: bool,
     names: list[str] | None = None,
     bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Discover columns for all tables in the given database.
 
@@ -416,6 +440,7 @@ def get_schemas(
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
         bypass_env_proxy=bypass_env_proxy,
+        server_hostname=server_hostname,
     )
 
     try:
@@ -514,6 +539,7 @@ def get_clickhouse_row_count(
     verify: bool,
     names: list[str] | None = None,
     bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> dict[str, int]:
     """Return total_rows per table from `system.tables`.
 
@@ -536,6 +562,7 @@ def get_clickhouse_row_count(
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
         bypass_env_proxy=bypass_env_proxy,
+        server_hostname=server_hostname,
     )
 
     try:
@@ -640,6 +667,7 @@ def get_connection_metadata(
     secure: bool,
     verify: bool,
     bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> dict[str, Any]:
     """Probe the server for version metadata.
 
@@ -657,6 +685,7 @@ def get_connection_metadata(
         verify=verify,
         query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
         bypass_env_proxy=bypass_env_proxy,
+        server_hostname=server_hostname,
     )
 
     try:
@@ -892,6 +921,7 @@ def get_primary_keys_for_schemas(
     verify: bool,
     table_names: list[str],
     bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys (sorting key columns) for multiple tables.
 
@@ -914,6 +944,7 @@ def get_primary_keys_for_schemas(
             verify=verify,
             query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
             bypass_env_proxy=bypass_env_proxy,
+            server_hostname=server_hostname,
         )
         try:
             for table_name in table_names:
@@ -1317,6 +1348,7 @@ def clickhouse_source(
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     enabled_columns: Optional[list[str]] = None,
     bypass_env_proxy: BypassEnvProxy = None,
+    server_hostname: str | None = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1340,6 +1372,7 @@ def clickhouse_source(
             verify=verify,
             query_timeout=METADATA_QUERY_TIMEOUT_SECONDS,
             bypass_env_proxy=bypass_env_proxy,
+            server_hostname=server_hostname,
         )
 
         try:
@@ -1379,6 +1412,7 @@ def clickhouse_source(
                 verify=verify,
                 names=[table_name],
                 bypass_env_proxy=bypass_env_proxy,
+                server_hostname=server_hostname,
             )
             rows_to_sync: int | None = row_counts.get(table_name)
 
@@ -1425,6 +1459,7 @@ def clickhouse_source(
                 query_timeout=DATA_QUERY_TIMEOUT_SECONDS,
                 settings=_query_settings(chunk_size),
                 bypass_env_proxy=bypass_env_proxy,
+                server_hostname=server_hostname,
             )
 
             try:

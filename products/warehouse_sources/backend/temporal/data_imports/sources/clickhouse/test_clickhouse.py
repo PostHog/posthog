@@ -965,17 +965,19 @@ class TestTranslateError:
         msg = f"HTTPDriver for https://host:8443 returned response code {code}"
         assert ClickHouseSource._translate_error(msg) == _REDIRECTED
 
-    def test_certificate_hostname_mismatch_points_at_the_verify_toggle(self):
-        # Expected when tunneling: the certificate covers the database's own hostname, not
-        # the tunnel's local address. Matching the generic "ssl" entry first would tell the
-        # user to disable HTTPS, which is the wrong toggle.
+    def test_certificate_hostname_mismatch_names_the_certificate_not_the_toggles(self):
+        # Verification runs against the configured host even over a tunnel, so a mismatch is
+        # a real certificate problem. Matching the generic "ssl" entry first would tell the
+        # user to disable HTTPS, and the message must not suggest turning verification off.
         msg = (
             "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, "
             "certificate is not valid for '127.0.0.1'"
         )
         translated = ClickHouseSource._translate_error(msg)
         assert translated is not None
-        assert "Verify SSL certificate?" in translated
+        assert "certificate" in translated
+        assert "HTTPS" not in translated
+        assert "Verify SSL" not in translated
 
 
 class TestGetSchemas:
@@ -1448,7 +1450,7 @@ class TestBypassEnvProxy:
     @pytest.mark.parametrize(
         "bypass,expected_pool_mgr_factory",
         [
-            ("internal_team", lambda: ch_module._no_env_proxy_pool_manager(True)),
+            ("internal_team", lambda: ch_module._no_env_proxy_pool_manager(True, None)),
             (None, lambda: None),
         ],
     )
@@ -1575,6 +1577,30 @@ class TestGetClientEgressProxyRouting:
         assert bound_requests
         assert elsewhere_requests == []
 
+    def test_tunneled_https_verifies_against_the_database_hostname(self) -> None:
+        # We dial the tunnel's loopback bind, so SNI and hostname validation must run against
+        # the database's own hostname or a valid certificate can never match — and the
+        # workaround users would reach for is disabling verification, which invites MITM
+        # between the SSH server and ClickHouse.
+        with patch.object(ch_module, "get_client") as mock_get_client:
+            _get_client(
+                host="127.0.0.1",
+                port=8443,
+                database="default",
+                user="default",
+                password=None,
+                secure=True,
+                verify=True,
+                bypass_env_proxy="tunnel_loopback",
+                server_hostname="clickhouse.internal",
+            )
+        manager = mock_get_client.call_args.kwargs["pool_mgr"]
+        pool = manager.connection_from_host("127.0.0.1", 8443, scheme="https")
+        assert pool.assert_hostname == "clickhouse.internal"
+        assert pool.conn_kw["server_hostname"] == "clickhouse.internal"
+        # Plain-HTTP tunnels must not share the hostname-pinned manager.
+        assert manager is not ch_module._no_env_proxy_pool_manager(True, None)
+
     def test_tunnel_claim_with_non_loopback_host_is_refused(self) -> None:
         # The flag and the host reach `_get_client` independently; a caller pairing the
         # tunnel claim with a host that didn't come from a tunnel must fail loudly, before
@@ -1618,6 +1644,7 @@ class TestDirectQueryClientBypassEnvProxy:
 
         source = ClickHouseSource()
         config = MagicMock()
+        config.host = "db.example.com"
         config.database = "default"
         config.user = "default"
         config.password = None
@@ -1633,3 +1660,6 @@ class TestDirectQueryClientBypassEnvProxy:
                         pass
 
         assert mock_get_client.call_args.kwargs["bypass_env_proxy"] == expected_bypass
+        # The configured host always rides along; `_get_client` only applies it to TLS when
+        # the bypass reason is the tunnel.
+        assert mock_get_client.call_args.kwargs["server_hostname"] == "db.example.com"
