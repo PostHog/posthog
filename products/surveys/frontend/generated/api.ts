@@ -16,6 +16,7 @@ import type {
     SurveyApi,
     SurveyGlobalStatsResponseApi,
     SurveyQuestionLabelsResponseApi,
+    SurveyResponsesCountResponseApi,
     SurveyResponsesListApi,
     SurveySerializerCreateUpdateOnlyApi,
     SurveySerializerCreateUpdateOnlySchemaApi,
@@ -23,6 +24,7 @@ import type {
     SurveySummarizeRequestApi,
     SurveysGlobalStatsRetrieveParams,
     SurveysListParams,
+    SurveysResponsesCountParams,
     SurveysResponsesListParams,
     SurveysStatsRetrieveParams,
     SurveysSummarizeResponsesCreateParams,
@@ -448,8 +450,20 @@ export const surveysQuestionLabels = async (
     })
 }
 
-export const getSurveysResponsesCountRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/surveys/responses_count/`
+export const getSurveysResponsesCountUrl = (projectId: string, params?: SurveysResponsesCountParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/surveys/responses_count/?${stringifiedParams}`
+        : `/api/projects/${projectId}/surveys/responses_count/`
 }
 
 /**
@@ -462,8 +476,12 @@ export const getSurveysResponsesCountRetrieveUrl = (projectId: string) => {
  * Returns:
  *     Dictionary mapping survey IDs to response counts
  */
-export const surveysResponsesCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getSurveysResponsesCountRetrieveUrl(projectId), {
+export const surveysResponsesCount = async (
+    projectId: string,
+    params?: SurveysResponsesCountParams,
+    options?: RequestInit
+): Promise<SurveyResponsesCountResponseApi> => {
+    return apiMutator<SurveyResponsesCountResponseApi>(getSurveysResponsesCountUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

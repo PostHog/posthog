@@ -69743,6 +69743,11 @@ export namespace Schemas {
       extra: SurveyResponseExtra;
     }
 
+    export interface SurveyResponsesCountResponse {
+      /** Response count for a survey, keyed dynamically by that survey's ID. */
+      survey_id: number;
+    }
+
     export interface SurveyResponsesList {
       /** Survey response rows for the requested page. */
       results: SurveyResponseRow[];
@@ -83301,6 +83306,17 @@ export namespace Schemas {
      * Zero-based question index. Omit to get the survey-wide headline instead.
      */
     question_index?: number;
+    };
+
+    export type SurveysResponsesCountParams = {
+    /**
+     * Optional boolean to exclude archived responses (default: false, includes archived).
+     */
+    exclude_archived?: boolean;
+    /**
+     * Optional comma-separated list of survey IDs to filter by. Also bounds the query to only look back as far as these surveys' earliest start date, rather than every survey on the team.
+     */
+    survey_ids?: string;
     };
 
     export type SurveysGlobalStatsRetrieveParams = {

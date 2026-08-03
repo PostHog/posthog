@@ -296,8 +296,8 @@ tools:
     surveys-responses-archive-create:
         operation: surveys_responses_archive_create
         enabled: false
-    surveys-responses-count-retrieve:
-        operation: surveys_responses_count_retrieve
+    surveys-responses-count:
+        operation: surveys_responses_count
         enabled: false
     surveys-responses-list:
         operation: surveys_responses_list
