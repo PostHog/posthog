@@ -172,7 +172,7 @@ class MetricScanResult:
     dropped_metric_uuids: set[str]
 
 
-def _node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
+def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode) -> str:
     """A stable identity for a source node. Two nodes with the same signature match the same events
     and share one aggregate in the scan, so they can only ever render identical hits."""
     return node.model_dump_json(exclude_none=True)
@@ -199,7 +199,7 @@ def _metric_sources(
     sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode]] = [
         (MetricSourceRole.RETENTION_START, metric.start_event)
     ]
-    if _node_signature(metric.completion_event) != _node_signature(metric.start_event):
+    if node_signature(metric.completion_event) != node_signature(metric.start_event):
         sources.append((MetricSourceRole.RETENTION_COMPLETION, metric.completion_event))
     return sources
 
@@ -270,7 +270,7 @@ def resolve_metric_events(experiment: Experiment) -> list[MetricEventSource]:
     return metric_sources
 
 
-def _node_condition(node: MetricSourceNode, team: Team) -> ast.Expr:
+def build_source_condition(node: MetricSourceNode, team: Team) -> ast.Expr:
     """Match expression for one source node, built on `event_or_action_to_filter` — the same
     matcher the experiment analysis uses, so what counts as "this metric's event" cannot
     diverge between the analysis and this surface. `fixedProperties` are ANDed on top: the
@@ -341,7 +341,7 @@ def scan_sessions_for_metric_events(
     skipped_breakdown_sources = 0
 
     def node_key(source: MetricSource) -> str:
-        return _node_signature(source.node)
+        return node_signature(source.node)
 
     def metric_group_key(metric_source: MetricEventSource) -> tuple[str, ...]:
         # Distinct nodes only, so a ratio measuring the same event on both sides is one aggregate.
@@ -366,7 +366,7 @@ def scan_sessions_for_metric_events(
         seen_uuids.add(metric_source.metric_uuid)
         accepted.append(metric_source)
         for source in metric_source.sources:
-            conditions_by_node.setdefault(node_key(source), _node_condition(source.node, team))
+            conditions_by_node.setdefault(node_key(source), build_source_condition(source.node, team))
 
     # Every metric's own totals group is registered first and uncapped — it is bounded by
     # MAX_SCANNED_METRICS, so it never competes for the ceiling. Only the per-source breakdown is
