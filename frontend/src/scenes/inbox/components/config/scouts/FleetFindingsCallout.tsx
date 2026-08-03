@@ -26,7 +26,7 @@ export function FleetFindingsCallout({ onOpen }: { onOpen: () => void }): JSX.El
 
     const outputParts: string[] = []
     if (count > 0) {
-        outputParts.push(pluralize(count, 'finding'))
+        outputParts.push(pluralize(count, 'signal'))
     }
     if (authoredReportCount > 0) {
         outputParts.push(`${pluralize(authoredReportCount, 'report')} authored`)
@@ -43,7 +43,7 @@ export function FleetFindingsCallout({ onOpen }: { onOpen: () => void }): JSX.El
         >
             <IconSparkles className="size-5 shrink-0 text-primary-3000" />
             <div className="flex min-w-0 flex-col">
-                <span className="text-sm font-medium text-default">Scout findings</span>
+                <span className="text-sm font-medium text-default">Scout signals</span>
                 <span className="truncate text-xs text-secondary leading-snug">
                     {outputParts.join(' · ')} across {pluralize(scoutCount, 'scout')}
                     {latestAt ? (

@@ -11,6 +11,7 @@ import {
     getDatabaseSchemaPayload,
     getErrorsForFields,
     mergeRestoredSourceFormValues,
+    resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
 } from '../sourceWizardLogic'
@@ -56,6 +57,27 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
+    describe('resolveConnectErrorMessage', () => {
+        it('guides toward ad blockers when a request never reaches the server', () => {
+            // A thrown fetch has no HTTP status; without this branch the user only sees "Failed to fetch".
+            const message = resolveConnectErrorMessage({ message: 'Failed to fetch', status: undefined })
+            expect(message).toContain('ad blocker')
+            expect(message).not.toEqual('Failed to fetch')
+        })
+
+        it('prefers an API-provided message over the network hint', () => {
+            expect(resolveConnectErrorMessage({ data: { message: 'Invalid credentials' }, status: 400 })).toEqual(
+                'Invalid credentials'
+            )
+        })
+
+        it('never returns undefined for a 4xx with no message body', () => {
+            const message = resolveConnectErrorMessage({ status: 400 })
+            expect(message).toBeTruthy()
+            expect(message).not.toEqual('undefined')
+        })
     })
 
     describe('getDatabaseSchemaPayload', () => {

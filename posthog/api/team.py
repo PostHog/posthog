@@ -1966,11 +1966,9 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         # one). Blocks when duckgres refuses — e.g. the warehouse's last team, which
         # requires deprovisioning the warehouse (or deleting the organization) instead.
         # Keep the product API off the core import path.
-        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-            block_team_deletion,
-        )
+        from products.managed_warehouse.backend.facade.api import get_team_deletion_block_reason  # noqa: PLC0415
 
-        warehouse_block_reason = block_team_deletion(team_id, organization_id)
+        warehouse_block_reason = get_team_deletion_block_reason(team_id, organization_id)
         if warehouse_block_reason:
             raise exceptions.ValidationError(warehouse_block_reason)
 

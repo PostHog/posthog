@@ -15,9 +15,9 @@ MAX_RETRIES = 30
 
 
 def _load_ducklake_common() -> ModuleType:
-    """Load ducklake helpers directly from the repo without relying on editable installs."""
-    module_path = REPO_ROOT / "posthog" / "ducklake" / "common.py"
-    spec = importlib_util.spec_from_file_location("ducklake_common", module_path)
+    """Load managed warehouse helpers directly from the repo without relying on editable installs."""
+    module_path = REPO_ROOT / "products" / "managed_warehouse" / "backend" / "common.py"
+    spec = importlib_util.spec_from_file_location("managed_warehouse_common", module_path)
     if not spec or not spec.loader:
         raise ImportError(f"Unable to locate DuckLake helpers at {module_path}")
     module = importlib_util.module_from_spec(spec)

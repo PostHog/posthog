@@ -9,76 +9,171 @@
  */
 import * as zod from 'zod'
 
-export const datasetItemsCreateBodyRefTraceIdMax = 255
+/**
+ * Create an item and its first immutable version. An identical external ID retry returns the existing item. If the matching item is archived, the submitted content is restored as a new active version.
+ */
+export const datasetItemsCreateBodyExternalIdMax = 255
 
-export const datasetItemsCreateBodyRefSourceIdMax = 255
+export const datasetItemsCreateBodySourceTraceIdMax = 255
+
+export const datasetItemsCreateBodySourceEventIdMax = 255
 
 export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsCreateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsCreateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
+    dataset: zod.uuid().describe('Dataset that will own the item.'),
+    external_id: zod
+        .string()
+        .max(datasetItemsCreateBodyExternalIdMax)
+        .nullish()
+        .describe('Optional case-sensitive stable key used for idempotent creates.'),
+    input: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+        ])
+        .describe('Input supplied to the system under test. Any non-null JSON value is accepted.'),
+    expected_output: zod
+        .union([
+            zod.union([
+                zod.record(zod.string(), zod.unknown()),
+                zod.array(zod.unknown()),
+                zod.string(),
+                zod.number(),
+                zod.boolean(),
+            ]),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional user-authored expected output.'),
+    source_output: zod
+        .union([
+            zod.union([
+                zod.record(zod.string(), zod.unknown()),
+                zod.array(zod.unknown()),
+                zod.string(),
+                zod.number(),
+                zod.boolean(),
+            ]),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional actual output captured from the source trace.'),
+    metadata: zod.record(zod.string(), zod.unknown()).optional().describe('Optional JSON object with item metadata.'),
+    source_trace_id: zod
+        .string()
+        .max(datasetItemsCreateBodySourceTraceIdMax)
+        .nullish()
+        .describe('Trace ID copied from the source event.'),
+    source_event_id: zod
+        .string()
+        .max(datasetItemsCreateBodySourceEventIdMax)
+        .nullish()
+        .describe('Event ID copied from the source trace.'),
+    source_timestamp: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Timestamp needed to retrieve the event-backed source trace.'),
 })
 
-export const datasetItemsUpdateBodyRefTraceIdMax = 255
-
-export const datasetItemsUpdateBodyRefSourceIdMax = 255
-
-export const DatasetItemsUpdateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsUpdateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsUpdateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
-})
-
-export const datasetItemsPartialUpdateBodyRefTraceIdMax = 255
-
-export const datasetItemsPartialUpdateBodyRefSourceIdMax = 255
+/**
+ * Create a new immutable item version from editable fields.
+ */
 
 export const DatasetItemsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    dataset: zod.uuid().optional(),
-    input: zod.unknown().optional(),
-    output: zod.unknown().optional(),
-    metadata: zod.unknown().optional(),
-    ref_trace_id: zod.string().max(datasetItemsPartialUpdateBodyRefTraceIdMax).nullish(),
-    ref_timestamp: zod.iso.datetime({ offset: true }).nullish(),
-    ref_source_id: zod.string().max(datasetItemsPartialUpdateBodyRefSourceIdMax).nullish(),
-    deleted: zod.boolean().nullish(),
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+    input: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+        ])
+        .optional()
+        .describe('Replacement input. Omit to keep the current value.'),
+    expected_output: zod
+        .union([
+            zod.record(zod.string(), zod.unknown()),
+            zod.array(zod.unknown()),
+            zod.string(),
+            zod.number(),
+            zod.boolean(),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Replacement expected output. Send null to clear it.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Replacement metadata object. Send an empty object to clear it.'),
 })
 
+/**
+ * Archive an active item by creating a new immutable version.
+ */
+
+export const DatasetItemsArchiveBody = /* @__PURE__ */ zod.object({
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+})
+
+/**
+ * Restore an archived item by copying content into a new immutable version.
+ */
+
+export const DatasetItemsRestoreBody = /* @__PURE__ */ zod.object({
+    base_version: zod.number().min(1).describe('Current item version observed by the caller.'),
+    source_version: zod
+        .number()
+        .min(1)
+        .nullish()
+        .describe("Historical version to copy. Omit to restore the archived version's content."),
+})
+
+/**
+ * Create an empty dataset. Its first revision is created with its first item.
+ */
 export const datasetsCreateBodyNameMax = 400
 
+export const datasetsCreateBodyDescriptionDefault = ``
+export const datasetsCreateBodyDescriptionMax = 10000
+
 export const DatasetsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsCreateBodyNameMax),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
+    name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
+    description: zod
+        .string()
+        .max(datasetsCreateBodyDescriptionMax)
+        .default(datasetsCreateBodyDescriptionDefault)
+        .describe('Optional description of what the dataset contains.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Optional JSON object with descriptive dataset metadata.'),
 })
 
-export const datasetsUpdateBodyNameMax = 400
-
-export const DatasetsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsUpdateBodyNameMax),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
-})
-
+/**
+ * Update descriptive dataset fields without changing its revision.
+ */
 export const datasetsPartialUpdateBodyNameMax = 400
 
+export const datasetsPartialUpdateBodyDescriptionMax = 10000
+
 export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(datasetsPartialUpdateBodyNameMax).optional(),
-    description: zod.string().nullish(),
-    metadata: zod.unknown().optional(),
-    deleted: zod.boolean().nullish(),
+    name: zod
+        .string()
+        .max(datasetsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New dataset name. Names are unique within a project.'),
+    description: zod
+        .string()
+        .max(datasetsPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('New dataset description.'),
+    metadata: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe('Replacement JSON object for descriptive dataset metadata.'),
 })
 
 /**

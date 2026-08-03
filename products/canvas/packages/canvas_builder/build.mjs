@@ -1,0 +1,374 @@
+import { Scanner } from '@tailwindcss/oxide'
+import { build } from 'esbuild'
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { compile } from 'tailwindcss'
+
+// The platform contract (pinned dependencies, CSP, size limits) is shared with
+// the Python validator and the artifact origin via manifest.json — edit it
+// there, never inline here.
+const contract = JSON.parse(readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'))
+const admitted = Object.fromEntries(
+    Object.entries(contract.dependencies).map(([name, entry]) => [name, [entry.version, entry.url]])
+)
+const runtimeImports = contract.runtimeImports
+const csp = contract.csp
+const builderDirectory = path.dirname(fileURLToPath(import.meta.url))
+const builderRequire = createRequire(import.meta.url)
+const htmlTag = /<(script|link)\b[^>]*>/gi
+const htmlAttribute = /([a-zA-Z][\w-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
+const forbiddenHtml = /(?:src|href)\s*=\s*["']\s*(javascript|data:text\/html|vbscript)/i
+const extensions = ['', '.ts', '.tsx', '.js', '.jsx', '.css', '.json', '.svg', '.txt']
+const runtimePath = 'assets/canvas-runtime.js'
+const runtime = `(()=>{const channel="posthog-canvas",pending=new Map;let sequence=0,port;const post=(message)=>port?.postMessage({channel,...message});const call=(method,payload)=>new Promise((resolve,reject)=>{const id=String(++sequence);const timer=setTimeout(()=>{pending.delete(id);reject(new Error("Canvas request timed out"));},30000);pending.set(id,{resolve,reject,timer});post({type:"data-request",id,method,payload});});const receive=(event)=>{if(event.data?.channel!==channel||event.data?.type!=="data-response")return;const request=pending.get(event.data.id);if(!request)return;pending.delete(event.data.id);clearTimeout(request.timer);event.data.ok?request.resolve(event.data.result):request.reject(new Error(event.data.error??"Canvas request failed"));};const capture=(event,properties,distinctId)=>{const normalized=properties??{};let serialized;try{serialized=JSON.stringify(normalized)}catch{throw new Error("Canvas capture properties must be serializable")};if(typeof serialized!=="string"||serialized.length>16384)throw new Error("Canvas capture properties are too large");return call("capture",{event,properties:normalized,distinctId})};const openExternal=(value)=>{const url=new URL(value);if(url.protocol!=="https:"||!(url.hostname==="posthog.com"||url.hostname.endsWith(".posthog.com")))throw new Error("Canvas external URL is not allowed");post({type:"open-external",url:url.href})};window.ph={loadInsight:(shortId,options)=>call("loadInsight",{shortId,dateRange:options?.dateRange}),query:(query,params)=>call("query",typeof query==="string"?{hogql:query,params:params??{}}:{query,params:params??{}}),capture,openExternal};addEventListener("message",(event)=>{if(port||event.source!==parent||event.data?.channel!==channel||event.data?.type!=="connect"||!event.ports[0])return;port=event.ports[0];port.addEventListener("message",receive);port.start();if(document.readyState!=="loading")post({type:"ready"});if(document.readyState==="complete")post({type:"rendered"});});addEventListener("error",(event)=>post({type:"error",message:event.message||"Canvas runtime error",stack:event.error?.stack}));addEventListener("unhandledrejection",(event)=>post({type:"error",message:event.reason instanceof Error?event.reason.message:String(event.reason),stack:event.reason instanceof Error?event.reason.stack:undefined}));addEventListener("DOMContentLoaded",()=>post({type:"ready"}));addEventListener("load",()=>post({type:"rendered"}));})();`
+const platformStylesheet = `
+@import "tailwindcss";
+@import "@posthog/quill/tokens.css";
+@import "@posthog/quill/color-system.css";
+@import "@posthog/quill/base.css";
+@import "@posthog/quill/primitives.css";
+@import "@posthog/quill/tailwind.css";
+@custom-variant dark (&:where(.dark, .dark *));
+`
+
+// Entry references (module scripts, stylesheets) parsed attribute-order-
+// insensitively: `<script src=... type="module">` is as valid as the reverse,
+// so tags are matched first and their attributes read individually.
+function entryReferences(html) {
+    const references = []
+    for (const tag of html.matchAll(htmlTag)) {
+        const attributes = {}
+        for (const attribute of tag[0].matchAll(htmlAttribute)) {
+            attributes[attribute[1].toLowerCase()] = attribute[2] ?? attribute[3] ?? ''
+        }
+        if (tag[1].toLowerCase() === 'script' && attributes.type === 'module' && attributes.src) {
+            references.push([attributes.src, 'js'])
+        } else if (tag[1].toLowerCase() === 'link' && attributes.rel === 'stylesheet' && attributes.href) {
+            references.push([attributes.href, 'css'])
+        }
+    }
+    return references
+}
+
+function diagnostic(code, message, file, line) {
+    return {
+        severity: 'error',
+        code,
+        message: String(message).slice(0, 10000),
+        ...(file ? { path: file } : {}),
+        ...(line ? { line } : {}),
+    }
+}
+
+function sha256(content) {
+    return createHash('sha256').update(content, 'utf8').digest('hex')
+}
+
+function normalize(value) {
+    return value.replace(/^\.?\//, '')
+}
+
+function packageName(specifier) {
+    return specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]
+}
+
+function resolveFile(files, importer, specifier) {
+    const base = path.posix.normalize(path.posix.join(path.posix.dirname(importer), specifier))
+    if (base.startsWith('..')) {
+        return null
+    }
+    return extensions.map((extension) => base + extension).find((candidate) => candidate in files) ?? null
+}
+
+function loader(file) {
+    const extension = path.posix.extname(file)
+    return (
+        {
+            '.ts': 'ts',
+            '.tsx': 'tsx',
+            '.jsx': 'jsx',
+            '.css': 'css',
+            '.json': 'json',
+            '.svg': 'dataurl',
+            '.txt': 'text',
+        }[extension] ?? 'js'
+    )
+}
+
+function assetLoader(contentType) {
+    return contentType === 'application/wasm' || contentType === 'application/octet-stream' ? 'binary' : 'dataurl'
+}
+
+function resolveStylesheet(id, base) {
+    const resolved = id.startsWith('.')
+        ? path.resolve(base, id)
+        : builderRequire.resolve(id === 'tailwindcss' ? 'tailwindcss/index.css' : id)
+    return {
+        path: resolved,
+        base: path.dirname(resolved),
+        content: readFileSync(resolved, 'utf8'),
+    }
+}
+
+async function buildPlatformStyles(project) {
+    const compiler = await compile(platformStylesheet, {
+        base: builderDirectory,
+        loadStylesheet: resolveStylesheet,
+    })
+    const scanner = new Scanner({ sources: compiler.sources })
+    const candidates = new Set(scanner.scan())
+    const sourceFiles = Object.entries(project.files)
+        .filter(([, content]) => typeof content === 'string')
+        .map(([filename, content]) => ({
+            content,
+            extension: path.posix.extname(filename).slice(1) || 'html',
+        }))
+    for (const candidate of scanner.scanFiles(sourceFiles)) {
+        candidates.add(candidate)
+    }
+    return compiler.build([...candidates])
+}
+
+function validate(project) {
+    const diagnostics = []
+    if (project.canvasSdkVersion !== '0.1.0') {
+        diagnostics.push(diagnostic('unsupported_sdk', 'Canvas SDK version is unavailable'))
+    }
+    for (const [name, version] of Object.entries(project.dependencies ?? {})) {
+        if (!admitted[name]) {
+            diagnostics.push(diagnostic('dependency_not_admitted', `dependency "${name}" is not platform-supported`))
+        } else if (admitted[name][0] !== version) {
+            diagnostics.push(
+                diagnostic('dependency_version_mismatch', `dependency "${name}" must use ${admitted[name][0]}`)
+            )
+        }
+    }
+    const html = project.files?.[project.entryHtml]
+    if (typeof html !== 'string') {
+        diagnostics.push(diagnostic('entry_not_found', 'Canvas entry HTML does not exist', project.entryHtml))
+    } else if (forbiddenHtml.test(html)) {
+        diagnostics.push(
+            diagnostic('forbidden_url_scheme', 'Canvas HTML contains a forbidden URL scheme', project.entryHtml)
+        )
+    }
+    return diagnostics
+}
+
+async function bundleEntry(project, entry) {
+    const files = project.files
+    const plugin = {
+        name: 'canvas-virtual-fs',
+        setup(pluginBuild) {
+            pluginBuild.onResolve({ filter: /.*/ }, async (args) => {
+                if (args.pluginData?.platformDependency) {
+                    return undefined
+                }
+                if (args.kind === 'entry-point') {
+                    return { path: normalize(args.path), namespace: 'canvas' }
+                }
+                if (!['canvas', 'canvas-worker'].includes(args.namespace)) {
+                    return undefined
+                }
+                if (args.path.startsWith('.') || args.path.startsWith('/')) {
+                    const workerImport = args.path.endsWith('?worker')
+                    const requestedPath = workerImport ? args.path.slice(0, -7) : args.path
+                    const specifier = requestedPath.startsWith('/') ? `./${normalize(requestedPath)}` : requestedPath
+                    const resolved = resolveFile(files, args.importer, specifier)
+                    if (resolved) {
+                        return { path: resolved, namespace: workerImport ? 'canvas-worker' : 'canvas' }
+                    }
+                    const asset = resolveFile(project.assets ?? {}, args.importer, specifier)
+                    return asset
+                        ? { path: asset, namespace: 'canvas-asset' }
+                        : { errors: [{ text: `cannot resolve "${args.path}"` }] }
+                }
+                const name = packageName(args.path)
+                if (!Object.hasOwn(project.dependencies, name) || !Object.hasOwn(admitted, name)) {
+                    return { errors: [{ text: `import_not_declared: "${args.path}"` }] }
+                }
+                if (args.path !== name && !Object.hasOwn(runtimeImports, args.path)) {
+                    return { errors: [{ text: `import_not_declared: "${args.path}"` }] }
+                }
+                return pluginBuild.resolve(args.path, {
+                    kind: args.kind,
+                    resolveDir: builderDirectory,
+                    pluginData: { platformDependency: true },
+                })
+            })
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas' }, (args) => ({
+                contents: files[args.path],
+                loader: loader(args.path),
+                resolveDir: '/',
+            }))
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-asset' }, (args) => {
+                const asset = project.assets?.[args.path]
+                return asset
+                    ? {
+                          contents: Uint8Array.from(Buffer.from(asset.content, 'base64')),
+                          loader: assetLoader(asset.contentType),
+                      }
+                    : null
+            })
+            pluginBuild.onLoad({ filter: /.*/, namespace: 'canvas-worker' }, async (args) => {
+                const source = files[args.path]
+                if (source === undefined) {
+                    return null
+                }
+                const compiled = await bundleEntry(project, args.path)
+                const code = (compiled.outputFiles ?? [])
+                    .filter((output) => output.path.endsWith('.js'))
+                    .map((output) => output.text)
+                    .join('\n')
+                return {
+                    contents: `export default URL.createObjectURL(new Blob([${JSON.stringify(code)}],{type:"text/javascript"}));`,
+                    loader: 'js',
+                }
+            })
+        },
+    }
+    return build({
+        entryPoints: [entry],
+        bundle: true,
+        write: false,
+        format: 'esm',
+        platform: 'browser',
+        target: 'es2022',
+        jsx: 'automatic',
+        minify: true,
+        sourcemap: false,
+        logLevel: 'silent',
+        outdir: 'out',
+        plugins: [plugin],
+    })
+}
+
+function artifact(pathname, content) {
+    return { path: pathname, content, contentHash: sha256(content), sizeBytes: Buffer.byteLength(content, 'utf8') }
+}
+
+async function buildCanvas(project) {
+    const diagnostics = validate(project)
+    if (diagnostics.length) {
+        return { contractVersion: 1, status: 'failed', diagnostics }
+    }
+    project = { ...project, files: { ...project.files }, dependencies: { ...project.dependencies } }
+    let html = project.files[project.entryHtml]
+    let legacy = null
+    if (project.files['src/canvas.tsx'] && html.includes('src="/src/canvas.tsx"')) {
+        legacy = { legacyComponentPath: 'src/canvas.tsx', legacyCode: project.files['src/canvas.tsx'] }
+        project.files['src/canvas-entry.tsx'] =
+            'import React from "react"; import { createRoot } from "react-dom/client"; import Canvas from "./canvas"; const root = document.getElementById("root"); if (root) createRoot(root).render(React.createElement(Canvas));'
+        html = html.replace('src="/src/canvas.tsx"', 'src="/src/canvas-entry.tsx"')
+        project.files[project.entryHtml] = html
+        // The injected mount is platform code, not the author's — admit the react/
+        // react-dom it needs even when the source only declared react.
+        for (const runtime of ['react', 'react-dom']) {
+            project.dependencies[runtime] ??= admitted[runtime][0]
+        }
+    }
+    const refs = entryReferences(html)
+    if (!refs.length) {
+        return {
+            contractVersion: 1,
+            status: 'failed',
+            diagnostics: [
+                diagnostic(
+                    'no_entry_module',
+                    'Canvas HTML references no module scripts or stylesheets',
+                    project.entryHtml
+                ),
+            ],
+        }
+    }
+    const files = []
+    let platformCss = ''
+    try {
+        for (const [reference, kind] of refs) {
+            const entry = normalize(reference)
+            if (!(entry in project.files)) {
+                return {
+                    contractVersion: 1,
+                    status: 'failed',
+                    diagnostics: [
+                        diagnostic('entry_not_found', `Canvas entry ${entry} does not exist`, project.entryHtml),
+                    ],
+                }
+            }
+            const result = await bundleEntry(project, entry)
+            let javascript = ''
+            let css = ''
+            for (const output of result.outputFiles ?? []) {
+                output.path.endsWith('.css') ? (css = output.text) : (javascript = output.text)
+            }
+            const content = kind === 'css' ? css : javascript
+            const emitted = `assets/${path.posix.basename(entry).replace(/\.[^.]+$/, '')}-${sha256(content).slice(0, 10)}.${kind}`
+            files.push(artifact(emitted, content))
+            html = html.split(`"${reference}"`).join(`"./${emitted}"`).split(`'${reference}'`).join(`'./${emitted}'`)
+            if (kind === 'js' && css) {
+                const cssPath = `assets/${path.posix.basename(entry).replace(/\.[^.]+$/, '')}-${sha256(css).slice(0, 10)}.css`
+                files.push(artifact(cssPath, css))
+                const stylesheet = `<link rel="stylesheet" href="./${cssPath}" />`
+                html = html.includes('</head>')
+                    ? html.replace('</head>', `${stylesheet}</head>`)
+                    : `${stylesheet}${html}`
+            }
+        }
+        platformCss = await buildPlatformStyles(project)
+    } catch (error) {
+        const errors = error?.errors ?? []
+        return {
+            contractVersion: 1,
+            status: 'failed',
+            diagnostics: errors.length
+                ? errors
+                      .slice(0, 500)
+                      .map((entry) =>
+                          diagnostic(
+                              entry.text.startsWith('import_not_declared:') ? 'import_not_declared' : 'bundle_error',
+                              entry.text,
+                              entry.location?.file?.replace(/^canvas:/, ''),
+                              entry.location?.line
+                          )
+                      )
+                : [diagnostic('bundle_error', error instanceof Error ? error.message : String(error))],
+        }
+    }
+    const cssPath = `assets/canvas-platform-${sha256(platformCss).slice(0, 10)}.css`
+    files.push(artifact(cssPath, platformCss))
+    files.push(artifact(runtimePath, runtime))
+    const head = `<meta http-equiv="Content-Security-Policy" content="${csp}" /><link rel="stylesheet" href="./${cssPath}" /><script src="./${runtimePath}"></script>`
+    html = html.includes('<head>') ? html.replace('<head>', `<head>${head}`) : `${head}${html}`
+    files.unshift(artifact(project.entryHtml, html))
+    const manifest = {
+        entryHtml: project.entryHtml,
+        assets: files.map(({ path, contentHash, sizeBytes }) => ({ path, contentHash, sizeBytes })),
+        dependencies: project.dependencies,
+        canvasSdkVersion: project.canvasSdkVersion,
+        capabilities: project.capabilities ?? {
+            posthog: { insights: [], inlineQueries: false, captureEvents: [] },
+            network: { origins: [] },
+        },
+        ...legacy,
+    }
+    return { contractVersion: 1, status: 'ready', diagnostics: [], manifest, files }
+}
+
+let input = ''
+for await (const chunk of process.stdin) {
+    input += chunk
+}
+try {
+    const request = JSON.parse(input)
+    process.stdout.write(JSON.stringify(await buildCanvas(request.project)))
+} catch (error) {
+    process.stdout.write(
+        JSON.stringify({
+            contractVersion: 1,
+            status: 'failed',
+            diagnostics: [diagnostic('invalid_build_request', error instanceof Error ? error.message : String(error))],
+        })
+    )
+}

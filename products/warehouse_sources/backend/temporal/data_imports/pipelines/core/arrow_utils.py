@@ -339,9 +339,13 @@ def evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sche
 
             incoming_column = incoming_table.column(delta_field.name)
 
-        # Delta column is non-nullable: backfill nulls before write.
+        # Delta column is non-nullable: backfill nulls before write. Checked against the column's
+        # actual null count, not its field's own `nullable` flag, because that flag is just metadata
+        # and can say non-nullable while the batch still carries a real null (e.g. a batch scanned
+        # from a table whose column is otherwise declared non-nullable), which would otherwise
+        # skip the backfill and let the null reach the write.
         incoming_field = incoming_table.field(delta_field.name)
-        if not delta_field.nullable and incoming_field.nullable:
+        if not delta_field.nullable and incoming_column.null_count > 0:
             filled_nulls_arr = incoming_column.fill_null(
                 fill_value=get_default_value_for_pyarrow_type(incoming_field.type)
             )
@@ -758,6 +762,16 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
             return build_pyarrow_decimal_type(precision, scale)
 
         return pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
+
+    # `datetime` before `date`: `datetime.datetime` subclasses `datetime.date`.
+    if issubclass(type_, datetime.datetime) and isinstance(value, datetime.datetime):
+        return pa.timestamp("us", tz="UTC") if value.tzinfo is not None else pa.timestamp("us")
+
+    if issubclass(type_, datetime.date) and isinstance(value, datetime.date):
+        return pa.date32()
+
+    if issubclass(type_, datetime.time) and isinstance(value, datetime.time):
+        return pa.time64("us")
 
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
