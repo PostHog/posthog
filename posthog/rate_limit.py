@@ -537,12 +537,12 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
 # window rather than a known id list, so one call is heavier than a session-context batch. Same
 # project-wide bucketing and same session-authenticated caller as those, at a lower rate: the UI
 # fires at most one per filter change (debounced), and repeats hit the server-side cache.
-class SessionBucketsBurstRateThrottle(_SessionContextsRateThrottleBase):
+class SessionBucketsBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "session_buckets_burst"
     rate = "20/minute"
 
 
-class SessionBucketsSustainedRateThrottle(_SessionContextsRateThrottleBase):
+class SessionBucketsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "session_buckets_sustained"
     rate = "200/hour"
 
