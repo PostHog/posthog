@@ -114,6 +114,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.constants import AvailableFeature
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.hogql_queries.insights.utils.breakdowns import has_multi_breakdown, has_single_breakdown
@@ -1978,13 +1979,18 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
-                        # Capture only what classifies as a FAILURE outcome. User-input query errors
+                        # Capture what classifies as a FAILURE outcome. User-input query errors
                         # (USER_ERROR / cancelled / rate-limited) classify as SUCCESS above and are
                         # deliberately not captured — they're returned to the user as 4xx. Note this
                         # gate is the SLO outcome, not a strict platform-vs-user split:
                         # QUERY_PERFORMANCE_ERROR is FAILURE (so captured) even though a minority of
-                        # those are user-input limits — see _classify_error_for_slo.
-                        capture_exception(exc)
+                        # those are user-input limits — see _classify_error_for_slo. ClickHouseQueryTimeOut
+                        # is carved out explicitly: it dominates that category by volume, is already
+                        # returned to the caller with actionable copy, and is tracked separately via
+                        # the SLO tag above, so capturing it too only drowns out genuine platform
+                        # failures classified the same way.
+                        if not isinstance(exc, ClickHouseQueryTimeOut):
+                            capture_exception(exc)
                     if self._query_failure_caching_enabled:
                         # Transient error classes classify to None and are never recorded.
                         failure_kind = classify_failure(exc)

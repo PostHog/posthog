@@ -761,6 +761,17 @@ class TestQueryRunner(BaseTest):
                 True,
             ),
             ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
+            (
+                # ClickHouseQueryTimeOut is a FAILURE-classified QUERY_PERFORMANCE_ERROR (unlike
+                # the SUCCESS-classified errors above), but it's already returned to the caller
+                # with actionable copy and dominates that category by volume, so it must still be
+                # excluded from capture.
+                "clickhouse_query_timeout",
+                ClickHouseQueryTimeOut,
+                SloOutcome.FAILURE,
+                "query_performance_error",
+                False,
+            ),
         ]
     )
     def test_run_classifies_slo_error_at_except_boundary(

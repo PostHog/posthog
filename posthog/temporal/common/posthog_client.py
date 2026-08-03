@@ -14,7 +14,9 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import ambient_exception_properties
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
@@ -79,12 +81,22 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # worker), our own egress-budget backpressure (a deliberate "defer and retry later"
             # signal that our rate limiter already records via record_outbound_decision), errors
             # explicitly marked non-reportable (expected customer/upstream conditions, e.g. a REST
-            # API serving a login page instead of JSON), and expected-control-flow ApplicationErrors
-            # (activity-retry-as-poll probes) are not defects — re-raise without reporting them to
-            # error tracking.
+            # API serving a login page instead of JSON), expected-control-flow ApplicationErrors
+            # (activity-retry-as-poll probes), and ClickHouse capacity/timeout errors (already
+            # surfaced to callers with actionable copy, and capacity errors are transient and
+            # retried by the activity's own retry policy) are not defects — re-raise without
+            # reporting them to error tracking.
             if (
                 temporalio.exceptions.is_cancelled_exception(e)
-                or isinstance(e, EgressBudgetExhausted | WorkerShuttingDownError | NonReportableError)
+                or isinstance(
+                    e,
+                    EgressBudgetExhausted
+                    | WorkerShuttingDownError
+                    | NonReportableError
+                    | ClickHouseAtCapacity
+                    | ClickHouseQueryTimeOut
+                    | ConcurrencyLimitExceeded,
+                )
                 or (
                     isinstance(e, temporalio.exceptions.ApplicationError)
                     and e.type in EXPECTED_CONTROL_FLOW_ERROR_TYPES

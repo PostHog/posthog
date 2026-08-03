@@ -69,8 +69,11 @@ class PostHogConfig(AppConfig):
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
-            "service": settings.OTEL_SERVICE_NAME,
-            "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
+            # Same fallback as the OTel resource attributes below — an environment that never
+            # sets these (e.g. local dev, a non-production deploy) must still be identifiable,
+            # or its captured exceptions carry no service/environment to filter or suppress on.
+            "service": settings.OTEL_SERVICE_NAME or "posthog-django-default",
+            "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT") or ("development" if settings.DEBUG else "unknown"),
         }
         posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
         posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
