@@ -52,14 +52,16 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team.team import Team
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
-from posthog.temporal.ducklake import ACTIVITIES as DUCKLAKE_ACTIVITIES
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import DuckLakeCopyDataImportsWorkflow
-from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import DuckLakeRegisterDataImportsWorkflow
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import WebhookConsumerConfig, WebhookS3Sink
+from products.managed_warehouse.backend.facade.temporal import (
+    ACTIVITIES as DUCKLAKE_ACTIVITIES,
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsWorkflow,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -71,6 +73,7 @@ from products.warehouse_sources.backend.models.external_table_definitions import
 from products.warehouse_sources.backend.temporal.data_imports.cdp_producer_job import CDPProducerJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
@@ -389,7 +392,7 @@ async def _run(
     )
 
     with (
-        mock.patch.object(DeltaTableHelper, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -2787,7 +2790,7 @@ async def test_append_only_table(team, mock_stripe_client):
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         await _execute_run(str(uuid.uuid4()), inputs, [])
 
     run_for_replay = await sync_to_async(
@@ -3401,7 +3404,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
     the Redis idempotency flag is missing.
 
     This exercises the writer-side idempotency gap: if the writer crashes between
-    `write_to_deltalake` committing and `mark_batch_as_processed` running, Kafka redelivery
+    `DeltaWriter.write` committing and `mark_batch_as_processed` running, Kafka redelivery
     would otherwise re-write the same batch and produce duplicate rows. The delta-history
     fallback closes that gap.
     """
@@ -3867,7 +3870,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     assert len(files.get("Contents", [])) == 1
 
     # Run the pipeline again to ingest the webhook parquet
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4058,7 +4061,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
     # 6. Run the import pipeline to ingest the parquet
-    with mock.patch.object(DeltaTableHelper, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "compact_table"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 

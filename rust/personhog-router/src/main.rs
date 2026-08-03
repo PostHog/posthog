@@ -36,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("Failed to install rustls crypto provider");
 
     let config = Config::init_from_env().expect("Invalid configuration");
+    preregister_metrics();
 
     // Initialize tracing
     let log_layer = fmt::layer()
@@ -447,4 +448,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     monitor_guard.wait().await?;
     Ok(())
+}
+
+/// Touch the deploy-burst counters so their series exist with zero
+/// samples before any burst. metrics registration is lazy: a counter
+/// that first fires between two scrapes materializes with the burst
+/// already inside it, and no rate function can recover a delta that
+/// precedes a series' first sample. Only enumerable label sets are
+/// touched; series with dynamic labels (client names) stay lazy.
+fn preregister_metrics() {
+    use metrics::counter;
+    counter!("personhog_router_stash_enqueued_total").increment(0);
+    counter!("personhog_router_stash_replayed_total").increment(0);
+    counter!("personhog_router_forward_retries_exhausted_total").increment(0);
+    for outcome in ["success", "error", "expired"] {
+        counter!("personhog_router_stash_drained_total", "outcome" => outcome).increment(0);
+    }
+    for cause in ["max_messages", "max_bytes"] {
+        counter!("personhog_router_stash_rejected_total", "cause" => cause).increment(0);
+    }
+    counter!("personhog_router_stash_dropped_total", "reason" => "receiver_gone").increment(0);
+    for reason in ["unrouted", "fenced", "transport"] {
+        counter!("personhog_router_forward_retries_total", "path" => "direct", "reason" => reason)
+            .increment(0);
+    }
+    for reason in ["unrouted", "fenced", "transport", "cancelled"] {
+        counter!("personhog_router_forward_retries_total", "path" => "stash", "reason" => reason)
+            .increment(0);
+    }
+    personhog_coordination::preregister_router_coordination_metrics();
 }

@@ -520,6 +520,23 @@ def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
     return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
 
 
+# MySQL/MariaDB error 1040 (ER_CON_COUNT_ERROR): the server refuses a *new* connection because
+# `max_connections` is already reached. A transient capacity condition on the customer's database,
+# not a misconfiguration — a slot frees the moment another connection closes — so a fresh attempt
+# after a short backoff usually succeeds. Mirrors the Postgres source's "sorry, too many clients
+# already" / "remaining connection slots are reserved" handling, which is retried the same way and
+# likewise kept out of `get_non_retryable_errors` (see `MySQLSource.get_retryable_errors`).
+_TOO_MANY_CONNECTIONS_CODE = 1040
+
+
+def _is_transient_too_many_connections(e: BaseException) -> bool:
+    """Return True if the server refused a new connection because it's at `max_connections`."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    return code == _TOO_MANY_CONNECTIONS_CODE
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -543,6 +560,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_too_many_connections(e)
             ):
                 raise
             structlog.get_logger().warning(
@@ -1468,7 +1486,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             # the retry path can't safely restart from the original
             # cursor: the delta merge only dedupes rows for `incremental`
             # writes into an existing table (see
-            # `delta_table_helper.write_to_deltalake`), so full-refresh
+            # `DeltaWriter.write`), so full-refresh
             # and first-ever-sync scenarios would get silent duplicates
             # on replay. The observed bad-plan failure fails before any
             # rows stream, so this guard is defensive — it enforces the
