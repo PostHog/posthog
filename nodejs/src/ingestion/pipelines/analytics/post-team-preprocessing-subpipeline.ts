@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
@@ -55,7 +54,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     groupTypeManager: GroupTypeManager
     flagCalledPersonlessDefaultTeams: string
     personlessWritesDisabledTeams: string
-    hogTransformer: HogTransformer
 }
 
 export function createPostTeamPreprocessingSubpipeline<
@@ -83,7 +81,6 @@ export function createPostTeamPreprocessingSubpipeline<
         groupTypeManager,
         flagCalledPersonlessDefaultTeams,
         personlessWritesDisabledTeams,
-        hogTransformer,
     } = config
 
     return (

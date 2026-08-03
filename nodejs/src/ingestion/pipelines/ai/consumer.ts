@@ -1,4 +1,3 @@
-import { CommonConfig } from '~/common/config'
 import { buildIntegerMatcher } from '~/common/config/config'
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
