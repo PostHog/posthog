@@ -6,7 +6,7 @@ import { STATUS_LABELS } from 'scenes/inbox/components/badges/SignalReportStatus
 import { ReportCard } from 'scenes/inbox/components/cards/ReportCard'
 import { SignalReportStatus } from 'scenes/inbox/types'
 
-import { reportsLogic } from './reportsLogic'
+import { feedLogic } from './feedLogic'
 
 const STATUS_FILTER_OPTIONS: { value: SignalReportStatus | null; label: string }[] = [
     { value: null, label: 'Any status' },
@@ -21,9 +21,9 @@ const STATUS_FILTER_OPTIONS: { value: SignalReportStatus | null; label: string }
     ].map((status) => ({ value: status, label: STATUS_LABELS[status] ?? status })),
 ]
 
-export function ReportsTabContent(): JSX.Element {
-    const { reports, reportsResponse, reportsResponseLoading, statusFilter, myReportsOnly } = useValues(reportsLogic)
-    const { setStatusFilter, setMyReportsOnly, archiveReport } = useActions(reportsLogic)
+export function FeedTabContent(): JSX.Element {
+    const { reports, reportsResponse, reportsResponseLoading, statusFilter, myReportsOnly } = useValues(feedLogic)
+    const { setStatusFilter, setMyReportsOnly, archiveReport } = useActions(feedLogic)
 
     const filtersActive = statusFilter !== null || myReportsOnly
 

@@ -36,10 +36,10 @@ import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJou
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
 import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
 import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
+import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
-import { ReportsTabContent } from './components/Reports/ReportsTabContent'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
@@ -80,14 +80,11 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         reportCustomerAnalyticsViewed()
     })
 
-    // Accounts, Notes, Announcements and Reports are gated by CUSTOMER_ANALYTICS_CSP; without it the
-    // tabs do not exist, so guessed `/customer_analytics/{accounts,notes,announcements,reports}` URLs
+    // Accounts, Notes, Announcements and Feed are gated by CUSTOMER_ANALYTICS_CSP; without it the
+    // tabs do not exist, so guessed `/customer_analytics/{accounts,notes,announcements,feed}` URLs
     // are 404s.
     if (
-        (activeTab === 'accounts' ||
-            activeTab === 'notes' ||
-            activeTab === 'announcements' ||
-            activeTab === 'reports') &&
+        (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'announcements' || activeTab === 'feed') &&
         !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
     ) {
         return <NotFound object="page" />
@@ -132,10 +129,10 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
         })
         tabs.push({
-            key: 'reports',
-            label: 'Reports',
-            content: <ReportsTabContent />,
-            link: combineUrl(urls.customerAnalyticsReports(), searchParams).url,
+            key: 'feed',
+            label: 'Feed',
+            content: <FeedTabContent />,
+            link: combineUrl(urls.customerAnalyticsFeed(), searchParams).url,
         })
     }
 

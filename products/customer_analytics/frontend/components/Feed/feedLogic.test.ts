@@ -7,10 +7,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import type { UserType } from '~/types'
 
-import { CUSTOMER_ANALYTICS_SCOUT_NAMES, reportsLogic } from './reportsLogic'
+import { CUSTOMER_ANALYTICS_SCOUT_NAMES, feedLogic } from './feedLogic'
 
-describe('reportsLogic', () => {
-    let logic: ReturnType<typeof reportsLogic.build>
+describe('feedLogic', () => {
+    let logic: ReturnType<typeof feedLogic.build>
     let lastParams: URLSearchParams | null = null
 
     beforeEach(() => {
@@ -31,7 +31,7 @@ describe('reportsLogic', () => {
     })
 
     it('always scopes the list to the customer analytics scouts', async () => {
-        logic = reportsLogic()
+        logic = feedLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadReports', 'loadReportsSuccess'])
 
@@ -41,7 +41,7 @@ describe('reportsLogic', () => {
     })
 
     it('applies the status and my-reports filters to the request', async () => {
-        logic = reportsLogic()
+        logic = feedLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
         userLogic.actions.loadUserSuccess({ id: 7, uuid: 'user-uuid-7', email: 'me@example.com' } as UserType)
