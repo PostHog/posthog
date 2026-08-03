@@ -37636,6 +37636,7 @@ export namespace Schemas {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
@@ -37684,6 +37685,7 @@ export namespace Schemas {
     export const IntegrationKindEnum = {
       Anthropic: 'anthropic',
       Apns: 'apns',
+      AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
@@ -37732,6 +37734,7 @@ export namespace Schemas {
        *
        * * `anthropic` - Anthropic
        * * `apns` - Apple Push
+       * * `aws-redshift` - Aws Redshift
        * * `aws-s3` - Aws S3
        * * `azure-blob` - Azure Blob
        * * `bing-ads` - Bing Ads
@@ -80709,6 +80712,7 @@ export namespace Schemas {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
@@ -80768,6 +80772,7 @@ export namespace Schemas {
     export const IntegrationsListKind = {
       Anthropic: 'anthropic',
       Apns: 'apns',
+      AwsRedshift: 'aws-redshift',
       AwsS3: 'aws-s3',
       AzureBlob: 'azure-blob',
       BingAds: 'bing-ads',
