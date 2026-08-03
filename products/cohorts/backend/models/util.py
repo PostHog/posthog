@@ -354,6 +354,25 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
     return query_dict
 
 
+def _select_list_positions_are_known(select_list: list[ast.Expr]) -> bool:
+    """Whether ordinal N reliably maps to `select_list[N - 1]`.
+
+    `*`, `table.*` and `COLUMNS(...)` are each a single node here and only fan out into one node per
+    real column later, in the resolver. ClickHouse numbers positional arguments against that expanded
+    list, so mapping an ordinal onto the unexpanded list would point at the wrong expression and
+    silently change who ends up in the cohort. Leave those queries alone so they keep failing loudly
+    instead.
+    """
+    for expr in select_list:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if isinstance(expr, ast.ColumnsExpr):
+            return False
+        if isinstance(expr, ast.Field) and expr.chain and str(expr.chain[-1]) == "*":
+            return False
+    return True
+
+
 def _inline_positional_references(select_query: ast.SelectQuery) -> None:
     """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
 
@@ -361,7 +380,13 @@ def _inline_positional_references(select_query: ast.SelectQuery) -> None:
     into the SELECT list. `print_cohort_hogql_query` collapses that list to a single actor column, so
     any ordinal other than 1 would dangle afterwards. Resolving each ordinal against the original
     SELECT list up front keeps the grouping/ordering semantics intact once the list shrinks.
+
+    Ordinals nested inside GROUP BY GROUPING SETS are not resolved, because those entries are tuples
+    of expressions rather than bare ordinals. Such a query keeps failing the way it does today.
     """
+    if not _select_list_positions_are_known(select_query.select):
+        return
+
     select_list = select_query.select
 
     def resolve(expr: ast.Expr) -> ast.Expr:
