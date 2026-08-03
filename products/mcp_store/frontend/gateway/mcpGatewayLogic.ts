@@ -1451,6 +1451,38 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                 actions.loadServiceAccountsSuccess(
                     values.serviceAccounts.map((candidate) => (candidate.id === accountId ? updatedAccount : candidate))
                 )
+                // The access section renders server.agents, so patch it immediately.
+                // The background reload fills in granted_by for newly shared agents.
+                actions.loadServersSuccess(
+                    values.servers.map((candidate) => {
+                        if (candidate.id !== serverId) {
+                            return candidate
+                        }
+                        const alreadyListed = candidate.agents.some((agent) => agent.service_account_id === accountId)
+                        if (enabled) {
+                            return alreadyListed
+                                ? candidate
+                                : {
+                                      ...candidate,
+                                      agents: [
+                                          ...candidate.agents,
+                                          {
+                                              service_account_id: updatedAccount.id,
+                                              name: updatedAccount.name,
+                                              handle: updatedAccount.handle,
+                                              status: updatedAccount.status,
+                                              last_active_at: updatedAccount.last_active_at,
+                                              granted_by: null,
+                                          },
+                                      ],
+                                  }
+                        }
+                        return {
+                            ...candidate,
+                            agents: candidate.agents.filter((agent) => agent.service_account_id !== accountId),
+                        }
+                    })
+                )
                 actions.loadServers()
                 actions.setAgentServerAccessSuccess(accountId, serverId)
                 lemonToast[enabled ? 'success' : 'info'](

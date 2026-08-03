@@ -416,6 +416,32 @@ describe('mcpGatewayLogic', () => {
         expect(logic.values.serviceAccounts[0].servers[0].connection_state).toBe('ready')
     })
 
+    it('patches server.agents immediately when sharing and revoking, before the servers reload lands', async () => {
+        const account = serviceAccount()
+        const server = gatewayServer({ id: 'linear-id' })
+        logic.actions.loadServiceAccountsSuccess([account])
+        logic.actions.loadServersSuccess([server])
+        mockServiceAccountAccess.mockResolvedValue({ ...account, server_ids: ['linear-id'] })
+        const pendingReload = deferred<Awaited<ReturnType<typeof mcpGatewayServersList>>>()
+        mockServersList.mockClear()
+        mockServersList.mockReturnValue(pendingReload.promise)
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgentServerAccess(account.id, server.id, true)
+        }).toDispatchActions(['setAgentServerAccessComplete'])
+
+        expect(logic.values.servers[0].agents.map((agent) => agent.service_account_id)).toEqual([account.id])
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgentServerAccess(account.id, server.id, false)
+        }).toDispatchActions(['setAgentServerAccessComplete'])
+
+        expect(logic.values.servers[0].agents).toEqual([])
+
+        pendingReload.resolve({ count: 1, results: [server] })
+        await expectLogic(logic).toFinishAllListeners()
+    })
+
     it('does not start a second OAuth connection while the first is in flight', async () => {
         const pendingInstall = deferred<Awaited<ReturnType<typeof mcpServerInstallationsInstallTemplateCreate>>>()
         mockInstallTemplate.mockReturnValue(pendingInstall.promise)
