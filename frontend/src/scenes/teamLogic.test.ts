@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { useMocks } from '~/mocks/jest'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -135,6 +137,48 @@ describe('teamLogic', () => {
             // The stale team's intents must not be grafted onto the team that is now active.
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect((logic.values.currentTeam as TeamType)?.product_intents).toBeUndefined()
+        })
+    })
+
+    describe('loadCurrentTeam vs a concurrent write', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        it('does not revert a write that commits while a stale GET is still in flight', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:id': () => [200, { ...MOCK_DEFAULT_TEAM, autocapture_exceptions_opt_in: true }],
+                },
+            })
+
+            logic = teamLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            // Simulates noEventsBannerLogic's 30s poll: it starts before the write below
+            // commits, so its response is a pre-write snapshot withheld here until after the
+            // write resolves.
+            let releaseStaleGet: (value: unknown) => void = () => {}
+            jest.spyOn(api, 'get').mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        releaseStaleGet = resolve
+                    })
+            )
+            logic.actions.loadCurrentTeam()
+
+            await expectLogic(logic, () => {
+                logic.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
+            }).toDispatchActions(['updateCurrentTeamSuccess'])
+            expect(logic.values.currentTeam?.autocapture_exceptions_opt_in).toBe(true)
+
+            releaseStaleGet(MOCK_DEFAULT_TEAM)
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            // A wholesale replace here would flip the flag back to false and bounce the user
+            // back to the error tracking setup screen after they just enabled autocapture.
+            expect(logic.values.currentTeam?.autocapture_exceptions_opt_in).toBe(true)
         })
     })
 

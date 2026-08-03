@@ -340,7 +340,7 @@ export const teamLogic = kea<teamLogicType>([
             },
         ],
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         currentTeam: [
             null as TeamType | TeamPublicType | null,
             {
@@ -350,16 +350,25 @@ export const teamLogic = kea<teamLogicType>([
                         return null
                     }
 
+                    // A team-mutating loader (updateCurrentTeam, addProductIntent, etc.) may commit
+                    // while this GET is in flight. Its snapshot was read before that write, so if
+                    // one landed in the meantime, keep the fresher local state instead of reverting it.
+                    const writeCountAtStart = cache.currentTeamWriteCount ?? 0
+
+                    let team: TeamPublicType | TeamType | null
                     try {
-                        return await api.get('api/environments/@current')
+                        team = await api.get('api/environments/@current')
                     } catch {
                         return values.currentTeam
                     }
+
+                    return (cache.currentTeamWriteCount ?? 0) === writeCountAtStart ? team : values.currentTeam
                 },
                 updateCurrentTeam: async (payload: Partial<TeamType>, breakpoint) => {
                     if (!values.currentTeam) {
                         throw new Error('Current team has not been loaded yet, so it cannot be updated!')
                     }
+                    cache.currentTeamWriteCount = (cache.currentTeamWriteCount ?? 0) + 1
 
                     // session replay config is nested, so we need to make sure we don't overwrite config
                     if (payload.session_replay_config) {
@@ -456,32 +465,43 @@ export const teamLogic = kea<teamLogicType>([
                             'Environment could not be created, because the parent project has not been loaded yet!'
                         )
                     }
+                    cache.currentTeamWriteCount = (cache.currentTeamWriteCount ?? 0) + 1
                     return await api.create(`api/projects/${values.currentProject.id}/environments/`, { name, is_demo })
                 },
                 // Project API Token
-                resetToken: async () => await api.update(`api/environments/${values.currentTeamId}/reset_token`, {}),
+                resetToken: async () => {
+                    cache.currentTeamWriteCount = (cache.currentTeamWriteCount ?? 0) + 1
+                    return await api.update(`api/environments/${values.currentTeamId}/reset_token`, {})
+                },
                 // Feature Flags Secure API Token
-                rotateSecretToken: async () =>
-                    await api.update(`api/environments/${values.currentTeamId}/rotate_secret_token`, {}),
-                deleteSecretTokenBackup: async () =>
-                    await api.update(`api/environments/${values.currentTeamId}/delete_secret_token_backup`, {}),
+                rotateSecretToken: async () => {
+                    cache.currentTeamWriteCount = (cache.currentTeamWriteCount ?? 0) + 1
+                    return await api.update(`api/environments/${values.currentTeamId}/rotate_secret_token`, {})
+                },
+                deleteSecretTokenBackup: async () => {
+                    cache.currentTeamWriteCount = (cache.currentTeamWriteCount ?? 0) + 1
+                    return await api.update(`api/environments/${values.currentTeamId}/delete_secret_token_backup`, {})
+                },
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  * Also, we refresh the list of custom products to show the possible new entry in the sidebar after we've added the intent.
                  */
                 addProductIntent: async (properties: ProductIntentProperties) => {
+                    cache.currentTeamWriteCount = (cache.currentTeamWriteCount ?? 0) + 1
                     const result = await addProductIntent(properties)
                     actions.loadCustomProducts()
 
                     return withProductIntentsFrom(values.currentTeam, result)
                 },
                 addProductIntentForCrossSell: async (properties: ProductCrossSellProperties) => {
+                    cache.currentTeamWriteCount = (cache.currentTeamWriteCount ?? 0) + 1
                     const result = await addProductIntentForCrossSell(properties)
                     actions.loadCustomProducts()
 
                     return withProductIntentsFrom(values.currentTeam, result)
                 },
                 recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) => {
+                    cache.currentTeamWriteCount = (cache.currentTeamWriteCount ?? 0) + 1
                     const result = await api.update(
                         `api/environments/${values.currentTeamId}/complete_product_onboarding`,
                         {
