@@ -6,6 +6,7 @@ import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
     PushNotificationPayloadType,
 } from '~/cdp/schema/cyclotron'
+import { mirrorCall, mirrorCompare } from '~/cdp/utils/mirror-call'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -163,7 +164,8 @@ export class PushNotificationService {
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
         private redis: RedisV2 | null,
-        private messageAssetsService?: MessageAssetsService
+        private messageAssetsService?: MessageAssetsService,
+        private redisMirror: RedisV2 | null = null
     ) {}
 
     @instrumented('push-notification.executeSendPushNotification')
@@ -556,9 +558,15 @@ export class PushNotificationService {
         const keyFingerprint = createHash('sha256').update(`${teamId}:${keyId}:${signingKey}`).digest('hex')
         const cacheKey = `${APNS_JWT_CACHE_PREFIX}${keyFingerprint}`
 
-        const cached = await this.redis?.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
-            client.get(cacheKey)
-        )
+        const read = (pool: RedisV2) =>
+            pool.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) => client.get(cacheKey))
+        const cached = this.redis
+            ? await mirrorCompare(
+                  'push-notification.apns-jwt-read',
+                  () => read(this.redis!),
+                  () => (this.redisMirror ? read(this.redisMirror) : undefined)
+              )
+            : null
         if (cached) {
             return cached
         }
@@ -572,9 +580,16 @@ export class PushNotificationService {
         const signature = sign.sign({ key: signingKey, dsaEncoding: 'ieee-p1363' }, 'base64url')
         const jwt = `${signingInput}.${signature}`
 
-        await this.redis?.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
-            client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
-        )
+        const write = (pool: RedisV2) =>
+            pool.useClient({ name: 'apns-jwt-write', failOpen: true }, (client) =>
+                client.set(cacheKey, jwt, 'EX', APNS_JWT_TTL_SECONDS)
+            )
+        await Promise.all([
+            this.redis ? write(this.redis) : undefined,
+            mirrorCall('push-notification.apns-jwt-write', () =>
+                this.redisMirror ? write(this.redisMirror) : undefined
+            ),
+        ])
         return jwt
     }
 

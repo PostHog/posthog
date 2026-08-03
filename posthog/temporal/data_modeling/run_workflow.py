@@ -62,8 +62,6 @@ from posthog.temporal.data_modeling.activities.fail_materialization import (
 )
 from posthog.temporal.data_modeling.activities.utils import strip_hostname_from_error
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import DuckLakeCopyDataModelingWorkflow
-from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
@@ -76,6 +74,11 @@ from products.data_warehouse.backend.facade.api import (
 from products.endpoints.backend.facade.temporal import (
     prepare_executable_query,
     update_materialization_ready_for_saved_query,
+)
+from products.managed_warehouse.backend.facade.temporal import (
+    DataModelingDuckLakeCopyInputs,
+    DuckLakeCopyDataModelingWorkflow,
+    DuckLakeCopyModelInput,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.temporal import prepare_s3_files_for_querying

@@ -375,17 +375,25 @@ jobs:
             - name: Build agent package
               run: pnpm --filter @posthog/agent run build
 
-            - name: Build release artifacts
-              env:
-                  APP_VERSION: ${{ steps.version.outputs.version }}
+            # Two separate steps: in a multi-line pwsh script only the last
+            # command's exit code fails the step, so a broken electron-vite
+            # build let electron-builder package an app with no renderer.
+            - name: Build app bundles
               working-directory: products/desktop/apps/code
-              run: |
-                  pnpm exec electron-vite build
-                  pnpm exec electron-builder build --win --x64 --publish never --config electron-builder.ts
+              run: pnpm exec electron-vite build
+
+            - name: Package installer
+              working-directory: products/desktop/apps/code
+              run: pnpm exec electron-builder build --win --x64 --publish never --config electron-builder.ts
 
             - name: Verify package
               shell: pwsh
               run: |
+                  if (!(Test-Path "apps/code/.vite/renderer/main_window/index.html")) {
+                    Write-Error "FAIL: renderer bundle missing from electron-vite output"
+                    exit 1
+                  }
+                  echo "OK: renderer bundle"
                   $dir = "apps/code/out/win-unpacked/resources/app.asar.unpacked/.vite/build/codex-acp"
                   foreach ($f in @("codex.exe", "codex-code-mode-host.exe", "rg.exe")) {
                     if (!(Test-Path "$dir/$f")) {
