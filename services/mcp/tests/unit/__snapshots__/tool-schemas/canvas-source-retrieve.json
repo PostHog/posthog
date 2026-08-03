@@ -4,6 +4,10 @@
         "id": {
             "description": "ID of the canvas whose source to read.",
             "type": "string"
+        },
+        "version_id": {
+            "description": "Read this historical source version instead of the head (for version browsing).",
+            "type": "string"
         }
     },
     "required": ["id"],
