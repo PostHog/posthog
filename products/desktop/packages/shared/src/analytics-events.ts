@@ -852,8 +852,8 @@ export interface ScoutConfigChangedProperties {
   scout_origin: "canonical" | "custom";
   setting: "enabled" | "emit" | "run_interval_minutes" | "auto_pause_exempt";
   new_value: boolean | number;
-  /** Undefined when the backend predates the setting and never sent a value. */
-  old_value: boolean | number | undefined;
+  /** Null when the backend predates the setting and never sent a value. */
+  old_value: boolean | number | null;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }

@@ -37,7 +37,10 @@ function trackConfigChange(
       scout_origin: getScoutOrigin(previousConfig),
       setting,
       new_value: newValue,
-      old_value: previousConfig[setting],
+      // Explicit null, not undefined: `auto_pause_exempt` is optional, and the
+      // cloud client normalizes an unknown prior value to null. Undefined would
+      // drop the key on serialization and split the two clients' event shape.
+      old_value: previousConfig[setting] ?? null,
       success,
     });
   }
