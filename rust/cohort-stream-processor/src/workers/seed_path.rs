@@ -766,7 +766,8 @@ fn admit_reconcile(
         return;
     }
 
-    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), offset) {
+    let kind = tile.scope().kind();
+    let deferred = match queue.supersede_if_newer(tile.team_id(), tile.cohort_id(), kind, offset) {
         SupersedeOutcome::NoQueuedJob => merge.seed_tracker.defer(partition_id as i32, offset),
         SupersedeOutcome::Replaced(superseded) => {
             let (replacement, outcome) = merge
@@ -783,7 +784,7 @@ fn admit_reconcile(
                     );
                 }
             }
-            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL).increment(1);
+            counter!(RECONCILE_JOBS_SUPERSEDED_TOTAL, "kind" => kind.as_str()).increment(1);
             replacement
         }
         SupersedeOutcome::RetainedNewerOrEqual => {
@@ -802,7 +803,7 @@ fn admit_reconcile(
     };
 
     queue.enqueue(tile.clone(), deferred);
-    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL).increment(1);
+    counter!(RECONCILE_JOBS_ENQUEUED_TOTAL, "kind" => kind.as_str()).increment(1);
 }
 
 /// What one tile staged across its referencing leaves.
@@ -975,7 +976,8 @@ mod tests {
     use tempfile::TempDir;
 
     use cohort_core::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, SChunkMs, SeedTile,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileScope, ReconcileTile, SChunkMs,
+        SeedTile,
     };
 
     use crate::consumers::seeds::SeedSkipReason;
@@ -1781,7 +1783,7 @@ mod tests {
         ReconcileTile::new(
             TEAM,
             CohortId(cohort_id),
-            BehavioralShapeHash::parse("0123456789abcdef").unwrap(),
+            ReconcileScope::Behavioral(BehavioralShapeHash::parse("0123456789abcdef").unwrap()),
             RunId(Uuid::from_u128(run_id)),
         )
     }
