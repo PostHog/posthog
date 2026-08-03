@@ -56,12 +56,12 @@ jobs:
             POSTHOG_CODE_E2E_GATEWAY_URL: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_URL }}
             TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
 
-    # Review-time half of the backend-deploy gate: rejects a PR that couples
-    # products/desktop/** with backend code shipping in the Django image, and
-    # verifies Requires-Backend declarations point at merged work, so
-    # sequencing is enforced before merge. The release-time gate in
-    # desktop-release.yml still waits for the actual deploy, since merge order
-    # cannot guarantee deploy order.
+    # Rejects a PR that couples products/desktop/** with backend code shipping
+    # in the Django image: desktop releases auto-update users and are not
+    # orchestrated with backend deploys, so the two halves must land as
+    # separate, sequenced PRs. Same idea as the migration/service separation
+    # check in pr-housekeeping; it lives here so the existing Desktop Tests
+    # Pass check covers it without a new required-check name.
     backend-coupling:
         name: Desktop backend coupling
         # merge_group entries skip: the check already gated the PR itself, and

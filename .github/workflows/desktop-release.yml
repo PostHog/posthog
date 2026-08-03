@@ -631,72 +631,11 @@ jobs:
                   path: products/desktop/apps/code/out/checksums-linux-${{ matrix.arch }}.txt
                   retention-days: 1
 
-    # Backend-deploy gate: a desktop release must not reach the update feed before
-    # the backend changes it depends on are live. check-backend-deps scans the
-    # release range for commits touching both products/desktop and backend paths
-    # (plus explicit Requires-Backend declarations in PR bodies); wait-for-backend
-    # polls the GitHub Deployments that PostHog/charts records for prod-us/prod-eu
-    # until every required SHA is part of a successful deploy. Both run in parallel
-    # with the platform builds, so a release with no backend dependency pays no
-    # extra latency. The range is anchored at the version last published to the
-    # update feed, not the previous tag: releases are cumulative, so if a gated
-    # predecessor never published (failed, timed out, dropped from the queue),
-    # its backend requirements carry into this release instead of vanishing.
-    # The workflow-level concurrency group queues release runs without
-    # canceling, which keeps feed flips ordered.
-    check-backend-deps:
-        runs-on: ubuntu-latest
-        timeout-minutes: 10
-        permissions:
-            contents: read
-            pull-requests: read
-        outputs:
-            required_shas: ${{ steps.detect.outputs.required_shas }}
-        steps:
-            - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 0
-                  filter: blob:none
-                  persist-credentials: false
-
-            - name: Detect backend-coupled commits in the release range
-              id: detect
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  CURRENT_TAG: ${{ github.ref_name }}
-                  UPDATE_FEED_URL: https://desktop-releases.posthog.com/stable/latest.yml
-              run: .github/scripts/desktop/detect-backend-coupling.sh
-
-    wait-for-backend:
-        needs: [check-backend-deps]
-        runs-on: ubuntu-latest
-        timeout-minutes: 90
-        permissions:
-            contents: read
-            deployments: read
-        steps:
-            - name: Checkout gate script
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  sparse-checkout: .github/scripts/desktop
-                  persist-credentials: false
-
-            - name: Wait for required backend SHAs on prod-us and prod-eu
-              env:
-                  GH_TOKEN: ${{ github.token }}
-                  REPOSITORY: ${{ github.repository }}
-                  REQUIRED_SHAS: ${{ needs.check-backend-deps.outputs.required_shas }}
-              run: .github/scripts/desktop/wait-for-backend-deploy.sh
-
     finalize-release:
-        needs: [publish-macos, publish-windows, publish-linux, wait-for-backend]
-        # Publish only when every platform built successfully and any required backend
-        # deploy has landed. Without an `if:` override the default `needs` gate skips
-        # this job (leaving the GitHub release a draft, and the update feed untouched)
-        # if any of the macOS, Windows or Linux publish jobs -- or the backend gate --
-        # fails.
+        needs: [publish-macos, publish-windows, publish-linux]
+        # Publish only when every platform built successfully. Without an `if:` override
+        # the default `needs` gate skips this job (leaving the GitHub release a draft) if
+        # any of the macOS, Windows or Linux publish jobs fails.
         runs-on: ubuntu-latest
         timeout-minutes: 15
         permissions:

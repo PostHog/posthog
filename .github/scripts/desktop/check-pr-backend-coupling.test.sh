@@ -38,10 +38,9 @@ EOF
 chmod +x "$fake_bin/gh"
 
 register_pr() {
-    local number="$1" body="$2" labels="$3" assoc="$4"
-    shift 4
-    jq -n --arg body "$body" --argjson labels "$labels" --arg assoc "$assoc" \
-        '{body: $body, labels: $labels, author_association: $assoc}' \
+    local number="$1" labels="$2"
+    shift 2
+    jq -n --argjson labels "$labels" '{labels: $labels}' \
         >"$fixtures/repos_PostHog_posthog_pulls_${number}.json"
     printf '%s\n' "$@" | jq -R '{filename: .}' | jq -s . \
         >"$fixtures/repos_PostHog_posthog_pulls_${number}_files.json"
@@ -52,77 +51,61 @@ run_checker() {
         REPOSITORY="PostHog/posthog" PR_NUMBER="$1" "$checker"
 }
 
-assert_passes() {
-    local name="$1" pr="$2" needle="$3" output status
+assert_result() {
+    local name="$1" pr="$2" expected_status="$3" needle="$4" output status
     set +e
     output=$(run_checker "$pr" 2>&1)
     status=$?
     set -e
-    if [ "$status" -ne 0 ] || ! grep -Fq "$needle" <<<"$output"; then
-        echo "FAIL: $name (exit $status)"
+    if [ "$status" -ne "$expected_status" ] || ! grep -Fq "$needle" <<<"$output"; then
+        echo "FAIL: $name (exit $status, expected $expected_status)"
         awk '{print "  | " $0}' <<<"$output"
         exit 1
     fi
     echo "ok: $name"
 }
 
-assert_fails() {
-    local name="$1" pr="$2" needle="$3" output status
-    set +e
-    output=$(run_checker "$pr" 2>&1)
-    status=$?
-    set -e
-    if [ "$status" -eq 0 ] || ! grep -Fq "$needle" <<<"$output"; then
-        echo "FAIL: $name (exit $status)"
-        awk '{print "  | " $0}' <<<"$output"
-        exit 1
+register_pr 1 "[]" products/desktop/apps/foo.ts products/desktop/README.md
+assert_result "desktop-only PR passes" 1 0 "No desktop/backend coupling detected."
+
+register_pr 2 "[]" posthog/models.py ee/billing/models.py
+assert_result "backend-only PR is out of scope" 2 0 "No products/desktop changes"
+
+register_pr 3 "[]" products/desktop/apps/foo.ts posthog/models.py
+assert_result "coupled PR fails with split guidance" 3 1 "must be separated into different PRs"
+
+register_pr 4 '[{"name": "skip-desktop-backend-check"}]' products/desktop/apps/foo.ts posthog/models.py
+assert_result "skip label suppresses the check" 4 0 "skipping the coupling check"
+
+# One arm per classifier branch, paired with a desktop file: `yes` means the
+# path counts as backend and must fail the PR.
+pr=100
+while IFS='|' read -r path gated; do
+    pr=$((pr + 1))
+    register_pr "$pr" "[]" products/desktop/apps/foo.ts "$path"
+    if [ "$gated" = yes ]; then
+        assert_result "classifier arm $path is backend" "$pr" 1 "must be separated into different PRs"
+    else
+        assert_result "classifier arm $path is not backend" "$pr" 0 "No desktop/backend coupling detected."
     fi
-    echo "ok: $name"
-}
+done <<'CASES'
+posthog/api/insight.py|yes
+posthog/README.md|no
+ee/billing/models.py|yes
+ee/frontend/exports.ts|no
+common/hogql_parser/parser.cpp|yes
+products/llm_analytics/backend/api.py|yes
+frontend/src/products.json|yes
+pyproject.toml|no
+frontend/src/scenes/App.tsx|no
+CASES
 
-register_pr 1 "" "[]" MEMBER products/desktop/apps/foo.ts products/desktop/README.md
-assert_passes "desktop-only PR passes" 1 "No backend coupling detected."
+register_pr 5 "[]" products/desktop/apps/foo.ts
+touch "$fixtures/repos_PostHog_posthog_pulls_5_files.fail"
+assert_result "file listing API failure fails closed" 5 1 "GitHub API request failed"
 
-register_pr 2 "" "[]" MEMBER posthog/models.py ee/billing/models.py
-assert_passes "backend-only PR is out of scope" 2 "No products/desktop changes"
-
-register_pr 3 "" "[]" MEMBER products/desktop/apps/foo.ts posthog/models.py
-assert_fails "coupled PR fails with split guidance" 3 "changes both products/desktop and backend"
-
-register_pr 4 "" '[{"name": "desktop-skip-backend-gate"}]' MEMBER products/desktop/apps/foo.ts posthog/models.py
-assert_passes "skip label suppresses the check" 4 "skipping the coupling check"
-
-register_pr 5 "" "[]" MEMBER products/desktop/apps/foo.ts posthog/README.md ee/frontend/exports.ts pyproject.toml
-assert_passes "docs and tooling paths never count as backend" 5 "No backend coupling detected."
-
-echo '{"merged": true, "merge_commit_sha": "1234123412341234123412341234123412341234"}' \
-    >"$fixtures/repos_PostHog_posthog_pulls_77.json"
-register_pr 6 $'Adds a thing.\r\n\r\nRequires-Backend: #77' "[]" MEMBER products/desktop/apps/foo.ts
-assert_passes "merged Requires-Backend PR passes" 6 "Requires-Backend: #77 is merged."
-
-# Open PRs still carry an ephemeral test-merge merge_commit_sha; only
-# merged: true may satisfy the dependency.
-echo '{"merged": false, "merge_commit_sha": "cafecafecafecafecafecafecafecafecafecafe"}' \
-    >"$fixtures/repos_PostHog_posthog_pulls_99.json"
-register_pr 7 "Requires-Backend: 99" "[]" MEMBER products/desktop/apps/foo.ts
-assert_fails "unmerged Requires-Backend PR fails" 7 "Requires-Backend: #99 is not merged."
-
-register_pr 8 "Requires-Backend: #4242" "[]" MEMBER products/desktop/apps/foo.ts
-assert_fails "nonexistent Requires-Backend PR fails" 8 "could not be fetched"
-
-good_sha="1111111111111111111111111111111111111111"
-echo '{}' >"$fixtures/repos_PostHog_posthog_commits_${good_sha}.json"
-register_pr 9 "Requires-Backend: $good_sha" "[]" MEMBER products/desktop/apps/foo.ts
-assert_passes "existing Requires-Backend sha passes" 9 "resolves to a commit"
-
-register_pr 10 "Requires-Backend: 000000000000000000000000000000000000dead" "[]" MEMBER products/desktop/apps/foo.ts
-assert_fails "unknown Requires-Backend sha fails" 10 "does not resolve to a commit"
-
-register_pr 11 "Requires-Backend: #98" "[]" CONTRIBUTOR products/desktop/apps/foo.ts
-assert_passes "untrusted author declarations warn instead of enforcing a no-op" 11 "ignored by the release gate"
-
-register_pr 12 "" "[]" MEMBER products/desktop/apps/foo.ts
-touch "$fixtures/repos_PostHog_posthog_pulls_12_files.fail"
-assert_fails "file listing API failure fails closed" 12 "GitHub API request failed"
+register_pr 6 "[]" products/desktop/apps/foo.ts
+touch "$fixtures/repos_PostHog_posthog_pulls_6.fail"
+assert_result "label lookup API failure fails closed" 6 1 "GitHub API request failed"
 
 echo "PR backend coupling check regression cases passed."
