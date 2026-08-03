@@ -2269,18 +2269,102 @@
             "readOnlyHint": false
         }
     },
-    "desktop-file-system-canvas-partial-update": {
-        "description": "Publish the React source for a freeform canvas (a \"dashboard\" item on the desktop surface). The `id` is the canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do not write a local file.",
+    "desktop-file-system-canvas-builds-retrieve": {
+        "description": "Read a canvas's build lifecycle: `published_build_id` (the live build), `current_source_version_id`, and the most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues a build; poll this until it is ready (the live pointer advances) or failed (fix the error diagnostics and publish again — the last good build stays live).",
         "category": "Core",
         "feature": "core",
-        "summary": "Update canvas code",
-        "title": "Update canvas code",
+        "summary": "Read canvas build status",
+        "title": "Read canvas build status",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "desktop-file-system-canvas-edit-create": {
+        "description": "Publish per-file edits against a canvas's current source, without resending the whole project. Each operation sets a file's complete content, or deletes it when `content` is null. `expected_current_version_id` is REQUIRED (from desktop-file-system-canvas-source-retrieve; null only for a never-published canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again. The edited project is validated first; error diagnostics reject the whole edit atomically.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Edit canvas source files",
+        "title": "Edit canvas source files",
         "required_scopes": ["file_system:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        }
+    },
+    "desktop-file-system-canvas-publish-create": {
+        "description": "Publish the COMPLETE source project of a canvas as its new head version. The project is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass `expected_current_version_id` (from desktop-file-system-canvas-source-retrieve) so a concurrent edit is rejected with 409 version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish against the new head. The canvas lives in PostHog, not on disk — this tool is what saves it.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Publish canvas source project",
+        "title": "Publish canvas source project",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "desktop-file-system-canvas-source-retrieve": {
+        "description": "Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas: edit the returned files, then publish the complete project with desktop-file-system-canvas-publish-create, passing the `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten. Legacy single-file canvases are presented as a synthetic project whose `src/canvas.tsx` holds the React component.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Read canvas source project",
+        "title": "Read canvas source project",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "desktop-file-system-canvas-validate-create": {
+        "description": "Validate a candidate canvas source project without publishing it. Returns structured diagnostics (severity, code, message, file, line); `valid: false` means a publish would be rejected. Side-effect free — call it as often as needed while iterating, and fix every error-severity diagnostic before publishing.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Validate canvas source project",
+        "title": "Validate canvas source project",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "desktop-file-system-canvases-create": {
+        "description": "Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it source by publishing a project with desktop-file-system-canvas-publish-create. Only create a canvas when no existing one is the intended target — list them with desktop-file-system-canvases-list first.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "Create canvas",
+        "title": "Create canvas",
+        "required_scopes": ["file_system:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "desktop-file-system-canvases-list": {
+        "description": "List the project's canvases (newest first, capped at 100), optionally scoped to one channel via `channel_id`. Use this to resolve which canvas a request refers to before reading or publishing source.",
+        "category": "Core",
+        "feature": "core",
+        "summary": "List canvases",
+        "title": "List canvases",
+        "required_scopes": ["file_system:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         }
     },
     "desktop-file-system-create": {

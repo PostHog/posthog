@@ -646,6 +646,9 @@ SPECTACULAR_SETTINGS = {
         # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
         # daily/weekly/monthly choice set; pin one name for both.
         "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+        # Canvas source diagnostics and marketing-analytics UTM issues share the same
+        # error/warning severity pair; pin one shared name for the choice set.
+        "DiagnosticSeverityEnum": ["error", "warning"],
         # ReviewHog findings expose the same priority set on two fields (effective_priority +
         # reviewer_priority); pin one shared name for the choice set.
         "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],

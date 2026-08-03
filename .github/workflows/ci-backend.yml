@@ -2624,6 +2624,11 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            - name: Install canvas builder dependencies
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
+              shell: bash
+              run: npm ci --ignore-scripts --omit=dev --prefix common/canvas-builder
+
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash

@@ -474,9 +474,9 @@ export interface UtmMappingSuggestionsResponseApi {
  * * `error` - error
  * * `warning` - warning
  */
-export type UtmIssueSeverityEnumApi = (typeof UtmIssueSeverityEnumApi)[keyof typeof UtmIssueSeverityEnumApi]
+export type DiagnosticSeverityEnumApi = (typeof DiagnosticSeverityEnumApi)[keyof typeof DiagnosticSeverityEnumApi]
 
-export const UtmIssueSeverityEnumApi = {
+export const DiagnosticSeverityEnumApi = {
     Error: 'error',
     Warning: 'warning',
 } as const

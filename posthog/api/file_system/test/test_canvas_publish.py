@@ -9,6 +9,7 @@ from django.conf import settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.file_system.canvas_source import synthetic_source_project
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
@@ -38,14 +39,21 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         return cast(str, response.json()["id"])
 
-    def _canvas_url(self, item_id: str) -> str:
-        return f"/api/projects/{self.team.id}/desktop_file_system/{item_id}/canvas/"
+    def _publish(self, item_id: str, body: dict, **kwargs):
+        payload = dict(body)
+        code = payload.pop("code")
+        return self.client.post(
+            f"/api/projects/{self.team.id}/desktop_file_system/{item_id}/canvas/publish/",
+            {"project": synthetic_source_project({"code": code}), **payload},
+            format="json",
+            **kwargs,
+        )
 
     def test_publish_canvas_sets_code_and_appends_version(self):
         item_id = self._create_dashboard(meta={"channelId": "chan-1", "kind": "freeform"})
 
-        response = self.client.patch(
-            self._canvas_url(item_id),
+        response = self._publish(
+            item_id,
             {"code": "export default () => <div>hi</div>", "prompt": "build a hello canvas"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -65,8 +73,8 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
 
     def test_publish_canvas_appends_to_existing_history(self):
         item_id = self._create_dashboard()
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
-        self.client.patch(self._canvas_url(item_id), {"code": "v2"})
+        self._publish(item_id, {"code": "v1"})
+        self._publish(item_id, {"code": "v2"})
 
         meta = cast(dict, FileSystem.objects.get(id=item_id).meta)
         self.assertEqual(meta["code"], "v2")
@@ -78,11 +86,11 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
 
     def test_guarded_publish_with_matching_version_appends(self):
         item_id = self._create_dashboard()
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+        self._publish(item_id, {"code": "v1"})
         base = self._current_version_id(item_id)
 
-        response = self.client.patch(
-            self._canvas_url(item_id),
+        response = self._publish(
+            item_id,
             {"code": "v2", "expected_current_version_id": base},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -92,8 +100,8 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
     def test_guarded_first_publish_with_null_expected_version(self):
         item_id = self._create_dashboard()
 
-        response = self.client.patch(
-            self._canvas_url(item_id),
+        response = self._publish(
+            item_id,
             {"code": "v1", "expected_current_version_id": None},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -108,11 +116,11 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
     )
     def test_guarded_publish_conflicts_when_canvas_moved(self, _name: str, expected_version: str | None):
         item_id = self._create_dashboard()
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+        self._publish(item_id, {"code": "v1"})
         head = self._current_version_id(item_id)
 
-        response = self.client.patch(
-            self._canvas_url(item_id),
+        response = self._publish(
+            item_id,
             {"code": "clobber", "expected_current_version_id": expected_version},
         )
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT, response.json())
@@ -127,9 +135,9 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
 
     def test_publish_after_undo_truncates_redo_tail(self):
         item_id = self._create_dashboard()
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+        self._publish(item_id, {"code": "v1"})
         v1 = self._current_version_id(item_id)
-        self.client.patch(self._canvas_url(item_id), {"code": "v2"})
+        self._publish(item_id, {"code": "v2"})
 
         # The client's undo moves the pointer back without rewriting history.
         row = FileSystem.objects.get(id=item_id)
@@ -139,8 +147,8 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         row.meta = meta
         row.save(update_fields=["meta"])
 
-        response = self.client.patch(
-            self._canvas_url(item_id),
+        response = self._publish(
+            item_id,
             {"code": "v3", "expected_current_version_id": v1},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -152,8 +160,8 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
     def test_publish_canvas_renames_via_name(self):
         item_id = self._create_dashboard(path="MyChannel/Old name")
 
-        response = self.client.patch(
-            self._canvas_url(item_id),
+        response = self._publish(
+            item_id,
             {"code": "v1", "name": "New name"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -166,7 +174,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
     def test_publish_canvas_without_name_keeps_path(self):
         item_id = self._create_dashboard(path="MyChannel/Keep me")
 
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+        self._publish(item_id, {"code": "v1"})
 
         self.assertEqual(FileSystem.objects.get(id=item_id).path, "MyChannel/Keep me")
 
@@ -177,16 +185,19 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         )
         folder_id = response.json()["id"]
 
-        bad = self.client.patch(self._canvas_url(folder_id), {"code": "x"})
+        bad = self._publish(folder_id, {"code": "x"})
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST, bad.json())
 
-    def test_publish_canvas_requires_code(self):
+    def test_publish_canvas_requires_project(self):
         item_id = self._create_dashboard()
 
-        # `code` is required by the serializer; omitting it is a 400, not a silent no-op.
-        bad = self.client.patch(self._canvas_url(item_id), {"prompt": "only a prompt"})
+        bad = self.client.post(
+            f"/api/projects/{self.team.id}/desktop_file_system/{item_id}/canvas/publish/",
+            {"prompt": "only a prompt"},
+            format="json",
+        )
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST, bad.json())
-        self.assertIn("code", bad.json())
+        self.assertEqual(bad.json()["attr"], "project")
 
     # Task models load via the app registry: this test lives outside the isolated
     # tasks product, so it can't import its internals (tach-enforced).
@@ -230,7 +241,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         item_id = self._create_dashboard(meta={"channelId": "chan-1"})
         self._authenticate_as_sandbox()
 
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        self._publish(item_id, {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
 
         messages = self._thread_messages(task)
         self.assertEqual(messages.count(), 1)
@@ -242,7 +253,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         )
 
         # A second publish updates the canvas, it doesn't create it again.
-        self.client.patch(self._canvas_url(item_id), {"code": "v2"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        self._publish(item_id, {"code": "v2"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
         self.assertEqual(messages.count(), 1)
 
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
@@ -251,7 +262,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         item_id = self._create_dashboard()  # no channelId stamp — rows created before the app stamped it
         self._authenticate_as_sandbox()
 
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        self._publish(item_id, {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
 
         folder = FileSystem.objects.get(team=self.team, path="MyChannel", type="folder")
         message = self._thread_messages(task).get()
@@ -273,7 +284,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         item_id = self._create_dashboard()
         self._authenticate_as_sandbox()
 
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        self._publish(item_id, {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
 
         self.assertFalse(self._thread_messages(task).exists())
 
@@ -285,7 +296,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         task = self._create_task()
         item_id = self._create_dashboard()
 
-        response = self.client.patch(self._canvas_url(item_id), {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
+        response = self._publish(item_id, {"code": "v1"}, HTTP_X_POSTHOG_TASK_ID=str(task.id))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(self._thread_messages(task).exists())
@@ -293,7 +304,7 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
     def test_publish_without_task_attribution_stays_silent(self):
         item_id = self._create_dashboard()
 
-        self.client.patch(self._canvas_url(item_id), {"code": "v1"})
+        self._publish(item_id, {"code": "v1"})
 
         TaskThreadMessage = apps.get_model("tasks", "TaskThreadMessage")
         self.assertFalse(TaskThreadMessage.objects.for_team(self.team.id).exists())

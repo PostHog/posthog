@@ -64,6 +64,43 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
+    desktop-file-system-canvas-builds-retrieve:
+        operation: desktop_file_system_canvas_builds_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas build status
+        description: >
+            Read a canvas's build lifecycle: `published_build_id` (the live build), `current_source_version_id`, and the
+            most recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish
+            queues a build; poll this until it is ready (the live pointer advances) or failed (fix the error diagnostics
+            and publish again — the last good build stays live).
+        param_overrides:
+            id:
+                description: ID of the canvas whose builds to read.
+    desktop-file-system-canvas-edit-create:
+        operation: desktop_file_system_canvas_edit_create
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Edit canvas source files
+        description: >
+            Publish per-file edits against a canvas's current source, without resending the whole project. Each
+            operation sets a file's complete content, or deletes it when `content` is null.
+            `expected_current_version_id` is REQUIRED (from desktop-file-system-canvas-source-retrieve; null only for a
+            never-published canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply,
+            and edit again. The edited project is validated first; error diagnostics reject the whole edit atomically.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to edit.
     desktop-file-system-canvas-partial-update:
         operation: desktop_file_system_canvas_partial_update
         enabled: true
@@ -90,6 +127,92 @@ tools:
                 description: |
                     Optional new display name for the canvas. When set, renames the canvas (the leaf of its path)
                     in place. Omit to leave the name unchanged.
+    desktop-file-system-canvas-publish-create:
+        operation: desktop_file_system_canvas_publish_create
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Publish canvas source project
+        description: >
+            Publish the COMPLETE source project of a canvas as its new head version. The project is validated first —
+            error diagnostics reject the publish (400) and leave the canvas untouched. Pass
+            `expected_current_version_id` (from desktop-file-system-canvas-source-retrieve) so a concurrent edit is
+            rejected with 409 version_conflict instead of overwritten; on conflict, re-read the source, re-apply your
+            edits, and publish against the new head. The canvas lives in PostHog, not on disk — this tool is what saves
+            it.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to publish.
+    desktop-file-system-canvas-source-retrieve:
+        operation: desktop_file_system_canvas_source_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas source project
+        description: >
+            Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas: edit
+            the returned files, then publish the complete project with desktop-file-system-canvas-publish-create,
+            passing the `current_version_id` you read as `expected_current_version_id` so concurrent edits are not
+            overwritten. Legacy single-file canvases are presented as a synthetic project whose `src/canvas.tsx` holds
+            the React component.
+        param_overrides:
+            id:
+                description: ID of the canvas whose source to read.
+    desktop-file-system-canvas-validate-create:
+        operation: desktop_file_system_canvas_validate_create
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Validate canvas source project
+        description: >
+            Validate a candidate canvas source project without publishing it. Returns structured diagnostics (severity,
+            code, message, file, line); `valid: false` means a publish would be rejected. Side-effect free — call it as
+            often as needed while iterating, and fix every error-severity diagnostic before publishing.
+        param_overrides:
+            id:
+                description: ID of the canvas the project is for.
+    desktop-file-system-canvases-create:
+        operation: desktop_file_system_canvases_create
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create canvas
+        description: >
+            Create a new, empty canvas in a channel. Returns the canvas's id and (null) `current_version_id`; give it
+            source by publishing a project with desktop-file-system-canvas-publish-create. Only create a canvas when no
+            existing one is the intended target — list them with desktop-file-system-canvases-list first.
+        param_overrides:
+            channel_id:
+                description: Desktop file-system id of the channel (folder) to create the canvas in.
+    desktop-file-system-canvases-list:
+        operation: desktop_file_system_canvases_list
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List canvases
+        description: >
+            List the project's canvases (newest first, capped at 100), optionally scoped to one channel via
+            `channel_id`. Use this to resolve which canvas a request refers to before reading or publishing source.
     desktop-file-system-context-generation-retrieve:
         operation: desktop_file_system_context_generation_retrieve
         enabled: false

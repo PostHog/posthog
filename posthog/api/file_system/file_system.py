@@ -2,20 +2,37 @@ import re
 import time
 import shlex
 import builtins
+from collections.abc import Callable
 from typing import Any, cast
 from uuid import UUID, uuid4
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
 from django.db.models.functions import Concat, Lower
+from django.utils import timezone
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+import structlog
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import filters, pagination, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.canvas_artifacts import create_canvas_artifact_url
 from posthog.api.file_system.access_levels import FileSystemAccessLevelSerializerMixin
+from posthog.api.file_system.canvas_build_service import (
+    MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM,
+    record_publish,
+    upload_source_project,
+)
+from posthog.api.file_system.canvas_source import (
+    CANVAS_SDK_VERSION,
+    extract_legacy_code,
+    has_errors,
+    synthetic_source_project,
+    validate_source_project,
+)
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
@@ -50,6 +67,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.decorators import disallow_if_impersonated
+from posthog.models.file_system.canvas_build import CanvasBuild
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
@@ -63,10 +81,13 @@ from posthog.models.file_system.file_system_view_log import get_recent_file_syst
 from posthog.models.file_system.unfiled_file_saver import save_unfiled_files
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.utils import str_to_bool
 
 from products.tasks.backend.facade import api as tasks_facade
+
+logger = structlog.get_logger(__name__)
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
@@ -219,6 +240,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "count",
         "count_by_path",
         "context_generation",
+        "canvases",
+        "canvas_source",
+        "canvas_builds",
+        # POST, but side-effect free: it only reports diagnostics.
+        "canvas_validate",
     ]
     scope_object_write_actions = [
         "create",
@@ -234,6 +260,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "undo_delete",
         "set_context_generation",
         "publish_canvas",
+        "create_canvas",
+        "publish_canvas_source",
+        "edit_canvas_source",
     ]
 
     def _basename_regex(self, value: str) -> str:
@@ -1031,14 +1060,199 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 item.save()
 
 
-class CanvasPublishSerializer(serializers.Serializer):
-    """Payload for publishing a freeform canvas's React source via the agent."""
+class CanvasPublishConflictSerializer(serializers.Serializer):
+    """409 body for a guarded canvas publish based on a stale version."""
 
-    code = serializers.CharField(
-        allow_blank=True,
-        trim_whitespace=False,
-        help_text="The complete single-file React source for the canvas.",
+    detail = serializers.CharField(help_text="Human-readable description of the conflict and how to recover.")
+    code = serializers.CharField(help_text='Always "version_conflict".')
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="The canvas's live currentVersionId at rejection time (null when the canvas has no versions).",
     )
+
+
+class CanvasSourceAssetSerializer(serializers.Serializer):
+    encoding = serializers.ChoiceField(choices=["base64"])
+    contentType = serializers.ChoiceField(
+        choices=[
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "image/svg+xml",
+            "font/woff",
+            "font/woff2",
+            "application/wasm",
+            "application/octet-stream",
+        ]
+    )
+    content = serializers.RegexField(
+        regex=r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+        max_length=2_796_204,
+    )
+
+
+class CanvasPostHogCapabilitiesSerializer(serializers.Serializer):
+    insights = serializers.ListField(child=serializers.CharField(max_length=128), max_length=100)
+    inlineQueries = serializers.BooleanField()
+    captureEvents = serializers.ListField(child=serializers.CharField(max_length=200), max_length=100)
+
+
+class CanvasNetworkCapabilitiesSerializer(serializers.Serializer):
+    origins = serializers.ListField(child=serializers.URLField(max_length=2048), max_length=20)
+
+
+class CanvasCapabilitiesSerializer(serializers.Serializer):
+    posthog = CanvasPostHogCapabilitiesSerializer()
+    network = CanvasNetworkCapabilitiesSerializer()
+
+
+class CanvasSourceProjectSerializer(serializers.Serializer):
+    """A canvas's multi-file source project — the canonical write format for canvas source.
+
+    Until the canvas build service ships, projects are constrained to the
+    legacy-compatible shape: `index.html` (a fixed synthetic shell) plus
+    `src/canvas.tsx` (the single React component the runtime mounts).
+    """
+
+    schemaVersion = serializers.IntegerField(
+        help_text="Source-project schema version. Currently always 1.",
+    )
+    files = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, trim_whitespace=False),
+        help_text=(
+            "Project files keyed by relative path (forward slashes, no '..'). Until the canvas build "
+            'service ships, only "index.html" and "src/canvas.tsx" (the single React component the '
+            "canvas mounts) are supported."
+        ),
+    )
+    assets = serializers.DictField(
+        child=CanvasSourceAssetSerializer(),
+        required=False,
+        default=dict,
+        help_text="Optional base64-encoded binary assets keyed by safe project-relative paths.",
+    )
+    entryHtml = serializers.CharField(
+        help_text='The project\'s entry HTML file. Currently always "index.html".',
+    )
+    dependencies = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        default=dict,
+        help_text=(
+            "Exact-version dependencies, restricted to the platform-supported set (react, react-dom, "
+            "@posthog/quill, recharts, lucide-react, dayjs) at their pinned versions."
+        ),
+    )
+    canvasSdkVersion = serializers.CharField(
+        required=False,
+        default=CANVAS_SDK_VERSION,
+        help_text="Version of the host-injected `ph` canvas SDK the project targets.",
+    )
+    capabilities = CanvasCapabilitiesSerializer(
+        required=False,
+        default=lambda: {
+            "posthog": {"insights": [], "inlineQueries": False, "captureEvents": []},
+            "network": {"origins": []},
+        },
+        help_text="Bounded capabilities frozen into the built artifact.",
+    )
+
+
+class CanvasDiagnosticSerializer(serializers.Serializer):
+    """One structured validation/build diagnostic for a canvas source project."""
+
+    severity = serializers.ChoiceField(
+        choices=["error", "warning"],
+        help_text="'error' blocks publishing; 'warning' is advisory and does not block.",
+    )
+    code = serializers.CharField(
+        help_text="Stable machine-readable diagnostic code, e.g. 'import_not_allowed' or 'unsupported_file'.",
+    )
+    message = serializers.CharField(help_text="Human-readable description of the problem and how to fix it.")
+    path = serializers.CharField(
+        required=False,
+        help_text="Project-relative path of the file the diagnostic points at, when file-specific.",
+    )
+    line = serializers.IntegerField(
+        required=False,
+        help_text="1-based line number within `path`, when the diagnostic points at a specific line.",
+    )
+
+
+class CanvasSummarySerializer(serializers.Serializer):
+    """Identity and version pointers for one canvas (a desktop 'dashboard' entry)."""
+
+    id = serializers.UUIDField(help_text="The canvas's desktop file-system id.")
+    name = serializers.CharField(help_text="Display name of the canvas (the leaf segment of its path).")
+    channel_id = serializers.CharField(
+        allow_null=True,
+        help_text="File-system id of the channel (folder) the canvas belongs to, when recorded.",
+    )
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the live source version — pass as expected_current_version_id on publish. Null before the first publish.",
+    )
+    version_count = serializers.IntegerField(help_text="Number of source versions in the canvas's history.")
+    created_at = serializers.DateTimeField(help_text="When the canvas was created.")
+    current_source_version_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Id of the normalized source-version row the canvas's head points at (null before the lifecycle recorded one).",
+    )
+    published_build_id = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Id of the canvas's live (last successful, still-eligible) build. Null until a build completes.",
+    )
+
+
+class CanvasCreateSerializer(serializers.Serializer):
+    """Payload for creating a new, empty canvas in a channel."""
+
+    name = serializers.CharField(
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Display name for the canvas. Slashes are replaced with spaces.",
+    )
+    channel_id = serializers.CharField(
+        help_text="Desktop file-system id of the channel (folder) to create the canvas in.",
+    )
+
+
+class CanvasSourceResponseSerializer(serializers.Serializer):
+    """A canvas's source project plus the version pointer edits must be based on."""
+
+    canvas = CanvasSummarySerializer(help_text="Identity and version pointers for the canvas.")
+    project = CanvasSourceProjectSerializer(
+        help_text="The canvas's source project. Legacy single-file canvases are presented as a synthetic project."
+    )
+    current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="The live source version this project reflects — pass as expected_current_version_id when publishing an edit. Null before the first publish.",
+    )
+
+
+class CanvasValidateRequestSerializer(serializers.Serializer):
+    """Payload for validating a candidate source project without publishing it."""
+
+    project = CanvasSourceProjectSerializer(help_text="The candidate source project to validate.")
+
+
+class CanvasValidateResponseSerializer(serializers.Serializer):
+    """Validation outcome for a candidate source project."""
+
+    valid = serializers.BooleanField(help_text="True when the project has no error-severity diagnostics.")
+    diagnostics = CanvasDiagnosticSerializer(
+        many=True,
+        help_text="Structured diagnostics; errors block publishing, warnings are advisory.",
+    )
+
+
+class CanvasSourcePublishSerializer(serializers.Serializer):
+    """Payload for publishing a complete canvas source project."""
+
+    project = CanvasSourceProjectSerializer(help_text="The complete source project to publish.")
     prompt = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -1056,22 +1270,163 @@ class CanvasPublishSerializer(serializers.Serializer):
         allow_null=True,
         allow_blank=False,
         help_text=(
-            "Optimistic-concurrency guard: the currentVersionId the publisher based its edits on "
-            "(null when it read a canvas with no versions yet). When provided and the canvas has since "
-            "moved past it (a concurrent publish, or a user's undo) the publish is rejected with a 409 "
-            "version_conflict instead of overwriting the newer head. Omit to publish unguarded."
+            "Optimistic-concurrency guard: the current_version_id the publisher based its edits on "
+            "(null when it read a canvas with no versions yet). When the canvas has since moved past it "
+            "the publish is rejected with a 409 version_conflict instead of overwriting the newer head. "
+            "Omit to publish unguarded."
         ),
     )
 
 
-class CanvasPublishConflictSerializer(serializers.Serializer):
-    """409 body for a guarded canvas publish based on a stale version."""
+class CanvasSourceEditOperationSerializer(serializers.Serializer):
+    """One per-file edit: set a file's content, or delete it."""
 
-    detail = serializers.CharField(help_text="Human-readable description of the conflict and how to recover.")
-    code = serializers.CharField(help_text='Always "version_conflict".')
-    current_version_id = serializers.CharField(
+    path = serializers.CharField(
+        help_text='Project-relative path of the file to write or delete (e.g. "src/canvas.tsx").'
+    )
+    content = serializers.CharField(
+        required=False,
         allow_null=True,
-        help_text="The canvas's live currentVersionId at rejection time (null when the canvas has no versions).",
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The file's complete new content. Null (or omitted) deletes the file.",
+    )
+
+
+class CanvasSourceEditSerializer(serializers.Serializer):
+    """Payload for publishing per-file edits against the canvas's current source."""
+
+    operations = CanvasSourceEditOperationSerializer(
+        many=True,
+        allow_empty=False,
+        help_text="Edits applied in order to the canvas's current source project.",
+    )
+    prompt = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Short description of the change, stored on the appended version history entry.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        help_text="Optional new display name for the canvas (rewrites the leaf segment of its path).",
+    )
+    expected_current_version_id = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the "
+            "canvas has never been published). Diff edits against a moved head are rejected with 409 "
+            "version_conflict — they cannot be published unguarded."
+        ),
+    )
+
+
+class CanvasSourcePublishResponseSerializer(serializers.Serializer):
+    """Result of a successful source-project publish."""
+
+    canvas = CanvasSummarySerializer(help_text="The canvas after the publish, including the new version pointer.")
+    current_version_id = serializers.CharField(help_text="Id of the source version this publish created.")
+    diagnostics = CanvasDiagnosticSerializer(
+        many=True,
+        help_text="Advisory (warning-severity) diagnostics recorded for the published project.",
+    )
+
+
+class CanvasArtifactAssetSerializer(serializers.Serializer):
+    """One emitted file of a built canvas artifact."""
+
+    path = serializers.CharField(help_text="Artifact-relative path of the emitted file.")
+    contentHash = serializers.CharField(help_text="Hex SHA-256 of the file content.")
+    sizeBytes = serializers.IntegerField(help_text="Size of the file in bytes.")
+
+
+class CanvasArtifactManifestSerializer(serializers.Serializer):
+    """The manifest frozen into a ready build: entry, assets, versions, capabilities."""
+
+    entryHtml = serializers.CharField(help_text="The artifact's entry HTML file.")
+    assets = CanvasArtifactAssetSerializer(many=True, help_text="Every emitted artifact file with its content hash.")
+    dependencies = serializers.DictField(
+        child=serializers.CharField(),
+        help_text="Exact dependency versions the artifact was built against.",
+    )
+    canvasSdkVersion = serializers.CharField(help_text="Version of the `ph` canvas SDK the artifact targets.")
+    legacyComponentPath = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Path of the runtime-mounted React component, for legacy-tier artifacts.",
+    )
+    legacyCode = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="The runtime-mounted component source, for legacy-tier artifacts.",
+    )
+    capabilities = serializers.DictField(
+        help_text="Declared PostHog/network capabilities the artifact is held to at runtime.",
+    )
+
+
+class CanvasBuildSerializer(serializers.Serializer):
+    """Lifecycle record of one build of a canvas source version."""
+
+    id = serializers.UUIDField(help_text="The build's id.")
+    source_version_id = serializers.UUIDField(help_text="The source version this build compiled.")
+    build_status = serializers.ChoiceField(
+        choices=["queued", "building", "ready", "failed"],
+        help_text="Build lifecycle state. A failed build never replaces the last-known-good artifact.",
+    )
+    diagnostics = CanvasDiagnosticSerializer(
+        many=True,
+        help_text="Structured diagnostics recorded by the build (errors explain a failed status).",
+    )
+    manifest = CanvasArtifactManifestSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The frozen artifact manifest — present once the build is ready.",
+    )
+    integrity = serializers.CharField(
+        allow_null=True,
+        help_text="Hex SHA-256 over the manifest — the artifact's integrity anchor. Null until ready.",
+    )
+    artifact_url = serializers.URLField(
+        allow_null=True,
+        help_text="Short-lived URL for the ready build's entry HTML. Null until ready or when artifact delivery is unavailable.",
+    )
+    pinned = serializers.BooleanField(help_text="Pinned builds are retained for the lifetime of the canvas.")
+    created_at = serializers.DateTimeField(help_text="When the build was queued.")
+    finished_at = serializers.DateTimeField(allow_null=True, help_text="When the build reached a terminal state.")
+
+
+class CanvasBuildsResponseSerializer(serializers.Serializer):
+    """A canvas's build lifecycle: live pointers plus its most recent builds."""
+
+    published_build_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the canvas's live build (the last successful, still-eligible one). Null until a build completes.",
+    )
+    current_source_version_id = serializers.CharField(
+        allow_null=True,
+        help_text="Id of the source-version row the canvas's head points at.",
+    )
+    builds = CanvasBuildSerializer(many=True, help_text="Most recent builds, newest first (capped at 20).")
+
+
+class CanvasBuildActionSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=["retry", "pin", "unpin", "cancel"])
+    build_id = serializers.UUIDField()
+
+
+class CanvasSourceInvalidSerializer(serializers.Serializer):
+    """400 body for a publish whose source project failed validation."""
+
+    detail = serializers.CharField(help_text="Human-readable summary of why the project was rejected.")
+    code = serializers.CharField(help_text='Always "invalid_source_project".')
+    diagnostics = CanvasDiagnosticSerializer(
+        many=True,
+        help_text="The validation diagnostics, including at least one error.",
     )
 
 
@@ -1142,41 +1497,26 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
             )
         return instance
 
-    @extend_schema(
-        operation_id="desktop_file_system_canvas_partial_update",
-        request=CanvasPublishSerializer,
-        responses={
-            200: FileSystemSerializer,
-            409: OpenApiResponse(
-                response=CanvasPublishConflictSerializer,
-                description="The canvas moved past expected_current_version_id (a concurrent publish or an undo).",
-            ),
-        },
-    )
-    @action(methods=["PATCH"], detail=True, url_path="canvas")
-    def publish_canvas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Publish a new version of a freeform canvas's React source.
+    def _apply_canvas_publish(
+        self,
+        dashboard: FileSystem,
+        *,
+        code: str,
+        prompt: str | None,
+        name: str | None,
+        has_expected_version: bool,
+        expected_version_id: str | None,
+        record_lifecycle: Callable[[FileSystem, dict[str, Any], dict[str, Any]], None] | None = None,
+    ) -> tuple[FileSystem, dict[str, Any] | None, bool]:
+        """Append a canvas version and advance the pointer, under the row lock.
 
-        Merges into the dashboard row's `meta` (never replaces it), so existing
-        keys like `channelId`/`templateId` survive. Appends a full-file version
-        snapshot and points `currentVersionId` at it — the server-side mirror of
-        the app's dashboardsService.saveFreeform, including the linear-discard of
-        any redo tail left behind by an undo. When the publisher passes
-        `expected_current_version_id`, a publish based on a stale version is
-        rejected with 409 `version_conflict` instead of overwriting the newer head.
+        Returns the (re-fetched) dashboard, a 409 `version_conflict` payload when a
+        guarded publish is based on a stale version (the canvas is left untouched),
+        and whether this was the canvas's first publish. `record_lifecycle` runs
+        inside the transaction with the locked row, the merged meta, and the
+        appended version entry — the hook the normalized source-version/build
+        lifecycle uses so its rows commit or roll back with the publish.
         """
-        dashboard = self._get_dashboard_or_400()
-        if isinstance(dashboard, Response):
-            return dashboard
-
-        payload = CanvasPublishSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        code = payload.validated_data["code"]
-        prompt = payload.validated_data.get("prompt")
-        name = payload.validated_data.get("name")
-        has_expected_version = "expected_current_version_id" in payload.validated_data
-        expected_version_id = payload.validated_data.get("expected_current_version_id")
-
         now_ms = int(time.time() * 1000)
         version: dict[str, Any] = {"id": str(uuid4()), "code": code, "createdAt": now_ms}
         if prompt:
@@ -1191,15 +1531,13 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
             current_version_id = meta.get("currentVersionId")
 
             if has_expected_version and current_version_id != expected_version_id:
-                return Response(
-                    {
-                        "detail": "The canvas changed since it was read (a concurrent publish or an undo). "
-                        "Re-fetch the canvas, re-apply the edits to the fresh source, and publish again.",
-                        "code": "version_conflict",
-                        "current_version_id": current_version_id,
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
+                conflict = {
+                    "detail": "The canvas changed since it was read (a concurrent publish or an undo). "
+                    "Re-fetch the canvas, re-apply the edits to the fresh source, and publish again.",
+                    "code": "version_conflict",
+                    "current_version_id": current_version_id,
+                }
+                return dashboard, conflict, False
 
             # Snapshot the live author context onto the version (reverting restores it).
             existing_context = meta.get("context")
@@ -1232,6 +1570,8 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
                     "updatedAt": now_ms,
                 }
             )
+            if record_lifecycle is not None:
+                record_lifecycle(dashboard, meta, version)
             dashboard.meta = meta
 
             update_fields = ["meta"]
@@ -1245,10 +1585,445 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
 
             dashboard.save(update_fields=update_fields)
 
+        return dashboard, None, first_publish
+
+    def _resolve_channel(self, channel_id: str) -> FileSystem | None:
+        """The project's channel folder with this id, or None (including a malformed id —
+        agents pass arbitrary strings, and a UUID-field lookup on one raises)."""
+        try:
+            return self._scope_by_project(FileSystem.objects.all()).filter(id=channel_id, type="folder").first()
+        except (ValueError, DjangoValidationError):
+            return None
+
+    def _canvas_summary(self, entry: FileSystem) -> dict[str, Any]:
+        meta = entry.meta or {}
+        segments = split_path(entry.path)
+        return {
+            "id": str(entry.id),
+            "name": segments[-1] if segments else entry.path,
+            "channel_id": meta.get("channelId"),
+            "current_version_id": meta.get("currentVersionId"),
+            "version_count": len(meta.get("versions") or []),
+            "created_at": entry.created_at,
+            "current_source_version_id": meta.get("currentSourceVersionId"),
+            "published_build_id": meta.get("publishedBuildId"),
+        }
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvases_list",
+        parameters=[
+            OpenApiParameter(
+                name="channel_id",
+                type=str,
+                required=False,
+                description="Only return canvases inside this channel (desktop folder id).",
+            ),
+        ],
+        responses={200: CanvasSummarySerializer(many=True)},
+    )
+    @action(methods=["GET"], detail=False, url_path="canvases", pagination_class=None, request=None)
+    def canvases(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the project's canvases, newest first (capped at 100)."""
+        queryset = self._scope_by_project(FileSystem.objects.all()).filter(type="dashboard")
+        channel_id = request.query_params.get("channel_id")
+        if channel_id:
+            channel = self._resolve_channel(channel_id)
+            if channel is None:
+                return Response({"detail": "Channel not found."}, status=status.HTTP_404_NOT_FOUND)
+            queryset = queryset.filter(path__startswith=f"{channel.path}/")
+        entries = queryset.order_by("-created_at")[:100]
+        return Response(CanvasSummarySerializer([self._canvas_summary(entry) for entry in entries], many=True).data)
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvases_create",
+        request=CanvasCreateSerializer,
+        responses={201: CanvasSummarySerializer},
+    )
+    @canvases.mapping.post
+    def create_canvas(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Create a new, empty canvas in a channel.
+
+        The canvas starts with no source; publish a source project to give it one.
+        """
+        payload = CanvasCreateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        channel = self._resolve_channel(payload.validated_data["channel_id"])
+        if channel is None:
+            return Response({"detail": "Channel not found."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Path segments are "/"-separated, so a name can't contain one (mirrors the app).
+        name = re.sub(r"\s+", " ", payload.validated_data["name"].replace("/", " ")).strip() or "Untitled canvas"
+        now_ms = int(time.time() * 1000)
+        user = request.user if isinstance(request.user, User) else None
+        created_by_label = (f"{user.first_name} {user.last_name}".strip() or user.email) if user is not None else None
+        meta: dict[str, Any] = {
+            "channelId": str(channel.id),
+            "templateId": "freeform",
+            "createdAt": now_ms,
+            "updatedAt": now_ms,
+        }
+        if created_by_label:
+            meta["createdBy"] = created_by_label
+
+        serializer = self.get_serializer(data={"path": f"{channel.path}/{name}", "type": "dashboard", "meta": meta})
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        entry = cast(FileSystem, serializer.instance)
+        return Response(CanvasSummarySerializer(self._canvas_summary(entry)).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_source_retrieve",
+        responses={200: CanvasSourceResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="canvas/source", request=None)
+    def canvas_source(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read a canvas's source project and the version pointer edits must be based on.
+
+        Legacy single-file canvases are presented as a synthetic web project whose
+        `src/canvas.tsx` holds the stored React component.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        meta = dashboard.meta or {}
+        response = {
+            "canvas": self._canvas_summary(dashboard),
+            "project": synthetic_source_project(meta),
+            "current_version_id": meta.get("currentVersionId"),
+        }
+        return Response(CanvasSourceResponseSerializer(response).data)
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_validate_create",
+        request=CanvasValidateRequestSerializer,
+        responses={200: CanvasValidateResponseSerializer},
+    )
+    @action(methods=["POST"], detail=True, url_path="canvas/validate", request=CanvasValidateRequestSerializer)
+    def canvas_validate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Validate a candidate source project without publishing it.
+
+        Side-effect free: returns the same structured diagnostics a publish would
+        enforce, so agents can iterate until the project is publishable.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        payload = CanvasValidateRequestSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        diagnostics = validate_source_project(payload.validated_data["project"])
+        response = {"valid": not has_errors(diagnostics), "diagnostics": diagnostics}
+        return Response(CanvasValidateResponseSerializer(response).data)
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_publish_create",
+        request=CanvasSourcePublishSerializer,
+        responses={
+            200: CanvasSourcePublishResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="The source project failed validation; nothing was published.",
+            ),
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id (a concurrent publish or an undo).",
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="canvas/publish", request=CanvasSourcePublishSerializer)
+    def publish_canvas_source(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish a complete canvas source project as the canvas's new head version.
+
+        Validates the project first — an error-severity diagnostic rejects the
+        publish with 400 and leaves the canvas untouched. Guarded publishing via
+        `expected_current_version_id` rejects a stale base with 409 instead of
+        overwriting newer work.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        payload = CanvasSourcePublishSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        return self._publish_source_project(
+            request,
+            dashboard,
+            project=payload.validated_data["project"],
+            prompt=payload.validated_data.get("prompt"),
+            name=payload.validated_data.get("name"),
+            has_expected_version="expected_current_version_id" in payload.validated_data,
+            expected_version_id=payload.validated_data.get("expected_current_version_id"),
+        )
+
+    def _publish_source_project(
+        self,
+        request: Request,
+        dashboard: FileSystem,
+        *,
+        project: dict[str, Any],
+        prompt: str | None,
+        name: str | None,
+        has_expected_version: bool,
+        expected_version_id: str | None,
+    ) -> Response:
+        """Validate + publish a complete source project (shared by publish and edit)."""
+        diagnostics = validate_source_project(project)
+        if has_errors(diagnostics):
+            body = {
+                "detail": "The source project failed validation; fix the error diagnostics and publish again.",
+                "code": "invalid_source_project",
+                "diagnostics": diagnostics,
+            }
+            return Response(CanvasSourceInvalidSerializer(body).data, status=status.HTTP_400_BAD_REQUEST)
+
+        active_builds = CanvasBuild.objects.for_team(self.team_id).filter(
+            status__in=[CanvasBuild.STATUS_QUEUED, CanvasBuild.STATUS_BUILDING]
+        )
+        if active_builds.count() >= MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM:
+            return Response(
+                {"detail": "Canvas build capacity is temporarily exhausted. Try again shortly."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+
+        # Upload-then-commit: the immutable source object goes up before the
+        # transaction; a conflicting publish leaves it unreferenced for the
+        # retention sweep. Storage being unavailable degrades the publish to
+        # legacy-only (no lifecycle rows) instead of failing the canvas save.
+        source_object: tuple[str, str, int] | None = None
+        try:
+            source_object = upload_source_project(self.team_id, dashboard.id, project)
+        except ObjectStorageError as error:
+            logger.warning("canvas_source_upload_failed", canvas_id=str(dashboard.id), error=str(error))
+
+        record_lifecycle: Callable[[FileSystem, dict[str, Any], dict[str, Any]], None] | None = None
+        if source_object is not None:
+            uploaded = source_object
+            task_id = self._request_task_id(request)
+            user = request.user if isinstance(request.user, User) else None
+
+            def _record(locked: FileSystem, meta: dict[str, Any], version: dict[str, Any]) -> None:
+                record_publish(
+                    locked,
+                    meta,
+                    project=project,
+                    source_object=uploaded,
+                    legacy_version_id=version["id"],
+                    prompt=prompt,
+                    task_id=task_id,
+                    created_by_id=user.id if user else None,
+                )
+
+            record_lifecycle = _record
+
+        dashboard, conflict, first_publish = self._apply_canvas_publish(
+            dashboard,
+            code=extract_legacy_code(project),
+            prompt=prompt,
+            name=name,
+            has_expected_version=has_expected_version,
+            expected_version_id=expected_version_id,
+            record_lifecycle=record_lifecycle,
+        )
+        if conflict is not None:
+            return Response(conflict, status=status.HTTP_409_CONFLICT)
+
         if first_publish:
             self._announce_canvas_created(request, dashboard)
 
-        return Response(self.get_serializer(dashboard).data)
+        meta = dashboard.meta or {}
+        response = {
+            "canvas": self._canvas_summary(dashboard),
+            "current_version_id": meta.get("currentVersionId"),
+            "diagnostics": diagnostics,
+        }
+        return Response(CanvasSourcePublishResponseSerializer(response).data)
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_edit_create",
+        request=CanvasSourceEditSerializer,
+        responses={
+            200: CanvasSourcePublishResponseSerializer,
+            400: OpenApiResponse(
+                response=CanvasSourceInvalidSerializer,
+                description="An edit targeted a missing file, or the edited project failed validation.",
+            ),
+            409: OpenApiResponse(
+                response=CanvasPublishConflictSerializer,
+                description="The canvas moved past expected_current_version_id (a concurrent publish or an undo).",
+            ),
+        },
+    )
+    @action(methods=["POST"], detail=True, url_path="canvas/edit", request=CanvasSourceEditSerializer)
+    def edit_canvas_source(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Publish per-file edits against the canvas's current source project.
+
+        Diff-aware alternative to sending the complete project: each operation
+        sets a file's content or (content null) deletes it, applied to the head
+        the caller read. `expected_current_version_id` is mandatory here —
+        relative edits against an unverified base could silently merge into
+        someone else's newer work, so unguarded diff publishes are refused.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        payload = CanvasSourceEditSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        project = synthetic_source_project(dashboard.meta or {})
+        diagnostics: list[dict[str, Any]] = []
+        for operation in payload.validated_data["operations"]:
+            path = operation["path"]
+            content = operation.get("content")
+            if content is None:
+                if path not in project["files"]:
+                    diagnostics.append(
+                        {
+                            "severity": "error",
+                            "code": "edit_target_missing",
+                            "message": f"cannot delete {path} — the project has no file at that path",
+                            "path": path,
+                        }
+                    )
+                    continue
+                del project["files"][path]
+            else:
+                project["files"][path] = content
+        if diagnostics:
+            body = {
+                "detail": "The edit could not be applied to the canvas's current source.",
+                "code": "invalid_source_project",
+                "diagnostics": diagnostics,
+            }
+            return Response(CanvasSourceInvalidSerializer(body).data, status=status.HTTP_400_BAD_REQUEST)
+
+        return self._publish_source_project(
+            request,
+            dashboard,
+            project=project,
+            prompt=payload.validated_data.get("prompt"),
+            name=payload.validated_data.get("name"),
+            has_expected_version=True,
+            expected_version_id=payload.validated_data["expected_current_version_id"],
+        )
+
+    @staticmethod
+    def _request_task_id(request: Request) -> UUID | None:
+        """The publishing task's id, when the sandbox stamped one on the call."""
+        raw_task_id = (request.headers.get("X-PostHog-Task-Id") or "").strip()
+        try:
+            return UUID(raw_task_id)
+        except ValueError:
+            return None
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_builds_retrieve",
+        responses={200: CanvasBuildsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="canvas/builds", request=None)
+    def canvas_builds(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Read a canvas's build lifecycle: live pointers plus recent builds with diagnostics.
+
+        Poll this after publishing — the publish queues a build, and the
+        canvas's `published_build_id` advances only once the build is ready.
+        """
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+
+        meta = dashboard.meta or {}
+        builds = CanvasBuild.objects.for_team(self.team_id).filter(canvas=dashboard).order_by("-created_at")[:20]
+        response = {
+            "published_build_id": meta.get("publishedBuildId"),
+            "current_source_version_id": meta.get("currentSourceVersionId"),
+            "builds": [
+                {
+                    "id": build.id,
+                    "source_version_id": build.source_version_id,
+                    "build_status": build.status,
+                    "diagnostics": build.diagnostics or [],
+                    "manifest": build.manifest,
+                    "integrity": build.integrity,
+                    "artifact_url": create_canvas_artifact_url(build, build.manifest["entryHtml"])
+                    if build.status == CanvasBuild.STATUS_READY and isinstance(build.manifest, dict)
+                    else None,
+                    "pinned": build.pinned,
+                    "created_at": build.created_at,
+                    "finished_at": build.finished_at,
+                }
+                for build in builds
+            ],
+        }
+        return Response(CanvasBuildsResponseSerializer(response).data)
+
+    @extend_schema(
+        operation_id="desktop_file_system_canvas_build_action_create",
+        request=CanvasBuildActionSerializer,
+        responses={200: CanvasBuildSerializer},
+    )
+    @action(methods=["POST"], detail=True, url_path="canvas/builds/action", request=CanvasBuildActionSerializer)
+    def canvas_build_action(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self._get_dashboard_or_400()
+        if isinstance(dashboard, Response):
+            return dashboard
+        serializer = CanvasBuildActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        action_name = serializer.validated_data["action"]
+        with transaction.atomic():
+            build = (
+                CanvasBuild.objects.for_team(self.team_id)
+                .select_for_update()
+                .filter(id=serializer.validated_data["build_id"], canvas=dashboard)
+                .first()
+            )
+            if build is None:
+                return Response({"detail": "Canvas build not found."}, status=status.HTTP_404_NOT_FOUND)
+            if action_name == "retry":
+                if build.status != CanvasBuild.STATUS_FAILED:
+                    return Response({"detail": "Only failed builds can be retried."}, status=status.HTTP_409_CONFLICT)
+                build = CanvasBuild.objects.create(
+                    team_id=self.team_id,
+                    canvas=dashboard,
+                    source_version=build.source_version,
+                    status=CanvasBuild.STATUS_QUEUED,
+                )
+                from posthog.tasks.canvas_build import process_canvas_build  # noqa: PLC0415
+
+                transaction.on_commit(lambda: process_canvas_build.delay(self.team_id, str(build.id)))
+            elif action_name == "cancel":
+                if build.status != CanvasBuild.STATUS_QUEUED:
+                    return Response({"detail": "Only queued builds can be cancelled."}, status=status.HTTP_409_CONFLICT)
+                build.status = CanvasBuild.STATUS_FAILED
+                build.diagnostics = [
+                    {"severity": "warning", "code": "cancelled", "message": "The canvas build was cancelled."}
+                ]
+                build.finished_at = timezone.now()
+                build.save(update_fields=["status", "diagnostics", "finished_at"])
+            else:
+                build.pinned = action_name == "pin"
+                build.save(update_fields=["pinned"])
+        return Response(
+            CanvasBuildSerializer(
+                {
+                    "id": build.id,
+                    "source_version_id": build.source_version_id,
+                    "build_status": build.status,
+                    "diagnostics": build.diagnostics,
+                    "manifest": build.manifest,
+                    "integrity": build.integrity,
+                    "artifact_url": create_canvas_artifact_url(build, build.manifest["entryHtml"])
+                    if build.status == CanvasBuild.STATUS_READY and isinstance(build.manifest, dict)
+                    else None,
+                    "pinned": build.pinned,
+                    "created_at": build.created_at,
+                    "finished_at": build.finished_at,
+                }
+            ).data
+        )
 
     def _announce_canvas_created(self, request: Request, dashboard: FileSystem) -> None:
         """Announce a canvas's first publish in the generating task's thread.
