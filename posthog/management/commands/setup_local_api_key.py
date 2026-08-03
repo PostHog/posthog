@@ -18,7 +18,9 @@ from posthog.models import User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import hash_key_value, mask_key_value
 
-DEV_API_KEY = settings.DEV_API_KEY
+# DEV_API_KEY is defined in ee/settings.py, which OSS builds never load. Resolving it at import
+# time would make this module fail to import there, which breaks `manage.py help`.
+DEV_API_KEY = getattr(settings, "DEV_API_KEY", None)
 DEV_USER_EMAIL = "test@posthog.com"
 DEV_KEY_LABEL = "Local Development Key"
 
@@ -51,6 +53,8 @@ class Command(BaseCommand):
             raise CommandError("This command can only run with DEBUG=True")
         if settings.CLOUD_DEPLOYMENT:
             raise CommandError("This command cannot run in cloud deployments")
+        if not DEV_API_KEY:
+            raise CommandError("settings.DEV_API_KEY is not configured (it ships with the EE settings)")
 
         email = options["email"]
         scopes = options["scopes"]
