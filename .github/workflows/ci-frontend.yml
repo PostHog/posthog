@@ -660,19 +660,20 @@ jobs:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Run typescript check (tsgo)
-              run: pnpm --filter=@posthog/frontend typescript:check
+            - parallel:
+                  - name: Run typescript check (tsgo)
+                    run: pnpm --filter=@posthog/frontend typescript:check
 
-            - name: Check if schema.json and validators.js are up to date
-              run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
+                  - name: Check if schema.json and validators.js are up to date
+                    run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
-            - name: Check if mobile replay "schema.json" is up to date
-              run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
-              env:
-                  NODE_OPTIONS: --max-old-space-size=8192
+                  - name: Check if mobile replay "schema.json" is up to date
+                    run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
+                    env:
+                        NODE_OPTIONS: --max-old-space-size=8192
 
-            - name: Validate SetupTaskId completions
-              run: node bin/validate-setup-tasks.mjs
+                  - name: Validate SetupTaskId completions
+                    run: node bin/validate-setup-tasks.mjs
 
     jest:
         runs-on: ubuntu-latest

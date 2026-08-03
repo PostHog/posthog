@@ -111,6 +111,8 @@ rules:
                               |DataModelingJob
                               |Dataset
                               |DatasetItem
+                              |DatasetItemVersion
+                              |DatasetRevision
                               |DataWarehouseCredential
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
@@ -179,6 +181,7 @@ rules:
                               |HogFlowSchedule
                               |HogFlowTemplate
                               |HogFunction
+                              |HogFunctionRevision
                               |Hook
                               |Insight
                               |InsightVariable
@@ -445,6 +448,8 @@ rules:
                         |DataModelingJob
                         |Dataset
                         |DatasetItem
+                        |DatasetItemVersion
+                        |DatasetRevision
                         |DataWarehouseCredential
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
@@ -513,6 +518,7 @@ rules:
                         |HogFlowSchedule
                         |HogFlowTemplate
                         |HogFunction
+                        |HogFunctionRevision
                         |Hook
                         |Insight
                         |InsightVariable

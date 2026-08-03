@@ -376,6 +376,7 @@ class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
         assert body["remaining"] == MONTHLY_CREDIT_QUOTA
         assert body["exhausted"] is False
         assert body["projected_monthly_credits"] == 0
+        assert body["free_monthly_credits"] == 2500
         assert "period_start" in body
         assert "period_end" in body
 
