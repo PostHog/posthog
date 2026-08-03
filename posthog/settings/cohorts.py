@@ -45,12 +45,9 @@ BEHAVIORAL_BACKFILL_FINALIZER_ENABLED: bool = get_from_env(
 # "in cohort" targeting and over-matches negated targeting. `Cohort.is_flag_compatible` fail-closes
 # on this; the flags service does not.
 #
-# Also keep it off until a person-leaf edit supersedes the cohort's active person-property runs,
-# the way `_supersede_cohort_events_backfills` does for behavioral ones (the B7.3b receiver).
-# Without that, the person stamp's only edit-time fence is the hash CAS in `_stamp_readiness`,
-# which passes again after an A->B->A revert and stamps readiness over a backfill whose Stage 2
-# state went stale in the B window — the `superseded_at` refusal that closes this for behavioral
-# runs never fires because nothing sets it on the person path.
+# The stamp's other precondition is already met: `cohort_person_shape_changed_supersede` supersedes
+# a cohort's active person-property runs when its person leaves change, so an A->B->A revert can no
+# longer stamp readiness over a backfill whose Stage 2 state went stale in the B window.
 BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED", False, type_cast=str_to_bool
 )

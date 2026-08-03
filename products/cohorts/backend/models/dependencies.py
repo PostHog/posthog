@@ -29,7 +29,7 @@ COHORT_DEPENDENCY_CACHE_COUNTER = Counter(
 
 COHORT_REALTIME_STATE_ORPHANED_COUNTER = Counter(
     "posthog_cohort_realtime_state_orphaned_total",
-    "Realtime cohort edits that changed the Stage 1 LeafStateKey input set",
+    "Realtime cohort edits that orphaned Stage 1 state keyed on the pre-edit definition",
     labelnames=["reason"],
 )
 
@@ -308,18 +308,19 @@ def _on_cohort_changed(cohort: Cohort, always_invalidate: bool = False):
     warm_team_cohort_dependency_cache(cohort.team_id)
 
 
-def _supersede_cohort_events_backfills(cohort: Cohort) -> None:
+def _supersede_cohort_backfills(cohort: Cohort, kind: CohortBackfillKind) -> None:
     try:
         from products.cohorts.backend.backfill.runs import (
             supersede_active_runs,  # noqa: PLC0415 — avoids a model-load cycle
         )
 
-        supersede_active_runs(cohort.team_id, [cohort.id], kind=CohortBackfillKind.BEHAVIORAL)
+        supersede_active_runs(cohort.team_id, [cohort.id], kind=kind)
     except Exception as error:
         logger.exception(
-            "failed_to_supersede_cohort_events_backfills",
+            "failed_to_supersede_cohort_backfills",
             cohort_id=cohort.pk,
             team_id=cohort.team_id,
+            backfill_kind=kind,
             error=str(error),
         )
 
@@ -354,7 +355,27 @@ def cohort_behavioral_shape_changed_supersede(sender, instance, **kwargs):
         return
 
     COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="leaf_state_key_changed").inc()
-    transaction.on_commit(lambda: _supersede_cohort_events_backfills(instance))
+    transaction.on_commit(lambda: _supersede_cohort_backfills(instance, CohortBackfillKind.BEHAVIORAL))
+
+
+@receiver(post_save, sender=Cohort)
+def cohort_person_shape_changed_supersede(sender, instance, **kwargs):
+    """Invalidate in-flight person-property backfill runs when the cohort's person leaf shape changes.
+
+    The person mirror of `cohort_behavioral_shape_changed_supersede`, and the edit-time fence the
+    person readiness stamp relies on. After an A -> B -> A revert the participation's pinned person
+    hash matches the cohort's current one again, so the hash CAS in `_stamp_readiness` would stamp
+    readiness over a backfill whose seeded state went stale during the B window; only the
+    `superseded_at` set here refuses that stamp.
+
+    `_person_shape_changed` is only set for allowlisted realtime, non-static, non-deleted cohorts on
+    a real `filters` change, so it is the whole guard.
+    """
+    if not getattr(instance, "_person_shape_changed", False):
+        return
+
+    COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="person_condition_hash_changed").inc()
+    transaction.on_commit(lambda: _supersede_cohort_backfills(instance, CohortBackfillKind.PERSON_PROPERTY))
 
 
 @receiver(post_delete, sender=Cohort)

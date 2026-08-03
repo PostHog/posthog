@@ -267,11 +267,10 @@ def create_person_backfill_run_for_cohort(
     *,
     person_horizon_days: int | None = None,
 ) -> CohortBackfillRun | None:
-    """Create one cohort's person-property run, on the signal path's contract.
+    """Create one cohort's person-property run, on a best-effort caller's contract.
 
-    Unlike ``create_person_team_backfill_run`` this never raises and never touches ClickHouse: it
-    becomes the target of the person counterpart to the behavioral shape-changed receiver (B7.3b),
-    where a refusal has to warn and return rather than fail the Celery task. That is also why the
+    Unlike ``create_person_team_backfill_run`` this never raises and never touches ClickHouse, so a
+    caller that has to warn and return on a refusal rather than fail can use it. That is also why the
     horizon defaults from settings here but is required on the operator-driven team creator.
     """
     if not is_realtime_cohort_team(team_id):

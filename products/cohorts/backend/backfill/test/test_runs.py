@@ -354,6 +354,27 @@ class TestPersonBackfillRuns(BaseTest):
         self.assertEqual(expected[superseded_kind].status, CohortBackfillRunStatus.SUPERSEDED)
         self.assertEqual(other[superseded_kind].status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
 
+    def test_editing_the_person_leaf_supersedes_only_the_person_run(self) -> None:
+        # rust/cohort-seeder replays the person conditions a run pinned and the finalizer stamps
+        # readiness from them, so a person-leaf edit has to supersede that run. The behavioral run
+        # pins leaves this edit does not touch, so it has to survive.
+        cohort = self._cohort()
+        behavioral = create_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        person = create_person_backfill_run_for_cohort(self.team.id, cohort.id, "cohort_created")
+        assert behavioral is not None
+        assert person is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            cohort.filters = self._filters(person_hashes=("person0000000002",))
+            cohort.save()
+
+        behavioral.refresh_from_db()
+        person.refresh_from_db()
+        participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=person)
+        self.assertEqual(person.status, CohortBackfillRunStatus.SUPERSEDED)
+        self.assertIsNotNone(participation.superseded_at)
+        self.assertEqual(behavioral.status, CohortBackfillRunStatus.AWAITING_BOUNDARY)
+
     @parameterized.expand(
         [
             ("behavioral_only", {"filters": None}),
