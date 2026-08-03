@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import React from 'react'
 
 import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -25,11 +26,45 @@ import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
+import { scoutFleetLogic } from './logics/scoutFleetLogic'
 import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport, SignalRun } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
     logic: inboxSceneLogic,
+}
+
+const LazyScoutCreateModal = React.lazy(async () => {
+    const { ScoutCreateModal } = await import('./components/config/scouts/ScoutCreateModal')
+    return { default: ScoutCreateModal }
+})
+
+/**
+ * Scene-level host for the `#createScout=<payload>` deep link (e.g. template pages on
+ * posthog.com): renders the create modal pre-filled from the decoded payload. Hosted here —
+ * not in the fleet section — because on wide screens `/inbox/config` bounces to the setup
+ * rail, where the fleet section (and its own modal host) may never mount.
+ */
+function ScoutTemplateDraftModal(): JSX.Element | null {
+    const { scoutTemplateDraft } = useValues(inboxSceneLogic)
+    const { setScoutTemplateDraft } = useActions(inboxSceneLogic)
+
+    if (!scoutTemplateDraft) {
+        return null
+    }
+    return (
+        <React.Suspense fallback={null}>
+            <LazyScoutCreateModal
+                isOpen
+                initialValues={scoutTemplateDraft}
+                onClose={() => setScoutTemplateDraft(null)}
+                onCreated={() => {
+                    // Refresh the fleet list only if it's already mounted — never mount it from here.
+                    scoutFleetLogic.findMounted()?.actions.loadScoutConfigs()
+                }}
+            />
+        </React.Suspense>
+    )
 }
 
 /** Min scene-container width at which the setup rail fits beside the list. */
@@ -250,6 +285,8 @@ export function InboxScene(): JSX.Element {
                     )}
                 </div>
             )}
+
+            <ScoutTemplateDraftModal />
         </SceneContent>
     )
 }
