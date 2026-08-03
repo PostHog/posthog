@@ -267,6 +267,15 @@ class TestSentryTransport:
         )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_401_tells_user_to_reconnect(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = _response(None, status_code=401)
+
+        valid, error = validate_credentials(auth_token="token", organization_slug="acme")
+
+        assert not valid
+        assert error == "Invalid Sentry auth token. Please update your token and reconnect."
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_validate_credentials_403_names_required_scopes(self, mock_session) -> None:
         mock_session.return_value.get.return_value = _response(None, status_code=403)
 
