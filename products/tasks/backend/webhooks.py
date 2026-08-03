@@ -17,6 +17,7 @@ from posthog.models.team.team import Team
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
+from products.tasks.backend.logic.services.orchestration import notify_parent_of_child_event
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
@@ -300,6 +301,22 @@ def _record_run_pr_merged(task_run: TaskRun) -> None:
     except Exception:
         logger.warning("github_pr_webhook_pr_merged_events_failed", run_id=str(task_run.id), exc_info=True)
     _complete_wizard_run_on_merge(task_run)
+    _notify_parent_of_pr_merge(task_run)
+
+
+def _notify_parent_of_pr_merge(task_run: TaskRun) -> None:
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    wake_on = state.get("wake_on")
+    if not state.get("parent_task_id") or not isinstance(wake_on, list) or "pr_merged" not in wake_on:
+        return
+
+    def _notify() -> None:
+        try:
+            notify_parent_of_child_event(task_run, "pr_merged")
+        except Exception:
+            logger.warning("github_pr_webhook_parent_wake_failed", run_id=str(task_run.id), exc_info=True)
+
+    transaction.on_commit(_notify)
 
 
 def _complete_wizard_run_on_merge(task_run: TaskRun) -> None:
