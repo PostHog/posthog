@@ -4,13 +4,13 @@ export const POSTHOG_US_CLIENT_ID = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W";
 export const POSTHOG_EU_CLIENT_ID = "AIvijgMS0dxKEmr5z6odvRd8Pkh5vts3nPTzgzU9";
 export const POSTHOG_DEV_CLIENT_ID = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ";
 
-// Wildcard, not the explicit scope list: the prod OAuth apps have no seeded scope ceiling,
-// so /oauth/authorize rejects the privileged llm_gateway:read with invalid_scope while "*"
-// is grandfathered. Re-land the explicit list only after the US and EU app ceilings are
-// seeded with ["@default", "llm_gateway:read"]. Bump OAUTH_SCOPE_VERSION on any change.
-export const OAUTH_SCOPES = ["*"];
+// Explicit scope list: the prod OAuth app ceilings have been seeded with
+// ["@default", "llm_gateway:read"], so the desktop app can now request the
+// narrowest possible set instead of the wildcard "*". Bump OAUTH_SCOPE_VERSION
+// on any change.
+export const OAUTH_SCOPES: readonly string[] = ["@default", "llm_gateway:read"];
 
-export const OAUTH_SCOPE_VERSION = 5;
+export const OAUTH_SCOPE_VERSION = 7;
 
 // Token refresh settings
 export const TOKEN_REFRESH_BUFFER_MS = 30 * 60 * 1000; // 30 minutes before expiry

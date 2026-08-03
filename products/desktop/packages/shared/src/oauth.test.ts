@@ -20,14 +20,14 @@ describe("OAUTH_SCOPES guard", () => {
       fingerprint,
     }).toMatchInlineSnapshot(`
       {
-        "fingerprint": 42,
-        "scopeCount": 1,
-        "scopeVersion": 5,
+        "fingerprint": -343454433,
+        "scopeCount": 2,
+        "scopeVersion": 7,
       }
     `);
   });
 
-  it("requests the grandfathered wildcard grant", () => {
-    expect(OAUTH_SCOPES).toEqual(["*"]);
+  it("requests the narrowed explicit scope set", () => {
+    expect(OAUTH_SCOPES).toEqual(["@default", "llm_gateway:read"]);
   });
 });
