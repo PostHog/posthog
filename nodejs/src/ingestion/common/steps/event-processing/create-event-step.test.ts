@@ -289,9 +289,9 @@ describe('create-event-step', () => {
         })
 
         describe('$experiment_exposure duplication', () => {
-            it('duplicates multivariate $feature_flag_called events for allowlisted teams with a fresh uuid', async () => {
+            it('duplicates multivariate $feature_flag_called events for allowlisted teams with a deterministic uuid', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT, '2')
-                const result = await step({
+                const input = {
                     person: mockPerson,
                     preparedEvent: {
                         ...mockPreparedEvent,
@@ -308,10 +308,13 @@ describe('create-event-step', () => {
                     historicalMigration: false,
                     headers: createTestEventHeaders(),
                     message: mockMessage,
-                })
+                }
+                const result = await step(input)
+                const rerun = await step(input)
 
                 expect(isOkResult(result)).toBe(true)
-                if (isOkResult(result)) {
+                expect(isOkResult(rerun)).toBe(true)
+                if (isOkResult(result) && isOkResult(rerun)) {
                     expect(result.value.eventsToEmit).toHaveLength(2)
                     const [flagCalled, exposure] = result.value.eventsToEmit
                     expect(exposure.output).toBe(EVENTS_OUTPUT)
@@ -321,6 +324,9 @@ describe('create-event-step', () => {
                         event: '$experiment_exposure',
                         uuid: exposure.event.uuid,
                     })
+                    // A redelivered message must reproduce the same exposure row for
+                    // ClickHouse's ReplacingMergeTree to collapse it.
+                    expect(rerun.value.eventsToEmit[1].event.uuid).toBe(exposure.event.uuid)
                 }
             })
 
