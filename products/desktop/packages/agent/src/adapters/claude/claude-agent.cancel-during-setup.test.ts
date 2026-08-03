@@ -31,7 +31,6 @@ type Agent = InstanceType<typeof ClaudeAcpAgent>;
 
 const SESSION_ID = "s-cancel";
 
-/** Lets the consumer loop re-park in `query.next()` between messages. */
 function tick(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
@@ -39,32 +38,21 @@ function tick(): Promise<void> {
 interface Harness {
   agent: Agent;
   session: { cancelled: boolean; cancelSeq: number };
-  /** Resolves once prompt() has entered the pre-prompt MCP status await. */
   inSetup: Promise<void>;
-  /** Lets the stalled status check return, so setup continues. */
   finishSetup: () => void;
-  /** Drives the queued turn to a normal completion. */
   completeTurn: () => Promise<void>;
-  /** Promotes the queued turn the way a local-only command's output does. */
   activateQueuedTurn: () => Promise<void>;
-  /** Ends the active turn with the SDK's terminal result. */
   finishTurn: () => void;
-  /** Whether anything was handed to the SDK. */
   sdkReceivedMessage: () => boolean;
-  /** The text of every message handed to the SDK, in order. */
   sdkPromptTexts: () => string[];
   prompt: (text?: string) => Promise<{ stopReason: string; _meta?: unknown }>;
 }
 
 /**
- * A session whose pre-prompt `ensureLocalToolsConnected` can be held open, which
- * is the window a Ctrl-C lands in before the prompt reaches the SDK.
- *
- * `query.interrupt` is a deferred no-op on purpose. In production it asks the
- * Claude subprocess to stop and the message stream keeps running until the
- * subprocess acknowledges; the default mock ends the stream synchronously, so the
- * consumer takes the stream-`done` branch and rejects the still-queued turn as
- * session-ended, never reaching `activateTurn`.
+ * A session whose pre-prompt `ensureLocalToolsConnected` can be held open, the
+ * window a cancel lands in before the prompt reaches the SDK. `query.interrupt`
+ * is a deferred no-op on purpose: the default mock ends the stream synchronously,
+ * which rejects the still-queued turn as session-ended before `activateTurn`.
  */
 function makeHarness(): Harness {
   const client = {
@@ -149,8 +137,7 @@ function makeHarness(): Harness {
       await tick();
     },
     finishTurn: () => query._mockHelpers.complete(createSuccessResult()),
-    // Echo the turn's own user message back, then send the terminal result, the
-    // way the SDK would for a turn that ran to completion.
+    // Echo the pushed user message back then complete, as the real SDK would.
     completeTurn: async () => {
       const { value: pushed } = await input[Symbol.asyncIterator]().next();
       query._mockHelpers.sendMessage(pushed as never);
@@ -171,11 +158,6 @@ function makeHarness(): Harness {
   };
 }
 
-/**
- * `cancelSeq` lets `prompt()` tell a cancel aimed at the prompt it is setting up
- * from a stale one that already stopped an earlier turn. The first drops the
- * prompt before it reaches the SDK; the second leaves it alone.
- */
 describe("cancel arriving while a prompt is being set up", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -186,8 +168,6 @@ describe("cancel arriving while a prompt is being set up", () => {
 
     const pending = h.prompt();
     await h.inSetup;
-    // Ctrl-C lands here: nothing is queued yet, so cancel() finds no turn to stop
-    // and arms no backstop. Only the early return in prompt() can honor it.
     await h.agent.cancel({ sessionId: SESSION_ID });
     h.finishSetup();
 
@@ -234,8 +214,6 @@ describe("cancel arriving while a prompt is being set up", () => {
   it("runs a prompt normally when the cancel predates it", async () => {
     const h = makeHarness();
 
-    // Cancel with nothing in flight, which is how a cancel for an
-    // already-finished turn looks by the time the next prompt arrives.
     await h.agent.cancel({ sessionId: SESSION_ID });
     expect(h.session.cancelled).toBe(true);
 
@@ -255,10 +233,9 @@ describe("cancel arriving while a prompt is being set up", () => {
     await h.inSetup;
     await h.agent.cancel({ sessionId: SESSION_ID });
 
-    // A local-only command skips the pre-prompt status check the first prompt is
-    // parked in, so it queues and activates while that prompt is still stalled.
-    // Activation clears `session.cancelled`, leaving the count as the only record
-    // that a cancel landed.
+    // A local-only command skips the status check the first prompt is parked in,
+    // so it activates during the stall and clears `session.cancelled`, leaving
+    // the count as the only record of the cancel.
     const local = h.prompt("/context");
     await h.activateQueuedTurn();
     expect(h.session.cancelled).toBe(false);

@@ -48,10 +48,10 @@ export interface BaseSession {
   notificationHistory: SessionNotification[];
   cancelled: boolean;
   /**
-   * Bumped on every cancel. An adapter whose `prompt()` awaits before registering
-   * the turn must snapshot this on entry and re-check it before handing the prompt
-   * to the backend: a cancel landing in that window reaches no turn, and `cancelled`
-   * alone cannot distinguish it from a stale flag left by an earlier cancel.
+   * Bumped on every cancel. A `prompt()` that awaits before registering its turn
+   * snapshots this on entry and re-checks it before handing the prompt to the
+   * backend: `cancelled` alone cannot tell a cancel landing in that window from a
+   * stale flag left by an earlier cancel.
    */
   cancelSeq: number;
   interruptReason?: string;
@@ -87,9 +87,8 @@ export abstract class BaseAcpAgent implements Agent {
     this.session.cancelled = true;
     this.session.cancelSeq += 1;
     const meta = params._meta as { interruptReason?: string } | undefined;
-    // Assign even when absent, so the reason always describes the current cancel.
-    // A turn cancelled during setup keeps this value through activation, so a
-    // leftover reason would otherwise be reported for a cancel that supplied none.
+    // Assign even when absent, so a cancel that supplies no reason does not
+    // report a leftover reason from an earlier cancel.
     this.session.interruptReason = meta?.interruptReason;
     await this.interrupt();
   }

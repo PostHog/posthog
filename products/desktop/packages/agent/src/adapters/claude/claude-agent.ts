@@ -523,14 +523,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       });
     }
 
-    // A cancel counted during setup targets this prompt. It is not queued yet, so
-    // `interrupt()` had nothing to stop and armed no backstop; returning here,
-    // before the message reaches the SDK, is what actually cancels it. The counter
-    // alone decides: `session.cancelled` belongs to the session, and `activateTurn`
-    // clears it for whichever turn runs next, so a prompt that raced past this one
-    // into the queue would otherwise erase the cancel this check exists to catch.
-    // The flag is left standing here, because an earlier turn may still be settling
-    // against it.
+    // A cancel counted during setup targets this prompt: nothing was queued, so
+    // `interrupt()` had nothing to stop, and returning before the push is what
+    // cancels it. `session.cancelled` is left standing because an earlier turn
+    // may still be settling against it.
     if (this.session.cancelSeq > cancelSeqAtEntry) {
       return this.cancelledResponse();
     }
@@ -711,9 +707,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     const activateTurn = async (turn: Turn) => {
       session.activeTurn = turn;
-      // Any cancel aimed at this turn already settled it: during setup `prompt()`
-      // returns early, and once queued `interrupt()` sweeps it. Reaching here means
-      // the flag is left over from an earlier turn.
+      // A cancel aimed at this turn already settled it (early return during
+      // setup, `interrupt()` sweep once queued), so a set flag here is stale.
       session.cancelled = false;
       session.interruptReason = undefined;
       session.pendingOrphanResults = 0;
