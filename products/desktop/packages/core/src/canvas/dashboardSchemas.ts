@@ -1,3 +1,4 @@
+import { CANVAS_PLATFORM_MANIFEST } from "@posthog/shared";
 import { z } from "zod";
 
 // A canvas record from the PostHog canvases API, normalized to camelCase and
@@ -49,7 +50,9 @@ export const canvasSourceProjectSchema = z.object({
   files: z.record(z.string(), z.string()),
   entryHtml: z.string(),
   dependencies: z.record(z.string(), z.string()).default({}),
-  canvasSdkVersion: z.string().default("0.1.0"),
+  canvasSdkVersion: z
+    .string()
+    .default(CANVAS_PLATFORM_MANIFEST.canvasSdkVersion),
   assets: z.record(z.string(), z.unknown()).optional(),
   capabilities: z.unknown().optional(),
 });

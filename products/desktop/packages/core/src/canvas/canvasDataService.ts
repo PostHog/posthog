@@ -26,11 +26,21 @@ const FALLBACK_DISTINCT_ID = "freeform-canvas";
 const MAX_CANVAS_RESULT_ROWS = 1_000;
 const MAX_CANVAS_RESULT_BYTES = 2 * 1024 * 1024;
 
+const utf8Encoder = new TextEncoder();
+
+// True when the JSON's UTF-8 encoding exceeds the byte limit. UTF-8 is 1–3
+// bytes per UTF-16 code unit, so the string length bounds the byte count from
+// both sides — only payloads in the ambiguous band pay for a full encode.
+function exceedsByteLimit(json: string): boolean {
+  if (json.length > MAX_CANVAS_RESULT_BYTES) return true;
+  if (json.length * 3 <= MAX_CANVAS_RESULT_BYTES) return false;
+  return utf8Encoder.encode(json).byteLength > MAX_CANVAS_RESULT_BYTES;
+}
+
 function boundedResult(result: CanvasDataResult): CanvasDataResult {
   if (
     result.results.length > MAX_CANVAS_RESULT_ROWS ||
-    new TextEncoder().encode(JSON.stringify(result)).byteLength >
-      MAX_CANVAS_RESULT_BYTES
+    exceedsByteLimit(JSON.stringify(result))
   ) {
     throw new Error("Canvas data result exceeds the result limit");
   }

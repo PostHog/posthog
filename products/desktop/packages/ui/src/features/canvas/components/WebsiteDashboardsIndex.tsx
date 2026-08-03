@@ -15,13 +15,14 @@ import {
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
+import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useCanvasTemplates } from "@posthog/ui/features/canvas/hooks/useCanvasTemplates";
 import {
   useDashboardMutations,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useIsCanvasPendingDelete } from "@posthog/ui/features/canvas/stores/pendingCanvasDeleteStore";
 import { copyCanvasLink } from "@posthog/ui/features/canvas/utils/copyCanvasLink";
-import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Box, Flex, Grid } from "@radix-ui/themes";
 import { Link } from "@tanstack/react-router";
@@ -89,8 +90,16 @@ const DashboardCard = memo(function DashboardCard({
   summary: DashboardRecord;
   templateLabel: string;
 }) {
+  // Inside its delete-undo window the card stays in the grid (Undo puts it
+  // straight back) but is dimmed and inert.
+  const pendingDelete = useIsCanvasPendingDelete(summary.id);
   return (
-    <Box className="group relative">
+    <Box
+      className={cn(
+        "group relative",
+        pendingDelete && "pointer-events-none opacity-50",
+      )}
+    >
       <Link
         to="/website/$channelId/dashboards/$dashboardId"
         params={{ channelId, dashboardId: summary.id }}
@@ -157,31 +166,16 @@ function DashboardCardMenu({
   channelId: string;
 }) {
   const [open, setOpen] = useState(false);
-  const { deleteDashboard, isDeleting } = useDashboardMutations();
+  const { invalidateDashboards } = useDashboardMutations();
 
   const onDelete = () => {
-    deleteDashboard(id)
-      .then(() => {
-        track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-          action_type: "delete",
-          surface: "dashboards_grid",
-          channel_id: channelId,
-          dashboard_id: id,
-          success: true,
-        });
-      })
-      .catch((error) => {
-        track(ANALYTICS_EVENTS.DASHBOARD_ACTION, {
-          action_type: "delete",
-          surface: "dashboards_grid",
-          channel_id: channelId,
-          dashboard_id: id,
-          success: false,
-        });
-        toast.error("Couldn't delete canvas", {
-          description: error instanceof Error ? error.message : String(error),
-        });
-      });
+    deleteCanvasWithUndo({
+      dashboardId: id,
+      channelId,
+      name,
+      surface: "dashboards_grid",
+      invalidate: invalidateDashboards,
+    });
   };
 
   return (
@@ -212,11 +206,7 @@ function DashboardCardMenu({
             <LinkIcon size={14} />
             Copy link
           </DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            disabled={isDeleting}
-            onClick={onDelete}
-          >
+          <DropdownMenuItem variant="destructive" onClick={onDelete}>
             <TrashIcon size={14} />
             Delete
           </DropdownMenuItem>

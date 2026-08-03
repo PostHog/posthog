@@ -283,6 +283,65 @@ export function ActivityView() {
     });
   }, []);
 
+  const markAllReadButton = (
+    <Button
+      variant="default"
+      size="sm"
+      loading={isMarkingRead}
+      disabled={isMarkingRead}
+      onClick={markAllRead}
+    >
+      <ChecksIcon size={14} />
+      {markLoadedReadLabel(unreadItems.length, unreadCount)}
+    </Button>
+  );
+
+  // The feed body is identical in both shells; only the empty-state copy tracks
+  // the layout's naming ("spaces" vs "channels").
+  const feed =
+    isLoading && items.length === 0 ? (
+      <div className="flex justify-center py-16">
+        <Spinner />
+      </div>
+    ) : items.length === 0 ? (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <BellIcon size={20} />
+          </EmptyMedia>
+          <EmptyTitle>No activity yet</EmptyTitle>
+          <EmptyDescription>
+            Tasks you create, get tagged in, or reply to across{" "}
+            {spacesLayout ? "spaces" : "channels"} land here.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    ) : (
+      <div className="flex flex-col gap-0.5">
+        {items.map((item) => (
+          <ActivityRow
+            key={item.taskId}
+            item={item}
+            channelId={item.channelId}
+            onOpen={markRead}
+            onMarkRead={markRead}
+            currentUser={currentUser}
+          />
+        ))}
+        {hasNextPage && (
+          <Button
+            variant="outline"
+            className="mt-3 self-center"
+            loading={isFetchingNextPage}
+            disabled={isFetchingNextPage}
+            onClick={() => void fetchNextPage()}
+          >
+            Load more
+          </Button>
+        )}
+      </div>
+    );
+
   if (spacesLayout) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-gray-1">
@@ -296,18 +355,7 @@ export function ActivityView() {
                 </PageHeaderChip>
               )}
               {unreadCount > 0 && (
-                <PageHeaderActions>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    loading={isMarkingRead}
-                    disabled={isMarkingRead}
-                    onClick={markAllRead}
-                  >
-                    <ChecksIcon size={14} />
-                    {markLoadedReadLabel(unreadItems.length, unreadCount)}
-                  </Button>
-                </PageHeaderActions>
+                <PageHeaderActions>{markAllReadButton}</PageHeaderActions>
               )}
             </PageHeaderTitleRow>
             <PageHeaderDescription>
@@ -316,50 +364,7 @@ export function ActivityView() {
           </PageHeaderHeading>
         </PageHeader>
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[680px] px-4 py-6">
-            {isLoading && items.length === 0 ? (
-              <div className="flex justify-center py-16">
-                <Spinner />
-              </div>
-            ) : items.length === 0 ? (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <BellIcon size={20} />
-                  </EmptyMedia>
-                  <EmptyTitle>No activity yet</EmptyTitle>
-                  <EmptyDescription>
-                    Tasks you create, get tagged in, or reply to across spaces
-                    land here.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <div className="flex flex-col gap-0.5">
-                {items.map((item) => (
-                  <ActivityRow
-                    key={item.taskId}
-                    item={item}
-                    channelId={item.channelId}
-                    onOpen={markRead}
-                    onMarkRead={markRead}
-                    currentUser={currentUser}
-                  />
-                ))}
-                {hasNextPage && (
-                  <Button
-                    variant="outline"
-                    className="mt-3 self-center"
-                    loading={isFetchingNextPage}
-                    disabled={isFetchingNextPage}
-                    onClick={() => void fetchNextPage()}
-                  >
-                    Load more
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
+          <div className="mx-auto w-full max-w-[680px] px-4 py-6">{feed}</div>
         </div>
       </div>
     );
@@ -378,63 +383,9 @@ export function ActivityView() {
               {spacesLayout ? "spaces" : "channels"}.
             </Text>
           </div>
-          {unreadCount > 0 && (
-            <Button
-              variant="default"
-              size="sm"
-              loading={isMarkingRead}
-              disabled={isMarkingRead}
-              onClick={markAllRead}
-            >
-              <ChecksIcon size={14} />
-              {markLoadedReadLabel(unreadItems.length, unreadCount)}
-            </Button>
-          )}
+          {unreadCount > 0 && markAllReadButton}
         </div>
-        <div className="mt-4">
-          {isLoading && items.length === 0 ? (
-            <div className="flex justify-center py-16">
-              <Spinner />
-            </div>
-          ) : items.length === 0 ? (
-            <Empty>
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <BellIcon size={20} />
-                </EmptyMedia>
-                <EmptyTitle>No activity yet</EmptyTitle>
-                <EmptyDescription>
-                  Tasks you create, get tagged in, or reply to across{" "}
-                  {spacesLayout ? "spaces" : "channels"} land here.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          ) : (
-            <div className="flex flex-col gap-0.5">
-              {items.map((item) => (
-                <ActivityRow
-                  key={item.taskId}
-                  item={item}
-                  channelId={item.channelId}
-                  onOpen={markRead}
-                  onMarkRead={markRead}
-                  currentUser={currentUser}
-                />
-              ))}
-              {hasNextPage && (
-                <Button
-                  variant="outline"
-                  className="mt-3 self-center"
-                  loading={isFetchingNextPage}
-                  disabled={isFetchingNextPage}
-                  onClick={() => void fetchNextPage()}
-                >
-                  Load more
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
+        <div className="mt-4">{feed}</div>
       </div>
     </div>
   );

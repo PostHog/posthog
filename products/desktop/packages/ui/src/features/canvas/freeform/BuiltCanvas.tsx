@@ -1,30 +1,25 @@
+import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import {
   type CanvasNavIntent,
-  type CanvasToHostMessage,
   canvasToHostMessageSchema,
-  type HostToCanvasMessage,
 } from "@posthog/core/canvas/freeformSchemas";
-import { isSafePostHogUrl } from "@posthog/shared";
+import type { CanvasCapabilities } from "@posthog/shared";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useLayoutEffect, useRef } from "react";
+import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 
 const log = logger.scope("built-canvas");
-const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
-const MAX_CONCURRENT_DATA_REQUESTS = 8;
-const MAX_DATA_REQUEST_BYTES = 64 * 1024;
-const DATA_REQUEST_TIMEOUT_MS = 30_000;
-
-function isBoundedPayload(payload: unknown): boolean {
-  try {
-    return JSON.stringify(payload).length <= MAX_DATA_REQUEST_BYTES;
-  } catch {
-    return false;
-  }
-}
 
 export interface BuiltCanvasProps {
   artifactUrl: string;
+  /**
+   * View-mode data gate: the published manifest's frozen capabilities, which
+   * every data request is asserted against. undefined = ungated — the
+   * interactive/edit path (the author's own client keeps full data access
+   * while iterating), or the transient window before a manifest has loaded.
+   */
+  capabilities?: CanvasCapabilities;
   onDataRequest: (method: string, payload: unknown) => Promise<unknown>;
   onError?: (message: string, stack?: string) => void;
   /** The artifact's runtime booted and posted "ready" — proof the signed URL
@@ -36,6 +31,7 @@ export interface BuiltCanvasProps {
 
 export function BuiltCanvas({
   artifactUrl,
+  capabilities,
   onDataRequest,
   onError,
   onReady,
@@ -43,101 +39,54 @@ export function BuiltCanvas({
   onNavigate,
 }: BuiltCanvasProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const lastExternalOpenRef = useRef(0);
-  const activeDataRequestsRef = useRef(0);
   const latest = useRef({
+    capabilities,
     onDataRequest,
     onError,
     onReady,
     onRendered,
     onNavigate,
   });
-  latest.current = { onDataRequest, onError, onReady, onRendered, onNavigate };
+  latest.current = {
+    capabilities,
+    onDataRequest,
+    onError,
+    onReady,
+    onRendered,
+    onNavigate,
+  };
 
   useLayoutEffect(() => {
     const iframe = iframeRef.current;
     let artifactPort: MessagePort | null = null;
     let initialDocumentConnected = false;
-    const post = (message: HostToCanvasMessage) =>
-      artifactPort?.postMessage(message);
 
-    const route = async (message: CanvasToHostMessage) => {
-      switch (message.type) {
-        case "data-request":
-          if (
-            activeDataRequestsRef.current >= MAX_CONCURRENT_DATA_REQUESTS ||
-            !isBoundedPayload(message.payload)
-          ) {
-            post({
-              channel: "posthog-canvas",
-              type: "data-response",
-              id: message.id,
-              ok: false,
-              error: "Canvas data request exceeds runtime limits",
-            });
-            break;
-          }
-          activeDataRequestsRef.current += 1;
-          try {
-            post({
-              channel: "posthog-canvas",
-              type: "data-response",
-              id: message.id,
-              ok: true,
-              result: await Promise.race([
-                latest.current.onDataRequest(message.method, message.payload),
-                new Promise<never>((_, reject) =>
-                  setTimeout(
-                    () => reject(new Error("Canvas data request timed out")),
-                    DATA_REQUEST_TIMEOUT_MS,
-                  ),
-                ),
-              ]),
-            });
-          } catch (error) {
-            post({
-              channel: "posthog-canvas",
-              type: "data-response",
-              id: message.id,
-              ok: false,
-              error: error instanceof Error ? error.message : String(error),
-            });
-          } finally {
-            activeDataRequestsRef.current -= 1;
-          }
-          break;
-        case "error":
-          log.warn("Built canvas error", { message: message.message });
-          latest.current.onError?.(message.message, message.stack);
-          break;
-        case "rendered":
-          latest.current.onRendered?.();
-          break;
-        case "navigate":
-          latest.current.onNavigate?.(message.nav);
-          break;
-        case "open-external":
-          if (
-            isSafePostHogUrl(message.url) &&
-            document.activeElement === iframeRef.current &&
-            Date.now() - lastExternalOpenRef.current >=
-              EXTERNAL_OPEN_MIN_INTERVAL_MS
-          ) {
-            lastExternalOpenRef.current = Date.now();
-            if (
-              window.confirm(
-                `Open this link in your browser?\n\n${message.url}`,
-              )
-            ) {
-              openExternalUrl(message.url);
-            }
-          }
-          break;
-        case "ready":
-          latest.current.onReady?.();
-          break;
-      }
-    };
+    const route = createCanvasHostMessageRouter({
+      post: (message) => artifactPort?.postMessage(message),
+      callbacks: () => ({
+        onDataRequest: (method, payload) => {
+          // Gating lives here so every consumer of BuiltCanvas gets it by
+          // default; the throw is routed back as a data-response error.
+          assertCanvasCapability(latest.current.capabilities, method, payload);
+          return latest.current.onDataRequest(method, payload);
+        },
+        onError: (message, stack) => {
+          log.warn("Built canvas error", { message });
+          latest.current.onError?.(message, stack);
+        },
+        onReady: () => latest.current.onReady?.(),
+        onRendered: () => latest.current.onRendered?.(),
+        onNavigate: (intent) => latest.current.onNavigate?.(intent),
+      }),
+      isFrameFocused: () => document.activeElement === iframeRef.current,
+      // Built artifacts run arbitrary published code, so an external open asks
+      // first even after the focus + throttle gates pass.
+      openExternal: (url) => {
+        if (window.confirm(`Open this link in your browser?\n\n${url}`)) {
+          openExternalUrl(url);
+        }
+      },
+    });
 
     const onMessage = (event: MessageEvent) => {
       const parsed = canvasToHostMessageSchema.safeParse(event.data);

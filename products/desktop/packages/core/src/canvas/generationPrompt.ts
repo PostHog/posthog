@@ -6,6 +6,8 @@
 // wrapped in <canvas_generation_instructions> so the conversation UI collapses
 // them into a single clickable tag (see extractCanvasInstructions).
 
+import { escapeXmlAttr } from "@posthog/shared";
+
 // Short layout hints for legacy template ids whose richer prompt contracts
 // were folded into the canvas skills. New canvases are all "freeform".
 const TEMPLATE_HINTS: Record<string, string> = {
@@ -17,14 +19,6 @@ const TEMPLATE_HINTS: Record<string, string> = {
     "rate KPIs, a visitors-over-time chart, and top paths / sources / devices / geography " +
     "tables, backed by the web-analytics query kinds.",
 };
-
-function escapePromptMetadata(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
 
 export function buildCanvasGenerationPrompt(input: {
   /**
@@ -50,8 +44,8 @@ export function buildCanvasGenerationPrompt(input: {
   // The header points back at the user's request, which leads the message —
   // without the pointer the agent can read the block as self-contained and
   // under-weight the actual instruction above it.
-  const safeName = name ? escapePromptMetadata(name) : undefined;
-  const safeChannelName = escapePromptMetadata(channelName);
+  const safeName = name ? escapeXmlAttr(name) : undefined;
+  const safeChannelName = escapeXmlAttr(channelName);
   const title = safeName ? ` "${safeName}"` : "";
   const header = dashboardId
     ? isEdit

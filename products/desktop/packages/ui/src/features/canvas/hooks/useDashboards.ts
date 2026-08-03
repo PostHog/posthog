@@ -225,12 +225,24 @@ export function useOpenHomeCanvas(): (channel: {
   id: string;
 }) => Promise<void> {
   const navigate = useNavigate();
+  const trpc = useHostTRPC();
+  const queryClient = useQueryClient();
   const { ensureHomeCanvas } = useDashboardMutations();
 
   return useCallback(
     async (channel) => {
       try {
-        const dashboardId = (await ensureHomeCanvas(channel.id)).id;
+        // The channel's dashboards list is usually already cached; a seeded
+        // home canvas found there can be opened without a server round trip.
+        // Only when none exists (or it's unseeded) does the idempotent
+        // ensureHomeCanvas create/seed it.
+        const cachedHome = queryClient
+          .getQueryData<DashboardRecord[]>(
+            trpc.dashboards.list.queryKey({ channelId: channel.id }),
+          )
+          ?.find((d) => d.isHome && d.currentVersionId);
+        const dashboardId =
+          cachedHome?.id ?? (await ensureHomeCanvas(channel.id)).id;
         await navigate({
           to: "/website/$channelId/dashboards/$dashboardId",
           params: { channelId: channel.id, dashboardId },
@@ -242,7 +254,7 @@ export function useOpenHomeCanvas(): (channel: {
         });
       }
     },
-    [navigate, ensureHomeCanvas],
+    [navigate, ensureHomeCanvas, queryClient, trpc],
   );
 }
 

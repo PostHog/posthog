@@ -1,6 +1,7 @@
 import {
   CANVAS_COMPONENT_PATH,
   CANVAS_ENTRY_HTML,
+  CANVAS_PLATFORM_MANIFEST,
   CANVAS_SOURCE_SCHEMA_VERSION,
 } from "@posthog/shared";
 import { inject, injectable } from "inversify";
@@ -8,7 +9,6 @@ import {
   type CanvasBuildActionInput,
   type CanvasBuildLifecycle,
   type CanvasBuildRecord,
-  canvasBuildLifecycleSchema,
   canvasBuildRecordSchema,
 } from "./canvasBuildSchemas";
 import type {
@@ -107,8 +107,9 @@ function toRecord(api: ApiCanvas): DashboardRecord {
   };
 }
 
-function toBuildRecord(build: Record<string, unknown>): CanvasBuildRecord {
-  return canvasBuildRecordSchema.parse({
+// The snake→camel field mapping for a build row from the builds endpoints.
+function buildRecordInput(build: Record<string, unknown>) {
+  return {
     id: build.id,
     sourceVersionId: build.source_version_id,
     buildStatus: build.build_status,
@@ -118,23 +119,17 @@ function toBuildRecord(build: Record<string, unknown>): CanvasBuildRecord {
     pinned: build.pinned,
     createdAt: build.created_at,
     finishedAt: build.finished_at,
-  });
+  };
+}
+
+function toBuildRecord(build: Record<string, unknown>): CanvasBuildRecord {
+  return canvasBuildRecordSchema.parse(buildRecordInput(build));
 }
 
 function tryToBuildRecord(
   build: Record<string, unknown>,
 ): CanvasBuildRecord | null {
-  const parsed = canvasBuildRecordSchema.safeParse({
-    id: build.id,
-    sourceVersionId: build.source_version_id,
-    buildStatus: build.build_status,
-    diagnostics: build.diagnostics ?? [],
-    manifest: build.manifest ?? null,
-    artifactUrl: build.artifact_url,
-    pinned: build.pinned,
-    createdAt: build.created_at,
-    finishedAt: build.finished_at,
-  });
+  const parsed = canvasBuildRecordSchema.safeParse(buildRecordInput(build));
   return parsed.success ? parsed.data : null;
 }
 
@@ -301,13 +296,16 @@ export class DashboardsService {
       current_version_id: string | null;
       builds: Record<string, unknown>[];
     }>(`canvases/${encodeURIComponent(id)}/builds/`, "load canvas builds");
-    return canvasBuildLifecycleSchema.parse({
-      publishedBuildId: body.published_build_id,
-      currentVersionId: body.current_version_id,
+    // Each build row is already validated by tryToBuildRecord; this endpoint is
+    // polled every couple of seconds during builds, so don't re-run the whole
+    // lifecycle schema (which would zod-parse every record a second time).
+    return {
+      publishedBuildId: body.published_build_id ?? null,
+      currentVersionId: body.current_version_id ?? null,
       builds: body.builds
         .map(tryToBuildRecord)
         .filter((build): build is CanvasBuildRecord => build !== null),
-    });
+    };
   }
 
   async actOnBuild(input: CanvasBuildActionInput): Promise<CanvasBuildRecord> {
@@ -384,8 +382,10 @@ export class DashboardsService {
         [CANVAS_COMPONENT_PATH]: buildHomeCanvasCode(channelId, record.id),
       },
       entryHtml: CANVAS_ENTRY_HTML,
-      dependencies: { react: "19.0.0" },
-      canvasSdkVersion: "0.1.0",
+      dependencies: {
+        react: CANVAS_PLATFORM_MANIFEST.dependencies.react.version,
+      },
+      canvasSdkVersion: CANVAS_PLATFORM_MANIFEST.canvasSdkVersion,
       capabilities: {
         posthog: { insights: [], inlineQueries: true, captureEvents: [] },
         network: { origins: [] },

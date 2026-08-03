@@ -14,7 +14,6 @@ import {
   latestFinishedCanvasBuild,
   publishedCanvasBuild,
 } from "@posthog/core/canvas/canvasBuildSchemas";
-import { assertCanvasCapability } from "@posthog/core/canvas/canvasCapabilities";
 import type { CanvasAnalyticsConfig } from "@posthog/core/canvas/freeformSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import {
@@ -69,36 +68,12 @@ import { CanvasGenerateHero } from "./CanvasGenerateHero";
 import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
 import { CanvasSidePanel } from "./CanvasSidePanel";
 import {
-  hasCanvasSource,
-  shouldLoadCanvasHeadSource,
-} from "./canvasSourcePresentation";
-import {
   canvasVersionNavigation,
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
 import { useCanvasNavigation, useHomeCanvasReset } from "./useHomeCanvasView";
-
-// How long a mounted artifact iframe gets to post "ready"/"rendered" before
-// its signed URL is suspected expired.
-const ARTIFACT_READY_GRACE_MS = 15_000;
-// Signed artifact URLs live ~60 minutes; below this age a load failure is a
-// canvas bug, not an expired URL, so no refresh is attempted.
-const ARTIFACT_URL_FRESH_MS = 50 * 60_000;
-
-// The published build's artifact, pinned to a single signed URL. Every builds
-// refetch mints a fresh URL for the same artifact, so rendering the lifecycle
-// value directly would reload the iframe every 2s poll while a build runs.
-interface PinnedArtifact {
-  buildId: string;
-  url: string;
-  /** Epoch ms the pinned URL was minted (the builds fetch that produced it). */
-  mintedAt: number;
-  /** The refresh nonce the pin was adopted under, so a remount also re-stamps
-   * the pin's mint time (otherwise the expiry timer would keep firing on a URL
-   * that's already been recovered). */
-  refreshKey: number;
-}
+import { usePinnedArtifact } from "./usePinnedArtifact";
 
 // A freeform (React-in-iframe) canvas. The rendered output is, in priority
 // order: a historical version being browsed (edit mode), the published build's
@@ -119,16 +94,6 @@ export function FreeformCanvasView({
   const { runtimeError, browseVersionId } = useFreeformThread(threadId);
   const setBrowseVersion = useFreeformChatStore((s) => s.setBrowseVersion);
   const setRuntimeError = useFreeformChatStore((s) => s.setRuntimeError);
-
-  // Protect this thread from LRU eviction while the view is open — a burst of
-  // background patches must never drop the canvas the user is looking at.
-  useEffect(() => {
-    const store = useFreeformChatStore.getState();
-    store.setThreadMounted(threadId, true);
-    return () => {
-      useFreeformChatStore.getState().setThreadMounted(threadId, false);
-    };
-  }, [threadId]);
 
   // Right-hand panel state (persisted minimize + width). `startedTaskId` is a
   // local bridge so the composer floats to the side immediately on submit,
@@ -253,67 +218,21 @@ export function FreeformCanvasView({
   } = useCanvasBuilds(dashboardId, { generating: isSyncing });
   const publishedBuild = lifecycle ? publishedCanvasBuild(lifecycle) : null;
 
-  // Pin the artifact to one signed URL per build: every lifecycle refetch mints
-  // a fresh URL for the same artifact, and adopting each one would reload the
-  // iframe on every 2s poll while a build runs. Adopt only when the published
-  // build itself changes. Adjusted during render (not an effect) so the swap
-  // can't flash a stale frame.
-  const [pinnedArtifact, setPinnedArtifact] = useState<PinnedArtifact | null>(
-    null,
-  );
-  // A nonce that, when bumped, remounts the artifact frame so it revalidates
-  // against the live token endpoint (ETag/304 makes this cheap) — the recovery
-  // path when the pinned URL expired. Remounting, not URL-string compare, is
-  // what guarantees a wedged iframe actually retries: the token endpoint is the
-  // authority, and a new URL for the same bucket would be byte-identical.
-  const [artifactRefreshKey, setArtifactRefreshKey] = useState(0);
-  if (publishedBuild?.artifactUrl) {
-    const adoptFresh =
-      !pinnedArtifact ||
-      pinnedArtifact.buildId !== publishedBuild.id ||
-      pinnedArtifact.refreshKey !== artifactRefreshKey;
-    if (adoptFresh) {
-      setPinnedArtifact({
-        buildId: publishedBuild.id,
-        url: publishedBuild.artifactUrl,
-        mintedAt: buildsUpdatedAt || Date.now(),
-        refreshKey: artifactRefreshKey,
-      });
-    }
-  } else if (lifecycle && pinnedArtifact) {
-    // The lifecycle says there's no published build anymore — drop the pin.
-    setPinnedArtifact(null);
-  }
-
-  // Expired-URL recovery: if the mounted artifact never posts "ready" or
-  // "rendered" within the grace window AND the pinned URL is old enough to
-  // have expired, refetch the lifecycle (minting a fresh URL) and adopt it.
-  const artifactLoadedRef = useRef(false);
-  const onArtifactReady = useCallback(() => {
-    artifactLoadedRef.current = true;
-  }, []);
+  // The published build's artifact, pinned to one signed URL per build (so the
+  // 2s builds poll can't reload the iframe), with expired-URL recovery via the
+  // refresh-key remount. The whole lifecycle machine lives in the hook.
   const browsing = interactive && !!browseVersionId;
-  const renderedArtifact = !browsing ? pinnedArtifact : null;
-  useEffect(() => {
-    if (!renderedArtifact) return;
-    artifactLoadedRef.current = false;
-    const timer = setTimeout(() => {
-      if (artifactLoadedRef.current) return;
-      if (Date.now() - renderedArtifact.mintedAt < ARTIFACT_URL_FRESH_MS) {
-        return;
-      }
-      // Refetch mints the current bucket's URL (re-checking the token server-
-      // side even when the browser would reframe from cache), then remount the
-      // frame so it revalidates against those endpoints. The remount, not a URL
-      // string change, is what un-wedges a frame whose module fetches hung.
-      void queryClient
-        .invalidateQueries({
-          queryKey: trpc.dashboards.builds.queryKey({ id: dashboardId }),
-        })
-        .then(() => setArtifactRefreshKey((k) => k + 1));
-    }, ARTIFACT_READY_GRACE_MS);
-    return () => clearTimeout(timer);
-  }, [renderedArtifact, dashboardId, queryClient, trpc]);
+  const {
+    artifact: pinnedArtifact,
+    refreshKey: artifactRefreshKey,
+    onReady: onArtifactReady,
+  } = usePinnedArtifact({
+    dashboardId,
+    publishedBuild,
+    lifecycle,
+    mintedAt: buildsUpdatedAt,
+    suspended: browsing,
+  });
 
   // Server-side version history (newest first), for the undo/redo navigation.
   const { versions, isLoading: versionsLoading } = useCanvasVersions(
@@ -380,11 +299,8 @@ export function FreeformCanvasView({
   // Migrated single-file canvases have no version pointer, but the source
   // endpoint exposes their stored code as a synthetic project.
   const headVersionId = dashboard?.currentVersionId ?? null;
-  const wantHeadSource = shouldLoadCanvasHeadSource({
-    dashboardLoaded: !!dashboard,
-    lifecycleLoaded: lifecycle !== undefined,
-    hasPublishedBuild: !!publishedBuild,
-  });
+  const wantHeadSource =
+    !!dashboard && lifecycle !== undefined && !publishedBuild;
   const { source: headSource, isLoading: headSourceLoading } = useCanvasSource({
     id: wantHeadSource ? dashboardId : undefined,
     versionId: headVersionId ?? undefined,
@@ -417,29 +333,15 @@ export function FreeformCanvasView({
   );
 
   // The data bridge is a pure function; the QueryClient (its read cache) is
-  // injected here rather than resolved inside it.
+  // injected here rather than resolved inside it. Deliberately independent of
+  // the builds poll: a dependency on `publishedBuild` (fresh object — with a
+  // fresh signed artifactUrl — every 2s refetch) would churn the warm-frame
+  // pool, which assumes stable callbacks. View-mode capability gating happens
+  // in BuiltCanvas via the `capabilities` prop below.
   const onDataRequest = useCallback(
-    (method: string, payload: unknown) => {
-      if (!interactive) {
-        try {
-          // View mode enforces the published manifest's capabilities. They're
-          // undefined while the manifest hasn't loaded — or when the canvas is
-          // client-rendered from head source with no manifest at all — and the
-          // assert allows that transient/manifest-less window instead of
-          // hard-failing every read. The interactive path never asserts: the
-          // author's own client keeps full data access while iterating.
-          assertCanvasCapability(
-            publishedBuild?.manifest?.capabilities,
-            method,
-            payload,
-          );
-        } catch (error) {
-          return Promise.reject(error);
-        }
-      }
-      return handleFreeformDataRequest(method, payload, queryClient);
-    },
-    [interactive, publishedBuild, queryClient],
+    (method: string, payload: unknown) =>
+      handleFreeformDataRequest(method, payload, queryClient),
+    [queryClient],
   );
 
   const onError = useCallback(
@@ -447,9 +349,10 @@ export function FreeformCanvasView({
     [threadId, setRuntimeError],
   );
   const onRendered = useCallback(() => {
-    artifactLoadedRef.current = true;
+    // "rendered" is as good as "ready" as proof the pinned artifact URL loaded.
+    onArtifactReady();
     setRuntimeError(threadId, null);
-  }, [threadId, setRuntimeError]);
+  }, [threadId, setRuntimeError, onArtifactReady]);
 
   // Routes the canvas's allowlisted nav intents within this channel.
   const onNavigate = useCanvasNavigation(channelId);
@@ -476,7 +379,7 @@ export function FreeformCanvasView({
   // The canvas "has content" once any source version exists or a build is
   // published — the record is the always-available signal, so a canvas with
   // content never flashes the empty state while source/builds load.
-  const hasSource = hasCanvasSource({ headVersionId, headCode });
+  const hasSource = !!headVersionId || !!headCode?.trim();
   const hasContent = hasSource || !!pinnedArtifact;
   // `isGenerating` keys off the effective task (the optimistic bridge right after
   // submit, then the polled record) and short-circuits on a terminal run — so a
@@ -751,6 +654,16 @@ export function FreeformCanvasView({
               <BuiltCanvas
                 key={`${pinnedArtifact.buildId}:${artifactRefreshKey}`}
                 artifactUrl={pinnedArtifact.url}
+                // View mode enforces the published manifest's capabilities.
+                // They're undefined while the manifest hasn't loaded, and the
+                // assert allows that transient window instead of hard-failing
+                // every read. The interactive path never gates: the author's
+                // own client keeps full data access while iterating.
+                capabilities={
+                  interactive
+                    ? undefined
+                    : publishedBuild?.manifest?.capabilities
+                }
                 onDataRequest={onDataRequest}
                 onError={onError}
                 onReady={onArtifactReady}

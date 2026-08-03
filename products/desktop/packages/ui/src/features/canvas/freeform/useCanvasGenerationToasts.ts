@@ -117,19 +117,6 @@ export function useCanvasGenerationToasts(): void {
 
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
-  // One-shot build-lifecycle read for a canvas whose generation just finished.
-  // Kept in a ref (trpc/queryClient are stable) so the transition effect below
-  // needn't depend on them.
-  const fetchLifecycleRef = useRef(
-    (dashboardId: string): Promise<CanvasBuildLifecycle> =>
-      queryClient.fetchQuery(
-        trpc.dashboards.builds.queryOptions({ id: dashboardId }),
-      ),
-  );
-  fetchLifecycleRef.current = (dashboardId) =>
-    queryClient.fetchQuery(
-      trpc.dashboards.builds.queryOptions({ id: dashboardId }),
-    );
 
   const taskIds = useMemo(() => Object.keys(tracked), [tracked]);
 
@@ -209,8 +196,10 @@ export function useCanvasGenerationToasts(): void {
           // Verify the build before announcing "ready". A failed lifecycle
           // read falls back to the plain success toast — a broken builds
           // endpoint mustn't swallow the completion signal entirely.
-          void fetchLifecycleRef
-            .current(entry.dashboardId)
+          void queryClient
+            .fetchQuery(
+              trpc.dashboards.builds.queryOptions({ id: entry.dashboardId }),
+            )
             .then((lifecycle) =>
               emitCanvasGenerationNotification(
                 bus,
@@ -229,7 +218,7 @@ export function useCanvasGenerationToasts(): void {
       // Stop tracking (and polling) this task now that it's done.
       untrack(st.id);
     }
-  }, [sig, untrack]);
+  }, [sig, untrack, queryClient, trpc]);
 }
 
 // Renders nothing; exists only to host useCanvasGenerationToasts so the frequent

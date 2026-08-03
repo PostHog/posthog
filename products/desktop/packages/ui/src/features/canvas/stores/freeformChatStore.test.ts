@@ -1,45 +1,49 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { useFreeformChatStore } from "./freeformChatStore";
+import {
+  EMPTY_FREEFORM_THREAD,
+  useFreeformChatStore,
+} from "./freeformChatStore";
 
 function reset() {
-  useFreeformChatStore.setState({ threads: {}, threadOrder: [] });
+  useFreeformChatStore.setState({ threads: {} });
 }
 
-function browse(threadId: string) {
-  useFreeformChatStore.getState().setBrowseVersion(threadId, "v1");
-}
-
-describe("freeformChatStore eviction", () => {
+describe("freeformChatStore", () => {
   beforeEach(reset);
 
-  it("evicts the least recently used threads beyond the cap", () => {
-    for (let i = 0; i < 12; i++) browse(`dashboard:${i}`);
-    const { threads, threadOrder } = useFreeformChatStore.getState();
-    // Cap is 8: the oldest four are gone, the most recent survive.
-    expect(threadOrder).toHaveLength(8);
-    expect(threads["dashboard:0"]).toBeUndefined();
-    expect(threads["dashboard:11"]).toBeDefined();
+  it("creates a thread from the empty state on first patch", () => {
+    useFreeformChatStore.getState().setBrowseVersion("dashboard:1", "v1");
+
+    expect(useFreeformChatStore.getState().threads["dashboard:1"]).toEqual({
+      ...EMPTY_FREEFORM_THREAD,
+      browseVersionId: "v1",
+    });
   });
 
-  it("never evicts a thread with a mounted view", () => {
-    // Mount thread 0, then churn far more than the cap through other threads.
-    useFreeformChatStore.getState().setThreadMounted("dashboard:0", true);
-    browse("dashboard:0");
-    for (let i = 1; i < 12; i++) browse(`dashboard:${i}`);
+  it("patches fields independently per thread", () => {
+    const store = useFreeformChatStore.getState();
+    store.setBrowseVersion("dashboard:1", "v1");
+    store.setRuntimeError("dashboard:1", "boom");
+    store.setRuntimeError("dashboard:2", "other");
 
     const { threads } = useFreeformChatStore.getState();
-    expect(threads["dashboard:0"]).toBeDefined();
-    expect(threads["dashboard:0"].browseVersionId).toBe("v1");
+    expect(threads["dashboard:1"]).toEqual({
+      browseVersionId: "v1",
+      runtimeError: "boom",
+    });
+    expect(threads["dashboard:2"]).toEqual({
+      browseVersionId: null,
+      runtimeError: "other",
+    });
   });
 
-  it("stops protecting a thread once its view unmounts", () => {
-    useFreeformChatStore.getState().setThreadMounted("dashboard:0", true);
-    browse("dashboard:0");
-    useFreeformChatStore.getState().setThreadMounted("dashboard:0", false);
-    for (let i = 1; i < 12; i++) browse(`dashboard:${i}`);
+  it("clears a field back to null without dropping the thread", () => {
+    const store = useFreeformChatStore.getState();
+    store.setBrowseVersion("dashboard:1", "v1");
+    store.setBrowseVersion("dashboard:1", null);
 
-    expect(
-      useFreeformChatStore.getState().threads["dashboard:0"],
-    ).toBeUndefined();
+    expect(useFreeformChatStore.getState().threads["dashboard:1"]).toEqual(
+      EMPTY_FREEFORM_THREAD,
+    );
   });
 });

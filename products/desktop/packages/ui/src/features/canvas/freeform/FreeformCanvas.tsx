@@ -1,11 +1,8 @@
 import {
   type CanvasAnalyticsConfig,
   type CanvasNavIntent,
-  type CanvasToHostMessage,
   canvasToHostMessageSchema,
-  type HostToCanvasMessage,
 } from "@posthog/core/canvas/freeformSchemas";
-import { isSafePostHogUrl } from "@posthog/shared";
 import { logger } from "@posthog/ui/shell/logger";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
@@ -16,12 +13,10 @@ import {
   useMemo,
   useRef,
 } from "react";
+import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
 import { buildSandboxDocument, type SandboxMode } from "./sandboxRuntime";
 
 const log = logger.scope("freeform-canvas");
-
-// Canvas code can post open-external without a gesture, so opens are limited.
-const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 
 export interface FreeformCanvasProps {
   /** The single-file React source to render. */
@@ -72,7 +67,6 @@ export function FreeformCanvas({
   // only gates an imperative postMessage and is never shown on screen, so it
   // shouldn't trigger re-renders.
   const readyRef = useRef(false);
-  const lastExternalOpenRef = useRef(0);
 
   // The document is keyed on mode + the analytics host (which the CSP must open
   // for posthog-js), not on code: code is injected via `init`, so changing it
@@ -134,75 +128,39 @@ export function FreeformCanvas({
   // one-shot "ready" (and early data-request/error) can fire before the
   // listener exists and be lost, leaving the canvas blank on a cold first open.
   useLayoutEffect(() => {
-    const post = (msg: HostToCanvasMessage) => {
-      iframeRef.current?.contentWindow?.postMessage(msg, "*");
-    };
-
-    const route = async (msg: CanvasToHostMessage) => {
-      switch (msg.type) {
-        case "ready":
+    const route = createCanvasHostMessageRouter({
+      post: (msg) => {
+        iframeRef.current?.contentWindow?.postMessage(msg, "*");
+      },
+      callbacks: () => ({
+        // "ready" gates the imperative init handshake rather than a prop.
+        onReady: () => {
           readyRef.current = true;
           postInit();
-          break;
-        case "data-request": {
-          try {
-            const result = await latest.current.onDataRequest(
-              msg.method,
-              msg.payload,
-            );
-            post({
-              channel: "posthog-canvas",
-              type: "data-response",
-              id: msg.id,
-              ok: true,
-              result,
-            });
-          } catch (err) {
-            post({
-              channel: "posthog-canvas",
-              type: "data-response",
-              id: msg.id,
-              ok: false,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-          break;
+        },
+        onDataRequest: latest.current.onDataRequest,
+        onError: (message, stack) => {
+          log.warn("Freeform canvas error", { message });
+          latest.current.onError?.(message, stack);
+        },
+        onRendered: () => latest.current.onRendered?.(),
+        onNavigate: (intent) => latest.current.onNavigate?.(intent),
+      }),
+      isFrameFocused: () => document.activeElement === iframeRef.current,
+      openExternal: openExternalUrl,
+      // This host's policy is to log dropped opens rather than drop silently.
+      onExternalOpenBlocked: (url, reason) => {
+        if (reason === "unsafe-url") {
+          log.warn("Blocked non-PostHog canvas external URL", { url });
+        } else if (reason === "no-interaction") {
+          log.warn("Ignored canvas external URL open without interaction", {
+            url,
+          });
+        } else {
+          log.warn("Throttled canvas external URL open", { url });
         }
-        case "error":
-          log.warn("Freeform canvas error", { message: msg.message });
-          latest.current.onError?.(msg.message, msg.stack);
-          break;
-        case "rendered":
-          latest.current.onRendered?.();
-          break;
-        case "navigate":
-          // msg.nav is already allowlist-validated by safeParse below.
-          latest.current.onNavigate?.(msg.nav);
-          break;
-        case "open-external":
-          // Re-checks the schema's allowlist refine in case it ever drifts.
-          if (!isSafePostHogUrl(msg.url)) {
-            log.warn("Blocked non-PostHog canvas external URL", {
-              url: msg.url,
-            });
-          } else if (document.activeElement !== iframeRef.current) {
-            // A real link click moves focus into the iframe; requiring focus
-            // stops code from auto-opening URLs on load (e.g. thumbnails).
-            log.warn("Ignored canvas external URL open without interaction", {
-              url: msg.url,
-            });
-          } else if (
-            Date.now() - lastExternalOpenRef.current <
-            EXTERNAL_OPEN_MIN_INTERVAL_MS
-          ) {
-            log.warn("Throttled canvas external URL open", { url: msg.url });
-          } else {
-            lastExternalOpenRef.current = Date.now();
-            openExternalUrl(msg.url);
-          }
-          break;
-      }
-    };
+      },
+    });
 
     const onMessage = (event: MessageEvent) => {
       // A null-origin sandbox can't be trusted by origin, so identify the frame
