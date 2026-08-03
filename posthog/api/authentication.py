@@ -64,6 +64,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -329,6 +330,13 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 "Your account is awaiting verification. Please check your email for a verification link.",
                 code="not_verified",
+            )
+
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            raise serializers.ValidationError(
+                VERIFIED_DOMAIN_REQUIRED_ERROR,
+                code="verified_domain_required",
             )
 
         clear_two_factor_session_flags(request)

@@ -43142,6 +43142,11 @@ export namespace Schemas {
       readonly customer_id: string | null;
       /** @nullable */
       enforce_2fa?: boolean | null;
+      /**
+         * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+         * @nullable
+         */
+      enforce_verified_domains?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
       /**
@@ -53318,6 +53323,11 @@ export namespace Schemas {
       readonly customer_id?: string | null;
       /** @nullable */
       enforce_2fa?: boolean | null;
+      /**
+         * When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.
+         * @nullable
+         */
+      enforce_verified_domains?: boolean | null;
       /** @nullable */
       members_can_invite?: boolean | null;
       /**
