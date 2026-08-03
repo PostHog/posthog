@@ -112,18 +112,17 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    session_id = "conversation-abc"  # same across every turn of the conversation
-                                    trace_id = str(uuid.uuid4())     # one per turn
-                                    distinct_id = "user_123"
+                                    trace_id = str(uuid.uuid4())
 
-                                    # tools and get_weather() are your existing tool-calling setup
                                     response = client.responses.create(
                                         model="gpt-5-mini",
                                         input=[{"role": "user", "content": "What's the weather in Paris?"}],
                                         tools=tools,
-                                        posthog_distinct_id=distinct_id,
+                                        posthog_distinct_id="user_123",
                                         posthog_trace_id=trace_id,
-                                        posthog_properties={"$ai_session_id": session_id},
+                                        posthog_properties={
+                                            "$ai_session_id": "conversation-abc",
+                                        },
                                     )
                                 `,
                             },
@@ -131,18 +130,17 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    const sessionId = 'conversation-abc' // same across every turn of the conversation
-                                    const traceId = crypto.randomUUID()  // one per turn
-                                    const distinctId = 'user_123'
+                                    const traceId = crypto.randomUUID()
 
-                                    // tools and getWeather() are your existing tool-calling setup
                                     const response = await client.responses.create({
                                       model: 'gpt-5-mini',
                                       input: [{ role: 'user', content: "What's the weather in Paris?" }],
                                       tools,
-                                      posthogDistinctId: distinctId,
+                                      posthogDistinctId: 'user_123',
                                       posthogTraceId: traceId,
-                                      posthogProperties: { $ai_session_id: sessionId },
+                                      posthogProperties: {
+                                        $ai_session_id: 'conversation-abc',
+                                      },
                                     })
                                 `,
                             },
@@ -184,20 +182,19 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'python',
                                 file: 'Python',
                                 code: dedent`
-                                    # Capture each function call in the output as a span nested under the generation
                                     for item in response.output:
                                         if item.type != "function_call":
                                             continue
 
                                         start = time.time()
-                                        result = get_weather(**json.loads(item.arguments))
+                                        result = run_tool(item.name, json.loads(item.arguments))
 
                                         posthog.capture(
-                                            distinct_id=distinct_id,
+                                            distinct_id="user_123",
                                             event="$ai_span",
                                             properties={
                                                 "$ai_trace_id": trace_id,
-                                                "$ai_session_id": session_id,
+                                                "$ai_session_id": "conversation-abc",
                                                 "$ai_span_id": str(uuid.uuid4()),
                                                 "$ai_span_name": item.name,
                                                 "$ai_input_state": item.arguments,
@@ -211,19 +208,18 @@ export const getOpenAISteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'typescript',
                                 file: 'Node',
                                 code: dedent`
-                                    // Capture each function call in the output as a span nested under the generation
                                     for (const item of response.output) {
                                       if (item.type !== 'function_call') continue
 
                                       const start = Date.now()
-                                      const result = await getWeather(JSON.parse(item.arguments))
+                                      const result = await runTool(item.name, JSON.parse(item.arguments))
 
                                       posthog.capture({
-                                        distinctId,
+                                        distinctId: 'user_123',
                                         event: '$ai_span',
                                         properties: {
                                           $ai_trace_id: traceId,
-                                          $ai_session_id: sessionId,
+                                          $ai_session_id: 'conversation-abc',
                                           $ai_span_id: crypto.randomUUID(),
                                           $ai_span_name: item.name,
                                           $ai_input_state: item.arguments,
