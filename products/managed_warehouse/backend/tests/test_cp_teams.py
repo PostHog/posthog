@@ -214,8 +214,13 @@ class TestTTLCache:
 class TestControlPlaneTransport:
     @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
     def test_org_read_uses_internal_transport_with_the_control_plane_request_shape(self) -> None:
+        response_row = _row()
+        response_row.pop("data_imports_table_naming_version")
         response = MagicMock(status_code=200, text="ok")
-        response.json.return_value = {"teams": [_row()]}
+        response.json.return_value = {
+            "teams": [response_row],
+            "data_imports_table_naming_version": "copy_v1",
+        }
 
         with patch(
             "products.managed_warehouse.backend.cp_teams.internal_requests.request",

@@ -29,6 +29,7 @@ from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     attach_catalog,
     duckgres_data_imports_schema,
+    duckgres_data_imports_table_name,
     get_config,
     get_duckgres_server_by_team_org,
     get_duckgres_server_for_organization,
@@ -63,7 +64,6 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_copy_data_imports_verification_metric,
     record_ducklake_copy_data_imports_stage_duration,
 )
-from products.warehouse_sources.backend.facade.duckgres import bind_duckgres_data_imports_table_name
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.pipelines import DUCKGRES_BATCH_SINK_FLAG, is_duckgres_sink_team_member
 
@@ -333,7 +333,7 @@ async def _prepare_data_imports_ducklake_metadata(
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=ducklake_schema_name,
-                ducklake_table_name=await database_sync_to_async(bind_duckgres_data_imports_table_name)(schema),
+                ducklake_table_name=await database_sync_to_async(duckgres_data_imports_table_name)(schema),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,

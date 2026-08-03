@@ -11,7 +11,7 @@ class TestDuckgresDataImportsTableNameForVersion:
             ("mysql", "MySQL", "SalesEU", "customer_orders", "mysql_saleseu_customer_orders"),
             ("bigquery", "BigQuery", None, "daily_stats", "bigquery_daily_stats"),
             ("google_ads", "GoogleAds", None, "video", "googleads_video"),
-            ("tiktok_ads", "TikTokAds", "prod", "ad_report", "tiktokads_prod_ad_report"),
+            ("tiktok_ads", "TikTokAds", "prod__us", "ad_report", "tiktokads_prod_us_ad_report"),
         ]
     )
     def test_source_keys_are_stable_without_camel_case_splitting(

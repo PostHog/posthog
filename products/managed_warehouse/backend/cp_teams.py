@@ -165,11 +165,19 @@ def _rows_from_response(response: http_requests.Response) -> list[dict] | None:
         data = response.json()
     except ValueError:
         return None
+    naming_version: object = None
     if isinstance(data, dict):
+        naming_version = data.get("data_imports_table_naming_version")
         data = data.get("teams")
     if not isinstance(data, list):
         return None
-    return [row for row in data if isinstance(row, dict)]
+    return [
+        {**row, "data_imports_table_naming_version": naming_version}
+        if isinstance(naming_version, str) and naming_version
+        else row
+        for row in data
+        if isinstance(row, dict)
+    ]
 
 
 def _fetch_rows(*, organization_id: str | None) -> list[dict] | None:

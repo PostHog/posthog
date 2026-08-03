@@ -26,7 +26,6 @@ from products.managed_warehouse.backend.facade.api import (
     get_duckgres_query_server_config,
     setup_duckgres_session,
 )
-from products.warehouse_sources.backend.duckgres_table_binding import bind_duckgres_data_imports_table_name
 from products.warehouse_sources.backend.models import ExternalDataJob, ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
@@ -245,8 +244,6 @@ def process_batch(batch: PendingBatch) -> None:
         if job.schema is None:
             raise ValueError(f"ExternalDataJob {batch.job_id} has no schema")
         schema = job.schema
-
-    bind_duckgres_data_imports_table_name(schema)
 
     kind = "backfill" if _is_backfill_batch(batch) else "live"
     # One ORM lookup serves both the cache key and the connection config; it is
