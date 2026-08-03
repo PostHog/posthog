@@ -42,6 +42,7 @@ PRODUCTS_APPS = [
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
     "products.early_access_features.backend.apps.EarlyAccessFeaturesConfig",
     "products.tasks.backend.apps.TasksConfig",
+    "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
@@ -646,6 +647,9 @@ SPECTACULAR_SETTINGS = {
         # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
         # daily/weekly/monthly choice set; pin one name for both.
         "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+        # Canvas source diagnostics and marketing-analytics UTM issues share the same
+        # error/warning severity pair; pin one shared name for the choice set.
+        "DiagnosticSeverityEnum": ["error", "warning"],
         # ReviewHog findings expose the same priority set on two fields (effective_priority +
         # reviewer_priority); pin one shared name for the choice set.
         "ReviewIssuePriorityEnum": ["must_fix", "should_fix", "consider"],
