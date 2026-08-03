@@ -341,6 +341,7 @@ export namespace Schemas {
      * * `leadership` - Leadership
      * * `marketing` - Marketing
      * * `sales` - Sales / Success
+     * * `student` - Student
      * * `other` - Other
      */
     export type RoleAtOrganizationEnum = typeof RoleAtOrganizationEnum[keyof typeof RoleAtOrganizationEnum];
@@ -354,6 +355,7 @@ export namespace Schemas {
       Leadership: 'leadership',
       Marketing: 'marketing',
       Sales: 'sales',
+      Student: 'student',
       Other: 'other',
     } as const;
 
