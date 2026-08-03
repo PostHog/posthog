@@ -138,6 +138,10 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
                         max_attempts=inputs.max_attempts,
                     ),
                     id=f"{workflow.info().workflow_id}-page-{page_number}",
+                    # Explicitly the default: terminating the parent must stop all page
+                    # children too, so killing the parent is a reliable stop-everything
+                    # switch and no abandoned child keeps sending digests.
+                    parent_close_policy=workflow.ParentClosePolicy.TERMINATE,
                 )
 
         cursor: str | None = None
