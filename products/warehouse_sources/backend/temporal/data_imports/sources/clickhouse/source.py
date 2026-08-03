@@ -110,6 +110,20 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLICKHOUSE
 
+    def _bypass_env_proxy(self, config: ClickHouseSourceConfig, team_id: int) -> bool:
+        """Whether this connection must skip the egress proxy.
+
+        Two cases, both of which the proxy would refuse. Internal teams may point a source at a
+        PostHog-internal host. And a tunneled connection is made to the tunnel's own loopback
+        bind address, which the proxy blocks by design — clickhouse-connect honours HTTP_PROXY
+        for every host including loopback, so the request would never reach the forwarded port
+        and the tunnel would open no channel to the customer's ClickHouse.
+
+        ClickHouse is the only tunnel-capable source this bites: the other database drivers use
+        raw TCP sockets and ignore the proxy env vars entirely.
+        """
+        return self.ssh_tunnel_enabled(config) or is_team_allowlisted_for_internal_hosts(team_id)
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
@@ -330,7 +344,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 verify=config.verify,
                 query_timeout=query_timeout,
                 settings=settings,
-                bypass_env_proxy=is_team_allowlisted_for_internal_hosts(team_id),
+                bypass_env_proxy=self._bypass_env_proxy(config, team_id),
             )
             try:
                 yield client
@@ -348,9 +362,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     ) -> list[SourceSchema]:
         schemas: list[SourceSchema] = []
 
-        # Internal teams may point at PostHog-internal ClickHouse hosts, which the
-        # egress proxy would refuse — connect those directly.
-        bypass_env_proxy = is_team_allowlisted_for_internal_hosts(team_id)
+        bypass_env_proxy = self._bypass_env_proxy(config, team_id)
 
         with self.with_ssh_tunnel(config, team_id) as (host, port):
             db_schemas = get_clickhouse_schemas(
@@ -483,7 +495,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
                 password=config.password,
                 secure=config.secure,
                 verify=config.verify,
-                bypass_env_proxy=is_team_allowlisted_for_internal_hosts(team_id),
+                bypass_env_proxy=self._bypass_env_proxy(config, team_id),
             )
 
     def source_for_pipeline(self, config: ClickHouseSourceConfig, inputs: SourceInputs) -> SourceResponse:
@@ -509,7 +521,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             chunk_size_override=schema.chunk_size_override,
             row_filters=inputs.row_filters,
             enabled_columns=inputs.enabled_columns,
-            bypass_env_proxy=is_team_allowlisted_for_internal_hosts(inputs.team_id),
+            bypass_env_proxy=self._bypass_env_proxy(config, inputs.team_id),
         )
 
     def reconcile_schema_metadata(

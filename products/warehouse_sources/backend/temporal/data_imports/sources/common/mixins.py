@@ -241,6 +241,16 @@ class SSHTunnelMixin:
     ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
         return make_ssh_tunnel_factory(config, team_id)
 
+    def ssh_tunnel_enabled(self, config) -> bool:
+        """Whether the tunnel helpers above will tunnel rather than connect directly.
+
+        For callers that need to know which branch was taken, because the `(host, port)` they
+        receive means something different in each case: a tunnel yields our own local bind
+        address, while a direct connection yields the user's configured host. Shares
+        `_enabled_ssh_tunnel` with the branch itself so the two cannot drift apart.
+        """
+        return _enabled_ssh_tunnel(config) is not None
+
     def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
         if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
             if config.ssh_tunnel.host:

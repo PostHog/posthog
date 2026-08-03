@@ -1,4 +1,8 @@
-from collections.abc import AsyncIterable
+import os
+import socket
+import threading
+from collections.abc import AsyncIterable, Iterator
+from contextlib import contextmanager
 
 import pytest
 from posthog.test.base import BaseTest
@@ -6,6 +10,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pyarrow as pa
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -1465,21 +1470,111 @@ class TestInternalHostTeamAllowlist:
             assert mixins.is_team_allowlisted_for_internal_hosts(team_id) is expected
 
 
+_FORBIDDEN_RESPONSE = b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+
+
+@contextmanager
+def _recording_server(response: bytes = _FORBIDDEN_RESPONSE) -> Iterator[tuple[int, list[str]]]:
+    server = socket.create_server(("127.0.0.1", 0))
+    server.settimeout(0.1)
+    requests: list[str] = []
+    stop = threading.Event()
+
+    def serve() -> None:
+        while not stop.is_set():
+            try:
+                conn, _ = server.accept()
+            except (TimeoutError, OSError):
+                continue
+            with conn:
+                requests.append(conn.recv(8192).decode("latin-1").split("\r\n")[0])
+                conn.sendall(response)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    try:
+        yield server.getsockname()[1], requests
+    finally:
+        stop.set()
+        thread.join(timeout=5)
+        server.close()
+
+
+def _connect_to(*, port: int, bypass_env_proxy: bool) -> None:
+    _get_client(
+        host="127.0.0.1",
+        port=port,
+        database="default",
+        user="default",
+        password=None,
+        secure=False,
+        verify=True,
+        bypass_env_proxy=bypass_env_proxy,
+    )
+
+
+class TestGetClientEgressProxyRouting:
+    """Where the connection actually goes, which is what decides whether a tunnel works.
+
+    PostHog's runtime points HTTP_PROXY at the Smokescreen egress proxy, and Smokescreen blocks
+    loopback. Routing a tunneled connection through it means the request never reaches the SSH
+    tunnel's local forwarded port, so the tunnel opens no channel to the customer's ClickHouse
+    and the source fails with a generic connection error. The stub servers answer with a
+    deterministic 403 rather than dropping the connection so that `_get_client` raises on the
+    first attempt instead of entering its transient-retry backoff.
+    """
+
+    @parameterized.expand([("bypassing", True), ("proxied", False)])
+    def test_only_a_proxied_connection_goes_through_the_egress_proxy(self, _name: str, bypass: bool) -> None:
+        with _recording_server() as (proxy_port, proxy_requests):
+            with _recording_server() as (bound_port, bound_requests):
+                proxy_url = f"http://127.0.0.1:{proxy_port}"
+                env = {"HTTP_PROXY": proxy_url, "http_proxy": proxy_url}
+                with patch.dict(os.environ, env):
+                    os.environ.pop("NO_PROXY", None)
+                    os.environ.pop("no_proxy", None)
+
+                    with pytest.raises(ClickHouseConnectionError):
+                        _connect_to(port=bound_port, bypass_env_proxy=bypass)
+
+        assert bool(bound_requests) is bypass
+        assert bool(proxy_requests) is not bypass
+
+    def test_redirect_away_from_the_target_is_not_followed(self) -> None:
+        # A bypassing connection skips the egress proxy, so following a redirect would let the
+        # host we reached send us to an address the proxy would have denied.
+        with _recording_server() as (elsewhere_port, elsewhere_requests):
+            redirect = (
+                f"HTTP/1.1 302 Found\r\nLocation: http://127.0.0.1:{elsewhere_port}/\r\n"
+                "Content-Length: 0\r\nConnection: close\r\n\r\n"
+            ).encode()
+            with _recording_server(response=redirect) as (bound_port, bound_requests):
+                with pytest.raises(ClickHouseConnectionError):
+                    _connect_to(port=bound_port, bypass_env_proxy=True)
+
+        assert bound_requests
+        assert elsewhere_requests == []
+
+
 class TestDirectQueryClientBypassEnvProxy:
     """`direct_query_client` backs the HogQL direct-SQL adapter, and unlike every other
     `_get_client` call site on `ClickHouseSource` it once omitted `bypass_env_proxy` entirely —
     an allowlisted internal team's direct query silently routed through the egress proxy and
     failed to reach the PostHog-internal host it was pointed at.
+
+    A tunneled connection must bypass for a different reason: the address is our own loopback
+    bind, which the proxy blocks, so a customer team with a tunnel never reached its ClickHouse.
     """
 
     @pytest.mark.parametrize(
-        "region,team_id,expected_bypass",
+        "region,team_id,tunneled,expected_bypass",
         [
-            ("US", 2, True),
-            ("US", 12345, False),
+            ("US", 2, False, True),
+            ("US", 12345, False, False),
+            ("US", 12345, True, True),
         ],
     )
-    def test_forwards_bypass_env_proxy_from_team_allowlist(self, region, team_id, expected_bypass):
+    def test_forwards_bypass_env_proxy_from_team_allowlist(self, region, team_id, tunneled, expected_bypass):
         from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import source as source_module
         from products.warehouse_sources.backend.temporal.data_imports.sources.common import mixins
 
@@ -1490,6 +1585,7 @@ class TestDirectQueryClientBypassEnvProxy:
         config.password = None
         config.secure = True
         config.verify = True
+        config.ssh_tunnel = MagicMock(enabled=True) if tunneled else None
 
         with patch.object(mixins, "get_instance_region", return_value=region):
             with patch.object(source, "with_ssh_tunnel") as mock_with_ssh_tunnel:

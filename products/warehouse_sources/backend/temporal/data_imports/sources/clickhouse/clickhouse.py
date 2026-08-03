@@ -18,6 +18,8 @@ from clickhouse_connect.driver.client import Client as ClickHouseClient
 from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
+from urllib3 import PoolManager
+from urllib3.response import HTTPResponse
 
 from posthog.exceptions_capture import capture_exception
 
@@ -194,6 +196,29 @@ def _apply_session_settings(client: ClickHouseClient, settings: dict[str, Any]) 
             )
 
 
+class _NoRedirectPoolManager(PoolManager):
+    """A urllib3 manager that refuses to follow redirects.
+
+    Only proxy-bypassing connections use this manager. urllib3 follows a cross-host redirect
+    on the same manager, so without this the host we connect to could answer with a redirect
+    to an arbitrary address and we would fetch it directly from the worker, which is the
+    reachability the egress proxy exists to deny. A ClickHouse HTTP endpoint has no reason to
+    redirect us, so refusing costs nothing: the 3xx response goes back to clickhouse-connect,
+    which reports it as a connection error.
+
+    Enforced by overriding `urlopen` rather than through the pool's `retries` option because
+    clickhouse-connect passes its own `retries` on every request, which would take precedence
+    over a pool-level default.
+    """
+
+    # The urllib3 1.26 stub types `urlopen` with the generic `RequestMethods` parameters and
+    # omits `redirect`, even though it is the real third parameter of `PoolManager.urlopen`.
+    # Declaring the stub's parameters instead would forward `encode_multipart` down to
+    # `HTTPConnectionPool.urlopen`, which rejects it, so match the runtime signature.
+    def urlopen(self, method: str, url: str, redirect: bool = True, **kw: Any) -> HTTPResponse:  # type: ignore[override]
+        return super().urlopen(method, url, redirect=False, **kw)
+
+
 @functools.cache
 def _no_env_proxy_pool_manager(verify: bool) -> Any:
     """A shared urllib3 pool manager that never consults HTTP(S)_PROXY env vars.
@@ -203,8 +228,14 @@ def _no_env_proxy_pool_manager(verify: bool) -> Any:
     from the egress proxy (see posthog/security/outbound_proxy.py for the
     requests/httpx equivalents). Cached because clients don't own an injected
     manager (`close()` leaves it alive), so per-call managers would leak.
+
+    Built from clickhouse-connect's own options factory so the TCP keepalive tuning and
+    certificate handling match a direct connection, then recorded where the library tracks
+    its own managers so connection expiry and interpreter-exit cleanup cover this one too.
     """
-    return httputil.get_pool_manager(verify=verify)
+    manager = _NoRedirectPoolManager(**httputil.get_pool_manager_options(verify=verify))
+    httputil.all_managers[manager] = int(time.time())
+    return manager
 
 
 def _get_client(
@@ -229,8 +260,12 @@ def _get_client(
 
     `bypass_env_proxy` connects directly instead of honouring the
     HTTP(S)_PROXY env vars. Only ever set for PostHog-internal teams
-    (`is_team_allowlisted_for_internal_hosts`) — for customer-supplied config
-    the egress proxy is the SSRF backstop and must stay in the path.
+    (`is_team_allowlisted_for_internal_hosts`) or for an address that came out
+    of our own SSH tunnel — the proxy blocks the tunnel's loopback bind, and no
+    request would reach the forwarded port. For a customer-supplied host the
+    egress proxy is the SSRF backstop and must stay in the path, so callers
+    take the tunnel flag from the helper that produced the address rather than
+    inferring it from the host looking like loopback.
     """
     attempt = 0
     while True:
