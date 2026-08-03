@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -665,7 +666,7 @@ def process_message(
 
         # Build the helper early so the idempotency check can use it as a
         # delta-history fallback when the Redis dedup flag is missing — the case
-        # where the writer crashed between `write_to_deltalake` committing and
+        # where the writer crashed between `DeltaWriter.write` committing and
         # `mark_batch_as_processed` being called.
         job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
             id=export_signal.job_id
@@ -814,7 +815,7 @@ def process_message(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
             ).time():
-                delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
+                delta_table = async_to_sync(DeltaWriter(delta_table_helper).write)(
                     data=pa_table,
                     write_type=write_type,
                     should_overwrite_table=should_overwrite_table,
