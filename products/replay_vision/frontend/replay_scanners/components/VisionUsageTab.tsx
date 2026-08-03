@@ -48,7 +48,6 @@ const SPEND_CHART_SERIES = SPEND_CHART_MODEL_PRICES.map(([model]) => ({
 const SPEND_CHART_CREDITS_FORMULA = SPEND_CHART_MODEL_PRICES.map(
     ([, credits], index) => `${String.fromCharCode(65 + index)}*${credits}`
 ).join(' + ')
-const SPEND_CHART_FORMULA = `(${SPEND_CHART_CREDITS_FORMULA}) / 100`
 
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
@@ -70,8 +69,8 @@ export function VisionUsageTab(): JSX.Element {
     const zeroSpendCount = usageScanners.length - spenders.length
     const totalCredits = spenders.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
 
-    // Both the period window and the currency come from the quota, so dispatching before it lands would abort the
-    // in-flight query and refetch. A failed load still resolves (the loader keeps the last snapshot) so this can't hang.
+    // The period window comes from the quota, so dispatching before it lands would abort the in-flight query
+    // and refetch. A failed load still resolves (the loader keeps the last snapshot) so this can't hang.
     const quotaResolved = quota !== null || !quotaLoading
 
     // Memoized so re-renders can't churn the query; `tags.productKey` is required or the runner aborts.
@@ -83,13 +82,9 @@ export function VisionUsageTab(): JSX.Element {
                 series: SPEND_CHART_SERIES,
                 trendsFilter: {
                     display: ChartDisplayType.ActionsLineGraph,
-                    // The /100 charts dollars (1 credit = $0.01); orgs that can't be billed get raw credits.
-                    formulaNodes: [
-                        showUsd
-                            ? { formula: SPEND_CHART_FORMULA, custom_name: 'Spend' }
-                            : { formula: SPEND_CHART_CREDITS_FORMULA, custom_name: 'Credits' },
-                    ],
-                    aggregationAxisPrefix: showUsd ? '$' : undefined,
+                    // Credits, not dollars: the free tier applies cumulatively per period, so no per-bucket
+                    // conversion can chart billed dollars; those live in the tooltip beside the chart.
+                    formulaNodes: [{ formula: SPEND_CHART_CREDITS_FORMULA, custom_name: 'Credits' }],
                 },
                 dateRange: {
                     date_from:
@@ -102,7 +97,7 @@ export function VisionUsageTab(): JSX.Element {
                 tags: { productKey: ProductKey.REPLAY_VISION },
             },
         }),
-        [quota?.period_start, spendChartInterval, showUsd]
+        [quota?.period_start, spendChartInterval]
     )
     const spendChartInsightProps = useMemo<InsightLogicProps>(
         () => ({
