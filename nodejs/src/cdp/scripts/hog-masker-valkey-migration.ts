@@ -50,6 +50,20 @@ function sourceTimeMs([seconds, microseconds]: [string, string]): number {
     return Number(seconds) * 1000 + Math.floor(Number(microseconds) / 1000)
 }
 
+function successfulPipelineRows(
+    rows: [Error | null, unknown][] | null,
+    operation: string
+): [Error | null, unknown][] {
+    if (!rows) {
+        throw new Error(`${operation} returned no results`)
+    }
+    const failed = rows.find(([error]) => error)
+    if (failed?.[0]) {
+        throw new Error(`${operation} failed: ${failed[0].message}`)
+    }
+    return rows
+}
+
 export async function copyMaskerKeys(
     source: Redis,
     target: Redis,
@@ -67,13 +81,12 @@ export async function copyMaskerKeys(
             sourcePipeline.get(key)
             sourcePipeline.pttl(key)
         }
-        const [time, rows] = await Promise.all([source.time(), sourcePipeline.exec()])
-        if (!rows) {
-            throw new Error('Source Redis pipeline returned no results')
-        }
+        const [time, pipelineRows] = await Promise.all([source.time(), sourcePipeline.exec()])
+        const rows = successfulPipelineRows(pipelineRows, 'Source Redis read pipeline')
 
         const nowMs = sourceTimeMs(time)
         const targetPipeline = target.pipeline()
+        let pendingCopies = 0
         keys.forEach((key, index) => {
             const value = rows[index * 2]?.[1] as string | null
             const ttlMs = Number(rows[index * 2 + 1]?.[1])
@@ -82,9 +95,12 @@ export async function copyMaskerKeys(
                 return
             }
             targetPipeline.set(key, value, 'PXAT', nowMs + ttlMs)
-            summary.copiedKeys++
+            pendingCopies++
         })
-        await targetPipeline.exec()
+        if (pendingCopies > 0) {
+            successfulPipelineRows(await targetPipeline.exec(), 'Target Valkey write pipeline')
+            summary.copiedKeys += pendingCopies
+        }
     }
 }
 
@@ -97,10 +113,7 @@ export async function deleteTargetExtras(
     for await (const keys of scanBatches(target, options.keyPattern, options.scanCount)) {
         const existsPipeline = source.pipeline()
         keys.forEach((key) => existsPipeline.exists(key))
-        const rows = await existsPipeline.exec()
-        if (!rows) {
-            throw new Error('Source Redis existence pipeline returned no results')
-        }
+        const rows = successfulPipelineRows(await existsPipeline.exec(), 'Source Redis existence pipeline')
         const extras = keys.filter((_, index) => Number(rows[index]?.[1]) === 0)
         summary.extraTargetKeys += extras.length
         if (options.execute && extras.length > 0) {
@@ -124,10 +137,12 @@ export async function verifyMaskerKeys(
             targetPipeline.get(key)
             targetPipeline.pttl(key)
         }
-        const [sourceRows, targetRows] = await Promise.all([sourcePipeline.exec(), targetPipeline.exec()])
-        if (!sourceRows || !targetRows) {
-            throw new Error('Verification pipeline returned no results')
-        }
+        const [sourcePipelineRows, targetPipelineRows] = await Promise.all([
+            sourcePipeline.exec(),
+            targetPipeline.exec(),
+        ])
+        const sourceRows = successfulPipelineRows(sourcePipelineRows, 'Source Redis verification pipeline')
+        const targetRows = successfulPipelineRows(targetPipelineRows, 'Target Valkey verification pipeline')
         keys.forEach((_, index) => {
             const sourceValue = sourceRows[index * 2]?.[1] as string | null
             const sourceTtl = Number(sourceRows[index * 2 + 1]?.[1])

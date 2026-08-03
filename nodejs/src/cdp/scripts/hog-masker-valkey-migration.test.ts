@@ -1,6 +1,12 @@
 import IORedis, { Redis } from 'ioredis'
 
-import { MaskerMigrationOptions, migrationHasMismatches, runMaskerMigration } from './hog-masker-valkey-migration'
+import {
+    MaskerMigrationOptions,
+    copyMaskerKeys,
+    emptyMigrationSummary,
+    migrationHasMismatches,
+    runMaskerMigration,
+} from './hog-masker-valkey-migration'
 
 const KEY_PATTERN = '@posthog-test/hog-masker/mask/*'
 const SOURCE_KEY = '@posthog-test/hog-masker/mask/function/hash'
@@ -55,6 +61,22 @@ describe('HogMasker Valkey migration', () => {
         expect(summary).toMatchObject({ sourceKeys: 1, copiedKeys: 1 })
         await expect(target.get(SOURCE_KEY)).resolves.toBe('42')
         expect(Math.abs(sourceTtl - targetTtl)).toBeLessThan(500)
+    })
+
+    it('fails the migration and does not count copies when a target write fails', async () => {
+        await source.set(SOURCE_KEY, '42', 'PX', 60_000)
+        const failingPipeline = {
+            set: jest.fn(),
+            exec: jest.fn().mockResolvedValue([[new Error('write rejected'), null]]),
+        }
+        failingPipeline.set.mockReturnValue(failingPipeline)
+        jest.spyOn(target, 'pipeline').mockReturnValueOnce(failingPipeline as any)
+        const summary = emptyMigrationSummary()
+
+        await expect(copyMaskerKeys(source, target, options(), summary)).rejects.toThrow(
+            'Target Valkey write pipeline failed: write rejected'
+        )
+        expect(summary.copiedKeys).toBe(0)
     })
 
     it('finalizes an identical target and removes target-only keys', async () => {
