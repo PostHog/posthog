@@ -482,9 +482,9 @@ export interface sqlEditorLogicValues {
     dags: DataModelingDAG[] // dataModelingLogic
     selectedDagId: string | null // dataModelingLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[] // dataWarehouseViewsLogic
+    dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueryMapById: Record<string, DataWarehouseSavedQuery> // dataWarehouseViewsLogic
-    dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
     database: Required<DatabaseSchemaQueryResponse> | null // databaseTableListLogic
     databaseConnectionId: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
@@ -590,6 +590,7 @@ export interface sqlEditorLogicActions {
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
         payload?: string
     } // dataWarehouseViewsLogic
+    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueriesSuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
         payload?: any
@@ -598,7 +599,6 @@ export interface sqlEditorLogicActions {
         payload?: any
     } // dataWarehouseViewsLogic
     loadDataWarehouseSavedQueryFolders: () => any // dataWarehouseViewsLogic
-    loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     materializeDataWarehouseSavedQuery: (viewId: string) => {
         viewId: string
     } // dataWarehouseViewsLogic

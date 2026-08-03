@@ -32,8 +32,8 @@ export interface dataWarehouseViewsLogicValues {
     views: DatabaseSchemaViewTable[] // databaseTableListLogic
     user: UserType | null // userLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuery[]
-    dataWarehouseSavedQueriesLoading: boolean
     dataWarehouseSavedQueriesLoadError: string | null
+    dataWarehouseSavedQueriesLoading: boolean
     dataWarehouseSavedQueryFolders: DataWarehouseSavedQueryFolder[]
     dataWarehouseSavedQueryFoldersById: Record<string, DataWarehouseSavedQueryFolder>
     dataWarehouseSavedQueryFoldersLoading: boolean
