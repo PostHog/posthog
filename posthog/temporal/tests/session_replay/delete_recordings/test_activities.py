@@ -3,7 +3,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, patch
 
-import httpx
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.session_replay.delete_recordings.activities import (
     _parse_session_recording_list_response,
@@ -17,182 +17,51 @@ from posthog.temporal.session_replay.delete_recordings.types import (
 )
 
 
+def _patch_recording_api_client(failed_ids):
+    mock_client = AsyncMock()
+    mock_client.delete_recordings.return_value = failed_ids
+    mock_client_cm = AsyncMock()
+    mock_client_cm.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client_cm.__aexit__ = AsyncMock(return_value=False)
+    return patch(
+        "posthog.temporal.session_replay.delete_recordings.activities.recording_api_client",
+        return_value=mock_client_cm,
+    ), mock_client
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "response_json, expected_deleted, expected_failed_count",
+    "failed_ids, expected_deleted, expected_failed_count",
     [
-        pytest.param(
-            [
-                {"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000},
-                {"sessionId": "s2", "ok": True, "status": "deleted", "deletedAt": 1700000000},
-            ],
-            ["s1", "s2"],
-            0,
-            id="all_deleted",
-        ),
-        pytest.param(
-            [
-                {"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000},
-                {"sessionId": "s2", "ok": False, "error": "shred_failed"},
-            ],
-            ["s1"],
-            1,
-            id="mixed_results",
-        ),
-        pytest.param(
-            [],
-            [],
-            0,
-            id="empty_results",
-        ),
+        pytest.param([], ["s1", "s2"], 0, id="all_deleted"),
+        pytest.param(["s2"], ["s1"], 1, id="mixed_results"),
+        pytest.param(["s1", "s2"], [], 2, id="all_failed"),
     ],
 )
-async def test_delete_recordings_parses_response(response_json, expected_deleted, expected_failed_count):
-    mock_response = httpx.Response(200, json=response_json, request=httpx.Request("POST", "http://test"))
+async def test_delete_recordings_computes_deleted_and_failed(failed_ids, expected_deleted, expected_failed_count):
+    patcher, mock_client = _patch_recording_api_client(failed_ids)
 
-    with (
-        patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings,
-        patch(
-            "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
-        ) as mock_client_cls,
-    ):
-        mock_settings.RECORDING_API_URL = "http://recording-api:8000"
-        mock_settings.INTERNAL_API_SECRET = "test-secret"
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
-
+    with patcher:
         result = await delete_recordings(
             DeleteRecordingsInput(team_id=123, session_ids=["s1", "s2"], deleted_by="test@example.com")
         )
 
+    mock_client.delete_recordings.assert_called_once_with(["s1", "s2"], 123, "test@example.com")
     assert result.deleted == expected_deleted
     assert result.failed_count == expected_failed_count
 
 
 @pytest.mark.asyncio
-async def test_delete_recordings_url_construction():
-    mock_response = httpx.Response(
-        200,
-        json=[{"sessionId": "s1", "ok": True, "status": "deleted", "deletedAt": 1700000000}],
-        request=httpx.Request("POST", "http://test"),
-    )
-
-    with (
-        patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings,
-        patch(
-            "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
-        ) as mock_client_cls,
+async def test_delete_recordings_raises_non_retryable_when_no_recording_api_url():
+    with patch(
+        "posthog.temporal.session_replay.delete_recordings.activities.recording_api_client",
+        side_effect=RuntimeError("RECORDING_API_URL is not configured"),
     ):
-        mock_settings.RECORDING_API_URL = "http://recording-api:8000"
-        mock_settings.INTERNAL_API_SECRET = "test-secret"
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
-
-        await delete_recordings(DeleteRecordingsInput(team_id=456, session_ids=["s1"], deleted_by="test@posthog.com"))
-
-    mock_client.post.assert_called_once_with(
-        "http://recording-api:8000/api/projects/456/recordings/delete",
-        json={"session_ids": ["s1"], "deleted_by": "test@posthog.com"},
-    )
-
-
-@pytest.mark.asyncio
-async def test_delete_recordings_sends_auth_header():
-    mock_response = httpx.Response(
-        200,
-        json=[],
-        request=httpx.Request("POST", "http://test"),
-    )
-
-    with (
-        patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings,
-        patch(
-            "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
-        ) as mock_client_cls,
-    ):
-        mock_settings.RECORDING_API_URL = "http://recording-api:8000"
-        mock_settings.INTERNAL_API_SECRET = "my-secret-key"
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
-
-        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
-
-    mock_client_cls.assert_called_once_with(
-        timeout=60.0,
-        headers={"X-Internal-Api-Secret": "my-secret-key"},
-    )
-
-
-@pytest.mark.asyncio
-async def test_delete_recordings_no_auth_header_when_secret_empty():
-    mock_response = httpx.Response(
-        200,
-        json=[],
-        request=httpx.Request("POST", "http://test"),
-    )
-
-    with (
-        patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings,
-        patch(
-            "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
-        ) as mock_client_cls,
-    ):
-        mock_settings.RECORDING_API_URL = "http://recording-api:8000"
-        mock_settings.INTERNAL_API_SECRET = ""
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
-
-        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
-
-    mock_client_cls.assert_called_once_with(timeout=60.0, headers={})
-
-
-@pytest.mark.asyncio
-async def test_delete_recordings_raises_when_no_recording_api_url():
-    with patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings:
-        mock_settings.RECORDING_API_URL = ""
-
-        with pytest.raises(RuntimeError, match="RECORDING_API_URL is not configured"):
+        with pytest.raises(ApplicationError) as exc_info:
             await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
 
-
-@pytest.mark.asyncio
-async def test_delete_recordings_raises_on_http_error():
-    mock_response = httpx.Response(500, request=httpx.Request("POST", "http://test"))
-
-    with (
-        patch("posthog.temporal.session_replay.delete_recordings.activities.settings") as mock_settings,
-        patch(
-            "posthog.temporal.session_replay.delete_recordings.activities.internal_httpx_async_client"
-        ) as mock_client_cls,
-    ):
-        mock_settings.RECORDING_API_URL = "http://recording-api:8000"
-        mock_settings.INTERNAL_API_SECRET = ""
-
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_response
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=False)
-        mock_client_cls.return_value = mock_client
-
-        with pytest.raises(httpx.HTTPStatusError):
-            await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
+    assert exc_info.value.non_retryable is True
+    assert "RECORDING_API_URL is not configured" in str(exc_info.value)
 
 
 @pytest.mark.asyncio

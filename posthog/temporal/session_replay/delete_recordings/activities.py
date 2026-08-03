@@ -3,16 +3,15 @@ from datetime import UTC, datetime
 from urllib import parse
 from uuid import uuid4
 
-from django.conf import settings
-
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
-from posthog.security.outbound_proxy import internal_httpx_async_client
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
@@ -201,23 +200,15 @@ async def delete_recordings(input: DeleteRecordingsInput) -> DeleteRecordingsRes
 
     logger.info("Deleting recordings via recording API")
 
-    recording_api_url = settings.RECORDING_API_URL
-    if not recording_api_url:
-        raise RuntimeError("RECORDING_API_URL is not configured")
+    try:
+        async with recording_api_client() as client:
+            failed_ids = await client.delete_recordings(input.session_ids, input.team_id, input.deleted_by)
+    except RuntimeError as e:
+        # Misconfiguration (e.g. RECORDING_API_URL unset) can never succeed on retry.
+        raise ApplicationError(str(e), type="ConfigurationError", non_retryable=True) from e
 
-    url = f"{recording_api_url}/api/projects/{input.team_id}/recordings/delete"
-
-    headers: dict[str, str] = {}
-    if settings.INTERNAL_API_SECRET:
-        headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
-
-    async with internal_httpx_async_client(timeout=60.0, headers=headers) as client:
-        response = await client.post(url, json={"session_ids": input.session_ids, "deleted_by": input.deleted_by})
-        response.raise_for_status()
-        data = response.json()
-
-    deleted = [r["sessionId"] for r in data if r.get("ok")]
-    failed_count = len(data) - len(deleted)
+    deleted = [session_id for session_id in input.session_ids if session_id not in failed_ids]
+    failed_count = len(failed_ids)
 
     logger.info(
         "Delete batch completed",
