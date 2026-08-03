@@ -825,6 +825,23 @@ class TestChartCardBlockBuilders(SimpleTestCase):
             self.assertTrue(text.startswith(_SLACK_CODE_FENCE))
             self.assertTrue(text.endswith(_SLACK_CODE_FENCE))
 
+    def test_fenced_whitespace_free_content_terminates_and_stays_balanced(self):
+        # After a fence is closed and reopened, the only whitespace in the window can be
+        # the reopen prefix's own newline — cutting there consumes nothing of the content.
+        section = f"{_SLACK_CODE_FENCE}\n{'x' * 8000}\n{_SLACK_CODE_FENCE}"
+        blocks = _section_blocks([section])
+        self.assertGreater(len(blocks), 1)
+        for block in blocks:
+            text = block["text"]["text"]
+            self.assertLessEqual(len(text), 3000)
+            self.assertEqual(text.count(_SLACK_CODE_FENCE) % 2, 0)
+        self.assertIn(
+            "x" * 8000,
+            "".join(b["text"]["text"] for b in blocks)
+            .replace(f"\n{_SLACK_CODE_FENCE}", "")
+            .replace(f"{_SLACK_CODE_FENCE}\n", ""),
+        )
+
     def test_card_without_a_minted_url_references_the_uploaded_file(self):
         card = _SlackImageCard(TaskArtifact(name="Chart"), {}, file_id="F123")
         blocks = _chart_card_blocks(card)

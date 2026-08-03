@@ -1165,7 +1165,9 @@ def _split_section_text(section: str) -> list[str]:
             limit -= len(f"\n{_SLACK_CODE_FENCE}")
         window = candidate[:limit]
         cut = max(window.rfind("\n"), window.rfind(" "))
-        if cut <= 0:
+        # A cut inside the reopen prefix would emit just "```" and never consume any of
+        # remaining — an infinite loop when a fenced block wraps whitespace-free content.
+        if cut <= len(reopen):
             cut = limit
         piece = candidate[:cut]
         remaining = candidate[cut:].lstrip(" \n")
