@@ -1,3 +1,4 @@
+import { parseRepository } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { inject, injectable } from "inversify";
 import { SESSION_SERVICE, type SessionService } from "./sessionService";
@@ -72,6 +73,32 @@ export interface LocalHandoffNotifier {
   error(message: string): void;
   warn(message: string, data?: unknown): void;
   logError(message: string, data?: unknown): void;
+}
+
+// GitHub owner and repo names only ever contain these characters. Repository
+// entries arrive from the (team-writable) PostHog API and flow into `git clone`
+// and a filesystem path, so anything else — a URL scheme like `ext::` (git's
+// remote-ext transport runs arbitrary commands), a `file://`/scp remote, path
+// separators, `..`, or whitespace — is rejected before it can reach either sink.
+const SAFE_REPO_SEGMENT = /^[A-Za-z0-9._-]+$/;
+
+function canonicalRepository(
+  repository: string,
+): { slug: string; key: string } | null {
+  const parsed = parseRepository(repository);
+  if (!parsed) return null;
+  const { organization, repoName } = parsed;
+  for (const segment of [organization, repoName]) {
+    if (
+      !SAFE_REPO_SEGMENT.test(segment) ||
+      segment === "." ||
+      segment === ".."
+    ) {
+      return null;
+    }
+  }
+  const slug = `${organization}/${repoName}`;
+  return { slug, key: slug.toLowerCase() };
 }
 
 @injectable()
@@ -214,24 +241,46 @@ export class LocalHandoffService {
   ): Promise<Record<string, string>> {
     if (repositories.length === 0) return {};
     const cloneRoot = `${(await this.host.getWorktreeLocation()).replace(/\/$/, "")}/linked-repositories`;
-    const paths = await Promise.all(
-      repositories.map(async (repository) => {
-        const existing = await this.resolveRepoPathFromRemote(repository);
-        if (existing) return [repository.toLowerCase(), existing] as const;
-        const targetPath = `${cloneRoot}/${repository.toLowerCase()}`;
-        await this.host.cloneRepository({
-          repoUrl: repository,
-          targetPath,
-          cloneId: globalThis.crypto.randomUUID(),
-        });
-        await this.host.addFolder({
-          folderPath: targetPath,
-          remoteUrl: repository,
-        });
-        return [repository.toLowerCase(), targetPath] as const;
-      }),
-    );
-    return Object.fromEntries(paths);
+
+    // Resolve sequentially: an entry that maps to a target already claimed this
+    // pass is skipped, and no two clones run at once, so a case/whitespace alias
+    // can't race a sibling into the same directory (where one's failure rollback
+    // would delete the other's checkout).
+    const resolved: Record<string, string> = {};
+    const clonedTargets = new Set<string>();
+    for (const repository of repositories) {
+      // A checkout we already know locally is used as-is — this is a lookup, not
+      // a clone, so the raw string (which may be a full remote URL) is safe here.
+      const existing = await this.resolveRepoPathFromRemote(repository);
+      if (existing) {
+        resolved[repository.toLowerCase()] = existing;
+        continue;
+      }
+      // Otherwise we are about to clone it. The entry comes from the
+      // team-writable API and would reach `git clone` and a filesystem path, so
+      // it must be a plain owner/repo before we build either.
+      const canonical = canonicalRepository(repository);
+      if (!canonical) {
+        this.notifier.warn(
+          `Skipping repository with an unexpected name: ${repository}`,
+        );
+        continue;
+      }
+      if (clonedTargets.has(canonical.key)) continue;
+      clonedTargets.add(canonical.key);
+      const targetPath = `${cloneRoot}/${canonical.key}`;
+      // Build the URL from the validated slug (never the raw entry) so the
+      // explicit https scheme is the only transport git will use.
+      const repoUrl = `https://github.com/${canonical.slug}.git`;
+      await this.host.cloneRepository({
+        repoUrl,
+        targetPath,
+        cloneId: globalThis.crypto.randomUUID(),
+      });
+      await this.host.addFolder({ folderPath: targetPath, remoteUrl: repoUrl });
+      resolved[canonical.key] = targetPath;
+    }
+    return resolved;
   }
 
   private async resolveRepoPathFromPicker(

@@ -211,7 +211,7 @@ describe("LocalHandoffService.start", () => {
 
     expect(deps.host.cloneRepository).toHaveBeenCalledWith(
       expect.objectContaining({
-        repoUrl: "posthog/posthog-js",
+        repoUrl: "https://github.com/posthog/posthog-js.git",
         targetPath: "/worktrees/linked-repositories/posthog/posthog-js",
       }),
     );
@@ -228,5 +228,62 @@ describe("LocalHandoffService.start", () => {
           "/worktrees/linked-repositories/posthog/posthog-js",
       },
     );
+  });
+
+  // A task's repositories are team-writable via the API, so an unsafe entry must
+  // never reach `git clone` (RCE via git's remote-ext transport) or escape the
+  // clone root through path traversal. The safe repo alongside it still clones.
+  it.each([
+    ["remote-ext RCE", "ext::sh -c 'touch pwned'/repo"],
+    ["path traversal", "../evil"],
+    ["absolute-ish scheme", "file:///etc/passwd/repo"],
+    ["trailing whitespace alias", "posthog/posthog-js "],
+    ["extra path segment", "posthog/posthog-js/../../evil"],
+  ])("rejects an unsafe repository entry (%s)", async (_label, malicious) => {
+    const deps = makeDeps();
+    deps.host.getRepositoryByRemoteUrl = vi.fn().mockResolvedValue(null);
+    deps.sessionService.preflightToLocal.mockResolvedValue({
+      canHandoff: true,
+    });
+
+    await deps.service.start("task-1", {
+      repositories: ["posthog/posthog", malicious],
+    } as Task);
+
+    // Only the safe repo is cloned, and always through an explicit https URL.
+    expect(deps.host.cloneRepository).toHaveBeenCalledTimes(1);
+    expect(deps.host.cloneRepository).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoUrl: "https://github.com/posthog/posthog.git",
+      }),
+    );
+    expect(deps.notifier.warn).toHaveBeenCalledWith(
+      expect.stringContaining(malicious),
+    );
+    const [, , repositoryPaths] =
+      deps.sessionService.handoffToLocal.mock.calls[0];
+    expect(repositoryPaths).toEqual({
+      "posthog/posthog": "/worktrees/linked-repositories/posthog/posthog",
+    });
+  });
+
+  it("de-duplicates case-variant repository aliases before cloning", async () => {
+    const deps = makeDeps();
+    deps.host.getRepositoryByRemoteUrl = vi.fn().mockResolvedValue(null);
+    deps.sessionService.preflightToLocal.mockResolvedValue({
+      canHandoff: true,
+    });
+
+    await deps.service.start("task-1", {
+      repositories: ["PostHog/PostHog", "posthog/posthog"],
+    } as Task);
+
+    // Both collapse to one target, so the racing double-clone can't happen.
+    expect(deps.host.cloneRepository).toHaveBeenCalledTimes(1);
+    const [, , repositoryPaths] =
+      deps.sessionService.handoffToLocal.mock.calls[0];
+    expect(repositoryPaths).toEqual({
+      "posthog/posthog": "/worktrees/linked-repositories/posthog/posthog",
+    });
   });
 });
