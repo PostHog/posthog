@@ -21,9 +21,7 @@ const TEMPLATE_HINTS: Record<string, string> = {
 export function buildCanvasGenerationPrompt(input: {
   /**
    * Target canvas, when the surface already knows it (canvas-initiated runs).
-   * Channel-composer runs omit it: the agent resolves the target itself —
-   * building on a matching existing canvas in the channel, or creating a
-   * descriptively-named one — per the building-canvases skill.
+   * Channel-composer runs omit it and create a descriptively named canvas.
    */
   dashboardId?: string;
   /** The target's title; set whenever dashboardId is. */
@@ -51,20 +49,15 @@ export function buildCanvasGenerationPrompt(input: {
       : `Build the canvas${title} for the channel "${channelName}", per the user's request at the start of this message.`
     : `Build a canvas in the channel "${channelName}", per the user's request at the start of this message.`;
 
-  // With a pre-resolved target the id is pinned; without one the agent runs
-  // the skill's resolve-or-create step so a near-duplicate of an existing
-  // canvas is never minted just because the composer couldn't know better.
+  // With a pre-resolved target the id is pinned. Target-less runs create
+  // directly without exposing team-controlled canvas metadata to the agent.
   const targetBlock = dashboardId
     ? `Target canvas — already created, do NOT create another:
 - canvas id: "${dashboardId}"
 - channel: "${channelName}"`
-    : `Target canvas — none is pre-created; resolve it first, per the skill's "Resolve the
-target canvas" step:
-- List this channel's canvases with \`canvas-list\` (channel: "${input.channelId}").
-- If one is clearly the canvas this request refers to — an earlier iteration of the same
-  board or tool — build on it instead of creating a near-duplicate, and say so in your reply.
-- Otherwise create one in this channel with \`canvas-create\`, named with a short descriptive
-  title drawn from the request — never "Untitled canvas".`;
+    : `Target canvas — none is pre-created. Create one in channel "${input.channelId}" with
+\`canvas-create\`, named with a short descriptive title drawn from the request — never "Untitled canvas".
+Do not list or inspect other canvases to choose a target.`;
 
   const starterLine =
     !isEdit && input.useStarter

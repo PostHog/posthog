@@ -65,15 +65,12 @@ describe("buildCanvasGenerationPrompt", () => {
       isEdit: false,
     };
 
-    it("routes the agent into resolve-or-create instead of pinning a canvas id", () => {
+    it("creates without exposing stored canvas metadata to the agent", () => {
       const prompt = buildCanvasGenerationPrompt(composer);
       expect(prompt).toContain('Build a canvas in the channel "growth"');
       expect(prompt).not.toContain("canvas id:");
       expect(prompt).not.toContain("do NOT create another");
-      // Reuse a matching existing canvas over minting a near-duplicate, and
-      // tell the user which way it went; new canvases get real names.
-      expect(prompt).toContain('`canvas-list` (channel: "chan-1")');
-      expect(prompt).toContain("say so in your reply");
+      expect(prompt).not.toContain("`canvas-list`");
       expect(prompt).toContain("`canvas-create`");
       expect(prompt).toContain('never "Untitled canvas"');
     });

@@ -159,7 +159,7 @@ describe("CanvasApplicationService", () => {
     expect(gateway.renameCanvas).not.toHaveBeenCalled();
   });
 
-  it("leaves canvas resolution to the agent when no target is given", async () => {
+  it("creates directly without listing stored canvases when no target is given", async () => {
     const { service, createTask, generateCanvasName } = makeDeps();
     const gateway = makeGateway();
 
@@ -170,9 +170,8 @@ describe("CanvasApplicationService", () => {
 
     expect(result).toEqual({ ok: true, taskId: "task-1" });
     const [taskInput] = createTask.mock.calls[0];
-    // The prompt routes into the skill's resolve-or-create step instead of
-    // pinning a canvas id the composer would have had to mint blind.
-    expect(taskInput.content).toContain("`canvas-list`");
+    expect(taskInput.content).not.toContain("`canvas-list`");
+    expect(taskInput.content).toContain("`canvas-create`");
     expect(taskInput.content).not.toContain("canvas id:");
     expect(taskInput.taskDescription).toBe("Generate a canvas in #growth");
     // The task still files into the channel, but no canvas record is touched.
