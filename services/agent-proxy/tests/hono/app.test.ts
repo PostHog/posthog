@@ -338,6 +338,35 @@ describe('app onError', () => {
         fetchMock.mockRestore()
     })
 
+    it('rejects oversized port-forward request bodies before proxying', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+        const fetchMock = vi.spyOn(globalThis, 'fetch')
+
+        const res = await app.request('/some/path', {
+            method: 'POST',
+            headers: {
+                Host: 'forward-123.agent-proxy.example.com',
+                Authorization: 'Bearer tok',
+                'Content-Length': String(10 * 1024 * 1024 + 1),
+            },
+            body: 'too large',
+        })
+
+        expect(res.status).toBe(413)
+        expect(await res.json()).toEqual({ error: 'Port forward request body is too large' })
+        expect(fetchMock).not.toHaveBeenCalled()
+        fetchMock.mockRestore()
+    })
+
     it('rejects resolved port-forward targets outside allowed sandbox hosts', async () => {
         const redis = {} as unknown as Redis
         const { app } = createApp(

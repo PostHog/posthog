@@ -373,6 +373,7 @@ const PORT_FORWARD_HOP_BY_HOP_HEADERS = new Set([
   "transfer-encoding",
   "upgrade",
 ]);
+const MAX_PORT_FORWARD_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
 
 function buildLoopbackPortForwardUrl(requestUrl: string, port: number): string {
   const incoming = new URL(requestUrl);
@@ -414,6 +415,53 @@ function filteredPortForwardResponseHeaders(input: Headers): Headers {
     }
   });
   return headers;
+}
+
+async function readBoundedPortForwardRequestBody(
+  request: Request,
+): Promise<ArrayBuffer | null> {
+  const contentLength = request.headers.get("content-length");
+  if (contentLength) {
+    const parsed = Number(contentLength);
+    if (
+      !Number.isFinite(parsed) ||
+      parsed > MAX_PORT_FORWARD_REQUEST_BODY_BYTES
+    ) {
+      return null;
+    }
+  }
+
+  if (request.body === null) {
+    return new ArrayBuffer(0);
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      size += value.byteLength;
+      if (size > MAX_PORT_FORWARD_REQUEST_BODY_BYTES) {
+        await reader.cancel();
+        return null;
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body.buffer;
 }
 
 export class AgentServer {
@@ -868,7 +916,14 @@ export class AgentServer {
       const method = c.req.method.toUpperCase();
       const init: RequestInit = { method, headers, redirect: "manual" };
       if (method !== "GET" && method !== "HEAD") {
-        init.body = await c.req.arrayBuffer();
+        const body = await readBoundedPortForwardRequestBody(c.req.raw);
+        if (body === null) {
+          return c.json(
+            { error: "Port forward request body is too large" },
+            413,
+          );
+        }
+        init.body = body;
       }
 
       try {

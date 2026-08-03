@@ -32,6 +32,7 @@ import { streamTaskRunEvents } from './sse-handler.js'
 import type { HonoCtx, HonoVariables, Lifecycle } from './types.js'
 
 const PORT_FORWARD_AUTH_COOKIE = '__Host-ph_task_port_forward'
+const MAX_PORT_FORWARD_REQUEST_BODY_BYTES = 10 * 1024 * 1024
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -229,6 +230,16 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return c.json({ error: 'Token does not match port forward' }, 403)
         }
 
+        const method = c.req.method.toUpperCase()
+        let requestBody: ArrayBuffer | undefined
+        if (method !== 'GET' && method !== 'HEAD') {
+            const body = await readBoundedRequestBody(c.req.raw)
+            if (body === null) {
+                return c.json({ error: 'Port forward request body is too large' }, 413)
+            }
+            requestBody = body
+        }
+
         const resolved = await resolvePortForward(config, auth.token)
         if (resolved === null) {
             return c.json({ error: 'Port forward is not available' }, 404)
@@ -244,10 +255,9 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
         const headers = filteredProxyHeaders(c.req.raw.headers)
         headers.set('Authorization', `Bearer ${resolved.connection_token}`)
 
-        const method = c.req.method.toUpperCase()
         const init: RequestInit = { method, headers, redirect: 'manual' }
-        if (method !== 'GET' && method !== 'HEAD') {
-            init.body = await c.req.arrayBuffer()
+        if (requestBody !== undefined) {
+            init.body = requestBody
         }
 
         try {
@@ -451,6 +461,48 @@ function normalizeOrigin(rawUrl: string): string | null {
         return null
     }
     return `${url.protocol}//${url.hostname.toLowerCase()}${url.port ? `:${url.port}` : ''}`
+}
+
+async function readBoundedRequestBody(request: Request): Promise<ArrayBuffer | null> {
+    const contentLength = request.headers.get('content-length')
+    if (contentLength) {
+        const parsed = Number(contentLength)
+        if (!Number.isFinite(parsed) || parsed > MAX_PORT_FORWARD_REQUEST_BODY_BYTES) {
+            return null
+        }
+    }
+
+    if (request.body === null) {
+        return new ArrayBuffer(0)
+    }
+
+    const reader = request.body.getReader()
+    const chunks: Uint8Array[] = []
+    let size = 0
+    try {
+        while (true) {
+            const { done, value } = await reader.read()
+            if (done) {
+                break
+            }
+            size += value.byteLength
+            if (size > MAX_PORT_FORWARD_REQUEST_BODY_BYTES) {
+                await reader.cancel()
+                return null
+            }
+            chunks.push(value)
+        }
+    } finally {
+        reader.releaseLock()
+    }
+
+    const body = new Uint8Array(size)
+    let offset = 0
+    for (const chunk of chunks) {
+        body.set(chunk, offset)
+        offset += chunk.byteLength
+    }
+    return body.buffer
 }
 
 async function exchangePortForwardTicket(config: Config, ticket: string): Promise<string | null> {
