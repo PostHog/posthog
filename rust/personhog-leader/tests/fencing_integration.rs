@@ -9,6 +9,7 @@ mod common;
 use std::sync::Arc;
 use std::time::Duration;
 
+use personhog_coordination::pod::HandoffHandler;
 use personhog_leader::fencing::{FenceGuard, FencedChangelogProducers, FencedProduceError};
 use personhog_proto::personhog::types::v1::Person;
 use tokio::time::sleep;
@@ -550,4 +551,99 @@ async fn settling_commits_an_abandoned_record_before_the_handoff_advances() {
         1,
         "the successor's init must find nothing left to abort"
     );
+}
+
+/// A resume must not take the fence its own convergence's warm already
+/// took.
+///
+/// Warming acquires the partition's transactional id and then re-admits
+/// writes as its last act. The resume that can follow in the same
+/// convergence exists for a cancelled handoff whose target got as far as
+/// taking the epoch — but if it runs after this pod's own warm, its
+/// `init_transactions` bumps the epoch out from under every write the
+/// warm just admitted, and the pod fences its own live window.
+///
+/// The mark that prevents this has two halves, and either one alone is
+/// useless: warming records the fence it took, and the resume honours
+/// that record. This covers both — delete either and the in-flight write
+/// below is fenced by its own pod.
+#[tokio::test]
+async fn a_resume_does_not_fence_the_window_its_own_warm_admitted() {
+    let topic = format!("fence_resume_{}", uuid::Uuid::new_v4().simple());
+    // Long enough that the write is still sitting in an open window when
+    // the resume runs — a window that closed first would be committed
+    // already and could not be fenced.
+    let producers = Arc::new(fenced_producers_with_window(
+        &topic,
+        Duration::from_secs(10),
+    ));
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+
+    // A record for the warm to read, which also brings the topic into
+    // existence — `fetch_watermarks` has nothing to answer for a topic
+    // no one has produced to.
+    producers.acquire(0).await.expect("seed the topic");
+    producers
+        .produce(0, &test_person(1))
+        .await
+        .expect("seed record");
+
+    // Warming takes the epoch and admits writes on the way out, which is
+    // the pair of facts the resume below has to respect.
+    handler.warm_partition(0).await.expect("warm the partition");
+
+    let writing = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(2)).await })
+    };
+    // Long enough for the send to reach the broker and open the window.
+    sleep(Duration::from_millis(300)).await;
+
+    handler.resume_partition(0).await.expect("resume");
+
+    let result = writing.await.expect("the write task must not panic");
+    assert!(
+        result.is_ok(),
+        "a resume must not fence the window this convergence's own warm \
+         admitted, got {result:?}"
+    );
+}
+
+/// A poisoned window must be aborted, and a failed abort must condemn.
+///
+/// A send that fails inside a window leaves records the transaction can
+/// never be allowed to commit, so the commit path aborts instead. Skip
+/// the abort and the producer is left in its abortable state — where
+/// every later `begin_transaction` fails — while the code reports a
+/// clean abort, so nothing condemns it and nothing re-acquires. The
+/// partition then refuses every write for the life of the process.
+#[tokio::test]
+async fn a_poisoned_window_is_aborted_rather_than_committed() {
+    let topic = format!("fence_poison_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers_with_window(&topic, Duration::from_secs(1)));
+    producers.acquire(0).await.expect("acquire the fence");
+
+    let writing = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(1)).await })
+    };
+    sleep(Duration::from_millis(300)).await;
+    producers.poison_window_for_test(0);
+
+    match writing.await.expect("the write task must not panic") {
+        Err(FencedProduceError::Failed(_)) => {}
+        other => panic!("a poisoned window must not report success, got {other:?}"),
+    }
+
+    // The abort landed, so the records are definitively not in the log
+    // and the producer is still usable for the next window.
+    assert_eq!(
+        read_committed_count(&topic).await,
+        0,
+        "a poisoned window's records must never become visible"
+    );
+    producers
+        .produce(0, &test_person(2))
+        .await
+        .expect("an aborted window leaves the producer able to open another");
 }

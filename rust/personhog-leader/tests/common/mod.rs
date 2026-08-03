@@ -620,3 +620,27 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
         Duration::from_millis(5),
     )
 }
+
+/// A handoff handler wired to real fenced producers, for the convergence
+/// steps whose whole point is what they do to the broker's epoch.
+#[allow(dead_code)]
+pub fn test_handoff_handler(
+    topic: &str,
+    fenced: Arc<personhog_leader::fencing::FencedChangelogProducers>,
+) -> personhog_leader::coordination::LeaderHandoffHandler {
+    let mut warming = test_warming_config("test", KAFKA_BOOTSTRAP);
+    warming.topic = topic.to_string();
+    personhog_leader::coordination::LeaderHandoffHandler::new(
+        Arc::new(PartitionedCache::new(1 << 20)),
+        Arc::new(personhog_leader::inflight::InflightTracker::new()),
+        Arc::new(DirtyIndex::new(1_000_000)),
+        warming,
+        Arc::new(personhog_leader::warming::WarmClientPools::new(
+            &test_kafka_config(),
+            "test",
+            "personhog-writer",
+        )),
+        Some(fenced),
+        Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000)),
+    )
+}

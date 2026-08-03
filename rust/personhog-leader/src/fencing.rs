@@ -558,6 +558,20 @@ impl FencedChangelogProducers {
         }
     }
 
+    /// Poison the partition's open window, as a send that failed inside
+    /// it does.
+    ///
+    /// A real poisoning needs a produce to fail mid-window against a
+    /// broker that is otherwise healthy enough to have opened one, which
+    /// is not stageable — but what the commit path does with a poisoned
+    /// window is the whole reason the flag exists.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn poison_window_for_test(&self, partition: u32) {
+        if let Some(fence) = self.installed(partition) {
+            fence.gate.lock().unwrap().poisoned = true;
+        }
+    }
+
     /// Stage a committer that never reports its outcome. The real path
     /// needs the runtime to tear the task down mid-commit, which no test
     /// can arrange against a live producer.
