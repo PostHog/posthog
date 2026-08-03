@@ -773,7 +773,7 @@ class LoopContextVisibilityAPITest(LoopsAPITestCase):
         return {"channel_id": str(self.channel.id), "name": "Growth Team", "outputs": {"post_to_feed": True}}
 
     def test_create_rejects_another_members_personal_channel(self):
-        channel = Channel.objects.create(
+        channel = Channel.objects.unscoped().create(
             team=self.team,
             name="me",
             channel_type=Channel.ChannelType.PERSONAL,

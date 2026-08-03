@@ -68,7 +68,7 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
         self.assertIn('event.data?.type!=="connect"', runtime)
         self.assertIn("event.ports[0]", runtime)
-        self.assertIn("port.postMessage", runtime)
+        self.assertIn("port?.postMessage", runtime)
         self.assertNotIn("parent.postMessage({channel,...message}", runtime)
 
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
