@@ -54,8 +54,7 @@ describe('credits formatting', () => {
         ['nothing bills below the free allocation', 800, 2500, 0],
         ['nothing bills exactly at it', 2500, 2500, 0],
         ['only the overage bills', 3100, 2500, 600],
-        // A credit grant widens the non-billable slice, so granted spend must not read as billable.
-        ['a grant extends what is free', 2800, 3000, 0],
+        ['a free allocation larger than spend bills nothing', 2800, 3000, 0],
     ])('billableCredits: %s', (_name, credits, freeCredits, expected) => {
         expect(billableCredits(credits, freeCredits)).toBe(expected)
     })

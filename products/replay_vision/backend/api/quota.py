@@ -51,8 +51,8 @@ class VisionQuotaSerializer(serializers.Serializer):
     free_monthly_credits = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "The slice of `credit_limit` that never bills: the plan's free allocation plus any active "
-            "credit grant. Only credits beyond this number are billed."
+            "Credits per period included for free. Already counted inside `credit_limit`; "
+            "only credits beyond this number are billed."
         ),
     )
 
