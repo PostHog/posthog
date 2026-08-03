@@ -621,6 +621,24 @@ export function SupportEditor({
         setIsDragging(false)
     }
 
+    const attachDisabledReason = !objectStorageAvailable
+        ? 'Enable object storage to attach images and files'
+        : uploading
+          ? 'Wait for the current upload to finish'
+          : undefined
+
+    // One upload at a time: a second file set while one is in flight replaces it and never uploads
+    const attachFiles = useCallback(
+        (files: File[]): void => {
+            if (uploading) {
+                lemonToast.error('Wait for the current upload to finish before attaching another file')
+                return
+            }
+            setFilesToUpload(files)
+        },
+        [uploading, setFilesToUpload]
+    )
+
     const handlePaste = useCallback(
         (e: ClipboardEvent): void => {
             if (!objectStorageAvailable || !e.clipboardData) {
@@ -631,11 +649,11 @@ export function SupportEditor({
                 const file = fileItem.getAsFile()
                 if (file) {
                     e.preventDefault()
-                    setFilesToUpload([file])
+                    attachFiles([file])
                 }
             }
         },
-        [objectStorageAvailable, setFilesToUpload]
+        [objectStorageAvailable, attachFiles]
     )
 
     useEffect(() => {
@@ -789,10 +807,11 @@ export function SupportEditor({
                         accept={ATTACHMENT_ACCEPT}
                         multiple={false}
                         alternativeDropTargetRef={dropRef}
-                        onChange={setFilesToUpload}
+                        onChange={attachFiles}
                         loading={uploading}
                         value={filesToUpload}
                         showUploadedFiles={false}
+                        disabledReason={attachDisabledReason}
                         callToAction={
                             <LemonButton
                                 size="small"
@@ -803,15 +822,11 @@ export function SupportEditor({
                                         <IconPaperclip className="text-lg" />
                                     )
                                 }
-                                disabledReason={
-                                    objectStorageAvailable
-                                        ? undefined
-                                        : 'Enable object storage to attach images and files'
-                                }
+                                disabledReason={attachDisabledReason}
                                 tooltip={
-                                    objectStorageAvailable
-                                        ? 'Click here or drag and drop to attach an image, PDF or document'
-                                        : null
+                                    attachDisabledReason
+                                        ? null
+                                        : 'Click here or drag and drop to attach an image, PDF or document'
                                 }
                             />
                         }

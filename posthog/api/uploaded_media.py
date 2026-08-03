@@ -1,3 +1,4 @@
+import os
 from io import BytesIO
 from typing import Optional
 from urllib.parse import quote
@@ -29,19 +30,18 @@ TEN_MEGABYTES = 10 * 1024 * 1024
 # than embed them (support ticket replies). These are never rendered inline — the
 # download endpoint serves anything outside _INLINE_SAFE_CONTENT_TYPES as an
 # opaque attachment — so the list only needs to cover what people actually send.
-_ALLOWED_DOCUMENT_CONTENT_TYPES = frozenset(
-    {
-        "application/pdf",
-        "text/plain",
-        "text/csv",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.ms-powerpoint",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    }
-)
+_DOCUMENT_EXTENSION_CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".txt": "text/plain",
+    ".csv": "text/csv",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+}
+_ALLOWED_DOCUMENT_CONTENT_TYPES = frozenset(_DOCUMENT_EXTENSION_CONTENT_TYPES.values())
 
 # Content types safe to render inline in a browser when served from the
 # unauthenticated /uploaded_media endpoint. Anything outside this set is
@@ -70,6 +70,19 @@ def _normalize_content_type(value: str | None) -> str:
 
 def _is_inline_safe_content_type(content_type: str | None) -> bool:
     return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
+
+
+def _resolve_document_content_type(file_name: str | None, content_type: str) -> str | None:
+    """Pick the content type to store for a document, or None if it isn't an allowed one.
+
+    Browsers report Office files and CSVs inconsistently — a .docx often arrives as
+    application/zip or application/octet-stream depending on what the OS has registered —
+    so the extension gets a say, and what it maps to is what we store.
+    """
+    if content_type in _ALLOWED_DOCUMENT_CONTENT_TYPES:
+        return content_type
+    extension = os.path.splitext(file_name or "")[1].lower()
+    return _DOCUMENT_EXTENSION_CONTENT_TYPES.get(extension)
 
 
 def _attachment_disposition(file_name: str | None) -> str:
@@ -186,9 +199,9 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="""
     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
 
-    Send the file as `image` for images, which must have a content type beginning with 'image/' and be less than 4MB.
+    Send the file as `image` to only allow images, or as `file` to also allow documents (PDF, plain text, CSV and Office formats).
 
-    Send it as `file` to also allow documents (PDF, plain text, CSV and Office formats), which must be less than 10MB.
+    Images must have a content type beginning with 'image/' and be less than 4MB. Documents must be less than 10MB.
     """,
         responses={201: OpenApiTypes.OBJECT},
     )
@@ -201,8 +214,13 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
             content_type = _normalize_content_type(file.content_type)
             is_image = content_type.startswith("image/")
-            if not is_image and not (documents_allowed and content_type in _ALLOWED_DOCUMENT_CONTENT_TYPES):
-                raise UnsupportedMediaType(file.content_type)
+            if not is_image:
+                document_content_type = (
+                    _resolve_document_content_type(file.name, content_type) if documents_allowed else None
+                )
+                if document_content_type is None:
+                    raise UnsupportedMediaType(file.content_type)
+                content_type = document_content_type
 
             size_limit = FOUR_MEGABYTES if is_image else TEN_MEGABYTES
             if file.size > size_limit:
@@ -215,7 +233,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team=self.team,
                 created_by=request.user,
                 file_name=file.name,
-                content_type=file.content_type,
+                content_type=content_type,
                 content=file.file,
             )
             if uploaded_media is None:
@@ -243,7 +261,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             headers = self.get_success_headers(uploaded_media.get_absolute_url())
             statsd.incr(
                 "uploaded_media.uploaded",
-                tags={"team_id": self.team.pk, "content_type": file.content_type},
+                tags={"team_id": self.team.pk, "content_type": content_type},
             )
             return Response(
                 {

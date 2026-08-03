@@ -159,15 +159,37 @@ class TestMediaAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
 
-    @parameterized.expand([("html", "text/html"), ("zip", "application/zip"), ("binary", "application/octet-stream")])
-    def test_rejects_content_types_outside_the_document_allowlist(self, _name: str, content_type: str) -> None:
-        file = SimpleUploadedFile(name="attachment", content=b"some bytes", content_type=content_type)
+    @parameterized.expand(
+        [
+            ("html", "notes.html", "text/html"),
+            ("archive", "bundle.zip", "application/zip"),
+            ("executable", "installer.exe", "application/octet-stream"),
+            ("no extension", "attachment", "application/octet-stream"),
+        ]
+    )
+    def test_rejects_files_outside_the_document_allowlist(self, _name: str, file_name: str, content_type: str) -> None:
+        file = SimpleUploadedFile(name=file_name, content=b"some bytes", content_type=content_type)
         response = self.client.post(
             f"/api/projects/{self.team.id}/uploaded_media",
             {"file": file},
             format="multipart",
         )
         self.assertEqual(response.status_code, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, response.json())
+
+    @parameterized.expand([("zip", "application/zip"), ("generic", "application/octet-stream")])
+    def test_accepts_an_office_document_the_browser_reports_generically(self, _name: str, content_type: str) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            docx = SimpleUploadedFile(name="report.docx", content=b"PK\x03\x04", content_type=content_type)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"file": docx},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            assert (
+                response.json()["content_type"]
+                == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
 
     def test_rejects_too_large_document(self) -> None:
         fake_big_file = SimpleUploadedFile(

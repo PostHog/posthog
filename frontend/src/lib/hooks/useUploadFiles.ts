@@ -112,7 +112,11 @@ export function useUploadFiles({
 
     useEffect(() => {
         const uploadFiles = async (): Promise<void> => {
-            if (filesToUpload.length === 0 || uploadInProgressRef.current) {
+            if (uploadInProgressRef.current) {
+                // Leave `uploading` alone, or the spinner disappears while the in-flight upload runs on
+                return
+            }
+            if (filesToUpload.length === 0) {
                 setUploading(false)
                 return
             }
