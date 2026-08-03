@@ -176,7 +176,11 @@ async def assert_clickhouse_records_in_azure_blob(
 
     expected_records = []
     queue = RecordBatchQueue()
-    producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id)) if model_name == "sessions" else ClickHouseTestProducer()
+    producer = (
+        ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
+        if model_name == "sessions"
+        else ClickHouseTestProducer()
+    )
 
     producer_task = await producer.start(
         queue=queue,
