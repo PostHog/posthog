@@ -1006,6 +1006,7 @@ doesn't conflict with concurrent PRs.
 - google_directory
 - google_drive
 - google_forms
+- google_merchant_center
 - google_play_console
 - google_tasks
 - google_workspace_admin_reports

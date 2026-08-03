@@ -9,7 +9,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Integration, Organization, OrganizationMembership, Team, User
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Channel, ChannelFeedMessage, Task, TaskActivity, TaskRun, TaskThreadMessage
@@ -84,6 +84,32 @@ class ChannelsAPITestCase(TestCase):
         delete = self.client.delete(f"{self._channels_url()}{personal.id}/")
         self.assertEqual(delete.status_code, status.HTTP_403_FORBIDDEN)
 
+    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    def test_cannot_configure_someone_elses_personal_channel_repositories(self, list_repositories):
+        list_repositories.return_value = [{"full_name": "posthog/posthog"}]
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        self.client.get(self._channels_url())
+        personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        sneaky = other_client.patch(
+            f"{self._channels_url()}{personal.id}/",
+            {"github_integration": integration.id, "repositories": ["posthog/posthog"]},
+            format="json",
+        )
+        self.assertEqual(sneaky.status_code, status.HTTP_404_NOT_FOUND)
+        personal.refresh_from_db()
+        self.assertEqual(personal.repositories, [])
+
+        owned = self.client.patch(
+            f"{self._channels_url()}{personal.id}/",
+            {"github_integration": integration.id, "repositories": ["posthog/posthog"]},
+            format="json",
+        )
+        self.assertEqual(owned.status_code, status.HTTP_200_OK, owned.content)
+        self.assertEqual(owned.json()["repositories"], ["posthog/posthog"])
+
     def test_task_created_in_public_channel_is_team_visible(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
         created = self.client.post(
@@ -97,6 +123,56 @@ class ChannelsAPITestCase(TestCase):
         other_client.force_authenticate(self.other_user)
         listed = other_client.get(self._tasks_url(), {"channel": channel_id}).json()["results"]
         self.assertEqual([t["id"] for t in listed], [created.json()["id"]])
+
+    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    def test_new_tasks_inherit_channel_repositories(self, list_repositories):
+        list_repositories.return_value = [
+            {"full_name": "posthog/posthog"},
+            {"full_name": "posthog/posthog-js"},
+        ]
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        configured = self.client.patch(
+            f"{self._channels_url()}{channel_id}/",
+            {
+                "github_integration": integration.id,
+                "repositories": ["posthog/posthog", "posthog/posthog-js"],
+            },
+            format="json",
+        )
+        self.assertEqual(configured.status_code, status.HTTP_200_OK, configured.content)
+
+        created = self.client.post(
+            self._tasks_url(),
+            {"title": "Ship it", "description": "Do the thing", "channel": channel_id},
+        )
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.content)
+        self.assertEqual(created.json()["repositories"], ["posthog/posthog", "posthog/posthog-js"])
+        self.assertEqual(created.json()["github_integration"], integration.id)
+
+    @patch("posthog.models.integration.GitHubIntegration.list_all_cached_repositories")
+    def test_only_creator_can_configure_public_channel_repositories(self, list_repositories):
+        list_repositories.return_value = [{"full_name": "posthog/posthog"}]
+        integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
+        channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        response = other_client.patch(
+            f"{self._channels_url()}{channel_id}/",
+            {"github_integration": integration.id, "repositories": ["posthog/posthog"]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        channel = Channel.objects.unscoped().get(id=channel_id)
+        self.assertEqual(channel.repositories, [])
+        self.assertIsNone(channel.github_integration_id)
+
+        renamed = other_client.patch(f"{self._channels_url()}{channel_id}/", {"name": "renamed"}, format="json")
+        self.assertEqual(renamed.status_code, status.HTTP_200_OK, renamed.content)
+        self.assertEqual(renamed.json()["name"], "renamed")
 
     def test_public_channel_task_is_readable_but_not_controllable_by_teammates(self):
         channel_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
