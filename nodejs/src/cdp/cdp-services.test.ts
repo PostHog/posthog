@@ -1,6 +1,6 @@
 import { RedisV2 } from '~/common/redis/redis-v2'
 
-import { createCdpReaderRedisPool, routeSafeCdpRedis } from './cdp-services'
+import { createCdpReaderRedisPool, routeSafeCdpRedis, routeStatefulCdpRedis } from './cdp-services'
 
 const mockReaderPool: RedisV2 = {
     useClient: jest.fn((_opts, cb) => cb({ ping: () => Promise.resolve('PONG') } as any)),
@@ -127,6 +127,42 @@ describe('routeSafeCdpRedis', () => {
     it('refuses the safe cutover without a Valkey pool', () => {
         expect(() => routeSafeCdpRedis(true, mockWriterPool, null)).toThrow(
             'CDP_VALKEY_SAFE_PRIMARY_ENABLED requires a configured Valkey pool'
+        )
+    })
+})
+
+describe('routeStatefulCdpRedis', () => {
+    it('uses Redis with Valkey mirrors before migration', () => {
+        expect(
+            routeStatefulCdpRedis(false, mockWriterPool, mockReaderPool, {
+                writer: mockValkeyPool,
+                reader: mockValkeyPool,
+            })
+        ).toEqual({
+            primary: mockWriterPool,
+            primaryReader: mockReaderPool,
+            mirror: mockValkeyPool,
+            mirrorReader: mockValkeyPool,
+        })
+    })
+
+    it('uses only Valkey after migration', () => {
+        expect(
+            routeStatefulCdpRedis(true, mockWriterPool, mockReaderPool, {
+                writer: mockValkeyPool,
+                reader: mockValkeyPool,
+            })
+        ).toEqual({
+            primary: mockValkeyPool,
+            primaryReader: mockValkeyPool,
+            mirror: null,
+            mirrorReader: null,
+        })
+    })
+
+    it('refuses stateful cutover without a Valkey pool', () => {
+        expect(() => routeStatefulCdpRedis(true, mockWriterPool, mockReaderPool, null)).toThrow(
+            'CDP_VALKEY_STATEFUL_PRIMARY_ENABLED requires a configured Valkey pool'
         )
     })
 })

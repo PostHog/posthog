@@ -77,8 +77,35 @@ export function routeSafeCdpRedis(
     return { primary: valkey.writer, mirror: null }
 }
 
+export function routeStatefulCdpRedis(
+    primaryEnabled: boolean,
+    redis: RedisV2,
+    redisReader: RedisV2,
+    valkey: CdpValkeyShadowPools | null
+): {
+    primary: RedisV2
+    primaryReader: RedisV2
+    mirror: RedisV2 | null
+    mirrorReader: RedisV2 | null
+} {
+    if (!primaryEnabled) {
+        return {
+            primary: redis,
+            primaryReader: redisReader,
+            mirror: valkey?.writer ?? null,
+            mirrorReader: valkey?.reader ?? null,
+        }
+    }
+    if (!valkey) {
+        throw new Error('CDP_VALKEY_STATEFUL_PRIMARY_ENABLED requires a configured Valkey pool')
+    }
+    return { primary: valkey.writer, primaryReader: valkey.reader, mirror: null, mirrorReader: null }
+}
+
 export interface CdpCoreServices {
     redis: RedisV2
+    statefulRedis: RedisV2
+    statefulRedisMirror: RedisV2 | null
     /**
      * Shadow Valkey pools used for dual-write/read load testing. Null when
      * CDP_VALKEY_DUAL_ENABLED is false or CDP_VALKEY_HOST is unset. Consumers
@@ -141,6 +168,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_DUAL_ENABLED'
         | 'CDP_VALKEY_SAFE_PRIMARY_ENABLED'
+        | 'CDP_VALKEY_STATEFUL_PRIMARY_ENABLED'
         | 'CDP_VALKEY_TLS'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
@@ -275,13 +303,19 @@ export function createCdpValkeyShadowPools(
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_DUAL_ENABLED'
         | 'CDP_VALKEY_SAFE_PRIMARY_ENABLED'
+        | 'CDP_VALKEY_STATEFUL_PRIMARY_ENABLED'
         | 'CDP_VALKEY_TLS'
         | 'REDIS_POOL_MIN_SIZE'
         | 'REDIS_POOL_MAX_SIZE'
     >,
     name: string
 ): CdpValkeyShadowPools | null {
-    if ((!config.CDP_VALKEY_DUAL_ENABLED && !config.CDP_VALKEY_SAFE_PRIMARY_ENABLED) || !config.CDP_VALKEY_HOST) {
+    if (
+        (!config.CDP_VALKEY_DUAL_ENABLED &&
+            !config.CDP_VALKEY_SAFE_PRIMARY_ENABLED &&
+            !config.CDP_VALKEY_STATEFUL_PRIMARY_ENABLED) ||
+        !config.CDP_VALKEY_HOST
+    ) {
         return null
     }
 
@@ -289,6 +323,12 @@ export function createCdpValkeyShadowPools(
         logger.warn(
             '⚠️',
             `[${name}] Valkey is authoritative for safe CDP keys; enable only after the dual-write TTL soak and parity checks`
+        )
+    }
+    if (config.CDP_VALKEY_STATEFUL_PRIMARY_ENABLED) {
+        logger.warn(
+            '⚠️',
+            `[${name}] Valkey is authoritative for stateful CDP keys; enable only after migration finalization and verification`
         )
     }
 
@@ -385,6 +425,12 @@ export function createCdpCoreServices(
         redis,
         valkeyShadow
     )
+    const stateful = routeStatefulCdpRedis(
+        config.CDP_VALKEY_STATEFUL_PRIMARY_ENABLED,
+        redis,
+        redisReader,
+        valkeyShadow
+    )
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
@@ -407,18 +453,23 @@ export function createCdpCoreServices(
         observeResultsBufferMaxResults: config.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS,
     }
 
-    const hogWatcher = new HogWatcherService(deps.teamManager, hogWatcherConfig, redis, redisReader)
+    const hogWatcher = new HogWatcherService(
+        deps.teamManager,
+        hogWatcherConfig,
+        stateful.primary,
+        stateful.primaryReader
+    )
 
     // Mirror HogWatcherService bound to the shadow Valkey pool. `sendEvents: false`
     // so it never emits duplicate billable team events on state transitions; the
     // Prom counter `cdp_hog_function_state_change` may double-emit when both pools
     // detect the same transition — rare, accepted during dual-write mode.
-    const hogWatcherMirror: HogWatcherService | null = valkeyShadow
+    const hogWatcherMirror: HogWatcherService | null = stateful.mirror
         ? new HogWatcherService(
               deps.teamManager,
               { ...hogWatcherConfig, sendEvents: false },
-              valkeyShadow.writer,
-              valkeyShadow.reader
+              stateful.mirror,
+              stateful.mirrorReader ?? stateful.mirror
           )
         : null
 
@@ -523,6 +574,8 @@ export function createCdpCoreServices(
 
     return {
         redis,
+        statefulRedis: stateful.primary,
+        statefulRedisMirror: stateful.mirror,
         valkeyShadow,
         hogFunctionManager,
         hogFlowManager,
