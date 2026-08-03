@@ -293,10 +293,14 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
 
 /**
  * Escape special markdown characters in plain text to prevent unintended formatting.
- * Characters: \ ` * _ { } [ ] ( ) # + - . ! | >
+ * Characters: \ ` * _ { } [ ] ( ) # + - . ! |
+ *
+ * Deliberately mirrors _RE_MD_ESCAPE in products/conversations/backend/formatting.py, whose
+ * _RE_MD_ESCAPED_CHAR unescapes this exact set for Slack mrkdwn. Adding a character here
+ * without adding it to both of those leaks a backslash into outbound Slack messages.
  */
 function escapeMarkdown(text: string): string {
-    return text.replace(/([\\`*_{}[\]()#+\-.!|>])/g, '\\$1')
+    return text.replace(/([\\`*_{}[\]()#+\-.!|])/g, '\\$1')
 }
 
 /**
