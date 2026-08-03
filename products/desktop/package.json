@@ -37,6 +37,7 @@
     "format": "biome format --write",
     "clean": "pnpm -r clean",
     "knip": "knip",
+    "quill:local": "node scripts/local-quill.mjs",
     "skills:pull": "node scripts/pull-skills.mjs"
   },
   "keywords": [
