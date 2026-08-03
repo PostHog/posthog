@@ -8,7 +8,8 @@ This is not a proposal to enforce anything, and nothing here changes `AGENTS.md`
 
 ASD-STE100 is a controlled-language standard from the AeroSpace, Security and Defence Industries Association of Europe.
 It was written for aircraft maintenance manuals read by technicians whose first language is not English.
-It has two halves: roughly 65 writing rules, and a dictionary of roughly 900 approved words where each word has one meaning and one part of speech.
+It has two halves: 53 writing rules, and a dictionary of roughly 900 approved words where each word has one meaning and one part of speech.
+Issue 9, released January 2025, is current.
 
 The dictionary is licensed and cannot be redistributed, so the rewrites below follow the writing rules only.
 That is also the honest ceiling on what a repo rule or an agent instruction can reproduce.
@@ -195,6 +196,28 @@ Figures come from `docs/internal/pr-description-voice-ste-measure.py`; the passi
 The sentence-length rule is nearly free: the mean is 12.6 words, and only 7% of sentences pass the descriptive limit.
 The `-ing` rule is where almost every PR fails, on ordinary words: "failing" 30 times, "existing" 27, "writing" 15.
 Removing those costs little meaning, which says the rule is cheap to follow and, on its own, low value.
+
+## What other teams do
+
+No published example of a software team applying STE to pull request descriptions.
+STE has spread out of aerospace into automotive, medical devices, pharmaceuticals and energy, all of them documentation for procedures, never change descriptions.
+Where it appears in software, it governs the product docs, not the repository.
+
+What the industry actually converged on, at three separate layers:
+
+| Layer           | The standard                                                                                                                                                                                                                 | What it says                                                                                                                   |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Title           | [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)                                                                                                                                                       | `<type>(<scope>): <description>`. Already our rule                                                                             |
+| Body            | [Google's "Writing good CL descriptions"](https://google.github.io/eng-practices/review/developer/cl-descriptions.html)                                                                                                      | First line is a complete imperative sentence. Then the problem, why this approach, its shortcomings, links to context          |
+| Prose           | [Google developer documentation style guide](https://developers.google.com/style) and the [Microsoft Writing Style Guide](https://learn.microsoft.com/style-guide/welcome/), both shipped as [Vale](https://vale.sh/) styles | Active voice, short sentences, present tense, no jargon, define abbreviations                                                  |
+| Above all of it | [ISO 24495-1:2023](https://www.iso.org/standard/78907.html), plain language                                                                                                                                                  | Short sentences, common words, logical structure. It explicitly separates plain language from controlled languages such as STE |
+
+The two style guides overlap with STE on everything that made the rewrites above read better: active voice, one idea per sentence, short sentences, no idioms, consistent terms.
+They leave out the parts that made the rewrites worse: the closed dictionary and the ban on any word chosen for effect.
+Neither is licensed, and both already exist as machine-readable rule sets.
+
+So the bullet-per-fact shape is not an STE invention. Every mainstream PR guide asks for it, in the words "use bullet points, not a wall of text".
+STE is the strictest way to get there, and the only one that also forbids the vocabulary.
 
 ## If we want agents to write this way
 
