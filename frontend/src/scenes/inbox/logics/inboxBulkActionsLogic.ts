@@ -54,8 +54,8 @@ export interface inboxBulkActionsLogicActions {
     clearSelection: () => {
         value: true
     }
-    reportArchived: () => {
-        value: true
+    reportArchived: (reportId?: string | null) => {
+        reportId: string | null
     }
     selectAll: (reportIds: string[]) => {
         reportIds: string[]
@@ -103,8 +103,10 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
         bulkDismissSuccess: true,
         bulkDismissFailure: true,
         /** Broadcast that a single report was archived elsewhere (e.g. the detail pane), so every
-         * mounted list reconciles itself. Persisting the change is the caller's responsibility. */
-        reportArchived: true,
+         * mounted list reconciles itself. Persisting the change is the caller's responsibility.
+         * `reportId` lets a list drop the row optimistically instead of waiting on its refetch —
+         * pass null when the report stays put (a refund on a resolved report). */
+        reportArchived: (reportId?: string | null) => ({ reportId: reportId ?? null }),
     }),
 
     reducers({

@@ -523,6 +523,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     dismissal_reason: reason,
                     ...(note ? { dismissal_note: note } : {}),
                 })
+                lemonToast.success('Report archived')
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to archive report')
                 actions.refresh()
@@ -551,7 +552,15 @@ export const reportListLogic = kea<reportListLogicType>([
         [inboxBulkActionsLogic.actionTypes.bulkDismissSuccess]: () => actions.refresh(),
         // A single report archived elsewhere (e.g. the detail pane) – reconcile this tab against
         // the server so the report leaves Reports/Pull requests and joins Archived, counts included.
-        [inboxBulkActionsLogic.actionTypes.reportArchived]: () => actions.refresh(),
+        // Drop the row first when this tab holds it: the archive bumps `updated_at`, so under the
+        // default sort a still-cached row lands right at the top of the list the user is returned to
+        // until the refetch lands, reading as an archive that didn't take.
+        [inboxBulkActionsLogic.actionTypes.reportArchived]: ({ reportId }) => {
+            if (reportId && values.reports.some((report) => report.id === reportId)) {
+                actions.removeReport(reportId)
+            }
+            actions.refresh()
+        },
     })),
 
     events(({ actions }) => ({

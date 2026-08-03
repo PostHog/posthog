@@ -9,6 +9,7 @@ import { ApiError } from 'lib/api-error'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
 import { uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
 
@@ -29,11 +30,16 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         content?: ((isLoading: boolean) => ReactNode) | ReactNode
         /** Override props on the auto-generated submit button (e.g. status, children) */
         primaryButtonProps?: Partial<Pick<LemonButtonProps, 'children' | 'status' | 'type' | 'icon'>>
+        /**
+         * Once the user has touched the form, ignore overlay clicks so a stray one can't discard
+         * what they typed. Escape and the close button still dismiss.
+         */
+        warnOnUnsavedInput?: boolean
     }
 
 export type LemonDialogProps = Pick<
     LemonModalProps,
-    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer' | 'zIndex' | 'className'
+    'title' | 'description' | 'width' | 'maxWidth' | 'inline' | 'footer' | 'zIndex' | 'className' | 'hasUnsavedInput'
 > & {
     primaryButton?: LemonButtonProps | null
     secondaryButton?: LemonButtonProps | null
@@ -187,18 +193,55 @@ export const LemonFormDialog = ({
     primaryButtonProps,
     dialogKey,
     showErrorsOnTouch,
+    warnOnUnsavedInput,
     ...props
 }: LemonFormDialogProps): JSX.Element => {
     const logicProps = { errors, dialogKey, showErrorsOnTouch }
     const logic = lemonDialogLogic(logicProps)
     const { form, isFormValid, formValidationErrors } = useValues(logic)
-    const { setFormValues } = useActions(logic)
+    const { setFormValues, touchFormField } = useActions(logic)
     const [isLoading, setIsLoading] = useState(false)
+    const ref = useRef<LemonDialogRef>(null)
 
     const firstError = useMemo(
         () => Object.values(formValidationErrors).find((error) => Boolean(error)) as string,
         [formValidationErrors]
     )
+
+    // Dirtiness is measured against `initialValues` rather than kea-forms' `formChanged`, which the
+    // mount-time `setFormValues` below already flips, or `formTouched`, which only lands on blur.
+    const isDirty = useMemo(
+        () => Object.keys(form).length > 0 && !objectsEqual(form, initialValues),
+        [form, initialValues]
+    )
+
+    // Touching every field with an error is what makes those errors visible inline. Needed because
+    // an untouched required field has nothing to reveal on its own, so the user would otherwise get
+    // no feedback at all from pressing submit.
+    const revealValidationErrors = (): void => {
+        for (const [name, error] of Object.entries(formValidationErrors)) {
+            if (error) {
+                touchFormField(name)
+            }
+        }
+    }
+
+    const submit = async (): Promise<boolean> => {
+        // A `disabledReason` renders an `aria-disabled` button that still looks and presses like a
+        // live one, so clicking it reads as the app ignoring you. Dialogs that show errors inline
+        // keep a live button and surface the blocker there instead; the rest have nowhere else to
+        // put it, so they stay disabled and never reach this branch.
+        if (!isFormValid) {
+            revealValidationErrors()
+            return false
+        }
+        if (props.shouldAwaitSubmit) {
+            await onSubmit(form)
+        } else {
+            void onSubmit(form)
+        }
+        return true
+    }
 
     const primaryButton: LemonDialogProps['primaryButton'] = {
         type: 'primary',
@@ -206,8 +249,14 @@ export const LemonFormDialog = ({
         ...primaryButtonProps,
         htmlType: 'submit',
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
-        onClick: props.shouldAwaitSubmit ? async () => await onSubmit(form) : () => void onSubmit(form),
-        disabledReason: !isFormValid ? firstError : undefined,
+        onClick: props.shouldAwaitSubmit
+            ? async (): Promise<void> => {
+                  await submit()
+              }
+            : () => void submit(),
+        disabledReason: isFormValid || showErrorsOnTouch ? undefined : firstError,
+        // An invalid submit only reveals the errors, so the dialog has to stay open for the fix.
+        preventClosing: !isFormValid,
     }
 
     const secondaryButton: LemonDialogProps['secondaryButton'] = {
@@ -222,40 +271,35 @@ export const LemonFormDialog = ({
         setFormValues(initialValues)
     }, [setFormValues, initialValues])
 
-    const ref = useRef<LemonDialogRef>(null)
+    const onEnter = async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
+        if (e.key !== 'Enter' || primaryButton?.htmlType !== 'submit') {
+            return
+        }
+        let submitted: boolean
+        try {
+            submitted = await submit()
+        } catch (error) {
+            // Mirror the button path: keep the dialog open on failure so the user can correct and
+            // retry, and capture instead of leaking an unhandled rejection.
+            captureUnexpectedSubmitError(error)
+            return
+        }
+        if (submitted) {
+            ref?.current?.closeDialog()
+        }
+    }
 
     return (
         <Form
             logic={lemonDialogLogic}
             props={logicProps}
             formKey="form"
-            onKeyDown={
-                props.shouldAwaitSubmit
-                    ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
-                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
-                              try {
-                                  await onSubmit(form)
-                              } catch (error) {
-                                  // Mirror the button path: keep the dialog open on failure so the
-                                  // user can correct and retry, and capture instead of leaking an
-                                  // unhandled rejection.
-                                  captureUnexpectedSubmitError(error)
-                                  return
-                              }
-                              ref?.current?.closeDialog()
-                          }
-                      }
-                    : (e: React.KeyboardEvent<HTMLFormElement>): void => {
-                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
-                              void onSubmit(form)
-                              ref?.current?.closeDialog()
-                          }
-                      }
-            }
+            onKeyDown={(e: React.KeyboardEvent<HTMLFormElement>): void => void onEnter(e)}
         >
             <LemonDialog
                 ref={ref}
                 {...props}
+                hasUnsavedInput={warnOnUnsavedInput ? isDirty : props.hasUnsavedInput}
                 content={resolvedContent}
                 primaryButton={primaryButton}
                 secondaryButton={secondaryButton}

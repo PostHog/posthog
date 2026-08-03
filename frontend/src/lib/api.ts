@@ -320,6 +320,12 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    /**
+     * Statuses the caller treats as a normal outcome (e.g. a 404 that just means "not configured
+     * yet"). They still throw, they just don't get reported as a `client_request_failure` – so an
+     * expected miss doesn't read as a broken request in analytics.
+     */
+    expectedStatuses?: number[]
 }
 
 export { ApiError }
@@ -5318,7 +5324,9 @@ const api = {
     signalUserAutonomy: {
         async get(userId: string | '@me' = '@me'): Promise<SignalUserAutonomyConfig | null> {
             try {
-                return await new ApiRequest().signalUserAutonomy(userId).get()
+                // The inbox loads this on every visit, and most users have never opted in, so the
+                // 404 is the common case rather than a failure worth reporting.
+                return await new ApiRequest().signalUserAutonomy(userId).get({ expectedStatuses: [404] })
             } catch (error: any) {
                 // 404 = no config yet (user hasn't opted in). Treat as null.
                 if (error?.status === 404) {
@@ -7194,17 +7202,23 @@ const api = {
             authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
         }
 
-        return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
-                signal: options?.signal,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...tracingHeaders({ includeDistinctId: true }),
-                    ...oauthAuthHeaders(url),
-                    ...authHeaders,
-                },
-            })
-        })
+        return await handleFetch(
+            url,
+            'GET',
+            async () => {
+                return fetch(url, {
+                    signal: options?.signal,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...tracingHeaders({ includeDistinctId: true }),
+                        ...oauthAuthHeaders(url),
+                        ...authHeaders,
+                    },
+                })
+            },
+            false,
+            options?.expectedStatuses
+        )
     },
 
     async _update<T = any, P = any>(
@@ -7218,20 +7232,26 @@ const api = {
         assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
-        const response = await handleFetch(url, method, async () => {
-            return await fetch(url, {
-                method: method,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...tracingHeaders(),
-                    ...oauthAuthHeaders(url),
-                },
-                body: isFormData ? data : JSON.stringify(data),
-                signal: options?.signal,
-            })
-        })
+        const response = await handleFetch(
+            url,
+            method,
+            async () => {
+                return await fetch(url, {
+                    method: method,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                        'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                        ...tracingHeaders(),
+                        ...oauthAuthHeaders(url),
+                    },
+                    body: isFormData ? data : JSON.stringify(data),
+                    signal: options?.signal,
+                })
+            },
+            false,
+            options?.expectedStatuses
+        )
 
         return await getJSONFromSuccessResponse(response, method, url)
     },
@@ -7255,19 +7275,24 @@ const api = {
         assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
-                method: 'POST',
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...tracingHeaders(),
-                    ...oauthAuthHeaders(url),
-                },
-                body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-                signal: options?.signal,
-            })
+        return await handleFetch(
+            url,
+            'POST',
+            async () =>
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                        'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                        ...tracingHeaders(),
+                        ...oauthAuthHeaders(url),
+                    },
+                    body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+                    signal: options?.signal,
+                }),
+            false,
+            options?.expectedStatuses
         )
     },
 
@@ -7539,7 +7564,8 @@ async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
-    isRetry = false
+    isRetry = false,
+    expectedStatuses?: number[]
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7565,7 +7591,7 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, true, expectedStatuses)
         }
     }
 
@@ -7575,7 +7601,7 @@ async function handleFetch(
         const inSharedView = isSharedView()
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
-        if (posthog.capture) {
+        if (posthog.capture && !expectedStatuses?.includes(response.status)) {
             posthog.capture('client_request_failure', {
                 pathname,
                 method,

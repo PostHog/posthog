@@ -82,10 +82,11 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         cardTitle: report.title ?? 'Untitled report',
         report,
         surface: 'detail_pane',
-        // Once the suppress persists, broadcast so every mounted list reconciles against the server
-        // (the report leaves Reports/Pull requests and joins Archived), then return to the list.
+        // Once the suppress persists, broadcast so every mounted list drops the row and reconciles
+        // against the server (the report leaves Reports/Pull requests and joins Archived), then
+        // return to the list.
         onArchived: () => {
-            reportArchived()
+            reportArchived(report.id)
             router.actions.push(urls.inbox(activeTab))
         },
     })
@@ -96,7 +97,8 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // Refunding archives the report server-side, so reconcile the lists the same way and
         // return to the list — except for resolved reports, which stay where they are.
         onRefunded: () => {
-            reportArchived()
+            // No id when the report stays put – it wasn't archived, so no list should drop its row.
+            reportArchived(staysPutOnRefund ? null : report.id)
             if (!staysPutOnRefund) {
                 router.actions.push(urls.inbox(activeTab))
             } else {

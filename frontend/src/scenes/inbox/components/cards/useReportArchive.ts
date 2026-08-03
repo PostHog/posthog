@@ -1,6 +1,8 @@
 import clsx from 'clsx'
 import { useState } from 'react'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
@@ -54,7 +56,8 @@ export function useReportArchive({
                     onArchived?.()
                     return
                 }
-                // Fallback for standalone usage (e.g. stories) without a bound list logic.
+                // The detail pane and standalone usage (e.g. stories) have no bound list logic to
+                // persist through, so the request – and its toasts – happen here.
                 setIsArchiving(true)
                 try {
                     await api.signalReports.setState(reportId, {
@@ -62,10 +65,15 @@ export function useReportArchive({
                         dismissal_reason: reason,
                         ...(note ? { dismissal_note: note } : {}),
                     })
-                    onArchived?.()
+                } catch (error: any) {
+                    // Rethrow so the dialog stays open on the reason/note the user already wrote.
+                    lemonToast.error(error?.detail || error?.message || 'Failed to archive report')
+                    throw error
                 } finally {
                     setIsArchiving(false)
                 }
+                lemonToast.success('Report archived')
+                onArchived?.()
             },
         })
     }

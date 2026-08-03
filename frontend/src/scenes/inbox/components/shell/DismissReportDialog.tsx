@@ -79,7 +79,7 @@ export function openDismissReportDialog({
                         <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
                     )}
                 </LemonField>
-                <LemonField name="note" label="Note" info="Optional. The agent reads it on its next run.">
+                <LemonField name="note" label="Note" showOptional info="The agent reads it on its next run.">
                     <LemonTextArea
                         placeholder="What made this report wrong, or not worth fixing?"
                         maxLength={4000}
@@ -89,8 +89,14 @@ export function openDismissReportDialog({
             </div>
         ),
         errors: {
-            reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
+            reason: (reason) => (!reason ? 'Pick a reason to archive this report' : undefined),
         },
+        // Inline, so the missing reason reads as a form error under the radio list instead of a
+        // tooltip on a submit button that looks live but swallows the click.
+        showErrorsOnTouch: true,
+        // The note feeds the agent's scout notes, so it's worth typing – and worth not losing to a
+        // stray click on the overlay.
+        warnOnUnsavedInput: true,
         primaryButtonProps: { children: 'Archive & teach the agent' },
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note }) => {

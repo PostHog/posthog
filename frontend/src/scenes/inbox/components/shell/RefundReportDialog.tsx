@@ -46,14 +46,18 @@ export function openRefundReportDialog({ reportTitle, onConfirm }: OpenRefundRep
                         <LemonRadio value={value} onChange={onChange} options={REFUND_REASON_OPTIONS} />
                     )}
                 </LemonField>
-                <LemonField name="note" label="Note" info="Optional – helps us review refunds">
-                    <LemonTextArea placeholder="Optional: add detail" maxLength={4000} rows={3} />
+                <LemonField name="note" label="Note" showOptional info="Helps us review refunds">
+                    <LemonTextArea placeholder="Add detail" maxLength={4000} rows={3} />
                 </LemonField>
             </div>
         ),
         errors: {
-            reason: (reason) => (!reason ? "You haven't picked a reason" : undefined),
+            reason: (reason) => (!reason ? 'Pick a reason for the refund' : undefined),
         },
+        // Same guards as the archive dialog: the missing reason shows inline rather than as a tooltip
+        // on a submit button that swallows the click, and a stray overlay click can't wipe the note.
+        showErrorsOnTouch: true,
+        warnOnUnsavedInput: true,
         primaryButtonProps: { children: 'Refund' },
         shouldAwaitSubmit: true,
         onSubmit: async ({ reason, note }) => {
