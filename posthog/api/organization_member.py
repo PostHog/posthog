@@ -34,6 +34,7 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
     normalize_search_term,
 )
+from posthog.helpers.verified_domain_enforcement import verified_domain_email_q
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -159,6 +160,16 @@ class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
                 type=OpenApiTypes.STR,
                 description="Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
             ),
+            OpenApiParameter(
+                name="email_domain",
+                type=OpenApiTypes.STR,
+                description="Only return members whose email address is on this domain (case-insensitive).",
+            ),
+            OpenApiParameter(
+                name="outside_verified_domains",
+                type=OpenApiTypes.BOOL,
+                description="When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.",
+            ),
         ],
     ),
 )
@@ -241,6 +252,14 @@ class OrganizationMemberViewSet(
 
             if "email" in params:
                 queryset = queryset.filter(user__email=params["email"])
+
+            if "email_domain" in params:
+                queryset = queryset.filter(user__email__iendswith=f"@{params['email_domain']}")
+
+            if params.get("outside_verified_domains") == "true":
+                admitted = verified_domain_email_q(organization)
+                if admitted is not None:
+                    queryset = queryset.exclude(admitted)
 
             if "updated_after" in params:
                 queryset = queryset.filter(updated_at__gt=params["updated_after"])

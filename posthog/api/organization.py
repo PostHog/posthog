@@ -2,6 +2,7 @@ from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Literal, Union, cast
 
+from django.db import transaction
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 
@@ -32,7 +33,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
-from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, verified_domain_email_q
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
@@ -409,6 +410,13 @@ class OrganizationAIAccessRequestResponseSerializer(serializers.Serializer):
     )
 
 
+class OrganizationEnforceVerifiedDomainsResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether verified-domain enforcement was turned on.")
+    removed_members = serializers.IntegerField(
+        help_text="How many members with an email outside the verified domains were removed from the organization. Owners are never removed."
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
@@ -645,3 +653,34 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             requesting_user_id=user.id,
         )
         return Response({"success": True})
+
+    @extend_schema(
+        request=None,
+        responses={200: OrganizationEnforceVerifiedDomainsResponseSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="enable_verified_domains_enforcement")
+    def enable_verified_domains_enforcement(self, request: Request, **kwargs) -> Response:
+        """
+        Turn on verified-domain enforcement and remove the members whose email domain is outside
+        the organization's verified domains, in one transaction. Owners are never removed — they
+        keep gated access and can disable the setting themselves. Admin only.
+        """
+        organization = self.organization
+        self.check_object_permissions(request, organization)
+
+        # Reuses the paygate and the would-block-self guard on the field's validator.
+        serializer = self.get_serializer(organization, data={"enforce_verified_domains": True}, partial=True)
+        serializer.is_valid(raise_exception=True)
+
+        blocked = organization.memberships.exclude(level=OrganizationMembership.Level.OWNER).select_related("user")
+        admitted = verified_domain_email_q(organization)
+        if admitted is not None:
+            blocked = blocked.exclude(admitted)
+
+        removed = 0
+        with transaction.atomic():
+            for membership in blocked:
+                membership.user.leave(organization=organization)
+                removed += 1
+            serializer.save()
+        return Response({"success": True, "removed_members": removed})

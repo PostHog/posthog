@@ -9,12 +9,16 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature } from '~/types'
 
+import { verifiedDomainImpactLogic } from './verifiedDomainImpactLogic'
+import { EnforceVerifiedDomainsModal } from './VerifiedDomainImpactModals'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function EnforceVerifiedDomains(): JSX.Element {
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const { verifiedDomains, verifiedDomainsLoading } = useValues(verifiedDomainsLogic)
+    const { enforcementImpactLoading } = useValues(verifiedDomainImpactLogic)
+    const { promptEnforceVerifiedDomains } = useActions(verifiedDomainImpactLogic)
     const { user } = useValues(userLogic)
 
     const restrictionReason = useRestrictedArea({
@@ -48,10 +52,16 @@ export function EnforceVerifiedDomains(): JSX.Element {
                 label="Restrict membership to verified email domains"
                 bordered
                 checked={!!currentOrganization?.enforce_verified_domains}
-                onChange={(enforce_verified_domains) => updateOrganization({ enforce_verified_domains })}
-                loading={currentOrganizationLoading}
+                onChange={(enforce_verified_domains) =>
+                    // Turning it on can remove members, so it goes through an impact check and confirmation first.
+                    enforce_verified_domains
+                        ? promptEnforceVerifiedDomains()
+                        : updateOrganization({ enforce_verified_domains })
+                }
+                loading={currentOrganizationLoading || enforcementImpactLoading}
                 disabledReason={restrictionReason ?? enableBlockedReason}
             />
+            <EnforceVerifiedDomainsModal />
         </PayGateMini>
     )
 }

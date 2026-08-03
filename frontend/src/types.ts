@@ -674,6 +674,10 @@ export interface ListOrganizationMembersParams {
     limit?: number
     updated_after?: string
     search?: string
+    /** Only members whose email is on this domain. */
+    email_domain?: string
+    /** Only members whose email is outside the organization's verified domains. */
+    outside_verified_domains?: boolean
 }
 
 export interface APIErrorType {

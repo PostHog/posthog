@@ -9,7 +9,6 @@ import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -29,6 +28,8 @@ import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { ConfigureSCIMModal } from './ConfigureSCIMModal'
 import { ScimLogsModal } from './ScimLogsModal'
 import { SSOSelect } from './SSOSelect'
+import { verifiedDomainImpactLogic } from './verifiedDomainImpactLogic'
+import { RemoveDomainModal } from './VerifiedDomainImpactModals'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
 
@@ -112,13 +113,13 @@ function VerifiedDomainsTable(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const {
         updateDomain,
-        deleteVerifiedDomain,
         setVerifyModal,
         setConfigureSAMLModalId,
         setConfigureSCIMModalId,
         setConfigureIdJagModalId,
         setScimLogsModalId,
     } = useActions(verifiedDomainsLogic)
+    const { promptRemoveDomain } = useActions(verifiedDomainImpactLogic)
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -298,7 +299,8 @@ function VerifiedDomainsTable(): JSX.Element {
             key: 'actions',
             width: 32,
             align: 'center',
-            render: function RenderActions(_, { id, domain }) {
+            render: function RenderActions(_, domainRecord) {
+                const { id } = domainRecord
                 return (
                     <More
                         overlay={
@@ -341,21 +343,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                 )}
                                 <LemonButton
                                     status="danger"
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Remove ${domain}?`,
-                                            description:
-                                                'This cannot be undone. If you have SAML configured or SSO enforced, it will be immediately disabled.',
-                                            primaryButton: {
-                                                status: 'danger',
-                                                children: 'Remove domain',
-                                                onClick: () => deleteVerifiedDomain(id),
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                        })
-                                    }
+                                    onClick={() => promptRemoveDomain(domainRecord)}
                                     fullWidth
                                     icon={<IconTrash />}
                                     disabledReason={restrictionReason}
@@ -415,26 +403,13 @@ function VerifiedDomainsTable(): JSX.Element {
             key: 'actions',
             width: 32,
             align: 'center',
-            render: function RenderActions(_, { id, domain }) {
+            render: function RenderActions(_, domainRecord) {
                 return (
                     <More
                         overlay={
                             <LemonButton
                                 status="danger"
-                                onClick={() =>
-                                    LemonDialog.open({
-                                        title: `Remove ${domain}?`,
-                                        description: 'This cannot be undone.',
-                                        primaryButton: {
-                                            status: 'danger',
-                                            children: 'Remove domain',
-                                            onClick: () => deleteVerifiedDomain(id),
-                                        },
-                                        secondaryButton: {
-                                            children: 'Cancel',
-                                        },
-                                    })
-                                }
+                                onClick={() => promptRemoveDomain(domainRecord)}
                                 fullWidth
                                 icon={<IconTrash />}
                                 disabledReason={restrictionReason}
@@ -474,6 +449,7 @@ function VerifiedDomainsTable(): JSX.Element {
             {showXAAControls && <ConfigureIdJagModal />}
             <ScimLogsModal />
             <VerifyDomainModal />
+            <RemoveDomainModal />
         </div>
     )
 }
