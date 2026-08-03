@@ -991,6 +991,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
         )
         result = find_task_run(pr_url="https://github.com/posthog/posthog/pull/123")
         self.assertEqual(result, task_run)
@@ -1004,6 +1005,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         # Created later, so a purely newest-first lookup would wrongly pick this one.
         TaskRun.objects.create(
@@ -1011,6 +1013,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         self.assertEqual(find_task_run(pr_url=pr_url), active_run)
 
@@ -1021,6 +1024,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
             output={"pr_url": pr_url},
+            state={"verified_pr_urls": [pr_url]},
         )
         self.assertIsNone(find_task_run(pr_url=pr_url, repository="acme/other"))
 
@@ -1039,7 +1043,8 @@ class TestFindTaskRun(TestCase):
         self.task.save(update_fields=["repositories"])
         task_run = self.task.create_run(branch="feature/my-branch")
         task_run.output = {"pr_urls": ["https://github.com/posthog/code/pull/123"]}
-        task_run.save(update_fields=["output"])
+        task_run.state["verified_pr_urls"] = ["https://github.com/posthog/code/pull/123"]
+        task_run.save(update_fields=["output", "state"])
 
         self.assertEqual(
             find_task_run(
@@ -1055,6 +1060,7 @@ class TestFindTaskRun(TestCase):
             team=self.team,
             status=TaskRun.Status.COMPLETED,
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
             branch="feature/other-branch",
         )
         TaskRun.objects.create(
@@ -1069,6 +1075,17 @@ class TestFindTaskRun(TestCase):
             repository="posthog/posthog",
         )
         self.assertEqual(result, pr_run)
+
+    def test_caller_reported_pr_url_is_not_trusted_for_lookup(self):
+        pr_url = "https://github.com/posthog/posthog/pull/123"
+        TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            output={"pr_url": pr_url, "pr_urls": [pr_url]},
+        )
+
+        self.assertIsNone(find_task_run(pr_url=pr_url, repository="posthog/posthog"))
 
     def test_falls_back_to_branch_when_pr_url_not_found(self):
         branch_run = TaskRun.objects.create(

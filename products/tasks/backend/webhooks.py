@@ -48,7 +48,7 @@ def find_task_run(
         # original and its live resume can both claim the same PR URL. Scope to the
         # webhook's repo and prefer non-terminal runs so merge handling lands on the
         # run that can still act on it.
-        runs = TaskRun.objects.filter(Q(output__pr_url=pr_url) | Q(output__pr_urls__contains=[pr_url]))
+        runs = TaskRun.objects.filter(state__verified_pr_urls__contains=[pr_url])
         if repository:
             runs = runs.filter(_run_repository_filter(repository))
         # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
@@ -257,16 +257,23 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
 
 
 def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
-    if pr_url in read_pr_urls(task_run.output):
-        return False
     try:
         with transaction.atomic():
             locked = TaskRun.objects.select_for_update().get(id=task_run.id)
+            state = locked.state if isinstance(locked.state, dict) else {}
+            existing_verified = state.get("verified_pr_urls")
+            verified_pr_urls = list(
+                dict.fromkeys([*(existing_verified if isinstance(existing_verified, list) else []), pr_url])
+            )
+            locked.state = {**state, "verified_pr_urls": verified_pr_urls}
             if pr_url in read_pr_urls(locked.output):
+                locked.save(update_fields=["state", "updated_at"])
+                task_run.state = locked.state
                 task_run.output = locked.output
                 return False
             locked.output = merge_pr_output(locked.output, {"pr_urls": [pr_url]})
-            locked.save(update_fields=["output", "updated_at"])
+            locked.save(update_fields=["state", "output", "updated_at"])
+        task_run.state = locked.state
         task_run.output = locked.output
         return True
     except Exception:

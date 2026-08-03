@@ -1835,6 +1835,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "github_credential_source",
         "pr_authorship_mode",
         "repositories",
+        "verified_pr_urls",
         "sandbox_id",
         "sandbox_cpu_cores",
         "sandbox_memory_gb",
