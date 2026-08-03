@@ -102,7 +102,8 @@ test.describe('SQL editor insight builder', () => {
         await test.step('save as insight', async () => {
             await dismissQuickStart(page)
             await page.getByRole('button', { name: 'Save as insight', exact: true }).click()
-            const dialog = page.getByRole('dialog', { name: 'Save as new insight' })
+            // LemonModal's dialog element carries no accessible name, so match on content
+            const dialog = page.locator('.LemonModal').filter({ hasText: 'Save as new insight' })
             await expect(dialog).toBeVisible()
             await dialog.getByTestId('insight-name').fill(insightName)
             await dialog.getByRole('button', { name: 'Submit' }).click()
