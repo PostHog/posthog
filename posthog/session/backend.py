@@ -54,7 +54,8 @@ class SessionStore(DBStore):
         return obj
 
     def _get_session_from_db(self) -> "Session | None":
-        obj = cast("Session | None", super()._get_session_from_db())
+        # Private DBStore method, not declared in django-stubs — same gap as `save` works around below.
+        obj = cast("Session | None", super()._get_session_from_db())  # type: ignore[misc]
         self.loaded_row = obj
         return obj
 

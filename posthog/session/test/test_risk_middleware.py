@@ -196,6 +196,7 @@ class TestEvaluateSessionRisk(BaseTest):
         with self.assertNumQueries(0):
             baseline = _baseline_for_session(store, key)
 
+        assert baseline is not None
         self.assertEqual(baseline.country_code, "US")
 
     @patch("posthog.session.risk.current_request_context", return_value=UA_CHANGE_CTX)
