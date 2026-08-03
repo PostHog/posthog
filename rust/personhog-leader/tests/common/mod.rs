@@ -612,13 +612,15 @@ pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedCha
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
     personhog_leader::fencing::FencedChangelogProducers::new(
-        kafka,
-        topic.to_string(),
-        Duration::from_secs(10),
-        Duration::from_secs(10),
-        BROKER_TXN_TIMEOUT,
-        Duration::from_millis(5),
-        Duration::from_secs(5),
+        personhog_leader::fencing::FencedProducerConfig {
+            kafka,
+            topic: topic.to_string(),
+            init_timeout: Duration::from_secs(10),
+            commit_timeout: Duration::from_secs(10),
+            broker_txn_timeout: BROKER_TXN_TIMEOUT,
+            window: Duration::from_millis(5),
+            settle_budget: Duration::from_secs(5),
+        },
     )
 }
 

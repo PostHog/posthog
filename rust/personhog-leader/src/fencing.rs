@@ -379,16 +379,32 @@ pub struct FencedChangelogProducers {
     staged_failures: DashMap<u32, FencedProduceError>,
 }
 
+/// Construction parameters for [`FencedChangelogProducers`], named
+/// because five of them are `Duration`s: a transposed pair at a call
+/// site compiles, and `main`'s wiring is executed by no test — a swapped
+/// window and settle budget would ship as a 2s admission window on
+/// every fenced write.
+pub struct FencedProducerConfig {
+    pub kafka: KafkaConfig,
+    pub topic: String,
+    pub init_timeout: Duration,
+    pub commit_timeout: Duration,
+    pub broker_txn_timeout: Duration,
+    pub window: Duration,
+    pub settle_budget: Duration,
+}
+
 impl FencedChangelogProducers {
-    pub fn new(
-        kafka: KafkaConfig,
-        topic: String,
-        init_timeout: Duration,
-        commit_timeout: Duration,
-        broker_txn_timeout: Duration,
-        window: Duration,
-        settle_budget: Duration,
-    ) -> Self {
+    pub fn new(config: FencedProducerConfig) -> Self {
+        let FencedProducerConfig {
+            kafka,
+            topic,
+            init_timeout,
+            commit_timeout,
+            broker_txn_timeout,
+            window,
+            settle_budget,
+        } = config;
         Self {
             kafka,
             topic,

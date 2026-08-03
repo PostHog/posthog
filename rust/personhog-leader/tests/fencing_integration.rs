@@ -10,7 +10,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use personhog_coordination::pod::HandoffHandler;
-use personhog_leader::fencing::{FenceGuard, FencedChangelogProducers, FencedProduceError};
+use personhog_leader::fencing::{
+    FenceGuard, FencedChangelogProducers, FencedProduceError, FencedProducerConfig,
+};
 use personhog_leader::inflight::InflightTracker;
 use personhog_proto::personhog::types::v1::Person;
 use tokio::time::sleep;
@@ -70,29 +72,29 @@ const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
 fn fenced_producers_with_window(topic: &str, window: Duration) -> FencedChangelogProducers {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
-    FencedChangelogProducers::new(
+    FencedChangelogProducers::new(FencedProducerConfig {
         kafka,
-        topic.to_string(),
-        Duration::from_secs(10),
-        Duration::from_secs(10),
-        BROKER_TXN_TIMEOUT,
+        topic: topic.to_string(),
+        init_timeout: Duration::from_secs(10),
+        commit_timeout: Duration::from_secs(10),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
         window,
-        window + Duration::from_secs(5),
-    )
+        settle_budget: window + Duration::from_secs(5),
+    })
 }
 
 fn fenced_producers(topic: &str) -> FencedChangelogProducers {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
-    FencedChangelogProducers::new(
+    FencedChangelogProducers::new(FencedProducerConfig {
         kafka,
-        topic.to_string(),
-        Duration::from_secs(10),
-        Duration::from_secs(10),
-        BROKER_TXN_TIMEOUT,
-        Duration::from_millis(5),
-        Duration::from_secs(5),
-    )
+        topic: topic.to_string(),
+        init_timeout: Duration::from_secs(10),
+        commit_timeout: Duration::from_secs(10),
+        broker_txn_timeout: BROKER_TXN_TIMEOUT,
+        window: Duration::from_millis(5),
+        settle_budget: Duration::from_secs(5),
+    })
 }
 
 /// The core fencing guarantee: after a second owner acquires the

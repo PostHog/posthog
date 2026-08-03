@@ -29,7 +29,9 @@ use metrics::{counter, gauge};
 use personhog_leader::cache::{DirtyIndex, PartitionedCache};
 use personhog_leader::config::Config;
 use personhog_leader::coordination::LeaderHandoffHandler;
-use personhog_leader::fencing::{preregister_fencing_metrics, FencedChangelogProducers};
+use personhog_leader::fencing::{
+    preregister_fencing_metrics, FencedChangelogProducers, FencedProducerConfig,
+};
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{validate_table_name, PgFallback};
 use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
@@ -257,13 +259,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ..config.kafka.clone()
         };
         Some(Arc::new(FencedChangelogProducers::new(
-            fencing_kafka,
-            config.kafka_person_state_topic.clone(),
-            config.fencing_init_timeout(),
-            config.fencing_txn_timeout(),
-            config.fencing_broker_txn_timeout(),
-            Duration::from_millis(config.fencing_window_ms),
-            config.fencing_settle_budget(),
+            FencedProducerConfig {
+                kafka: fencing_kafka,
+                topic: config.kafka_person_state_topic.clone(),
+                init_timeout: config.fencing_init_timeout(),
+                commit_timeout: config.fencing_txn_timeout(),
+                broker_txn_timeout: config.fencing_broker_txn_timeout(),
+                window: Duration::from_millis(config.fencing_window_ms),
+                settle_budget: config.fencing_settle_budget(),
+            },
         )))
     } else {
         None
