@@ -300,7 +300,7 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
               <Badge variant={loopStatusBadgeVariant(loop)}>
                 {loopStatusLabel(loop)}
               </Badge>
-              <Badge>{loop.visibility.toUpperCase()}</Badge>
+              <Badge>{formatVisibility(loop.visibility)}</Badge>
             </Flex>
             <Flex align="center" gap="2">
               <Button
@@ -509,6 +509,10 @@ function loopStatusBadgeVariant(
   if (color === "green") return "success";
   if (color === "red") return "destructive";
   return "default";
+}
+
+function formatVisibility(visibility: LoopSchemas.LoopVisibilityEnum): string {
+  return visibility.charAt(0).toUpperCase() + visibility.slice(1);
 }
 
 function PausedNotice({ loop }: { loop: LoopSchemas.Loop }) {
