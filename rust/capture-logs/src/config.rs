@@ -28,6 +28,16 @@ pub struct Config {
 
     #[envconfig(from = "MAX_REQUEST_BODY_SIZE_BYTES", default = "2097152")] // 2MB (Axum default)
     pub max_request_body_size_bytes: usize,
+
+    // OTLP endpoint for the service's own distributed traces. When unset, no
+    // OpenTelemetry layer is installed and no `traceparent` header is emitted.
+    pub otel_url: Option<String>,
+
+    #[envconfig(from = "OTEL_SAMPLING_RATE", default = "1.0")]
+    pub otel_sampling_rate: f64,
+
+    #[envconfig(from = "OTEL_SERVICE_NAME", default = "capture-logs")]
+    pub otel_service_name: String,
 }
 
 impl Config {

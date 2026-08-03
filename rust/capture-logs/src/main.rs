@@ -16,11 +16,16 @@ use std::future::ready;
 use std::net::SocketAddr;
 
 use health::HealthRegistry;
+use opentelemetry::{KeyValue, Value};
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
+use opentelemetry_sdk::{runtime, Resource};
 use tokio::signal;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::decompression::RequestDecompressionLayer;
 use tracing::level_filters::LevelFilter;
 use tracing::{error, info};
+use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
 
 use limiters::token_dropper::TokenDropper;
@@ -42,7 +47,32 @@ async fn shutdown() {
     tracing::info!("Shutting down gracefully...");
 }
 
-fn setup_tracing() {
+fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
+    opentelemetry_otlp::new_pipeline()
+        .tracing()
+        .with_trace_config(
+            opentelemetry_sdk::trace::Config::default()
+                .with_sampler(Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(
+                    sampling_rate,
+                ))))
+                .with_id_generator(RandomIdGenerator::default())
+                .with_resource(Resource::new(vec![KeyValue::new(
+                    "service.name",
+                    Value::from(service_name.to_string()),
+                )])),
+        )
+        .with_batch_config(BatchConfig::default())
+        .with_exporter(
+            opentelemetry_otlp::new_exporter()
+                .tonic()
+                .with_endpoint(sink_url)
+                .with_timeout(Duration::from_secs(3)),
+        )
+        .install_batch(runtime::Tokio)
+        .unwrap()
+}
+
+fn setup_tracing(config: &Config) {
     let log_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_span_list(false)
@@ -52,7 +82,25 @@ fn setup_tracing() {
                 .from_env_lossy()
                 .add_directive("pyroscope=warn".parse().unwrap()),
         );
-    tracing_subscriber::registry().with(log_layer).init();
+
+    // Only installed when OTEL_URL is set; otherwise the request spans carry no
+    // real trace id and no `traceparent` header is emitted downstream.
+    let otel_layer = config
+        .otel_url
+        .clone()
+        .map(|url| {
+            OpenTelemetryLayer::new(init_tracer(
+                &url,
+                config.otel_sampling_rate,
+                &config.otel_service_name,
+            ))
+        })
+        .with_filter(LevelFilter::INFO);
+
+    tracing_subscriber::registry()
+        .with(log_layer)
+        .with(otel_layer)
+        .init();
 }
 
 pub async fn index() -> &'static str {
@@ -67,10 +115,10 @@ pub async fn index() -> &'static str {
 
 #[tokio::main]
 async fn main() {
-    setup_tracing();
-    info!("Starting up...");
-
     let config = Config::init_with_defaults().unwrap();
+
+    setup_tracing(&config);
+    info!("Starting up...");
 
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     let _profiling_agent = match config.continuous_profiling.start_agent() {
