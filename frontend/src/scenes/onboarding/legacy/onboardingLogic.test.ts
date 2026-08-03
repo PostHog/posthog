@@ -499,10 +499,10 @@ describe('onboardingLogic — flow composition', () => {
         })
     })
 
-    describe('completeContextOnboarding', () => {
+    describe('completeSelfDrivingOnboarding', () => {
         it('persists both onboarding completion signals', async () => {
             await expectLogic(logic, () => {
-                logic.actions.completeContextOnboarding()
+                logic.actions.completeSelfDrivingOnboarding()
             }).toDispatchActions([
                 (action) => {
                     if (action.type !== logic.actionTypes.updateCurrentTeam) {

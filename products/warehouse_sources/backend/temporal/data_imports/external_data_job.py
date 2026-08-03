@@ -22,14 +22,6 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
-from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
-    DataImportsDuckLakeCopyInputs,
-    DuckLakeCopyDataImportsWorkflow,
-)
-from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
-    DuckLakeRegisterDataImportsInputs,
-    DuckLakeRegisterDataImportsWorkflow,
-)
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
@@ -37,6 +29,12 @@ from products.data_warehouse.backend.facade.api import (
     a_unpause_external_data_schedule,
     create_warehouse_templates_for_source,
     update_external_job_status,
+)
+from products.managed_warehouse.backend.facade.temporal import (
+    DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsWorkflow,
+    DuckLakeRegisterDataImportsInputs,
+    DuckLakeRegisterDataImportsWorkflow,
 )
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
