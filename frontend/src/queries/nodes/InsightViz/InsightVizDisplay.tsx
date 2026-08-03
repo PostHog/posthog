@@ -47,7 +47,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import {
@@ -245,7 +245,23 @@ export function InsightVizDisplay({
                         Use average instead
                     </LemonButton>
                 ) : undefined
-            const cta = resetCta ?? useAverageCta
+            const switchToStepsCta =
+                validationErrorCode === 'funnel_optional_steps_invalid' &&
+                funnelsFilter != null &&
+                funnelsFilter.funnelVizType !== FunnelVizType.Steps ? (
+                    <LemonButton
+                        type="primary"
+                        loading={insightDataLoading}
+                        onClick={() =>
+                            updateQuerySource({
+                                funnelsFilter: { ...funnelsFilter, funnelVizType: FunnelVizType.Steps },
+                            } as Partial<FunnelsQuery>)
+                        }
+                    >
+                        Switch to conversion steps
+                    </LemonButton>
+                ) : undefined
+            const cta = resetCta ?? useAverageCta ?? switchToStepsCta
             return (
                 <InsightValidationError
                     query={query}

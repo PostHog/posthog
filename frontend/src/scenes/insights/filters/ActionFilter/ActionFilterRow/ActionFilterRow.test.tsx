@@ -8,6 +8,7 @@ import { Provider } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 
 import { useAvailableFeatures } from '~/mocks/features'
@@ -15,13 +16,16 @@ import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { searchAndSelect, setupInsightMocks } from '~/test/insight-testing'
 import {
     AvailableFeature,
     EntityTypes,
     FilterType,
+    FunnelVizType,
     HogQLMathType,
+    InsightShortId,
     InsightType,
     PropertyFilterType,
     PropertyMathType,
@@ -728,6 +732,36 @@ describe('ActionFilterRow', () => {
             await waitFor(() => {
                 expect(screen.getByText('Rename')).toBeInTheDocument()
                 expect(screen.queryByText('Optional step')).not.toBeInTheDocument()
+            })
+        })
+
+        it('disables the optional step checkbox when the graph type is "Time to convert"', async () => {
+            // Optional steps + a non-"Conversion steps" graph type is rejected by the backend
+            // (ValidateOptionalFunnelSteps), so the checkbox must be guarded when that graph type is selected.
+            const funnelLogic = funnelDataLogic({ dashboardItemId: 'test-key' as InsightShortId })
+            funnelLogic.mount()
+            funnelLogic.actions.updateQuerySource({
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                ],
+                funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert },
+            } as FunnelsQuery)
+
+            const { logic } = setup({ insight: InsightType.FUNNELS })
+            renderRow(logic, {
+                mathAvailability: MathAvailability.FunnelsOnly,
+                index: 1,
+                filter: { ...DEFAULT_FILTER, order: 1 },
+            })
+
+            await userEvent.click(screen.getByLabelText('Show more actions'))
+
+            await waitFor(() => {
+                expect(screen.getByText('Optional step').closest('.LemonCheckbox')).toHaveClass(
+                    'LemonCheckbox--disabled'
+                )
             })
         })
 

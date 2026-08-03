@@ -16,6 +16,7 @@ interface ActionFilterRowMenuProps {
     isTrendsContext: boolean
     isFunnelContext: boolean
     isStepOptional: (step: number) => boolean
+    optionalStepDisabledReason?: string
     math?: string
     mathGroupTypeIndex?: number | null
     mathAvailability: MathAvailability
@@ -40,6 +41,7 @@ export function ActionFilterRowMenu({
     isTrendsContext,
     isFunnelContext,
     isStepOptional,
+    optionalStepDisabledReason,
     math,
     mathGroupTypeIndex,
     mathAvailability,
@@ -90,12 +92,19 @@ export function ActionFilterRowMenu({
     if (isFunnelContext && index > 0) {
         menuItems.push(
             <React.Fragment key="optional-step">
-                <Tooltip title="Optional steps show conversion rates from the last mandatory step, but are not necessary to move to the next step in the funnel">
+                <Tooltip
+                    title={
+                        optionalStepDisabledReason
+                            ? undefined
+                            : 'Optional steps show conversion rates from the last mandatory step, but are not necessary to move to the next step in the funnel'
+                    }
+                >
                     <div className="px-2 py-1">
                         <LemonCheckbox
                             checked={!!filter.optionalInFunnel}
                             onChange={(checked) => onUpdateOptional(checked)}
                             label="Optional step"
+                            disabledReason={optionalStepDisabledReason}
                         />
                     </div>
                 </Tooltip>

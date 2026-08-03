@@ -33,7 +33,7 @@ const LabelInMenu = ({ icon, title, description }: LabelInMenuProps): JSX.Elemen
 )
 
 export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element | null {
-    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { aggregationTargetLabel, series } = useValues(funnelDataLogic(insightProps))
     const { insightFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
@@ -42,6 +42,13 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
     if (funnelVizType === VizType.Flow) {
         return null
     }
+
+    // Optional steps are only supported in "Conversion steps" (see ValidateOptionalFunnelSteps on the backend) -
+    // disable the other graph types instead of letting the query fail after the fact.
+    const hasOptionalSteps = !!series?.some((step) => step.optionalInFunnel)
+    const optionalStepsDisabledReason = hasOptionalSteps
+        ? 'Not supported with optional steps. Remove the optional steps first.'
+        : undefined
 
     const options = [
         {
@@ -65,6 +72,7 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
                     description={`Track how long it takes for ${aggregationTargetLabel.plural} to convert`}
                 />
             ),
+            disabledReason: optionalStepsDisabledReason,
         },
         {
             value: VizType.Trends,
@@ -76,6 +84,7 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
                     description="Track how this funnel's conversion rate is trending over time"
                 />
             ),
+            disabledReason: optionalStepsDisabledReason,
         },
     ]
 
