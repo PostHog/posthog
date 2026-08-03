@@ -533,6 +533,20 @@ class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# The experiment session-bucket endpoint scans every session in an experiment's recent run
+# window rather than a known id list, so one call is heavier than a session-context batch. Same
+# project-wide bucketing and same session-authenticated caller as those, at a lower rate: the UI
+# fires at most one per filter change (debounced), and repeats hit the server-side cache.
+class SessionBucketsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_buckets_burst"
+    rate = "20/minute"
+
+
+class SessionBucketsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "session_buckets_sustained"
+    rate = "200/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 

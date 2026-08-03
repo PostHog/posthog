@@ -35,6 +35,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
+    VerifiedDomainEnforcementPermission,
 )
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
@@ -246,9 +247,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     # so we offer a way to add additional classes
     def get_permissions(self):
         try:
-            return self.dangerously_get_permissions()
+            dangerously_defined = self.dangerously_get_permissions()
         except NotImplementedError:
             pass
+        else:
+            # Domain enforcement is a tenant boundary, not an authorization level: views that
+            # shape their own permission chain cannot opt out of it.
+            return [*dangerously_defined, VerifiedDomainEnforcementPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -267,6 +272,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             permission_classes.append(TeamMemberAccessPermission)
         else:
             permission_classes.append(OrganizationMemberPermissions)
+
+        # After the membership permission, so non-members get the generic denial and the
+        # organization row it resolved is reused.
+        permission_classes.append(VerifiedDomainEnforcementPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]

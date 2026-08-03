@@ -51,7 +51,6 @@ import {
 } from "@posthog/ui/features/sessions/components/VirtualizedList";
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
-import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import { useConversationSearch } from "@posthog/ui/features/sessions/hooks/useConversationSearch";
 import {
@@ -150,8 +149,6 @@ export function ConversationView({
   const collapseMode = collapseModeProp ?? collapseModeSetting;
   const groupOverrides = useGroupOverrides();
   const sessionViewActions = useSessionViewActions();
-
-  const contextUsage = useContextUsage(events);
 
   // Streaming appends one event per token. The parse is incremental — each
   // event is handled once and completed turns are reused by reference — so per
@@ -512,7 +509,6 @@ export function ConversationView({
         hasPendingPermission={pendingPermissionsCount > 0}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
-        usage={contextUsage}
         completedToolCallCount={completedToolCallCount}
       />
     </div>
