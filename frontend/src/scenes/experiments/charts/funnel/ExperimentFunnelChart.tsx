@@ -136,19 +136,64 @@ function TooltipRow({ label, value }: { label: string; value: React.ReactNode })
     )
 }
 
+/** Tooltip for the hovered variant's bar: its counts at this step and how it converted into it. */
+function FunnelTooltip({
+    ctx,
+    steps,
+    showClickHint,
+}: {
+    ctx: TooltipContext<VariantFunnelMeta>
+    steps: string[]
+    showClickHint: boolean
+}): JSX.Element | null {
+    const entry = ctx.seriesData.find((e) => e.series.key === ctx.hoveredSeriesKey) ?? ctx.seriesData[0]
+    const meta = entry?.series.meta
+    if (!entry || !meta) {
+        return null
+    }
+    const stepIndex = ctx.dataIndex
+    const count = meta.counts[stepIndex] ?? 0
+    const previousCount = stepIndex > 0 ? (meta.counts[stepIndex - 1] ?? 0) : null
+    return (
+        <TooltipSurface>
+            <div className="flex items-center gap-2 font-semibold mb-1">
+                <TooltipSwatch color={entry.color} />
+                <span className="truncate">
+                    {steps[stepIndex]} · {meta.variantKey}
+                </span>
+            </div>
+            <TooltipRow label={stepIndex === 0 ? 'Entered' : 'Converted'} value={humanFriendlyNumber(count)} />
+            {previousCount != null && (
+                <>
+                    <TooltipRow label="Dropped off" value={humanFriendlyNumber(Math.max(previousCount - count, 0))} />
+                    <TooltipRow
+                        label="Conversion so far"
+                        value={percentage(funnelConversionRate(count, meta.counts[0] ?? 0), 2, true)}
+                    />
+                    <TooltipRow
+                        label="Conversion from previous"
+                        value={percentage(funnelConversionRate(count, previousCount), 2, true)}
+                    />
+                </>
+            )}
+            {showClickHint && stepIndex > 0 && <TooltipFooter>Click to view users</TooltipFooter>}
+        </TooltipSurface>
+    )
+}
+
+/** One cell of the per-step legend below the plot, pixel-aligned under that step's bars. */
 function StepFooterCell({
     stepIndex,
-    label,
-    count,
-    basisCount,
-    previousCount,
+    steps,
+    stepTotals,
 }: {
     stepIndex: number
-    label: string
-    count: number
-    basisCount: number
-    previousCount: number | null
+    steps: string[]
+    stepTotals: number[]
 }): JSX.Element {
+    const label = steps[stepIndex]
+    const count = stepTotals[stepIndex]
+    const previousCount = stepIndex > 0 ? stepTotals[stepIndex - 1] : null
     const droppedOff = previousCount != null ? Math.max(previousCount - count, 0) : 0
     const droppedOffRate = previousCount ? 1 - funnelConversionRate(count, previousCount) : 0
     return (
@@ -165,7 +210,7 @@ function StepFooterCell({
                     <span>
                         {pluralize(count, 'user')}{' '}
                         <span className="text-secondary">
-                            ({percentage(funnelConversionRate(count, basisCount), 2)})
+                            ({percentage(funnelConversionRate(count, stepTotals[0]), 2)})
                         </span>
                     </span>
                 </div>
@@ -244,83 +289,29 @@ export function ExperimentFunnelChart({
         [steps, series, hiddenKeys]
     )
 
-    const renderTooltip = useCallback(
-        (ctx: TooltipContext<VariantFunnelMeta>): React.ReactNode => {
-            const entry = ctx.seriesData.find((e) => e.series.key === ctx.hoveredSeriesKey) ?? ctx.seriesData[0]
-            const meta = entry?.series.meta
-            if (!entry || !meta) {
-                return null
-            }
-            const stepIndex = ctx.dataIndex
-            const count = meta.counts[stepIndex] ?? 0
-            const previous = stepIndex > 0 ? (meta.counts[stepIndex - 1] ?? 0) : null
-            return (
-                <TooltipSurface>
-                    <div className="flex items-center gap-2 font-semibold mb-1">
-                        <TooltipSwatch color={entry.color} />
-                        <span className="truncate">
-                            {steps[stepIndex]} · {meta.variantKey}
-                        </span>
-                    </div>
-                    <TooltipRow label={stepIndex === 0 ? 'Entered' : 'Converted'} value={humanFriendlyNumber(count)} />
-                    {previous != null && (
-                        <>
-                            <TooltipRow
-                                label="Dropped off"
-                                value={humanFriendlyNumber(Math.max(previous - count, 0))}
-                            />
-                            <TooltipRow
-                                label="Conversion so far"
-                                value={percentage(funnelConversionRate(count, meta.counts[0] ?? 0), 2, true)}
-                            />
-                            <TooltipRow
-                                label="Conversion from previous"
-                                value={percentage(funnelConversionRate(count, previous), 2, true)}
-                            />
-                        </>
-                    )}
-                    {!!experimentQuery && stepIndex > 0 && <TooltipFooter>Click to view users</TooltipFooter>}
-                </TooltipSurface>
-            )
-        },
-        [steps, experimentQuery]
-    )
-
     const config = useMemo(
         () => ({ legend: { show: series.length > 1, hiddenKeys, onToggleSeries } }),
         [series.length, hiddenKeys, onToggleSeries]
     )
 
-    const renderStepFooter = useCallback(
-        (stepIndex: number): React.ReactNode => (
-            <StepFooterCell
-                stepIndex={stepIndex}
-                label={steps[stepIndex]}
-                count={stepTotals[stepIndex]}
-                basisCount={stepTotals[0]}
-                previousCount={stepIndex > 0 ? stepTotals[stepIndex - 1] : null}
-            />
-        ),
-        [steps, stepTotals]
-    )
-
-    const handleStepClick = useCallback(
-        ({ stepIndex, converted, series: clicked }: FunnelStepClickData<VariantFunnelMeta>): void => {
-            if (!experimentQuery || !clicked.meta) {
-                return
-            }
-            openExperimentPersonsModal({
-                stepIndex,
-                stepName: steps[stepIndex],
-                converted,
-                variantKey: clicked.meta.variantKey,
-                orderType: metric.funnel_order_type,
-                experimentQuery,
-                experiment,
-            })
-        },
-        [experimentQuery, experiment, steps, metric.funnel_order_type]
-    )
+    const handleStepClick = ({
+        stepIndex,
+        converted,
+        series: clicked,
+    }: FunnelStepClickData<VariantFunnelMeta>): void => {
+        if (!experimentQuery || !clicked.meta) {
+            return
+        }
+        openExperimentPersonsModal({
+            stepIndex,
+            stepName: steps[stepIndex],
+            converted,
+            variantKey: clicked.meta.variantKey,
+            orderType: metric.funnel_order_type,
+            experimentQuery,
+            experiment,
+        })
+    }
 
     return (
         <div className="h-96">
@@ -329,9 +320,11 @@ export function ExperimentFunnelChart({
                 series={series}
                 theme={theme}
                 config={config}
-                tooltip={renderTooltip}
+                tooltip={(ctx) => <FunnelTooltip ctx={ctx} steps={steps} showClickHint={!!experimentQuery} />}
                 onStepClick={experimentQuery ? handleStepClick : undefined}
-                stepFooter={renderStepFooter}
+                stepFooter={(stepIndex) => (
+                    <StepFooterCell stepIndex={stepIndex} steps={steps} stepTotals={stepTotals} />
+                )}
                 dataAttr="experiment-funnel-chart"
             />
         </div>
