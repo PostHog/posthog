@@ -254,7 +254,7 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
 }
 
 // Turn a caught request error into user-facing copy for the connect flow. A thrown fetch never
-// reaches an HTTP status, so its message is the raw "Failed to fetch" — most often an ad blocker or
+// reaches an HTTP status, so its message is the raw "Failed to fetch", most often an ad blocker or
 // browser extension blocking the request, which is unactionable on its own. Prefer any API-provided
 // message, then name the likely cause for a network-level failure, then fall back to a server hint.
 export function resolveConnectErrorMessage(e: any): string {
@@ -263,7 +263,7 @@ export function resolveConnectErrorMessage(e: any): string {
         return apiMessage
     }
     if (e?.status === undefined || e?.status === 0) {
-        return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request — try pausing it or switching networks, then try again."
+        return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request. Try pausing it or switching networks, then try again."
     }
     if (e?.status >= 500) {
         return 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
