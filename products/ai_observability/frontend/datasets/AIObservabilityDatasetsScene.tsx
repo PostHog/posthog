@@ -15,8 +15,9 @@ import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType, Dataset } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
+import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
 
 export const scene: SceneExport = {
@@ -26,8 +27,8 @@ export const scene: SceneExport = {
 }
 
 export function AIObservabilityDatasetsScene(): JSX.Element {
-    const { setFilters, deleteDataset } = useActions(aiObservabilityDatasetsLogic)
-    const { datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
+    const { setFilters, archiveDataset } = useActions(aiObservabilityDatasetsLogic)
+    const { archivingDatasetId, datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
         useValues(aiObservabilityDatasetsLogic)
     const { searchParams } = useValues(router)
     const datasetUrl = (id: string): string => combineUrl(urls.aiObservabilityDataset(id), searchParams).url
@@ -62,7 +63,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && <ProfilePicture user={created_by} size="md" showName />}
+                        {created_by && <ProfilePicture user={created_by as UserBasicType} size="md" showName />}
                     </div>
                 )
             },
@@ -90,11 +91,17 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                                 >
                                     <LemonButton
                                         status="danger"
-                                        onClick={() => deleteDataset(dataset.id)}
-                                        data-attr={`dataset-item-${dataset.id}-dropdown-delete`}
+                                        onClick={() => archiveDataset(dataset.id)}
+                                        loading={archivingDatasetId === dataset.id}
+                                        disabledReason={
+                                            archivingDatasetId && archivingDatasetId !== dataset.id
+                                                ? 'Another dataset is being archived'
+                                                : undefined
+                                        }
+                                        data-attr={`dataset-item-${dataset.id}-dropdown-archive`}
                                         fullWidth
                                     >
-                                        Delete
+                                        Archive
                                     </LemonButton>
                                 </AccessControlAction>
                             </>

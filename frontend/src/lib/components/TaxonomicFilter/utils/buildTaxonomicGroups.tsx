@@ -30,6 +30,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { isString } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
 import {
+    getAccountCustomPropertyDefinitionIcon,
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
     getPersonPropertyDefinitionIcon,
@@ -535,8 +536,9 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.AccountCustomProperties,
             // Mirrors the legacy taxonomicFilterLogic group: account custom property definitions
             // are per-team API data, so the options come from the consumer via `optionsFromProp` —
-            // items carry `{ id, name, property_type }` with the definition id as the value.
-            getIcon: getPropertyDefinitionIcon,
+            // items carry `{ id, name, description, is_canonical, property_type }` with the
+            // definition id as the value.
+            getIcon: getAccountCustomPropertyDefinitionIcon,
             getName: (option: PropertyDefinition) => option.name,
             getValue: (option: PropertyDefinition) => option.id,
             valuesEndpoint: (key) =>
