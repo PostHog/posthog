@@ -14,6 +14,7 @@ import {
     IconWebhooks,
 } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonCheckbox,
     LemonCollapse,
@@ -602,6 +603,10 @@ function StepTriggerBatchAccountFilters({
 
     return (
         <div className="flex flex-col gap-2">
+            <LemonBanner type="info" className="w-full">
+                Account audiences run one workflow per account, without a person. Steps that read person properties
+                won't fill in. Use the "Get account" step to read account data.
+            </LemonBanner>
             <div className="flex flex-wrap gap-2 items-center">
                 <LemonInputSelect
                     mode="multiple"
