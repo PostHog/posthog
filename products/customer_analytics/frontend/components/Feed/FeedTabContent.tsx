@@ -5,6 +5,7 @@ import { LemonCheckbox, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import { STATUS_LABELS } from 'scenes/inbox/components/badges/SignalReportStatusBadge'
 import { ReportCard } from 'scenes/inbox/components/cards/ReportCard'
 import { SignalReportStatus } from 'scenes/inbox/types'
+import { urls } from 'scenes/urls'
 
 import { feedLogic } from './feedLogic'
 
@@ -66,6 +67,7 @@ export function FeedTabContent(): JSX.Element {
                         <ReportCard
                             key={report.id}
                             report={report}
+                            backUrl={urls.customerAnalyticsFeed()}
                             onArchive={(reason, note) => archiveReport(report.id, reason, note)}
                         />
                     ))}
