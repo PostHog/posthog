@@ -2154,6 +2154,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     const previousMode = this.session.permissionMode;
     this.session.permissionMode = modeId as CodeExecutionMode;
+    // queryOptions seeds every later query rebuild (/clear, refreshSession), so the
+    // mode has to land there too. Left stale, a rebuild restores the creation-time
+    // mode — handing back permissions the user had since narrowed, with nothing on
+    // screen to say so.
+    this.session.queryOptions.permissionMode = toSdkPermissionMode(
+      modeId as CodeExecutionMode,
+    );
     if (modeId === "plan" && previousMode !== "plan") {
       this.session.modeBeforePlan = previousMode;
     }
@@ -2163,6 +2170,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       );
     } catch (error) {
       this.session.permissionMode = previousMode;
+      this.session.queryOptions.permissionMode =
+        toSdkPermissionMode(previousMode);
       if (error instanceof Error) {
         if (!error.message) {
           error.message = "Invalid Mode";

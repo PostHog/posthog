@@ -14,6 +14,7 @@ type InitResult = {
 type SdkQueryHandle = {
   interrupt: ReturnType<typeof vi.fn>;
   setModel: ReturnType<typeof vi.fn>;
+  setPermissionMode: ReturnType<typeof vi.fn>;
   setMcpServers: ReturnType<typeof vi.fn>;
   mcpServerStatus: ReturnType<typeof vi.fn>;
   supportedCommands: ReturnType<typeof vi.fn>;
@@ -32,6 +33,7 @@ function makeQueryHandle(): SdkQueryHandle {
   return {
     interrupt: vi.fn().mockResolvedValue(undefined),
     setModel: vi.fn().mockResolvedValue(undefined),
+    setPermissionMode: vi.fn().mockResolvedValue(undefined),
     setMcpServers: vi.fn().mockResolvedValue(undefined),
     mcpServerStatus: vi.fn().mockResolvedValue([]),
     supportedCommands: vi.fn().mockResolvedValue([]),
@@ -104,6 +106,7 @@ function installFakeSession(agent: Agent, sessionId: string) {
     queryOptions: {
       sessionId,
       cwd: "/tmp/repo",
+      permissionMode: "bypassPermissions",
       model: "claude-sonnet-4-6",
       mcpServers: {
         posthog: { type: "http", url: "https://posthog" },
@@ -294,6 +297,25 @@ describe("ClaudeAcpAgent /clear", () => {
     expect(
       findExtNotification(client, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED),
     ).toBeDefined();
+  });
+
+  it("carries the live permission mode into the fresh session, not the creation-time one", async () => {
+    // A mode change updates the running query; queryOptions keeps the mode the session
+    // was created with. Rebuilding from it silently hands back permissions the user had
+    // since narrowed, and nothing on screen says the mode moved.
+    const { agent } = makeAgent();
+    const { session } = installFakeSession(agent, "s-mode");
+    await (
+      agent as unknown as { applySessionMode: (m: string) => Promise<void> }
+    ).applySessionMode("default");
+
+    await agent.prompt({
+      sessionId: "s-mode",
+      prompt: [{ type: "text", text: "/clear" }],
+    });
+
+    expect(lastQueryCall.options?.permissionMode).toBe("default");
+    expect(session.queryOptions.permissionMode).toBe("default");
   });
 
   it("deletes the stale local jsonl for the stable ACP id after a successful clear", async () => {
