@@ -11,7 +11,7 @@ from rest_framework import serializers
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 
-from .filters import AdvancedActivityLogFilterManager
+from .filters import AdvancedActivityLogFilterManager, validate_detail_filters
 from .viewset import AdvancedActivityLogFiltersSerializer
 
 
@@ -232,6 +232,23 @@ class TestDetailFilterValidation(SimpleTestCase):
 
         with self.assertRaises(serializers.ValidationError):
             filter_manager._apply_detail_filters(ActivityLog.objects.all(), {field_path: filter_config})
+
+    # Only the lookups registered on JSONField and KeyTransform shadow a JSON key. Names that are
+    # transforms on some *other* field type -- `date` and `day` come from DateField -- reach Postgres
+    # as `detail -> 'date'`, so widening the reserved set past those two registries would start
+    # rejecting ordinary detail keys.
+    @parameterized.expand(
+        [
+            ("date_transform_name", "date"),
+            ("day_transform_name", "day"),
+            ("nested_array_path", "changes[].after.date"),
+            ("single_underscore_segment", "context.trigger_name"),
+        ]
+    )
+    def test_accepts_detail_filter_paths_that_are_not_json_lookups(self, _name: str, field_path: str) -> None:
+        detail_filters = {field_path: {"operation": "exact", "value": "x"}}
+
+        self.assertEqual(validate_detail_filters(detail_filters), detail_filters)
 
 
 class TestIpAddressFilter(BaseTest):
