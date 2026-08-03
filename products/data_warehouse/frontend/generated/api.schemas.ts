@@ -85,6 +85,7 @@ export interface DeprovisionWarehouseResponseApi {
  * * `backfilling` - backfilling
  * * `up_to_date` - up_to_date
  * * `needs_attention` - needs_attention
+ * * `sync_paused` - sync_paused
  */
 export type ManagedWarehouseReadinessStateEnumApi =
     (typeof ManagedWarehouseReadinessStateEnumApi)[keyof typeof ManagedWarehouseReadinessStateEnumApi]
@@ -95,6 +96,7 @@ export const ManagedWarehouseReadinessStateEnumApi = {
     Backfilling: 'backfilling',
     UpToDate: 'up_to_date',
     NeedsAttention: 'needs_attention',
+    SyncPaused: 'sync_paused',
 } as const
 
 /**
@@ -120,7 +122,8 @@ export interface ManagedWarehouseDatasetStatusApi {
      * * `waiting` - waiting
      * * `backfilling` - backfilling
      * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention */
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
     readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Human-readable explanation of the current readiness state. */
     detail: string
@@ -143,6 +146,56 @@ export interface ManagedWarehouseDatasetStatusApi {
     last_updated_at: string | null
 }
 
+export interface ManagedWarehouseSourceSummaryApi {
+    /** Imported source connection identifier. */
+    source_id: string
+    /** Display name for the imported source connection. */
+    source_name: string
+    /** Type of the imported source connection. */
+    source_type: string
+    /** Rolled-up warehouse readiness state across this source's schemas.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of this source's readiness state. */
+    detail: string
+    /** Number of this source's schemas visible to the warehouse. */
+    total_schemas: number
+    /** Number of schemas applied by a completed copy or register workflow. */
+    applied_schemas: number
+    /**
+     * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
+     * @nullable
+     */
+    last_applied_at: string | null
+    /**
+     * Most recent upstream source import completion across this source's schemas.
+     * @nullable
+     */
+    last_synced_at: string | null
+}
+
+export interface ManagedWarehouseSourcesStatusApi {
+    /** Rolled-up readiness state for imported sources.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of imported source readiness. */
+    detail: string
+    /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
+    sources: ManagedWarehouseSourceSummaryApi[]
+}
+
 export interface ManagedWarehouseDataStatusResponseApi {
     /** Highest-priority readiness state across all warehouse datasets.
      *
@@ -150,14 +203,104 @@ export interface ManagedWarehouseDataStatusResponseApi {
      * * `waiting` - waiting
      * * `backfilling` - backfilling
      * * `up_to_date` - up_to_date
-     * * `needs_attention` - needs_attention */
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
     overall_readiness_state: ManagedWarehouseReadinessStateEnumApi
     /** Events backfill readiness. */
     events: ManagedWarehouseDatasetStatusApi
     /** Persons backfill readiness. */
     persons: ManagedWarehouseDatasetStatusApi
+    /** Imported source table readiness. */
+    sources: ManagedWarehouseSourcesStatusApi
     /** When this status snapshot was generated. */
     generated_at: string
+}
+
+/**
+ * * `copy` - copy
+ * * `register` - register
+ */
+export type WorkflowTypeEnumApi = (typeof WorkflowTypeEnumApi)[keyof typeof WorkflowTypeEnumApi]
+
+export const WorkflowTypeEnumApi = {
+    Copy: 'copy',
+    Register: 'register',
+} as const
+
+/**
+ * * `running` - running
+ * * `completed` - completed
+ * * `failed` - failed
+ * * `skipped` - skipped
+ * * `stale` - stale
+ */
+export type WorkflowStatusEnumApi = (typeof WorkflowStatusEnumApi)[keyof typeof WorkflowStatusEnumApi]
+
+export const WorkflowStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+    Skipped: 'skipped',
+    Stale: 'stale',
+} as const
+
+export interface ManagedWarehouseSourceTableStatusApi {
+    /** Imported source schema identifier. */
+    schema_id: string
+    /** Imported source connection identifier. */
+    source_id: string
+    /** Display name for the imported source connection. */
+    source_name: string
+    /** Type of the imported source connection. */
+    source_type: string
+    /** Imported table name. */
+    table_name: string
+    /** User-facing warehouse readiness state for this table.
+     *
+     * * `not_configured` - not_configured
+     * * `waiting` - waiting
+     * * `backfilling` - backfilling
+     * * `up_to_date` - up_to_date
+     * * `needs_attention` - needs_attention
+     * * `sync_paused` - sync_paused */
+    readiness_state: ManagedWarehouseReadinessStateEnumApi
+    /** Human-readable explanation of the table's readiness state. */
+    detail: string
+    /** Workflow applying the latest source import, or null if no workflow has run.
+     *
+     * * `copy` - copy
+     * * `register` - register */
+    workflow_type: WorkflowTypeEnumApi | null
+    /** State of the latest copy or register workflow, or null if no workflow has run.
+     *
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale */
+    workflow_status: WorkflowStatusEnumApi | null
+    /**
+     * When the latest copy or register workflow started, or null if no workflow has run.
+     * @nullable
+     */
+    workflow_started_at: string | null
+    /** Whether a copy or register workflow has applied this table to the warehouse. */
+    applied: boolean
+    /**
+     * When a copy or register workflow most recently applied this table, or null if no workflow completed.
+     * @nullable
+     */
+    last_applied_at: string | null
+    /**
+     * When PostHog most recently completed the upstream source import.
+     * @nullable
+     */
+    last_synced_at: string | null
+}
+
+export interface ManagedWarehouseSourceSchemasResponseApi {
+    /** Per-schema copy or register workflow status for the requested source. */
+    schemas: ManagedWarehouseSourceTableStatusApi[]
 }
 
 export interface OnboardWarehouseTeamRequestApi {
@@ -4062,6 +4205,13 @@ export type DataWarehouseCheckSchemaNameRetrieveParams = {
      * @minLength 1
      */
     name: string
+}
+
+export type DataWarehouseManagedWarehouseSourceSchemasRetrieveParams = {
+    /**
+     * Imported source connection to fetch per-schema detail for.
+     */
+    source_id: string
 }
 
 export type FixHogqlListParams = {

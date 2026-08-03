@@ -3,6 +3,7 @@ from __future__ import annotations
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedTextField
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
@@ -47,6 +48,11 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # Region travels with the bucket: set alongside it, left NULL when no bucket is
     # recorded yet (status_for()'s self-heal fills both in once the control plane reports them).
     bucket_region = models.CharField(max_length=50, null=True, blank=True, default=None)
+    # Fleet-wide cap on the batch sink's concurrently processing groups for this
+    # org — each in-flight group holds at most one connection to the org's
+    # duckgres server, so this bounds the sink's connection footprint no matter
+    # how many consumer pods run. Soft cap: enforced at group-claim time.
+    sink_max_concurrency = models.IntegerField(default=4)
 
     class Meta:
         db_table = "posthog_duckgresserver"
@@ -65,3 +71,133 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
             "DUCKLAKE_S3_ACCESS_KEY": "",
             "DUCKLAKE_S3_SECRET_KEY": "",
         }
+
+
+class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    r"""Per-schema lifecycle of the Duckgres v3 batch sink.
+
+    The sink only applies live batches for a schema once its history has been
+    primed into duckgres (or it needs no priming). The backfill planner owns
+    the transitions:
+
+    PENDING_BACKFILL -> BACKFILLING -> PRIMED
+                              \-> (superseded by a live full refresh) -> PRIMED
+    PRIMED -> NEEDS_RESYNC (retention-loss gap) -> PENDING_BACKFILL
+    """
+
+    class State(models.TextChoices):
+        PENDING_BACKFILL = "pending_backfill", "Pending backfill"
+        BACKFILLING = "backfilling", "Backfilling"
+        PRIMED = "primed", "Primed"
+        NEEDS_RESYNC = "needs_resync", "Needs resync"
+
+    # db_constraint=False: a real FK constraint on posthog_team locks that hot
+    # table when this table is created (HotTableAlterPolicy). The tenant link is
+    # enforced at the app level.
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="duckgres_sink_schema_states",
+        db_constraint=False,
+    )
+    # ExternalDataSchema id. Not a FK: the queue addresses schemas by string id
+    # and the schema row may be soft-deleted while sink state must survive for
+    # cleanup decisions.
+    schema_id = models.UUIDField(unique=True)
+    state = models.CharField(max_length=32, choices=State.choices, default=State.PENDING_BACKFILL)
+    # Delta table version the backfill is pinned to.
+    snapshot_version = models.BigIntegerField(null=True, blank=True)
+    # Deprecated planning boundary retained for rows created by older planner
+    # revisions. New plans derive containment from Delta commit versions.
+    plan_cutoff = models.DateTimeField(null=True, blank=True)
+    backfill_run_uuid = models.CharField(max_length=200, null=True, blank=True)
+    chunk_count = models.IntegerField(null=True, blank=True)
+    chunks_applied = models.IntegerField(default=0)
+    last_error = models.TextField(null=True, blank=True)
+    # Failure streak since the last forward progress. Drives planner retry
+    # backoff and the failing-schema classification that splits these schemas'
+    # backlog out of the pageable blocked gauges. Reset on any progress.
+    consecutive_failures = models.IntegerField(default=0)
+    # When the current failure streak began — the durable "backfill owed since"
+    # anchor. Unlike batch-derived gauges it survives queue retention.
+    first_failed_at = models.DateTimeField(null=True, blank=True)
+    # Override CreatedMetaFields.created_by to drop the DB-level FK: a real
+    # constraint on posthog_user takes a lock on that hot table when this table
+    # is created (HotTableAlterPolicy). App-level enforcement is enough for an
+    # optional audit pointer.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+
+    # When the sink last applied a live (non-backfill) imported batch to duckgres for this
+    # schema, stamped by the sink at apply time. The web tier reads it from the main DB so
+    # the Data ops UI can report import activity without querying the warehouse-sources
+    # queue DB (which it has no access to). NULL = no live apply recorded since this field
+    # shipped. It's an event timestamp, not a liveness signal — history, never "stale".
+    queue_last_applied_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_duckgressinkschemastate"
+        verbose_name = "Duckgres sink schema state"
+        verbose_name_plural = "Duckgres sink schema states"
+        indexes = [models.Index(fields=["team", "state"], name="duckgres_sink_team_state_idx")]
+
+
+class ManagedWarehouseSourceJob(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    class WorkflowType(models.TextChoices):
+        COPY = "copy", "Copy"
+        REGISTER = "register", "Register"
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        SKIPPED = "skipped", "Skipped"
+        STALE = "stale", "Stale"
+
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="managed_warehouse_source_jobs",
+        db_constraint=False,
+    )
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+    )
+    environment_id = models.BigIntegerField()
+    schema_id = models.UUIDField()
+    source_job_id = models.CharField(max_length=400)
+    attempt_id = models.CharField(max_length=500)
+    workflow_type = models.CharField(max_length=16, choices=WorkflowType.choices)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
+    started_at = models.DateTimeField()
+    finished_at = models.DateTimeField(null=True, blank=True)
+    latest_error = models.TextField(null=True, blank=True)
+
+    class Meta(TeamScopedRootMixin.Meta):
+        db_table = "posthog_managedwarehousesourcejob"
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "environment_id", "schema_id", "workflow_type", "attempt_id"],
+                name="unique_managed_warehouse_source_job_attempt",
+            )
+        ]
+        indexes = [
+            models.Index(
+                fields=["team", "environment_id", "schema_id", "-started_at"],
+                name="mw_source_job_latest_idx",
+            )
+        ]
