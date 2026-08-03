@@ -1814,6 +1814,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setQueryInput(insightVisualizationQuery.source.query || '')
                 }
 
+                // Opening another query can replace sourceQuery without changing the connection,
+                // so the selectedConnectionId subscription does not run again.
+                actions.enforceConnectionRawQueryMode()
+
                 // Focus the editor after creating a new tab
                 props.editor?.focus()
             },

@@ -14,7 +14,8 @@ import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
+import { fetchDistinctIdValues, fetchDistinctIds } from '~/common/persons/repositories/test-helpers'
+import { PostgresUse } from '~/common/utils/db/postgres'
 import { normalizeEvent, normalizeProcessPerson } from '~/common/utils/event'
 import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
@@ -53,6 +54,8 @@ describe('createProcessPersonsStep', () => {
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '*',
         PERSON_MERGE_FOLD_ENABLED: false,
         PERSON_MERGE_FOLD_TEAM_ALLOWLIST: '*',
+        PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '',
+        PERSONLESS_WRITES_DISABLED_TEAMS: '',
         PERSON_JSONB_SIZE_ESTIMATE_ENABLE: 0,
         PERSON_PROPERTIES_UPDATE_ALL: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '*',
@@ -415,6 +418,79 @@ describe('createProcessPersonsStep', () => {
         }
     })
 
+    describe('personless-table removal rollout gates', () => {
+        function identify(anonDistinctId: string, targetDistinctId: string): PluginEvent {
+            return {
+                ...pluginEvent,
+                event: '$identify',
+                distinct_id: targetDistinctId,
+                uuid: new UUIDT().toString(),
+                properties: { $anon_distinct_id: anonDistinctId },
+            }
+        }
+
+        async function runIdentify(event: PluginEvent, overrides: Partial<EventPipelineRunnerOptions>): Promise<void> {
+            const step = createProcessPersonsStep({ ...options, ...overrides }, personOutputs)
+            const result = await step(
+                createInput({ normalizedEvent: event, timestamp: DateTime.fromISO(event.timestamp!) })
+            )
+            expect(isOkResult(result)).toBe(true)
+        }
+
+        async function versionOf(distinctId: string): Promise<number> {
+            const result = await infra.postgres.query<{ version: string | null }>(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT version FROM posthog_persondistinctid WHERE team_id = $1 AND distinct_id = $2',
+                [teamId, distinctId],
+                'fetchDistinctIdVersion'
+            )
+            expect(result.rows).toHaveLength(1)
+            return Number(result.rows[0].version ?? 0)
+        }
+
+        it('writes version 1 for merge-added distinct ids only for allowlisted teams', async () => {
+            await createPersonWithDistinctIds('user-1')
+
+            // Neither anon id has personless history, so without the gate both would get version 0.
+            await runIdentify(identify('anon-gated', 'user-1'), {
+                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: `${teamId}`,
+            })
+            await runIdentify(identify('anon-ungated', 'user-1'), {
+                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: `${teamId + 1}`,
+            })
+
+            expect(await versionOf('anon-gated')).toBe(1)
+            expect(await versionOf('anon-ungated')).toBe(0)
+        })
+
+        it('gives the non-primary distinct id version 1 when neither points at a person', async () => {
+            await runIdentify(identify('anon-new', 'user-new'), { PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '*' })
+
+            // The event distinct id derives the person uuid, so it stays at version 0.
+            expect(await versionOf('user-new')).toBe(0)
+            expect(await versionOf('anon-new')).toBe(1)
+        })
+
+        it('skips personless bookkeeping but still writes version 1 when writes are disabled', async () => {
+            await createPersonWithDistinctIds('user-2')
+
+            // The always-v1 allowlist is empty: writes-disabled alone must force version 1,
+            // since without the bookkeeping row a table consult would pick version 0.
+            await runIdentify(identify('anon-nowrites', 'user-2'), {
+                PERSONLESS_WRITES_DISABLED_TEAMS: `${teamId}`,
+            })
+
+            expect(await versionOf('anon-nowrites')).toBe(1)
+            const personlessRows = await infra.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT 1 FROM posthog_personlessdistinctid WHERE team_id = $1 AND distinct_id = $2',
+                [teamId, 'anon-nowrites'],
+                'fetchPersonlessRow'
+            )
+            expect(personlessRows.rows).toHaveLength(0)
+        })
+    })
+
     describe('merge folding', () => {
         const foldOptions: EventPipelineRunnerOptions = {
             ...options,
@@ -586,6 +662,21 @@ describe('createProcessPersonsStep', () => {
             expect(persons).toHaveLength(1)
             const distinctIds = await fetchDistinctIdValues(infra.postgres, persons[0])
             expect(distinctIds.sort()).toEqual(['anon-1', 'anon-2', 'user-1'])
+        })
+
+        it('folded personless adds get version 1 for always-v1 teams', async () => {
+            await createPersonWithProps('anon-1', { a: 1 })
+            // anon-2 has no person row and no personless history, so without the gate it would get version 0
+            const plan = planFor('user-1', 'anon-1', 'anon-2')
+
+            await runIdentifies([identifyEvent('anon-1', 'user-1')], plan, {
+                ...foldOptions,
+                PERSON_MERGE_ALWAYS_V1_TEAM_ALLOWLIST: '*',
+            })
+
+            expect(plan.status).toBe('executed')
+            const rows = await fetchDistinctIds(infra.postgres, plan.mergedPerson!)
+            expect(Number(rows.find((row) => row.distinct_id === 'anon-2')!.version ?? 0)).toBe(1)
         })
 
         it('folds under LIMIT merge mode when sources are within the move limit', async () => {

@@ -17,6 +17,13 @@ use property_defs_rs::{
     update_cache::Cache,
 };
 
+// process_batch beats a lifecycle heartbeat as chunk writes complete. Tests don't run
+// the lifecycle monitor, so report_healthy() is just an atomic store on this handle.
+fn test_lifecycle_handle() -> lifecycle::Handle {
+    let mut manager = lifecycle::Manager::builder("test").build();
+    manager.register("consumer", lifecycle::ComponentOptions::new())
+}
+
 // -- mock server --------------------------------------------------------
 
 struct MockPersonHogService {
@@ -893,7 +900,14 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
         Some(GroupType::Unresolved("Organization".to_string()))
     );
 
-    process_batch(&config, cache.clone(), &db, round1).await;
+    process_batch(
+        &config,
+        cache.clone(),
+        &db,
+        round1,
+        &test_lifecycle_handle(),
+    )
+    .await;
 
     assert_eq!(
         group_prop_def_count(&db).await,
@@ -916,7 +930,14 @@ async fn test_end_to_end_poisoned_group_def_recovers_and_persists(db: PgPool) {
     // The negative entry has expired (TTL 0), so personhog is re-driven and now resolves to 5.
     assert_eq!(get_resolved_index(&round2[0]), Some(5));
 
-    process_batch(&config, cache.clone(), &db, round2).await;
+    process_batch(
+        &config,
+        cache.clone(),
+        &db,
+        round2,
+        &test_lifecycle_handle(),
+    )
+    .await;
 
     assert_eq!(
         group_prop_def_count(&db).await,

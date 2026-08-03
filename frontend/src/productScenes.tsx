@@ -44,6 +44,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
+    MyTickets: () => import('../../products/conversations/frontend/scenes/myTickets/MyTicketsScene'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
     CustomerAnalyticsConfiguration: () =>
         import('../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
@@ -106,6 +107,10 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
+    McpGateway: () => import('../../products/mcp_store/frontend/gateway/McpGatewayScene'),
+    McpGatewayServer: () => import('../../products/mcp_store/frontend/gateway/GatewayServerScene'),
+    McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
+    McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),

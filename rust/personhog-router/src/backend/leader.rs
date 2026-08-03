@@ -29,11 +29,11 @@ const LEADER_PREFIX: &str = "/personhog.leader.v1.PersonHogLeader/";
 /// Both bounce conditions clear on their own — a fence in
 /// watch-propagation time, a transport failure as the target pod comes
 /// up — so the cadence only needs to outpace the caller's latency bound,
-/// not be aggressive. Shared by the live path's re-entrant retry loop
+/// not be aggressive. Shared by the direct path's re-entrant retry loop
 /// and the drain's wave loop so the two paths settle at the same rate.
 pub(crate) const BOUNCE_BACKOFF: Duration = Duration::from_millis(150);
 
-/// Consecutive bounces after which a retry loop gives up — the live path
+/// Consecutive bounces after which a retry loop gives up — the direct path
 /// returns a definitive `UNAVAILABLE` (the client's own retry may reach
 /// a healthier router), the drain yields its lane to the reconcile pass.
 pub(crate) const MAX_CONSECUTIVE_BOUNCES: u32 = 4;
@@ -65,6 +65,25 @@ impl BounceReason {
             BounceReason::Unrouted => "unrouted",
             BounceReason::Fenced => "fenced",
             BounceReason::Transport => "transport",
+        }
+    }
+}
+
+/// Which of the router's two forward paths issued a send: `Direct` for a
+/// request forwarded from its own handler task, `Stash` for a parked
+/// request forwarded by the drain. Carried as the `path` label on the
+/// channel-call and retry metrics so the two paths read separately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForwardPath {
+    Direct,
+    Stash,
+}
+
+impl ForwardPath {
+    pub fn label(self) -> &'static str {
+        match self {
+            ForwardPath::Direct => "direct",
+            ForwardPath::Stash => "stash",
         }
     }
 }
@@ -195,14 +214,16 @@ impl LeaderBackend {
     /// round-trip time, used by the read path's network-overhead metric.
     ///
     /// Retry policy lives with the callers of `forward_classified`, both
-    /// of which re-check routing state between attempts: the live path's
-    /// re-entrant loop in `forward_or_stash` and the drain's wave loop.
+    /// of which re-check routing state between attempts: the direct
+    /// path's re-entrant loop in `forward_or_stash` and the stash path's
+    /// drain wave loop.
     /// A blind retry here would re-send without seeing a stash window
     /// that opened during the backoff, so this layer deliberately stays
     /// single-attempt.
     async fn send_frame(
         &self,
         mut channel: Channel,
+        forward_path: ForwardPath,
         method: &'static str,
         partition: u32,
         headers: &HeaderMap,
@@ -220,6 +241,7 @@ impl LeaderBackend {
             "method" => method,
             "client" => client.clone(),
             "outcome" => ready_outcome,
+            "path" => forward_path.label(),
         )
         .record(ready_start.elapsed().as_secs_f64() * 1000.0);
         let ready = ready_result
@@ -245,6 +267,7 @@ impl LeaderBackend {
             "method" => method,
             "client" => client,
             "outcome" => call_outcome,
+            "path" => forward_path.label(),
         )
         .record(call_ms);
         let response =
@@ -254,7 +277,7 @@ impl LeaderBackend {
 
     /// One classified forward attempt: resolve the target, send the
     /// frame, and decide what the result means. This is the single
-    /// shared reading of leader responses — the live path's retry loop
+    /// shared reading of leader responses — the direct path's retry loop
     /// and the drain's wave loop both build on it, so the two paths can
     /// never drift in how they interpret the same response.
     ///
@@ -264,6 +287,7 @@ impl LeaderBackend {
     /// transport failure's is.
     pub async fn forward_classified(
         &self,
+        forward_path: ForwardPath,
         method: &'static str,
         partition: u32,
         headers: &HeaderMap,
@@ -274,7 +298,7 @@ impl LeaderBackend {
             Err(_status) => return ForwardDecision::Bounced(BounceReason::Unrouted),
         };
         match self
-            .send_frame(channel, method, partition, headers, frame)
+            .send_frame(channel, forward_path, method, partition, headers, frame)
             .await
         {
             // Every leader use of FailedPrecondition is a routing-race
@@ -312,17 +336,19 @@ impl LeaderBackend {
     /// holds: a stash window opened (the request parks and rides the
     /// handoff — the race becomes the normal path), the table flipped
     /// (the re-resolve targets the new owner), or nothing changed yet
-    /// (re-send, possibly bounce again). After `MAX_CONSECUTIVE_BOUNCES`
-    /// the request fails with a definitive `UNAVAILABLE`, so a router
+    /// (re-send, possibly bounce again). Each re-attempt is counted by
+    /// `personhog_router_forward_retries_total` under the reason that
+    /// caused it. After `MAX_CONSECUTIVE_BOUNCES` the request fails with
+    /// a definitive `UNAVAILABLE`, counted by
+    /// `personhog_router_forward_retries_exhausted_total`, so a router
     /// whose view never updates (a dead watch) can't hold requests
     /// forever — the client's own retry may land on a healthy router.
     ///
     /// A transport bounce marks the request possibly-applied: the leader
     /// may have processed it without us seeing the response, so any
     /// further forward — here or by the drain if it parks — is an
-    /// at-least-once replay, counted by
-    /// `personhog_router_stash_replayed_total` and covered by the
-    /// redelivery contract in `personhog-leader`'s README.
+    /// at-least-once replay, covered by the redelivery contract in
+    /// `personhog-leader`'s README.
     pub async fn forward_or_stash(
         &self,
         method: &'static str,
@@ -364,11 +390,8 @@ impl LeaderBackend {
                 StashDecision::Forward => {}
             }
 
-            if possibly_applied {
-                counter!("personhog_router_stash_replayed_total").increment(1);
-            }
             match self
-                .forward_classified(method, partition, &headers, &frame)
+                .forward_classified(ForwardPath::Direct, method, partition, &headers, &frame)
                 .await
             {
                 ForwardDecision::Delivered { response, call_ms } => {
@@ -378,13 +401,9 @@ impl LeaderBackend {
                     if reason == BounceReason::Transport {
                         possibly_applied = true;
                     }
-                    counter!(
-                        "personhog_router_forward_bounced_total",
-                        "reason" => reason.label()
-                    )
-                    .increment(1);
                     consecutive_bounces += 1;
                     if consecutive_bounces >= MAX_CONSECUTIVE_BOUNCES {
+                        counter!("personhog_router_forward_retries_exhausted_total").increment(1);
                         return (
                             grpc_error_response(
                                 Code::Unavailable,
@@ -393,6 +412,12 @@ impl LeaderBackend {
                             None,
                         );
                     }
+                    counter!(
+                        "personhog_router_forward_retries_total",
+                        "path" => ForwardPath::Direct.label(),
+                        "reason" => reason.label()
+                    )
+                    .increment(1);
                     tokio::time::sleep(BOUNCE_BACKOFF).await;
                 }
             }

@@ -21,12 +21,14 @@ CACHE_TTL_SECONDS = 300
 # CF entries: alias to litellm's native `cloudflare/@cf/...` price where it carries one (CF's actual
 # resold rate). For models litellm only prices under the vendor's own key, alias to that direct rate
 # as a proxy — not CF's resold rate, and may drift if CF adds markup or flat-rate billing.
-COST_ALIASES: dict[str, str] = {
-    "openai/@cf/moonshotai/kimi-k2.6": "moonshot/kimi-k2.6",
-    "openai/@cf/zai-org/glm-5.2": "cloudflare/@cf/zai-org/glm-5.2",
+COST_ALIASES: dict[str, tuple[str, str]] = {
+    "openai/@cf/moonshotai/kimi-k2.6": ("moonshot/kimi-k2.6", "openai"),
+    "openai/@cf/zai-org/glm-5.2": ("cloudflare/@cf/zai-org/glm-5.2", "openai"),
     # Modal serves the same GLM checkpoint; billed at the CF rate until trued
     # up against Modal's GPU-time invoices.
-    "openai/zai-org/GLM-5.2-FP8": "cloudflare/@cf/zai-org/glm-5.2",
+    "openai/zai-org/GLM-5.2-FP8": ("cloudflare/@cf/zai-org/glm-5.2", "openai"),
+    "openai/zai-org/GLM-5.2": (BASETEN_METRIC_MODEL, "openai"),
+    "openai/moonshotai/kimi-k3": ("moonshotai/kimi-k3", "openai"),
 }
 
 # Map LiteLLM's provider and model labels to stable telemetry identifiers. This stays separate from
@@ -53,12 +55,11 @@ def normalize_metric_labels(litellm_model: str, litellm_provider: str) -> tuple[
 
 def apply_cost_aliases(model_cost: dict[str, Any]) -> None:
     """Add alias keys for non-canonical provider routings. Prefer `set_litellm_model_cost`."""
-    for alias, canonical in COST_ALIASES.items():
+    for alias, (canonical, provider) in COST_ALIASES.items():
         if alias in model_cost:
             continue
         if canonical in model_cost:
-            # Shallow copy so a future in-place mutation under one key doesn't bleed into the other.
-            model_cost[alias] = dict(model_cost[canonical])
+            model_cost[alias] = {**model_cost[canonical], "litellm_provider": provider}
         else:
             logger.warning("cost_alias_canonical_missing", alias=alias, canonical=canonical)
 

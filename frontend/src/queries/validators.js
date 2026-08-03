@@ -69,6 +69,10 @@ const schema14 = {
         'is_not',
         'icontains',
         'not_icontains',
+        'starts_with',
+        'not_starts_with',
+        'ends_with',
+        'not_ends_with',
         'regex',
         'not_regex',
         'gt',
@@ -340,6 +344,10 @@ function validate12(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -579,6 +587,10 @@ function validate16(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -821,6 +833,10 @@ function validate19(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -1073,6 +1089,10 @@ function validate22(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -1311,6 +1331,10 @@ function validate25(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -1549,6 +1573,10 @@ function validate28(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -1823,6 +1851,10 @@ function validate31(data, { instancePath = '', parentData, parentDataProperty, r
                                             data3 === 'is_not' ||
                                             data3 === 'icontains' ||
                                             data3 === 'not_icontains' ||
+                                            data3 === 'starts_with' ||
+                                            data3 === 'not_starts_with' ||
+                                            data3 === 'ends_with' ||
+                                            data3 === 'not_ends_with' ||
                                             data3 === 'regex' ||
                                             data3 === 'not_regex' ||
                                             data3 === 'gt' ||
@@ -2341,6 +2373,10 @@ function validate33(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -2579,6 +2615,10 @@ function validate36(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -2940,6 +2980,10 @@ function validate39(data, { instancePath = '', parentData, parentDataProperty, r
                                                 data5 === 'is_not' ||
                                                 data5 === 'icontains' ||
                                                 data5 === 'not_icontains' ||
+                                                data5 === 'starts_with' ||
+                                                data5 === 'not_starts_with' ||
+                                                data5 === 'ends_with' ||
+                                                data5 === 'not_ends_with' ||
                                                 data5 === 'regex' ||
                                                 data5 === 'not_regex' ||
                                                 data5 === 'gt' ||
@@ -3182,6 +3226,10 @@ function validate42(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -3575,6 +3623,10 @@ function validate48(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -3813,6 +3865,10 @@ function validate51(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -4051,6 +4107,10 @@ function validate54(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -4290,6 +4350,10 @@ function validate57(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -4534,6 +4598,10 @@ function validate60(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -4773,6 +4841,10 @@ function validate63(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -5017,6 +5089,10 @@ function validate66(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -5259,6 +5335,10 @@ function validate69(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -5497,6 +5577,10 @@ function validate72(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||
@@ -6531,6 +6615,10 @@ function validate82(data, { instancePath = '', parentData, parentDataProperty, r
                                         data2 === 'is_not' ||
                                         data2 === 'icontains' ||
                                         data2 === 'not_icontains' ||
+                                        data2 === 'starts_with' ||
+                                        data2 === 'not_starts_with' ||
+                                        data2 === 'ends_with' ||
+                                        data2 === 'not_ends_with' ||
                                         data2 === 'regex' ||
                                         data2 === 'not_regex' ||
                                         data2 === 'gt' ||

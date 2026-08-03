@@ -130,6 +130,33 @@ export function appendMarkdownNotebookBlock(
     )
 }
 
+/** Inserts a markdown block right after the block identified by `targetNodeId` (a component's
+ * persisted `nodeId` prop, or the parsed block id). Appends at the end when no block matches. */
+export function insertMarkdownNotebookBlockAfterNode(
+    content: JSONContent | null | undefined,
+    targetNodeId: string,
+    blockMarkdown: string
+): JSONContent {
+    if (!blockMarkdown.trim()) {
+        return buildMarkdownNotebookContent(getMarkdownNotebookMarkdown(content), getMarkdownNotebookNodeId(content))
+    }
+
+    const document = parseMarkdownNotebook(getMarkdownNotebookMarkdown(content))
+    const targetIndex = document.nodes.findIndex(
+        (node) => node.id === targetNodeId || (node.type === 'component' && node.props.nodeId === targetNodeId)
+    )
+    if (targetIndex === -1) {
+        return appendMarkdownNotebookBlock(content, blockMarkdown)
+    }
+
+    const nodes = [...document.nodes]
+    nodes.splice(targetIndex + 1, 0, ...parseMarkdownNotebook(blockMarkdown).nodes)
+    return buildMarkdownNotebookContent(
+        serializeMarkdownNotebook({ ...document, nodes }),
+        getMarkdownNotebookNodeId(content)
+    )
+}
+
 /** Converts a dragged legacy notebook resource (`node` + `properties` dataTransfer payload, as set
  * by `useNotebookDrag`) into a markdown component block, or null when the node type has no
  * markdown counterpart. */

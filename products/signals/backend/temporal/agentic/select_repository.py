@@ -13,9 +13,9 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
-from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
+    persisted_repo_selection,
     resolve_team_github_integration,
     select_repository_for_report,
 )
@@ -85,21 +85,6 @@ def _capture_repo_research_event(
         )
 
 
-def _load_previous_repo_selection(report_id: str) -> RepoSelectionResult | None:
-    """Load a previous repo_selection artefact for this report, if one exists."""
-    artefact = (
-        SignalReportArtefact.objects.filter(
-            report_id=report_id,
-            type=SignalReportArtefact.ArtefactType.REPO_SELECTION,
-        )
-        .order_by("-created_at")
-        .first()
-    )
-    if artefact is None:
-        return None
-    return RepoSelectionResult.model_validate_json(artefact.content)
-
-
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -126,7 +111,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
         async with Heartbeater():
             # Check for a previous selection from an earlier run, if any
             previous = await aretry_on_db_connection_drop(
-                lambda: database_sync_to_async(_load_previous_repo_selection, thread_sensitive=False)(input.report_id)
+                lambda: database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(input.report_id)
             )
             if previous is not None and previous.repository is not None:
                 logger.info(

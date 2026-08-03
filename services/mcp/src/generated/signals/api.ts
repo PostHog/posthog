@@ -502,6 +502,12 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+                auto_pause_exempt: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.'
+                    ),
                 run_cron_schedule: zod
                     .string()
                     .max(signalsScoutCreateBodyConfigOneRunCronScheduleMax)
@@ -594,6 +600,12 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             })
             .optional()
             .describe('Destinations that receive each finding or report this scout emits. Empty by default.'),
+        auto_pause_exempt: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.'
+            ),
         run_cron_schedule: zod
             .string()
             .max(signalsScoutConfigCreateBodyRunCronScheduleMax)
@@ -637,7 +649,9 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
         enabled: zod
             .boolean()
             .optional()
-            .describe('Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator.'),
+            .describe(
+                'Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched.'
+            ),
         emit: zod
             .boolean()
             .optional()
@@ -686,6 +700,12 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.'
+            ),
+        auto_pause_exempt: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet.'
             ),
     })
     .describe('Editable schedule, enablement, and emit posture for one scout config.')

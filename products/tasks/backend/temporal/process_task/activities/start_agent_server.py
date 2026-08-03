@@ -188,7 +188,8 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
     Internal/autonomous runs (support reply, signals) must never pull a
-    resolved member's personal creds — they get shared team connections only.
+    resolved member's personal creds. Agent-specific grant filtering happens
+    in the MCP Store facade.
     User-initiated Code runs get shared + the creator's personal installs.
     """
     return not task.internal
@@ -252,6 +253,8 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         include_personal=include_personal,
         interaction_origin=ctx.interaction_origin,
         allowed_installation_ids=loop_mcp_installation_allowlist(ctx.state),
+        origin_product=task.origin_product,
+        task_agent_key=task.mcp_builtin_agent_key,
     )
     if user_mcp_configs:
         mcp_configs = mcp_configs + user_mcp_configs
