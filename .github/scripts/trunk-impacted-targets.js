@@ -195,6 +195,15 @@ const STANDALONE_TREES = new Map([
 // genuinely compile into nothing. Two trees stay off both lists: agent-os/ and
 // share/ hold only markdown today, which the prose rule already claims, and
 // anything else appearing there should widen until someone classifies it.
+//
+// .posthog-code is the entry that looks like an exception and is not. The
+// desktop app does parse .posthog-code/environments/*.toml, but it parses
+// whichever repository a user opens, and EnvironmentService's suite writes its
+// fixtures to a temp directory instead of reading this repository's copy. That
+// suite also covers a file being invalid TOML or off-schema, both of which the
+// service skips, so a config and a parser that disagree leave an environment
+// unlisted rather than failing anything. No suite here would catch the pair, so
+// sharing the desktop product's lane would serialize the two for no validation.
 const REPO_CONFIG_DIRS = [
     '.claude',
     '.codex',
