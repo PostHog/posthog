@@ -1,9 +1,10 @@
 import { BillingProductV2AddonType, BillingProductV2Type, BillingType } from '~/types'
 
-const MAX_BILLING_LIMIT: number = 50000
+export const MAX_BILLING_LIMIT: number = 50000
 
 export const POSTHOG_CODE_USAGE_PRODUCT_KEY = 'posthog_code_usage'
-export const POSTHOG_CODE_BILLING_LIMIT_MAX: number = 3000
+export const REPLAY_VISION_PRODUCT_KEY = 'replay_vision'
+export const STARTUP_PROGRAM_BILLING_LIMIT_MAX: number = 3000
 
 export type BillingLimitConfig = {
     max: number
@@ -30,26 +31,35 @@ const DEFAULT_BILLING_LIMIT_CONFIG: BillingLimitConfig = {
 
 type BillingLimitConfigResolver = (context: BillingLimitConfigContext) => Partial<BillingLimitConfig> | null
 
-const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver> = {
-    [POSTHOG_CODE_USAGE_PRODUCT_KEY]: ({ billing, customLimitUsd, billingLimitNextPeriod }) => {
+// Mirrors the caps the billing service enforces for startup-program customers, so the form
+// rejects out-of-range limits before the API does. The billing API product names are too
+// verbose for copy (e.g. "PostHog Code (usage-based)").
+const startupProgramCapResolver = (productName: string): BillingLimitConfigResolver => {
+    return ({ billing, customLimitUsd, billingLimitNextPeriod }) => {
         if (!billing?.startup_program_label) {
             return null
         }
 
+        const cap = STARTUP_PROGRAM_BILLING_LIMIT_MAX
         return {
-            max: POSTHOG_CODE_BILLING_LIMIT_MAX,
-            help: 'Code billing limits can be set from $0 to $3,000 per month.',
-            removalDisabledReason: "Code billing limits can't be removed. Set the limit to $0 instead.",
-            maxExceededError: "Code billing limits can't exceed $3,000 per month.",
+            max: cap,
+            help: `While your organization is in the startup program, ${productName} billing limits can be set from $0 to $${cap.toLocaleString()} per month.`,
+            removalDisabledReason: `While your organization is in the startup program, ${productName} billing limits can't be removed. Set the limit to $0 instead.`,
+            maxExceededError: `While your organization is in the startup program, ${productName} billing limits can't exceed $${cap.toLocaleString()} per month.`,
             currentAboveMaxNotice:
                 customLimitUsd !== null &&
-                customLimitUsd > POSTHOG_CODE_BILLING_LIMIT_MAX &&
+                customLimitUsd > cap &&
                 billingLimitNextPeriod !== null &&
-                billingLimitNextPeriod <= POSTHOG_CODE_BILLING_LIMIT_MAX
-                    ? `Current usage is already above the Code billing limit cap, so this period's limit stays at $${customLimitUsd.toLocaleString()}. The $${billingLimitNextPeriod.toLocaleString()} limit starts next period.`
+                billingLimitNextPeriod <= cap
+                    ? `Current usage is already above the startup program cap, so this period's limit stays at $${customLimitUsd.toLocaleString()}. The $${billingLimitNextPeriod.toLocaleString()} limit starts next period.`
                     : null,
         }
-    },
+    }
+}
+
+const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver> = {
+    [POSTHOG_CODE_USAGE_PRODUCT_KEY]: startupProgramCapResolver('Code'),
+    [REPLAY_VISION_PRODUCT_KEY]: startupProgramCapResolver('Replay vision'),
 }
 
 export const getBillingLimitConfig = (context: BillingLimitConfigContext): BillingLimitConfig => {

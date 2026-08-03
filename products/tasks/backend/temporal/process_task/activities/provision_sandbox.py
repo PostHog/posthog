@@ -432,7 +432,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         "prepare_sandbox_for_repository",
         **ctx.to_log_context(),
     ):
-        has_repo = ctx.repository is not None
+        has_repo = bool(ctx.repositories)
         repository = ctx.repository
 
         snapshot = None
@@ -443,9 +443,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
         # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
         if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
-            assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
-                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [repository])
+                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, ctx.repositories)
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
@@ -464,8 +463,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         actor_user = get_task_run_credential_user(task, ctx.state)
+        credential_repository = repository or (ctx.repositories[0] if ctx.repositories else None)
         github_token = _resolve_sandbox_github_token(
-            ctx, task=task, actor_user=actor_user, repository=repository, has_repo=has_repo
+            ctx, task=task, actor_user=actor_user, repository=credential_repository, has_repo=has_repo
         )
 
         try:

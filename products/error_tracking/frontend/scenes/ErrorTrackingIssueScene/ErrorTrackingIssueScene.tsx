@@ -302,6 +302,7 @@ const RightHandColumn = ({
 const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
     const { category } = useValues(errorTrackingIssueSceneConfigurationLogic)
     const { setCategory } = useActions(errorTrackingIssueSceneConfigurationLogic)
+    const { issueId } = useValues(errorTrackingIssueSceneLogic)
 
     const ref = useRef<HTMLDivElement>(null)
     const resizerLogicProps: ResizerLogicProps = {
@@ -329,7 +330,10 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
         >
             <TabsPrimitive
                 value={category}
-                onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}
+                onValueChange={(value) => {
+                    setCategory(value as ErrorTrackingIssueSceneCategory)
+                    posthog.capture('error_tracking_issue_tab_viewed', { issue_id: issueId, tab: value })
+                }}
                 className="flex flex-col flex-1 min-h-0"
             >
                 <div>

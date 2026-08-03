@@ -470,7 +470,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
 
     try:
         from posthog.temporal.common.client import async_connect
-        from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
+
+        from products.managed_warehouse.backend.facade.temporal import (
             DuckLakeRegisterDataImportsInputs,
             DuckLakeRegisterDataImportsWorkflow,
             build_register_data_imports_workflow_id,
