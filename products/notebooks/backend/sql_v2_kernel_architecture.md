@@ -130,7 +130,7 @@ The cell persists `connectionId` / `sendRawQuery`, the run request carries them,
 Consequences the lanes have to respect:
 
 - A connection run always takes the **direct lane**. The sandbox only reaches PostHog data, so a connection cell that reads a Python frame is rejected at dispatch rather than rerouted to DuckDB.
-- `code` only means something on the engine that ran it, so a ref is inlined as a CTE only when the upstream cell's latest run used the *same* connection and the same raw mode. Anything else is refused at dispatch with a cross-engine message instead of being silently shipped to the wrong engine.
+- `code` only means something on the engine that ran it, so a ref is inlined as a CTE only when the upstream cell's latest run used the _same_ connection and the same raw mode. Anything else is refused at dispatch with a cross-engine message instead of being silently shipped to the wrong engine.
 - **Raw mode carries no references at all.** The HogQL parser can't read the engine's dialect, so there is nothing to inline and nothing to bound in place: `apply_raw_page_bounds` wraps the query in an aliased derived table (Postgres and MySQL reject an unaliased one) and the engine sees the rest verbatim.
 
 ## Result store and paging
