@@ -25,7 +25,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    BUFFERING_STALL_TIMEOUT_MS,
+    findNewEvents,
+    findSegmentForTimestamp,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -812,6 +817,56 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
             } finally {
                 graceSpy.mockRestore()
+            }
+        })
+
+        // Unlike `waitingForIngestion`, `waitingForData` has no wall-clock bound of its own — if the
+        // source the playhead needs never finishes loading (a mistargeted loader, a fetch that hangs
+        // without failing), the seek buffers forever with no error. This is the backstop for that case.
+        it('escalates a seek stuck waiting on data to a terminal error after the stall timeout', () => {
+            jest.useFakeTimers()
+            try {
+                // the first source is never loaded (unlike the "errors when fully loaded" case above,
+                // which resolves definitively once everything loads) — it could still contain the
+                // window's FullSnapshot, so the seek buffers indefinitely with no terminal verdict
+                seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+                expect(logic.values.playerError).toBeNull()
+
+                jest.advanceTimersByTime(BUFFERING_STALL_TIMEOUT_MS - 1)
+                expect(logic.values.playerError).toBeNull()
+
+                jest.advanceTimersByTime(1)
+                expect(logic.values.playerError).toBe('bufferingTimedOut')
+                expect(logic.values.isBuffering).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('does not escalate a still-ingesting recording before its own grace period elapses', () => {
+            // waitingForIngestion has its own bounded path (the ingestion grace period); the stall
+            // backstop must not fire early and pre-empt it with the wrong error.
+            jest.useFakeTimers()
+            const graceSpy = jest
+                .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
+                .mockReturnValue(true)
+            try {
+                seedRecording([inc(START), inc(START + 1000)], [inc(START + 61000), inc(START + 62000)])
+                logic.actions.setPause()
+                logic.actions.seekToTimestamp(START + 61500)
+                expect(logic.values.isBuffering).toBe(true)
+
+                jest.advanceTimersByTime(BUFFERING_STALL_TIMEOUT_MS * 2)
+
+                expect(logic.values.playerError).toBeNull()
+                expect(logic.values.isBuffering).toBe(true)
+            } finally {
+                graceSpy.mockRestore()
+                jest.useRealTimers()
             }
         })
 

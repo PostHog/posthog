@@ -169,6 +169,12 @@ const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 // Safety-net cadence for re-running syncPlayerState while buffering, since neither backed-off source polling nor the non-reactive wall-clock grace check re-triggers verdict re-evaluation on its own.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
+// `waitingForData` has no terminal condition of its own — unlike `waitingForIngestion` (bounded by the
+// ingestion grace period), it persists forever if the source the playhead needs never finishes loading.
+// This bounds that stall and turns it into the same terminal error already shown for a definitively
+// unplayable position, rather than an overlay that spins indefinitely.
+export const BUFFERING_STALL_TIMEOUT_MS = 30000
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -2624,6 +2630,30 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         startBuffer: () => {
             actions.stopAnimation()
+            // syncPlayerState re-fires startBuffer on every data arrival while still buffering, so guard
+            // arming with a flag rather than the disposable key — otherwise a slowly-progressing (but
+            // still too-slow) load keeps resetting the clock on each arrival and the stall never elapses.
+            // isWaitingForIngestion has its own bounded path (grace period + periodic re-evaluation), so
+            // only arm the backstop for the open-ended `waitingForData` case.
+            if (values.isWaitingForIngestion || cache.bufferingStallTimerArmed) {
+                return
+            }
+            cache.bufferingStallTimerArmed = true
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => {
+                    cache.bufferingStallTimerArmed = false
+                    if (values.isBuffering && !values.isWaitingForIngestion) {
+                        values.player?.replayer?.pause()
+                        actions.endBuffer()
+                        actions.setPlayerError('bufferingTimedOut')
+                    }
+                }, BUFFERING_STALL_TIMEOUT_MS)
+                return () => clearTimeout(timerId)
+            }, 'bufferingStallTimeout')
+        },
+        endBuffer: () => {
+            cache.bufferingStallTimerArmed = false
+            cache.disposables.dispose('bufferingStallTimeout')
         },
         setPlayerError: () => {
             actions.incrementErrorCount()

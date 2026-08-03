@@ -83,6 +83,27 @@ const SUCCEEDED_OUTPUT_LABEL: Record<ScannerType, string> = {
     scorer: 'Score',
 }
 
+// Metadata (start/end) lands well before the source list does, and seeking before then leaves the seek
+// target's segment unresolved, so the loader has no window to target and falls back to loading sources
+// in order from the start — on a long recording that never reaches a citation deep in the timeline in
+// any reasonable time. Waiting for `snapshotsLoaded` (the source list) means the seek resolves a real
+// segment and can target the loader at the right window.
+export function shouldFireAutoSeek({
+    trigger,
+    seekedForTrigger,
+    startMs,
+    endMs,
+    snapshotsLoaded,
+}: {
+    trigger: number
+    seekedForTrigger: number | null
+    startMs: number | null
+    endMs: number | null
+    snapshotsLoaded: boolean
+}): boolean {
+    return seekedForTrigger !== trigger && startMs != null && endMs != null && snapshotsLoaded
+}
+
 function AutoSeekToTime({
     playerKey,
     sessionRecordingId,
@@ -94,19 +115,29 @@ function AutoSeekToTime({
     ms: number
     trigger: number
 }): null {
-    const { sessionPlayerData } = useValues(sessionRecordingPlayerLogic({ playerKey, sessionRecordingId }))
+    const { sessionPlayerData, snapshotsLoaded } = useValues(
+        sessionRecordingPlayerLogic({ playerKey, sessionRecordingId })
+    )
     // `start`/`end` are fresh Dayjs objects on every snapshot batch; compare epochs so deps stay stable.
     const startMs = sessionPlayerData?.start?.valueOf() ?? null
     const endMs = sessionPlayerData?.end?.valueOf() ?? null
     // Latch per-trigger so snapshot-batch arrivals don't re-seek and fight playback.
     const seekedForTrigger = useRef<number | null>(null)
     useEffect(() => {
-        if (seekedForTrigger.current === trigger || startMs == null || endMs == null) {
+        if (
+            !shouldFireAutoSeek({
+                trigger,
+                seekedForTrigger: seekedForTrigger.current,
+                startMs,
+                endMs,
+                snapshotsLoaded,
+            })
+        ) {
             return
         }
         sessionRecordingPlayerLogic.findMounted({ playerKey, sessionRecordingId })?.actions.seekToTime(ms)
         seekedForTrigger.current = trigger
-    }, [startMs, endMs, ms, trigger, playerKey, sessionRecordingId])
+    }, [startMs, endMs, ms, trigger, playerKey, sessionRecordingId, snapshotsLoaded])
     return null
 }
 

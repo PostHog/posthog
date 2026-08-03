@@ -87,6 +87,7 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
 
     if (currentPlayerState === SessionPlayerState.ERROR) {
         const isMissingFullSnapshot = playerError === 'noPlayableFullSnapshot'
+        const isBufferingTimedOut = playerError === 'bufferingTimedOut'
         content = (
             <div className="flex flex-col justify-center items-center p-6 bg-surface-primary rounded m-6 gap-2 max-w-120 shadow-sm">
                 <IconWarning className="text-danger text-5xl" />
@@ -94,7 +95,9 @@ const PlayerFrameOverlayContent = (): JSX.Element | null => {
                 <div className="text-secondary text-sm text-center">
                     {isMissingFullSnapshot
                         ? 'This part of the recording is missing the snapshot data needed to render it. The data never reached PostHog, usually because the browser was closed or went offline before the recording finished uploading.'
-                        : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
+                        : isBufferingTimedOut
+                          ? 'This part of the recording is taking too long to load. You can refresh the page to try again.'
+                          : 'An error occurred that is preventing this recording from being played. You can refresh the page to reload the recording.'}
                 </div>
                 {!isMissingFullSnapshot && (
                     <LemonButton
