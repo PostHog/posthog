@@ -577,6 +577,37 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.session?.sessionMeta.channelMode).toBe(true);
     }, 30000);
 
+    // A task pinned to a repository gets its checkout provisioned; handing it
+    // clone tools would be wrong even though it has no repositoryPath.
+    it("keeps repository tools disabled when the task carries a repository", async () => {
+      await mkdir("/tmp/workspace", { recursive: true });
+      mswServer.use(
+        http.get(
+          "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+          () =>
+            HttpResponse.json({
+              id: "test-task-id",
+              title: "Test task",
+              description: null,
+              origin_product: "user_created",
+              repository: "PostHog/posthog",
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }),
+        ),
+      );
+
+      const testServer = createServer({
+        repositoryPath: undefined,
+      }) as unknown as {
+        start(): Promise<void>;
+        session: { sessionMeta: { channelMode?: boolean } } | null;
+      };
+      await testServer.start();
+
+      expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
+    }, 30000);
+
     it("links native agent state before initializing the session", async () => {
       const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
       const originalCodexHome = process.env.CODEX_HOME;
