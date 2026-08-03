@@ -6,6 +6,8 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+import django.db
+
 import pyarrow as pa
 import deltalake as deltalake
 import structlog
@@ -958,9 +960,9 @@ class TestClaimFencing:
         swap.assert_not_awaited()
 
     def test_rewrite_stops_at_batch_boundary_when_claim_lost(self, tmp_path):
-        # The zombie's damage window is the rewrite loop, so the claim is re-checked before every batch
-        # write — a superseded writer must stop within one batch, not stream its whole table into (and
-        # corrupt) the newer attempt's rebuild.
+        # A superseded writer must stop at the next batch boundary once a check is due, rather than
+        # streaming its whole table. Interval 0 forces a check every batch, isolating the stop
+        # behaviour from the throttle covered by test_rewrite_throttles_claim_rechecks.
         live = _write_month_partitioned(
             str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
         )
@@ -978,9 +980,75 @@ class TestClaimFencing:
                     batch_size=1,
                     logger=logger,
                     ensure_claim=ensure,
+                    claim_recheck_interval_seconds=0,
                 )
             )
         assert ensure.await_count == 2
+
+    def test_rewrite_throttles_claim_rechecks(self, tmp_path):
+        # An over-fragmented table yields one batch per source file, so a per-batch claim read costs one
+        # Postgres round-trip per partition — the pathology that makes rewriting the tables that most
+        # need it slowest and likeliest to abort. Under the throttle the whole rewrite checks once.
+        live = _write_month_partitioned(
+            str(tmp_path / "live"), [(i, datetime.datetime(2024, 1 + (i % 12), 5)) for i in range(1, 25)]
+        )
+        ensure = AsyncMock(return_value=None)
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        rows_written, _ = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=live,
+                temp_uri=str(tmp_path / "temp"),
+                storage_options={},
+                target=target,
+                batch_size=1,
+                logger=logger,
+                ensure_claim=ensure,
+                claim_recheck_interval_seconds=3600,
+            )
+        )
+        assert rows_written == 24
+        assert ensure.await_count == 1
+
+    def test_rewrite_coalesces_batches_into_one_commit(self, tmp_path):
+        # The reader yields at least one batch per source file, so an over-fragmented table used to
+        # append a separate Delta commit per partition — rewrite cost scaling with file count rather
+        # than data size, worst for exactly the tables repartitioning exists to fix. Under one
+        # batch_size worth of rows the whole rewrite must land as a single commit, losing no rows.
+        rows = [(i, datetime.datetime(2024, 1 + (i % 12), 5)) for i in range(1, 37)]
+        live = _write_month_partitioned(str(tmp_path / "live"), rows)
+        assert len(measure_partition_bytes(live)) == 12
+
+        target = RepartitionTarget(
+            partition_keys=["created_at"], trigger_reason="t", partition_mode="datetime", partition_format="day"
+        )
+        temp_uri = str(tmp_path / "temp")
+        rows_written, _ = asyncio.run(
+            _rewrite_into_temp(
+                old_delta=live,
+                temp_uri=temp_uri,
+                storage_options={},
+                target=target,
+                batch_size=50_000,
+                logger=logger,
+            )
+        )
+
+        temp = deltalake.DeltaTable(temp_uri)
+        assert rows_written == 36
+        assert temp.to_pyarrow_dataset().count_rows() == 36
+        # Version 0 is the sole commit; one-per-source-file would leave version 11.
+        assert temp.version() == 0
+
+    def test_claim_token_read_retries_dropped_connection(self):
+        # pgbouncer recycling a pooled connection surfaces as OperationalError on first use. Treating
+        # that as a lost claim discarded rewrites that were tens of minutes in, so the read retries.
+        schema = _schema(id="s1", repartition_claim={"token": "tok-ours"})
+        schema.refresh_from_db = Mock(side_effect=[django.db.OperationalError("query_wait_timeout"), None])
+
+        assert repartition_module._current_claim_token(schema) == "tok-ours"
+        assert schema.refresh_from_db.call_count == 2
 
     def test_resume_targets_marker_temp_uri_not_claim_scoped(self, tmp_path):
         # In-flight prod markers predate claim-scoped temp names; a resume must validate and swap the

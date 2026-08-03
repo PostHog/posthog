@@ -302,10 +302,13 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 claim_token=claim_token,
             )
     except RepartitionSupersededError:
-        # A newer attempt claimed the schema and owns the table now. Stop quietly: recording a failure
-        # here would burn an attempt and double-report the run the newer claimant is already handling.
+        # A newer attempt claimed the schema and owns the table now. Stop without recording a *failure*
+        # (that would burn an attempt and double-report the run the newer claimant is already handling),
+        # but still emit the skip: a started event with no terminal event leaves `repartition_pending`
+        # set and no way to tell a stood-down attempt from one that vanished.
         logger.info("repartition: superseded by a newer attempt, standing down")
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+        _capture_stood_down(schema, inputs, trigger_reason, "superseded")
         return
     except RepartitionUnpartitionableError as e:
         # Terminal: the table can't be partitioned on its keys. Clear the flag AND engage the cooldown —
@@ -342,6 +345,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
             # failure would burn an attempt and pollute error tracking with self-inflicted noise.
             logger.info("repartition: failed after being superseded, standing down", exc_info=True)
             DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="superseded").inc()
+            _capture_stood_down(schema, inputs, trigger_reason, "superseded_after_error")
             return
         if _is_transient_infra_error(e):
             # Transient infra noise mid-repartition (app-DB pooler drop, S3 rate limit, credential
@@ -365,6 +369,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
                 ) from e
             logger.warning("repartition: transient infra error, will retry on next sync", exc_info=True)
             capture_exception(e)
+            _capture_stood_down(schema, inputs, trigger_reason, "transient_infra_error")
             return
         failure_outcome = _handle_failure(inputs, schema, pending, trigger_reason, e, claim_token, logger)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome=failure_outcome).inc()
@@ -388,6 +393,23 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         outcome=outcome,
         duration_seconds=duration,
     )
+
+
+def _capture_stood_down(
+    schema: ExternalDataSchema,
+    inputs: RepartitionActivityInputs,
+    trigger_reason: str,
+    reason: str,
+) -> None:
+    """Emit the terminal event for an attempt that stopped without finishing or failing.
+
+    These paths deliberately record no failure, but without a terminal event a rewrite that stood down
+    is indistinguishable from one that disappeared mid-flight — both leave `repartition_pending` set
+    and a lone `warehouse_repartition_started`. Reported as skipped so failure dashboards stay clean.
+    """
+    props = base_event_props(schema, schema.source, inputs.job_id)
+    props.update({"trigger_reason": trigger_reason, "reason": reason})
+    capture_repartition_event("warehouse_repartition_skipped", props)
 
 
 def _handle_failure(

@@ -616,17 +616,21 @@ class TestRepartitionActivity:
         assert schema.repartition_pending["attempts"] == 0
 
     @pytest.mark.parametrize(
-        "error,still_claimant",
+        "error,still_claimant,expected_reason",
         [
-            pytest.param(RepartitionSupersededError("claim lost"), True, id="clean_abort"),
-            pytest.param(ValueError("boom from clobbered temp"), False, id="collateral_failure"),
+            pytest.param(RepartitionSupersededError("claim lost"), True, "superseded", id="clean_abort"),
+            pytest.param(
+                ValueError("boom from clobbered temp"), False, "superseded_after_error", id="collateral_failure"
+            ),
         ],
     )
-    def test_superseded_attempt_is_silent_and_burns_no_attempt(self, team, error, still_claimant):
+    def test_superseded_attempt_is_silent_and_burns_no_attempt(self, team, error, still_claimant, expected_reason):
         # A zombie attempt (heartbeat-timed-out but still running) that either stands down cleanly or
         # crashes on state its replacement clobbered must not emit warehouse_repartition_failed or
         # consume an attempt — the newer claimant owns the run and reports for it. Without this, every
         # superseded zombie double-reports and can burn the whole attempt budget on one bad table.
+        # It must still emit a terminal skip: a lone started event with pending left set is
+        # indistinguishable from an attempt that vanished, which made a real incident undiagnosable.
         schema = _make_schema(team, {})
         schema.set_repartition_pending(
             {
@@ -646,6 +650,8 @@ class TestRepartitionActivity:
         ):
             ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
         assert "warehouse_repartition_failed" not in [c.args[0] for c in capture.call_args_list]
+        skipped = [c for c in capture.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+        assert [c.args[1]["reason"] for c in skipped] == [expected_reason]
         schema.refresh_from_db()
         assert schema.repartition_pending is not None
         assert schema.repartition_pending["attempts"] == 0

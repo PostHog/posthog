@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import math
+import time
 import asyncio
 import dataclasses
 from collections import defaultdict
@@ -28,6 +29,8 @@ import pyarrow as pa
 import deltalake as deltalake
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
+
+from posthog.temporal.common.utils import retry_on_db_connection_drop
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -57,6 +60,17 @@ DATETIME_FORMAT_TIERS: list[PartitionFormat] = ["month", "week", "day", "hour"]
 
 # Rows per streamed record-batch. Bounds the repartition's peak memory independent of partition size.
 DEFAULT_REPARTITION_BATCH_SIZE = 50_000
+
+# Minimum gap between claim re-reads during the rewrite loop. The loop yields at least one batch per
+# source *file*, so an over-fragmented table (the exact kind being repartitioned) produces one batch
+# per partition regardless of `DEFAULT_REPARTITION_BATCH_SIZE` — a few thousand rows spread over a few
+# thousand hour-partitions is a few thousand batches. Re-reading the claim on every one turns a small
+# rewrite into thousands of Postgres round-trips, and any single failure discards the whole rewrite.
+# Throttling is safe because the rewrite writes only to a temp table scoped to our own claim token
+# (`_temp_uri_for`), so a superseded writer cannot reach a newer attempt's rebuild no matter how long
+# it keeps going; the claim's real teeth are the unthrottled checks around the destructive swap steps.
+# 0 disables the throttle (check every batch).
+CLAIM_RECHECK_INTERVAL_SECONDS = 10.0
 
 TEMP_URI_SUFFIX = "__repartitioned"
 
@@ -170,7 +184,10 @@ def _temp_uri_for(live_uri: str, claim_token: str | None) -> str:
 
 
 def _current_claim_token(schema: ExternalDataSchema) -> str | None:
-    schema.refresh_from_db(fields=["sync_type_config"])
+    # Retry a dropped pooled connection: this read runs repeatedly across a rewrite that can span tens
+    # of minutes, and pgbouncer recycling one connection under it would otherwise discard all of that
+    # work — the read failing tells us nothing about whether we still hold the claim.
+    retry_on_db_connection_drop(lambda: schema.refresh_from_db(fields=["sync_type_config"]))
     claim = schema.repartition_claim
     return claim.get("token") if claim else None
 
@@ -377,13 +394,15 @@ async def _rewrite_into_temp(
     batch_size: int,
     logger: FilteringBoundLogger,
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
+    claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a fresh temp table under the new partition scheme.
 
     Returns (rows_written, resolved_target). The first batch resolves any auto-detected mode/format/
     keys so every subsequent batch is bucketed identically (a per-batch auto-detect could disagree).
-    `ensure_claim` runs before every batch write so a superseded attempt stops within one batch
-    instead of appending into (and corrupting) the newer attempt's rebuild.
+    `ensure_claim` runs before the first batch and then at most once per
+    `claim_recheck_interval_seconds`, so a superseded attempt stops within that window rather than
+    paying a database round-trip per batch (see `CLAIM_RECHECK_INTERVAL_SECONDS`).
     """
     dataset = await asyncio.to_thread(old_delta.to_pyarrow_dataset)
     reader = await asyncio.to_thread(lambda: dataset.scanner(batch_size=batch_size).to_reader())
@@ -392,9 +411,37 @@ async def _rewrite_into_temp(
     resolved: RepartitionTarget | None = None
     rows_written = 0
 
+    buffered: list[pa.Table] = []
+    buffered_rows = 0
+
+    async def flush() -> int:
+        """Write the buffered batches as one Delta commit and return the rows written."""
+        nonlocal buffered, buffered_rows
+        if not buffered:
+            return 0
+        # Every buffered table was already aligned to `live_schema`, so they concat without promotion.
+        combined = buffered[0] if len(buffered) == 1 else pa.concat_tables(buffered)
+        buffered = []
+        buffered_rows = 0
+        await asyncio.to_thread(
+            deltalake.write_deltalake,
+            temp_uri,
+            combined,
+            partition_by=PARTITION_KEY,
+            mode="append",
+            schema_mode="merge",
+            storage_options=storage_options,
+        )
+        return combined.num_rows
+
+    last_claim_check: float | None = None
+
     while True:
         if ensure_claim is not None:
-            await ensure_claim()
+            now = time.monotonic()
+            if last_claim_check is None or now - last_claim_check >= claim_recheck_interval_seconds:
+                await ensure_claim()
+                last_claim_check = now
         batch = await asyncio.to_thread(_read_next_batch, reader)
         if batch is None:
             break
@@ -439,16 +486,17 @@ async def _rewrite_into_temp(
         partitioned_table = evolve_pyarrow_schema(partitioned_table, live_schema)
         partitioned_table = realign_decimal_buffers(partitioned_table)
 
-        await asyncio.to_thread(
-            deltalake.write_deltalake,
-            temp_uri,
-            partitioned_table,
-            partition_by=PARTITION_KEY,
-            mode="append",
-            schema_mode="merge",
-            storage_options=storage_options,
-        )
-        rows_written += partitioned_table.num_rows
+        # Coalesce before writing. The reader yields at least one batch per source *file*, so an
+        # over-fragmented table produces thousands of tiny batches; writing each one appends a
+        # separate Delta commit, making the rewrite cost scale with the source's file count rather
+        # than its size — worst exactly for the tables this exists to fix. Buffering to `batch_size`
+        # rows keeps peak memory at the same bound the batches were already sized to.
+        buffered.append(partitioned_table)
+        buffered_rows += partitioned_table.num_rows
+        if buffered_rows >= batch_size:
+            rows_written += await flush()
+
+    rows_written += await flush()
 
     if resolved is None:
         # Empty source table — nothing to rewrite.
