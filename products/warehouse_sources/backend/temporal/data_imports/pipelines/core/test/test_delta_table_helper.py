@@ -10,6 +10,9 @@ import deltalake
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import realign_decimal_buffers
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 
 _HELPER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
@@ -166,25 +169,31 @@ class TestGetDeltaTableUnrecoverableErrors:
     @pytest.mark.asyncio
     async def test_is_deltatable_transient_error_is_not_captured_but_still_reraised(self):
         """A known-transient object-store blip (e.g. an S3 LIST request timing out) must not be
-        reported to error tracking as a defect — it's a self-recovering network hiccup, not a bug —
-        but it must still propagate so Temporal's activity retry policy retries the sync."""
+        reported to error tracking as a defect — it's a self-recovering network hiccup, not a bug.
+        It must still propagate (as TransientObjectStoreError, not the raw OSError) so Temporal's
+        activity retry policy retries the sync. Wrapping matters, not just suppressing the inline
+        capture_exception call here: a bare OSError would still reach the activity interceptor
+        (posthog_client.py), which reports any uncaught activity exception that isn't a
+        NonReportableError, minting a fresh error-tracking issue per blip anyway."""
         helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
         delta_uri = "s3://bucket/team_id/job_id/t"
 
         module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper"
+        original_error = OSError(
+            "Generic S3 error\nError getting list response body\nHTTP error\n"
+            "request or response body error\noperation timed out"
+        )
         with (
             patch.object(helper, "_get_delta_table_uri", AsyncMock(return_value=delta_uri)),
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.capture_exception") as mock_capture,
         ):
-            mock_delta_table.is_deltatable.side_effect = OSError(
-                "Generic S3 error\nError getting list response body\nHTTP error\n"
-                "request or response body error\noperation timed out"
-            )
+            mock_delta_table.is_deltatable.side_effect = original_error
 
-            with pytest.raises(OSError, match="operation timed out"):
+            with pytest.raises(TransientObjectStoreError, match="operation timed out") as exc_info:
                 await helper.get_delta_table()
 
+            assert exc_info.value.__cause__ is original_error
             mock_capture.assert_not_called()
             cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
             assert helper.is_first_sync is False

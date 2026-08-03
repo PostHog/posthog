@@ -78176,10 +78176,22 @@ export namespace Schemas {
      */
     repo?: string;
     /**
+     * Optional test runner to return: 'pytest' or 'jest'.
+     */
+    runner?: EngineeringAnalyticsFlakyTestsRunner;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsFlakyTestsRunner = typeof EngineeringAnalyticsFlakyTestsRunner[keyof typeof EngineeringAnalyticsFlakyTestsRunner];
+
+
+    export const EngineeringAnalyticsFlakyTestsRunner = {
+      Jest: 'jest',
+      Pytest: 'pytest',
+    } as const;
 
     export type EngineeringAnalyticsJobAggregatesParams = {
     /**
