@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { webAnalyticsAchievementsLogic } from 'scenes/web-analytics/achievements/webAnalyticsAchievementsLogic'
-import { BREAKDOWN_NULL_DISPLAY } from 'scenes/web-analytics/common'
+import { BREAKDOWN_NULL_DISPLAY, BREAKDOWN_REFERRER_PREFIX } from 'scenes/web-analytics/common'
 
 import {
     ProductIntentContext,
@@ -47,6 +47,31 @@ const buildBreakdownPropertyFilter = (
         value: [value],
         operator: PropertyOperator.Exact,
     } as AnyPropertyFilter
+}
+
+/**
+ * The UTM source/medium/campaign tile displays "referrer:<domain>" instead of the raw
+ * $entry_utm_source value when no UTM source was set (see BREAKDOWN_REFERRER_PREFIX in
+ * stats_table.py). Filtering on that display string as if it were $entry_utm_source matches
+ * no session, so route it to $entry_referring_domain instead.
+ */
+export const buildUtmSourceFilters = (value: string): AnyPropertyFilter[] => {
+    if (value.startsWith(BREAKDOWN_REFERRER_PREFIX)) {
+        return [
+            buildBreakdownPropertyFilter(
+                '$entry_referring_domain',
+                PropertyFilterType.Session,
+                value.slice(BREAKDOWN_REFERRER_PREFIX.length)
+            ),
+            {
+                key: '$entry_utm_source',
+                type: PropertyFilterType.Session,
+                value: null,
+                operator: PropertyOperator.IsNotSet,
+            } as AnyPropertyFilter,
+        ]
+    }
+    return [buildBreakdownPropertyFilter('$entry_utm_source', PropertyFilterType.Session, value)]
 }
 
 /**
@@ -185,11 +210,7 @@ export const ReplayButton = ({
         const values = value.split(' / ')
         return renderButton(
             buildFilters([
-                buildBreakdownPropertyFilter(
-                    '$entry_utm_source',
-                    PropertyFilterType.Session,
-                    values[0] ?? BREAKDOWN_NULL_DISPLAY
-                ),
+                ...buildUtmSourceFilters(values[0] ?? BREAKDOWN_NULL_DISPLAY),
                 buildBreakdownPropertyFilter(
                     '$entry_utm_medium',
                     PropertyFilterType.Session,

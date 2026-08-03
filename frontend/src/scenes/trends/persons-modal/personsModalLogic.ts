@@ -180,6 +180,7 @@ export interface personsModalLogicValues {
     recordingFilters: Partial<RecordingUniversalFilters>
     searchTerm: string
     selectFields: string[]
+    distinctIdsFromLoadedActors: string[]
     sessionIdsFromLoadedActors: string[]
     validationError: string | null
 }
@@ -732,12 +733,30 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 return sessionIds
             },
         ],
+        distinctIdsFromLoadedActors: [
+            (s) => [s.actors],
+            (actors: ActorType[]): string[] => {
+                // Only person actors carry distinct_ids; groups and sessions don't map onto a single person.
+                const distinctIds = new Set<string>()
+                actors.forEach((actor: ActorType) => {
+                    const person = isSessionType(actor) ? actor.person : isGroupType(actor) ? undefined : actor
+                    person?.distinct_ids?.forEach((distinctId) => distinctIds.add(distinctId))
+                })
+                return Array.from(distinctIds)
+            },
+        ],
         recordingFilters: [
-            (s) => [s.actorsQuery, s.propertiesTimelineFilterFromUrl, s.sessionIdsFromLoadedActors],
+            (s) => [
+                s.actorsQuery,
+                s.propertiesTimelineFilterFromUrl,
+                s.sessionIdsFromLoadedActors,
+                s.distinctIdsFromLoadedActors,
+            ],
             (
                 actorsQuery: ActorsQuery | null,
                 propertiesTimelineFilter: PropertiesTimelineFilterType,
-                sessionIds: string[]
+                sessionIds: string[],
+                distinctIds: string[]
             ): Partial<RecordingUniversalFilters> => {
                 if (!actorsQuery || !actorsQuery.source) {
                     return {}
@@ -782,8 +801,19 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     }
                 }
 
-                // For non-funnel queries or funnels without session IDs, use filter-based approach
+                // For non-funnel queries or funnels without session IDs, use filter-based approach.
+                // Without matched_recordings, we have no session IDs to scope by directly, so scope
+                // by the loaded actors' distinct_ids instead — otherwise the filters below (event
+                // names, date range) describe a project-wide search rather than these actors' sessions.
                 const filters: UniversalFilterValue[] = []
+                if (distinctIds.length > 0) {
+                    filters.push({
+                        key: 'distinct_id',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: distinctIds,
+                    })
+                }
 
                 // Extract events from the insight query series
                 if ('series' in insightQuery && Array.isArray(insightQuery.series)) {

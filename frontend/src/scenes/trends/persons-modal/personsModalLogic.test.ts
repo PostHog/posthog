@@ -475,10 +475,13 @@ describe('personsModalLogic', () => {
                 })
             }
 
+            // Excludes the person distinct_id scoping filter (covered separately below) so these
+            // assertions stay focused on which funnel steps get carried into the fallback filters.
             const getInnerFilterValues = (): any[] => {
                 const outerGroup = logic.values.recordingFilters.filter_group
                 const innerGroup = outerGroup?.values?.[0]
-                return innerGroup && 'values' in innerGroup ? (innerGroup.values as any[]) : []
+                const values = innerGroup && 'values' in innerGroup ? (innerGroup.values as any[]) : []
+                return values.filter((v) => v.key !== 'distinct_id')
             }
 
             it('includes the funnel date range when session IDs are available for a drop-off step', () => {
@@ -588,6 +591,12 @@ describe('personsModalLogic', () => {
             const filters = logic.values.recordingFilters
             const innerValues = (filters.filter_group as any)?.values?.[0]?.values
             expect(innerValues).toEqual([
+                expect.objectContaining({
+                    key: 'distinct_id',
+                    type: 'person',
+                    operator: 'exact',
+                    value: ['user-1'],
+                }),
                 expect.objectContaining({ id: '$pageview', type: 'events' }),
                 expect.objectContaining({ id: 'sign_up', type: 'events' }),
             ])
@@ -635,8 +644,16 @@ describe('personsModalLogic', () => {
 
             const filters = logic.values.recordingFilters
             const innerValues = (filters.filter_group as any)?.values?.[0]?.values
+            // Without matched_recordings, the fallback must still scope to this person's distinct_ids —
+            // otherwise "View recordings" opens an unscoped, project-wide search.
             expect(innerValues).toEqual(
                 expect.arrayContaining([
+                    expect.objectContaining({
+                        key: 'distinct_id',
+                        type: 'person',
+                        operator: 'exact',
+                        value: ['user-1'],
+                    }),
                     expect.objectContaining({ id: '$pageview', type: 'events' }),
                     expect.objectContaining({ id: 'sign_up', type: 'events' }),
                 ])
