@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
+from django.apps import apps
 from django.test import SimpleTestCase, TestCase, override_settings
 from django.utils import timezone as django_timezone
 
@@ -726,6 +727,14 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             team=self.team, name="growth-team", channel_type=Channel.ChannelType.PUBLIC, created_by=self.user
         )
         self.channel.save()
+        canvas_model = apps.get_model("canvas", "Canvas")
+        canvas_model.objects.unscoped().create(
+            id=self.CANVAS_ID,
+            team=self.team,
+            channel=self.channel,
+            name="Growth Team",
+            created_by=self.user,
+        )
 
     def context_target(self, **outputs) -> dict:
         return {"channel_id": str(self.channel.id), "name": "Growth Team", "outputs": outputs}

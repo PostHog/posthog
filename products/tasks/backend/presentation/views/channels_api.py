@@ -62,6 +62,7 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "partial_update",
         "destroy",
         "publish_instructions",
+        "patch_instructions",
         "delete_instructions",
         "set_context_generation",
         "star",
@@ -188,6 +189,10 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if published is None:
             raise NotFound("Channel not found")
         return Response(ChannelInstructionsSerializer(published).data)
+
+    @instructions.mapping.patch
+    def patch_instructions(self, request, pk=None, **kwargs):
+        return self.publish_instructions(request, pk, **kwargs)
 
     @extend_schema(request=None, responses={204: None}, summary="Delete channel instructions")
     @instructions.mapping.delete

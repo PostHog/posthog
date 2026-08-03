@@ -62,7 +62,7 @@ class TestChannelInstructions(ChannelExtrasBaseTest):
         response = self.client.patch(f"{self.base}/instructions/", {"content": "v2"}, format="json")
         assert response.json()["version"] == 2
 
-        versions = self.client.get(f"{self.base}/instructions/versions/").json()
+        versions = self.client.get(f"{self.base}/instructions/versions/").json()["results"]
         assert [v["version"] for v in versions] == [2, 1]
 
     def test_delete_resets_to_blank(self):

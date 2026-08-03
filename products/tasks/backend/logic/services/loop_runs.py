@@ -678,11 +678,11 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     context_target = loop.context_target if isinstance(loop.context_target, dict) else {}
     outputs = _context_outputs(context_target)
-    if any(outputs.values()):
+    if outputs["update_context"]:
         if _resolve_feed_channel_id(loop) is None:
             raise ValueError("The loop's context channel is no longer available.")
-        if outputs["canvas_id"] and not _context_canvas_is_visible(loop, outputs["canvas_id"]):
-            raise ValueError("The loop's context canvas is no longer available.")
+    if outputs["canvas_id"] and not _context_canvas_is_visible(loop, outputs["canvas_id"]):
+        raise ValueError("The loop's context canvas is no longer available.")
 
     title = f"{loop.name} ({django_timezone.now().isoformat()})"
     context_block = render_context_target_block(context_target)
