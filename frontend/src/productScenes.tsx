@@ -103,6 +103,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     LogsSamplingNew: () => import('../../products/logs/frontend/scenes/LogsSamplingNewScene/LogsSamplingNewScene'),
     LogsSamplingDetail: () =>
         import('../../products/logs/frontend/scenes/LogsSamplingDetailScene/LogsSamplingDetailScene'),
+    LogsRetentionNew: () => import('../../products/logs/frontend/scenes/LogsRetentionNewScene/LogsRetentionNewScene'),
+    LogsRetentionDetail: () =>
+        import('../../products/logs/frontend/scenes/LogsRetentionDetailScene/LogsRetentionDetailScene'),
     ManagedMigration: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
