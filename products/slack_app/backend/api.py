@@ -97,6 +97,7 @@ from products.slack_app.backend.services.slack_app_home import (
     handle_app_home_view_submission as _handle_app_home_view_submission,
 )
 from products.slack_app.backend.services.slack_user_info import (
+    clear_workspace_profile_cache,
     get_cached_bot_user_id,
     get_slack_user_info,
     normalize_slack_response,
@@ -119,6 +120,7 @@ HANDLED_EVENT_TYPES = [
     "assistant_thread_started",
     "assistant_thread_context_changed",
     "app_home_opened",
+    "app_uninstalled",
 ]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
@@ -651,7 +653,7 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
 
     body = json.dumps({"slack_team_id": slack_team_id, "kinds": kinds}).encode("utf-8")
     signing_secret = SlackIntegration.slack_config()["SLACK_APP_SIGNING_SECRET"]
-    signature, ts = sign_slack_request(body, signing_secret)
+    signed = sign_slack_request(body, signing_secret)
 
     try:
         response = requests.post(
@@ -659,8 +661,8 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
             data=body,
             headers={
                 "Content-Type": "application/json",
-                "X-Slack-Signature": signature,
-                "X-Slack-Request-Timestamp": ts,
+                "X-Slack-Signature": signed.signature,
+                "X-Slack-Request-Timestamp": signed.timestamp,
                 REGION_PROXY_HEADER: "1",
             },
             timeout=WORKSPACE_CLAIMS_TIMEOUT_SECONDS,
@@ -1768,6 +1770,20 @@ def _route_assistant_event(
     )
 
 
+def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
+    """Drop the workspace's cached Slack profiles so a reinstall resolves users from
+    fresh ``users.info`` data instead of emails cached under the previous install.
+
+    Fanned out once to the other region (loop-guarded) since a dual-owned workspace
+    caches profiles on both sides.
+    """
+    deleted = clear_workspace_profile_cache(slack_team_id)
+    logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
+    if not was_proxied(request) and cross_region_routing_enabled():
+        _proxy_event_to_region(request, other_region_domain(request.get_host()))
+    return ROUTE_HANDLED_LOCALLY
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1799,6 +1815,9 @@ def route_posthog_code_event_to_relevant_region(
         us_domain=_us_region_domain(),
         eu_domain=_eu_region_domain(),
     )
+
+    if event_type == "app_uninstalled":
+        return _handle_app_uninstalled(request, slack_team_id)
 
     # App Home tab: published per-user when they open the Home tab. Always
     # handled locally — `views.publish` just renders a snapshot of the user's

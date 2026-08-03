@@ -24,6 +24,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
     ScannerModel,
@@ -34,6 +35,7 @@ from products.replay_vision.backend.models.vision_action import VisionAction
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
 )
@@ -963,6 +965,24 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["old"])
 
+    def test_list_date_range_bounds_use_project_timezone(self) -> None:
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        # 05:00 UTC is 21:00 the previous day in Pacific; 20:00 UTC is 12:00 the same day.
+        previous_day = self._create_observation(session_id="pacific-previous-day")
+        ReplayObservation.objects.filter(pk=previous_day.pk).update(created_at=datetime(2026, 3, 3, 5, 0, tzinfo=UTC))
+        same_day = self._create_observation(session_id="pacific-same-day")
+        ReplayObservation.objects.filter(pk=same_day.pk).update(created_at=datetime(2026, 3, 3, 20, 0, tzinfo=UTC))
+
+        base_url = self.observations_url(str(self.scanner.id))
+        resp = self.client.get(f"{base_url}?date_from=2026-03-03&date_to=2026-03-03")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["pacific-same-day"])
+
+        resp = self.client.get(f"{base_url}?date_from=2026-03-02&date_to=2026-03-02")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["pacific-previous-day"])
+
     def test_retrieve_with_filters_resolves_object_and_scopes_neighbors_only(self) -> None:
         observation = self._create_observation(session_id="s-pending")
         self._create_observation(session_id="s-other")
@@ -1669,7 +1689,7 @@ class TestObserveAction(_VisionAPITestCase):
         args, kwargs = start_workflow.call_args
         self.assertEqual(args[0], APPLY_SCANNER_WORKFLOW_NAME)
         self.assertEqual(kwargs["id"], expected_workflow_id)
-        self.assertEqual(kwargs["execution_timeout"], timedelta(hours=1))
+        self.assertEqual(kwargs["execution_timeout"], APPLY_SCANNER_EXECUTION_TIMEOUT)
         inputs = args[1]
         self.assertEqual(inputs.scanner_id, self.scanner.id)
         self.assertEqual(inputs.session_id, "sess-42")
@@ -2049,7 +2069,47 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertEqual(inputs.triggered_by, ObservationTrigger.RETRY)
         self.assertEqual(inputs.triggered_by_user_id, self.user.id)
 
-    def test_retry_rejects_non_failed_statuses(
+    def test_retry_accepts_ineligible_observation(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Ineligibility can be a timing artifact (snapshots that finished ingesting after the scan), and the
+        # UNIQUE(scanner, session_id) row would otherwise lock the session out of this scanner forever.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            session_id="sess-ineligible",
+            scanner_snapshot=_snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            status=ObservationStatus.INELIGIBLE,
+            error_reason="no_snapshots:No snapshots after processing",
+            completed_at=timezone.now(),
+        )
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 202, resp.json())
+        self.assertFalse(ReplayObservation.objects.filter(id=observation.id).exists())
+        args, _kwargs = start_workflow.call_args
+        self.assertEqual(args[1].triggered_by, ObservationTrigger.RETRY)
+
+    def test_retry_keeps_row_when_ai_consent_is_off(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # The replacement workflow fails closed at create time when consent is off, so letting the retry
+        # delete the row first would leave the recording looking unscanned with no way to get a row back.
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        observation = self._create_failed("sess-no-consent")
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
+        start_workflow.assert_not_called()
+
+    def test_retry_rejects_non_terminal_statuses(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         # Plain loop, not @parameterized: class-level @patch mis-orders expanded args.
@@ -2057,8 +2117,8 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         cases = [
             (ObservationStatus.SUCCEEDED, timezone.now()),
-            (ObservationStatus.INELIGIBLE, timezone.now()),
             (ObservationStatus.PENDING, None),
+            (ObservationStatus.RUNNING, None),
         ]
         for status_value, completed_at in cases:
             with self.subTest(status=status_value):
@@ -2068,7 +2128,7 @@ class TestRetryActions(_VisionAPITestCase):
                     scanner_snapshot=_snapshot_for(self.scanner),
                     triggered_by=ObservationTrigger.SCHEDULE,
                     status=status_value,
-                    error_reason="kind:msg" if status_value == ObservationStatus.INELIGIBLE else "",
+                    error_reason="",
                     completed_at=completed_at,
                 )
 
@@ -2091,15 +2151,20 @@ class TestRetryActions(_VisionAPITestCase):
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()
 
-    def test_retry_dispatch_failure_returns_503_with_row_restored(
+    def test_retry_dispatch_failure_returns_503_with_row_and_label_restored(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
         # The replacement run never started, so the failed row must come back instead of leaving the
-        # recording looking unscanned while the usage ledger still counts the failed attempt.
+        # recording looking unscanned while the usage ledger still counts the failed attempt. The delete
+        # cascades the shared rating away, so restoring only the row silently loses the team's feedback
+        # while the response claims the observation was kept.
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock(side_effect=RuntimeError("temporal unavailable"))
         observation = self._create_failed("sess-broken")
         original_created_at = observation.created_at
+        label = ReplayObservationLabel.objects.create(
+            observation=observation, team=self.team, is_correct=False, feedback="missed the error banner"
+        )
 
         resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 503)
@@ -2108,17 +2173,26 @@ class TestRetryActions(_VisionAPITestCase):
         restored = ReplayObservation.objects.get(id=observation.id)
         self.assertEqual(restored.status, ObservationStatus.FAILED)
         self.assertEqual(restored.created_at, original_created_at)
+        restored_label = ReplayObservationLabel.objects.get(observation_id=observation.id)
+        self.assertEqual(restored_label.id, label.id)
+        self.assertFalse(restored_label.is_correct)
+        self.assertEqual(restored_label.feedback, "missed the error banner")
+        self.assertEqual(restored_label.created_at, label.created_at)
 
-    def test_retry_returns_429_and_restores_row_when_the_atomic_claim_is_refused(
+    def test_retry_returns_429_and_keeps_row_and_label_when_the_atomic_claim_is_refused(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
-        # The claim can refuse after the snapshot pre-check passed; the retry must 429 and bring the
-        # failed row back rather than deleting it while no replacement run started.
+        # The claim can refuse after the snapshot pre-check passed. Claiming before the delete keeps a
+        # capped retry a pure no-op: deleting first would cascade away the team's rating on a request
+        # that changes nothing.
         mock_sync_connect.return_value = MagicMock()
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-capped")
         original_created_at = observation.created_at
+        ReplayObservationLabel.objects.create(
+            observation=observation, team=self.team, is_correct=False, feedback="missed the error banner"
+        )
 
         with patch("products.replay_vision.backend.api.trigger.try_claim_enqueue_slot", return_value=False):
             resp = self.client.post(self.retry_url(str(observation.id)))
@@ -2128,6 +2202,35 @@ class TestRetryActions(_VisionAPITestCase):
         restored = ReplayObservation.objects.get(id=observation.id)
         self.assertEqual(restored.status, ObservationStatus.FAILED)
         self.assertEqual(restored.created_at, original_created_at)
+        self.assertEqual(
+            ReplayObservationLabel.objects.get(observation_id=observation.id).feedback, "missed the error banner"
+        )
+
+    def test_retry_reports_409_when_the_replacement_run_already_holds_the_session(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # A start we couldn't confirm may still have persisted its own row for this (scanner, session).
+        # Restoring on top of it violates the unique constraint, which used to surface as a 500.
+        observation = self._create_failed("sess-raced")
+
+        def start_and_take_the_slot(*args, **kwargs):
+            ReplayObservation.objects.create(
+                scanner=self.scanner,
+                session_id="sess-raced",
+                scanner_snapshot=_snapshot_for(self.scanner),
+                triggered_by=ObservationTrigger.RETRY,
+                status=ObservationStatus.PENDING,
+            )
+            raise RuntimeError("temporal unavailable")
+
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock(side_effect=start_and_take_the_slot)
+
+        resp = self.client.post(self.retry_url(str(observation.id)))
+
+        self.assertEqual(resp.status_code, 409, resp.json())
+        self.assertIn("still finishing", resp.json()["detail"])
+        self.assertEqual(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-raced").count(), 1)
 
     def _personal_api_key(self, scopes: list[str]) -> str:
         value = generate_random_token_personal()

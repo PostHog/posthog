@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, Any, Literal, Optional, Protocol
 
-from django.conf import settings
 from django.db.models import F
 
 import pyarrow as pa
@@ -13,12 +12,11 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import (
-    ExternalDataSchema,
-    process_incremental_value,
-    update_sync_type_config_keys,
-)
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.metrics import POST_LOAD_DURATION_SECONDS
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
@@ -42,7 +40,9 @@ LOGGER = get_logger(__name__)
 async def update_job_row_count(job_id: str, count: int, logger: FilteringBoundLogger) -> None:
     await logger.adebug(f"Updating rows_synced with +{count}")
     await database_sync_to_async_pool(
-        lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+        retry_on_operational_error(
+            lambda: ExternalDataJob.objects.filter(id=job_id).update(rows_synced=F("rows_synced") + count)
+        )
     )()
 
 
@@ -273,58 +273,32 @@ async def _run_delta_maintenance(
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
 ) -> None:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
-        is_transient_object_store_error,
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+        is_transient_maintenance_error,
+    )
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
+        DeltaMaintenance,
     )
 
+    maintenance = DeltaMaintenance(delta_table_helper)
     if schema.is_cdc:
         # CDC finals land once per tick per changed schema, so unconditional compaction would run
         # near-continuously after mostly-tiny merges. Use threshold/cadence maintenance instead:
         # compact when fragmented, otherwise vacuum once enough commits have accrued.
         logger.debug("Running threshold-based delta maintenance")
-        try:
-            with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
-                # Only md5 partitioning persists a partition_count; datetime/numerical modes leave it
-                # None, and the companion is a different table than the one schema.partition_count
-                # describes. Without a count the threshold math treats the table as one partition and
-                # any >200-file table compacts every tick, so derive it from the table's actual layout
-                # (one directory per partition value in the delta log's file paths).
-                partition_count = None if is_cdc_companion else schema.partition_count
-                if partition_count is None:
-                    file_uris = await delta_table_helper.get_file_uris()
-                    partition_count = len({uri.rsplit("/", 1)[0] for uri in file_uris}) or None
-
-                # One schema can back two delta tables (snapshot + _cdc companion) whose delta
-                # versions are unrelated numbers, so each table's vacuum cadence gets its own
-                # watermark key — sharing one would corrupt both cadences.
-                watermark_key = "last_vacuum_version_cdc" if is_cdc_companion else "last_vacuum_version"
-                last_vacuum_version = schema.last_vacuum_version_cdc if is_cdc_companion else schema.last_vacuum_version
-                commit_threshold = settings.DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD
-                new_version = await delta_table_helper.run_maintenance(
-                    partition_count=partition_count,
-                    last_vacuum_version=last_vacuum_version,
-                    commit_threshold=commit_threshold,
-                )
-                if new_version is not None and new_version != last_vacuum_version:
-                    await database_sync_to_async_pool(update_sync_type_config_keys)(
-                        schema.id, schema.team_id, updates={watermark_key: new_version}
-                    )
-        except Exception as e:
-            if is_transient_object_store_error(e):
-                # A rate-limited or connectivity blip talking to our own S3 bucket isn't a bug - the
-                # next tick's maintenance pass retries the same idempotent cleanup.
-                logger.warning(f"Delta maintenance skipped: transient object-store error: {e}")
-            else:
-                capture_exception(e)
-                logger.exception(f"Delta maintenance failed: {e}", exc_info=e)
+        with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
+            await maintenance.run_scheduled(schema, is_cdc_companion=is_cdc_companion)
     else:
         logger.debug("Triggering compaction and vacuuming on delta table")
         try:
             with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
-                await delta_table_helper.compact_table()
+                await maintenance.compact_table()
         except Exception as e:
-            if is_transient_object_store_error(e):
-                logger.warning(f"Compaction skipped: transient object-store error: {e}")
+            if is_transient_maintenance_error(e):
+                # A rate-limited or connectivity blip talking to our own S3 bucket (or a concurrent
+                # maintenance pass losing a file race) isn't a bug - the next sync's maintenance pass
+                # retries the same idempotent cleanup.
+                logger.warning(f"Compaction skipped: transient infra error: {e}")
             else:
                 capture_exception(e)
                 logger.exception(f"Compaction failed: {e}", exc_info=e)
@@ -377,6 +351,7 @@ async def _publish_queryable_files(
             delete_existing=True,
             existing_queryable_folder=existing_queryable_folder,
             logger=logger,
+            refresh_file_uris=delta_table_helper.get_file_uris,
         )
 
 

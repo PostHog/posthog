@@ -5,14 +5,14 @@ from structlog import get_logger
 
 from posthog.schema import EndpointRunRequest, HogQLQuery
 
-from posthog.ducklake.client import execute_ducklake_query
-from posthog.ducklake.common import get_duckgres_server_for_organization, is_dev_mode
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.endpoints.backend.logic.strategies import strategy_for
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.managed_warehouse.backend.facade.api import has_provisioned_warehouse, is_dev_mode
+from products.managed_warehouse.backend.facade.client import execute_ducklake_query
 
 logger = get_logger(__name__)
 
@@ -23,7 +23,7 @@ def shadow_target_exists(team: Team) -> bool:
     # Local dev points at the dev duckgres config and has no provisioned DuckgresServer row.
     if is_dev_mode():
         return True
-    return get_duckgres_server_for_organization(str(team.organization_id)) is not None
+    return has_provisioned_warehouse(str(team.organization_id))
 
 
 def build_ducklake_hogql_query(
