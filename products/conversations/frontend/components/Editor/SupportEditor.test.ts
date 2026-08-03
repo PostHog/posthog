@@ -54,6 +54,32 @@ describe('SupportEditor serialization and preview schema', () => {
             '1. parent\n   - child',
         ],
         [
+            'multi-paragraph blockquote staying a single quote',
+            {
+                type: 'doc',
+                content: [{ type: 'blockquote', content: [paragraph('a'), paragraph('b')] }],
+            },
+            '> a\n>\n> b',
+        ],
+        [
+            'blockquote wrapping a list',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'blockquote',
+                        content: [
+                            {
+                                type: 'bulletList',
+                                content: [listItem(paragraph('one')), listItem(paragraph('two'))],
+                            },
+                        ],
+                    },
+                ],
+            },
+            '> - one\n> - two',
+        ],
+        [
             'list followed by paragraph and image keeps all blocks',
             {
                 type: 'doc',

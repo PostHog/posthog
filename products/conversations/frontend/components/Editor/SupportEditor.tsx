@@ -22,7 +22,7 @@ import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/icons'
+import { IconCode, IconCopy, IconImage, IconList, IconQuote, IconTerminal } from '@posthog/icons'
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
@@ -243,7 +243,7 @@ export const SUPPORT_EXTENSIONS = [
         document: false,
         link: false, // We use our own Link extension
         heading: false,
-        blockquote: false,
+        // blockquote: enabled - Cmd+Shift+B, and the "> " input rule
         // bold: enabled - Cmd+B
         // bulletList: enabled - Cmd+Shift+8
         // code: enabled - inline code (Cmd+E) - just visual styling, not executable
@@ -293,10 +293,10 @@ export const serializationOptions: { textSerializers?: Record<string, TextSerial
 
 /**
  * Escape special markdown characters in plain text to prevent unintended formatting.
- * Characters: \ ` * _ { } [ ] ( ) # + - . ! |
+ * Characters: \ ` * _ { } [ ] ( ) # + - . ! | >
  */
 function escapeMarkdown(text: string): string {
-    return text.replace(/([\\`*_{}[\]()#+\-.!|])/g, '\\$1')
+    return text.replace(/([\\`*_{}[\]()#+\-.!|>])/g, '\\$1')
 }
 
 /**
@@ -308,7 +308,7 @@ function escapeAltText(text: string): string {
 
 /**
  * Serialize tiptap JSON to markdown string.
- * Handles: bold, italic, code, images, mentions, hard breaks, bullet/ordered lists
+ * Handles: bold, italic, code, images, mentions, hard breaks, bullet/ordered lists, blockquotes
  * Note: underline has no standard markdown syntax and is stripped
  */
 export function serializeToMarkdown(content: JSONContent): string {
@@ -382,6 +382,20 @@ function serializeNode(node: JSONContent): string {
 
         case 'orderedList':
             return serializeListNode(node, true, '') + '\n\n'
+
+        case 'blockquote': {
+            const inner = (node.content || []).map(serializeNode).join('').replace(/\n+$/, '')
+            if (!inner) {
+                return ''
+            }
+            // Blank lines between child blocks need the marker too, otherwise the quote ends there
+            // and the following paragraph arrives outside it.
+            const quoted = inner
+                .split('\n')
+                .map((line) => (line ? `> ${line}` : '>'))
+                .join('\n')
+            return quoted + '\n\n'
+        }
 
         case 'hardBreak':
             // Two spaces + newline is the standard markdown hard break
@@ -654,6 +668,13 @@ export function SupportEditor({
                         onClick={() => ttEditor?.chain().focus().toggleOrderedList().run()}
                         icon={<IconOrderedList />}
                         tooltip="Numbered list (Cmd+Shift+7)"
+                    />
+                    <LemonButton
+                        size="small"
+                        active={ttEditor?.isActive('blockquote')}
+                        onClick={() => ttEditor?.chain().focus().toggleBlockquote().run()}
+                        icon={<IconQuote />}
+                        tooltip="Quote (Cmd+Shift+B)"
                     />
                     <LemonButton
                         size="small"
