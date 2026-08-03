@@ -364,6 +364,41 @@ test('a non-isolated product change widens to every backend target', () => {
     }
 })
 
+// 63 of the products are non-isolated, and their package.json carries the
+// backend:test command rather than being a bare JS manifest. It still claims a
+// backend lane, just this product's own plus its importers, instead of dragging
+// in every other product's.
+test("a non-isolated product's declarations claim its own lane, not every backend lane", () => {
+    for (const file of ['products/gamma/package.json', 'products/gamma/turbo.json']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['fe:product:gamma', 'py:product:gamma'], file)
+    }
+})
+
+test("a non-isolated product's declarations still seed the dependent cascade", () => {
+    const context = {
+        ...CONTEXT,
+        tachGraph: { graph: new Map(), tachDependents: (changed) => (changed.includes('gamma') ? ['alpha'] : []) },
+    }
+    assert.deepEqual(computeTargets(['products/gamma/package.json'], context), [
+        'fe:product:gamma',
+        'py:product:alpha',
+        'py:product:gamma',
+    ])
+})
+
+// The narrowing is scoped to the declarations. Backend code in a non-isolated
+// product has no declared boundary, which is the whole reason it widens.
+test('a non-isolated product keeps widening on everything that is not a declaration', () => {
+    for (const file of ['products/gamma/backend/api.py', 'products/gamma/mcp/tools.yaml']) {
+        assert.equal(computeTargets([file], CONTEXT).includes('py:product:alpha'), true, file)
+    }
+})
+
+test('an unavailable tach graph widens a declaration change too', () => {
+    const noTach = { ...CONTEXT, tachGraph: null }
+    assert.equal(computeTargets(['products/gamma/package.json'], noTach).includes('py:core'), true)
+})
+
 test('an unavailable tach graph widens backend changes instead of narrowing', () => {
     const noTach = { ...CONTEXT, tachGraph: null }
     const targets = computeTargets(['products/alpha/backend/api.py'], noTach)
@@ -432,10 +467,12 @@ test('python inside a declared workspace package still claims the backend lanes'
 // Only the declared package subtrees narrow. The product root holds the files
 // that decide isolation and contract surface, and anything else under the
 // product is unclassified in the same way it was before.
-test('files outside the declared workspace packages keep widening', () => {
-    for (const file of ['products/gamma/package.json', 'products/gamma/scripts/release.mjs']) {
-        assert.equal(computeTargets([file], WORKSPACE_CONTEXT).includes('py:core'), true, file)
-    }
+test('files outside the declared workspace packages keep their backend claim', () => {
+    // The root declarations get the narrower per-product treatment below rather
+    // than the workspace one, so what matters here is that they still claim a
+    // backend lane instead of being read as a JS manifest.
+    assert.equal(computeTargets(['products/gamma/package.json'], WORKSPACE_CONTEXT).includes('py:product:gamma'), true)
+    assert.equal(computeTargets(['products/gamma/scripts/release.mjs'], WORKSPACE_CONTEXT).includes('py:core'), true)
 })
 
 // The workspace declaration and its lockfile sit at the product root, so the
