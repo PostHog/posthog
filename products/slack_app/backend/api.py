@@ -127,6 +127,12 @@ HANDLED_EVENT_TYPES = [
 # needs, so both surfaces share one kind.
 SLACK_INTEGRATION_KIND = "slack"
 
+# Slack substitutes this placeholder for the message author in ``link_shared``
+# events it cannot attribute to a real user — messages posted by apps and bots,
+# or authors whose identity is hidden. Calling ``users.info`` on it always
+# fails with ``user_not_found``.
+SLACK_PLACEHOLDER_USER_ID = "U00"
+
 # Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
 # a near-simultaneous cross-region race during cutover. A real re-add after
 # this window should re-onboard — most likely the person forgot how it works.
@@ -356,6 +362,11 @@ def resolve_slack_user(
     post_feedback: bool = True,
 ) -> SlackUserContext | None:
     """Resolve a Slack user to a PostHog user. Posts an ephemeral error message and returns None on failure (unless post_feedback is False)."""
+    if slack_user_id == SLACK_PLACEHOLDER_USER_ID:
+        # There is no real user behind the placeholder, so there is nobody to
+        # resolve or to post feedback to.
+        return None
+
     try:
         slack_team_id = integration.integration_id
 
@@ -409,7 +420,7 @@ def resolve_slack_user(
             slack_email = dev_email
 
         if not slack_email:
-            logger.exception("slack_app_no_user_email", slack_user_id=slack_user_id)
+            logger.warning("slack_app_no_user_email", slack_user_id=slack_user_id)
             if post_feedback:
                 _post_slack_user_feedback(
                     slack,
