@@ -16,15 +16,21 @@ interface Props {
 export function QuotaExhaustedNote({ onFreePlan }: Props): JSX.Element {
     const billing = urls.organizationBilling([ProductKey.REPLAY_VISION])
     return (
-        <div className="text-xs text-muted">
-            <span className="text-danger">{onFreePlan ? 'Free credits used up.' : 'Spend limit reached.'}</span>{' '}
+        <div className="text-xs text-danger">
+            {onFreePlan ? 'Free credits used up.' : 'Spend limit reached.'}{' '}
             {onFreePlan ? (
                 <>
-                    <Link to={billing}>Add billing</Link> to keep scanning.
+                    <Link className="text-danger" to={billing}>
+                        Add billing
+                    </Link>{' '}
+                    to keep scanning.
                 </>
             ) : (
                 <>
-                    <Link to={billing}>Raise your billing limit</Link> to resume scanning.
+                    <Link className="text-danger" to={billing}>
+                        Raise your billing limit
+                    </Link>{' '}
+                    to resume scanning.
                 </>
             )}
         </div>

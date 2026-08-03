@@ -19,10 +19,13 @@ export function NoBillingLimitNote({ projectedCredits }: Props): JSX.Element {
     return (
         <div className="space-y-1 text-xs text-muted">
             <div>Enabled scanners are projected to use ~{formatCreditCount(projectedCredits)}/month.</div>
-            <div>
-                <span className="text-danger">No billing limit set. Spend is uncapped.</span>{' '}
-                <Link to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>Set a billing limit</Link> to control
-                costs.
+            {/* All one colour: the link's own accent would make this a three-colour line. */}
+            <div className="text-danger">
+                No billing limit set. Spend is uncapped.{' '}
+                <Link className="text-danger" to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>
+                    Set a billing limit
+                </Link>{' '}
+                to control costs.
             </div>
         </div>
     )
