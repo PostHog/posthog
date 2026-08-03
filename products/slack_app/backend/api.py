@@ -134,10 +134,11 @@ SLACK_INTEGRATION_KIND = "slack"
 # fails with ``user_not_found``.
 SLACK_PLACEHOLDER_USER_ID = "U00"
 
-# Onboarding-on-join dedupe TTL: just long enough to absorb Slack retries and
-# a near-simultaneous cross-region race during cutover. A real re-add after
-# this window should re-onboard — most likely the person forgot how it works.
-CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
+# Onboarding-on-join dedupe TTL (channel and workspace joins): just long enough
+# to absorb Slack retries and a near-simultaneous cross-region race during
+# cutover. A real re-join after this window should re-onboard — most likely the
+# person forgot how it works.
+ONBOARDING_DEDUPE_TTL_SECONDS = 60 * 10
 CHANNEL_ONBOARDING_DOCS_URL = "https://posthog.com/docs/slack-app"
 
 ROUTE_HANDLED_LOCALLY = "handled_locally"
@@ -2351,20 +2352,20 @@ def _channel_onboarding_cache_key(slack_team_id: str, channel_id: str) -> str:
     return f"slack_app:channel_onboarded:v1:{slack_team_id}:{channel_id}"
 
 
-def _claim_channel_onboarding(slack_team_id: str, channel_id: str) -> bool:
-    """Atomically claim the right to send the onboarding message.
+def _claim_once(cache_key: str) -> bool:
+    """Atomically claim a one-shot slot, e.g. the right to send an onboarding message.
 
     ``cache.add`` is the Django-blessed idempotency primitive: it returns True
     only if the key didn't already exist, so concurrent webhook deliveries
-    (Slack retries, two-region race during cutover) can't double-post.
+    (Slack retries, two-region race during cutover) can't double-post. Callers
+    release the slot with ``cache.delete`` when the claimed action fails, so
+    the next delivery gets another shot.
     """
-    return bool(
-        cache.add(
-            _channel_onboarding_cache_key(slack_team_id, channel_id),
-            True,
-            timeout=CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS,
-        )
-    )
+    return bool(cache.add(cache_key, True, timeout=ONBOARDING_DEDUPE_TTL_SECONDS))
+
+
+def _claim_channel_onboarding(slack_team_id: str, channel_id: str) -> bool:
+    return _claim_once(_channel_onboarding_cache_key(slack_team_id, channel_id))
 
 
 def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> None:
@@ -2458,7 +2459,7 @@ def _route_team_join(
     """
     joiner = event.get("user") if isinstance(event.get("user"), dict) else None
     slack_user_id = joiner.get("id") if joiner else None
-    if not joiner or not isinstance(slack_user_id, str) or not slack_user_id:
+    if not joiner or not isinstance(slack_user_id, str):
         return ROUTE_HANDLED_LOCALLY
     if joiner.get("is_bot") or joiner.get("is_restricted") or joiner.get("is_ultra_restricted"):
         return ROUTE_HANDLED_LOCALLY
@@ -2470,11 +2471,13 @@ def _route_team_join(
     if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
         return _proxy_event_and_return_route(request, other_domain)
 
-    integration = _find_team_join_integration(workspace_result.candidates, joiner, slack_user_id)
+    integration = _find_team_join_integration(
+        workspace_result.candidates, slack_user_id, (joiner.get("profile") or {}).get("email")
+    )
     if integration is None:
         return ROUTE_HANDLED_LOCALLY
 
-    if not _claim_team_join_onboarding(slack_team_id, slack_user_id):
+    if not _claim_once(_team_join_onboarding_cache_key(slack_team_id, slack_user_id)):
         logger.info(
             "slack_app_team_join_welcome_skipped_duplicate",
             slack_team_id=slack_team_id,
@@ -2482,35 +2485,45 @@ def _route_team_join(
         )
         return ROUTE_HANDLED_LOCALLY
 
-    if not _post_team_join_welcome(SlackIntegration(integration), integration, slack_user_id):
+    if not _post_team_join_welcome(integration, slack_user_id):
         # Release the dedupe slot so the next delivery gets another shot
         # rather than being silently swallowed.
-        _release_team_join_claim(slack_team_id, slack_user_id)
+        cache.delete(_team_join_onboarding_cache_key(slack_team_id, slack_user_id))
 
     return ROUTE_HANDLED_LOCALLY
 
 
 def _find_team_join_integration(
-    candidates: list[Integration], joiner: dict[str, Any], slack_user_id: str
+    candidates: list[Integration], slack_user_id: str, profile_email: str | None
 ) -> Integration | None:
     """Pick the install to welcome the joiner from, or ``None`` to stay silent.
 
-    The joiner qualifies for an install when the assistant is enabled for its
-    team and their Slack email matches a member of the install's organization.
-    ``team_join`` carries the full user object, so the email usually comes
-    straight off the event; ``users.info`` is the fallback for hidden profiles.
+    The joiner qualifies for an install when their Slack email matches an
+    active member of the install's organization and the assistant is enabled
+    for its team. The membership check runs first: it is a local indexed
+    query, while the flag eval is a remote call that the typical joiner (a
+    coworker with no PostHog account) should never trigger. ``team_join``
+    carries the full user object, so the email usually comes straight off the
+    event; ``users.info`` is the fallback for hidden profiles.
     """
-    email = (joiner.get("profile") or {}).get("email")
-    if not isinstance(email, str) or not email:
-        email = get_slack_email_for_user(candidates[0], slack_user_id)
+    email = profile_email or get_slack_email_for_user(candidates[0], slack_user_id)
     if not email:
         return None
+    try:
+        member_org_ids = set(
+            OrganizationMembership.objects.filter(
+                organization_id__in={c.team.organization_id for c in candidates},
+                user__email__iexact=email,
+                user__is_active=True,
+            ).values_list("organization_id", flat=True)
+        )
+    except Exception:
+        # Don't propagate transient DB errors to the Slack webhook — Slack
+        # retries 5xx and would replay the event.
+        logger.warning("slack_app_team_join_membership_check_failed", slack_user_id=slack_user_id, exc_info=True)
+        return None
     for candidate in candidates:
-        if not is_slack_app_assistant_enabled(candidate.team):
-            continue
-        if OrganizationMembership.objects.filter(
-            organization_id=candidate.team.organization_id, user__email__iexact=email
-        ).exists():
+        if candidate.team.organization_id in member_org_ids and is_slack_app_assistant_enabled(candidate.team):
             return candidate
     return None
 
@@ -2519,25 +2532,11 @@ def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> s
     return f"slack_app:team_join_welcomed:v1:{slack_team_id}:{slack_user_id}"
 
 
-def _claim_team_join_onboarding(slack_team_id: str, slack_user_id: str) -> bool:
-    """Atomically claim the right to DM this joiner — ``cache.add`` returns True
-    only for the first caller, so retries and the two-region race can't double-post."""
-    return bool(
-        cache.add(
-            _team_join_onboarding_cache_key(slack_team_id, slack_user_id),
-            True,
-            timeout=CHANNEL_ONBOARDING_DEDUPE_TTL_SECONDS,
-        )
-    )
-
-
-def _release_team_join_claim(slack_team_id: str, slack_user_id: str) -> None:
-    cache.delete(_team_join_onboarding_cache_key(slack_team_id, slack_user_id))
-
-
-def _post_team_join_welcome(slack: SlackIntegration, integration: Integration, slack_user_id: str) -> bool:
+def _post_team_join_welcome(integration: Integration, slack_user_id: str) -> bool:
     try:
-        slack.client.chat_postMessage(channel=slack_user_id, text=_ASSISTANT_MEMBER_JOIN_WELCOME)
+        SlackIntegration(integration).client.chat_postMessage(
+            channel=slack_user_id, text=_ASSISTANT_MEMBER_JOIN_WELCOME
+        )
         logger.info(
             "slack_app_team_join_welcome_posted",
             integration_id=integration.id,
