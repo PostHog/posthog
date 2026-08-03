@@ -926,6 +926,13 @@ impl PodHandle {
                     tracing::info!(pod, partition, "converging to Drained: fencing + draining");
                     did_work = true;
                 }
+                // Recorded before the handler runs, not after. The
+                // handler fences the data plane as its first act and can
+                // fail afterwards; a record written only on success would
+                // leave writes fenced with no branch left to re-enter,
+                // since `resume_partition` below is reachable only
+                // through this set.
+                self.fenced_partitions.lock().await.insert(partition);
                 let start = Instant::now();
                 self.handler.drain_partition_inflight(partition).await?;
                 if newly_fencing {
@@ -935,7 +942,6 @@ impl PodHandle {
                     histogram!("personhog_coordination_partition_drain_ms")
                         .record(start.elapsed().as_secs_f64() * 1000.0);
                 }
-                self.fenced_partitions.lock().await.insert(partition);
                 if ack {
                     let handoff = handoff.expect("Drained state only derives from a handoff");
                     self.store

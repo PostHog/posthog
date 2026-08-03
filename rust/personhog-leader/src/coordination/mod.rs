@@ -128,22 +128,17 @@ impl HandoffHandler for LeaderHandoffHandler {
             .await;
         // A request cancelled mid-produce takes its handler — and the
         // count above — with it, leaving the record it enqueued in a
-        // window nobody is waiting on. Settling that window here is what
-        // makes this drain a boundary: every record this pod put in the
-        // partition is committed, and below the cutoff the successor is
-        // about to read, before the ack that lets the successor read at
-        // all.
+        // window nobody is waiting on. Committing that window here lands
+        // the cancelled write below the cutoff the successor is about to
+        // read, rather than leaving it to be aborted by whichever side
+        // acts first.
         //
-        // The successor's `init_transactions` still aborts anything left
-        // over — pinned by
-        // `a_successors_init_aborts_the_predecessors_open_window` — but
-        // as a backstop for the cases this cannot settle rather than as
-        // the mechanism the guarantee rests on.
+        // Best-effort by construction, and the drain proceeds either way:
+        // the successor's `init_transactions` aborts whatever is left,
+        // exactly as it did before this wait existed — pinned by
+        // `a_successors_init_aborts_the_predecessors_open_window`.
         if let Some(fenced) = &self.fenced {
-            fenced
-                .settle(partition)
-                .await
-                .map_err(Error::invalid_state)?;
+            fenced.settle(partition).await;
         }
         info!(partition, "inflight drained; writes fenced");
         Ok(())
@@ -157,7 +152,16 @@ impl HandoffHandler for LeaderHandoffHandler {
         // ever committed sits below the watermark the warm is about to
         // read. Fencing after the read would leave a gap where a zombie
         // commits an acked write the warm never sees.
-        let fence_guard = if let Some(fenced) = &self.fenced {
+        // Skip the acquire when this pod already holds a fence it took
+        // during the convergence still running. Re-taking it bumps the
+        // epoch out from under the writes the earlier warm admitted, and
+        // nothing else can have taken it in between: a successor cannot
+        // warm until this pod's own handoff completes.
+        let fence_to_take = match &self.fenced {
+            Some(fenced) if !self.freshly_fenced.contains(&partition) => Some(fenced),
+            _ => None,
+        };
+        let fence_guard = if let Some(fenced) = fence_to_take {
             fenced
                 .acquire(partition)
                 .await
@@ -225,7 +229,7 @@ impl HandoffHandler for LeaderHandoffHandler {
         // would bump the epoch out from under everything admitted since —
         // the pod fencing its own live window, and handing the successor
         // of a genuinely moved partition an epoch nobody asked for.
-        if self.freshly_fenced.remove(&partition).is_some() {
+        if self.freshly_fenced.contains(&partition) {
             info!(
                 partition,
                 "fence already taken by this convergence; not re-acquiring on resume"

@@ -450,37 +450,36 @@ impl FencedChangelogProducers {
         self.partitions.remove(&partition);
     }
 
-    /// Settle the partition's open window before its owner gives it up.
+    /// Commit the partition's open window before its owner gives it up.
     ///
     /// A request cancelled mid-produce takes its handler — and the
     /// drain's in-flight count — with it, leaving the record it enqueued
     /// in a window nobody is waiting on. Left alone, that window's fate
     /// falls to whichever acts first: this pod's own committer, or the
-    /// successor's `init_transactions` aborting it at the broker.
+    /// successor's `init_transactions` aborting it at the broker. Waiting
+    /// here settles it in the successor's favour, so a cancelled client's
+    /// changes land instead of being discarded by a race.
     ///
-    /// Waiting here makes the drain the boundary it claims to be. By the
-    /// time it is acked, every record this pod put in the partition is
-    /// either committed — below the cutoff the successor is about to
-    /// read — or definitively gone. The successor's abort becomes the
-    /// backstop it should be rather than the mechanism the guarantee
-    /// rests on, and a cancelled client's changes land instead of being
-    /// discarded by a race.
-    ///
-    /// Errors when the window's fate is genuinely unknown, which the
-    /// caller must not paper over: acking a drain that could not settle
-    /// hands the partition to an owner that may be missing a record.
-    pub async fn settle(&self, partition: u32) -> Result<(), String> {
+    /// Deliberately best-effort. Refusing to hand over a partition whose
+    /// window did not settle would buy nothing: a producer that cannot
+    /// report its outcome is a producer the broker will not accept
+    /// another record from, so the records cannot grow after this point
+    /// whatever we do — and the successor's init aborts what is left,
+    /// exactly as it did before this wait existed. What refusing *does*
+    /// cost is the partition: the drain has already fenced writes, and
+    /// there is no branch that un-fences one whose handoff never
+    /// completed.
+    pub async fn settle(&self, partition: u32) {
         let Some(fence) = self.installed(partition) else {
-            return Ok(());
+            return;
         };
-        // The window's own committer does the work; this waits it out.
-        // Bounded, because a committer that never answers has to fail the
-        // drain rather than hold the handoff open indefinitely.
-        let budget = fence.commit_timeout * 2;
-        let waited = timeout(budget, async {
+        // The broker abandons a window it has not heard the end of after
+        // this long, so waiting past it cannot learn anything the
+        // successor's init will not settle for us.
+        let waited = timeout(self.broker_txn_timeout, async {
             loop {
                 // Register before inspecting, or a close landing between
-                // the two is lost and this waits for a wakeup already
+                // the two is lost and this waits on a wakeup already
                 // spent.
                 let closed = fence.window_closed.notified();
                 tokio::pin!(closed);
@@ -496,32 +495,24 @@ impl FencedChangelogProducers {
         })
         .await;
 
-        if waited.is_err() {
-            counter!(
-                "personhog_leader_fence_settle_total",
-                "outcome" => "timeout"
-            )
-            .increment(1);
-            return Err(format!(
-                "partition {partition} still had an unsettled changelog window after {budget:?}"
-            ));
+        let outcome = if waited.is_err() {
+            "timeout"
+        } else if !fence.is_usable() {
+            // Condemned somewhere in this partition's history, so this
+            // producer has nothing left to give the changelog.
+            "unusable"
+        } else {
+            "settled"
+        };
+        counter!("personhog_leader_fence_settle_total", "outcome" => outcome).increment(1);
+        if outcome != "settled" {
+            warn!(
+                partition,
+                outcome,
+                "changelog window did not settle before the drain; leaving what remains to the \
+                 incoming owner's init"
+            );
         }
-        // A window whose outcome stayed unknown condemns its producer on
-        // the way out, which is exactly the case the drain must not ack:
-        // a definite abort or a commit both leave the records settled,
-        // and only doubt does not.
-        if !fence.is_usable() {
-            counter!(
-                "personhog_leader_fence_settle_total",
-                "outcome" => "indeterminate"
-            )
-            .increment(1);
-            return Err(format!(
-                "partition {partition} ended its changelog window with an unknown outcome"
-            ));
-        }
-        counter!("personhog_leader_fence_settle_total", "outcome" => "settled").increment(1);
-        Ok(())
     }
 
     /// Put the partition's producer into the state a failed abort or an
