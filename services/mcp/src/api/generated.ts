@@ -41330,10 +41330,10 @@ export namespace Schemas {
       detail: string;
       /** Number of this source's schemas visible to the warehouse. */
       total_schemas: number;
-      /** Number of schemas whose one-time historical copy into the warehouse has completed. */
-      backfilled_schemas: number;
+      /** Number of schemas applied by a completed copy or register workflow. */
+      applied_schemas: number;
       /**
-         * Most recent time an imported batch was applied to the warehouse across this source's schemas, or null if no apply has been recorded.
+         * Most recent completed copy or register workflow across this source's schemas, or null if none completed.
          * @nullable
          */
       last_applied_at: string | null;
@@ -41356,7 +41356,7 @@ export namespace Schemas {
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of imported source readiness. */
       detail: string;
-      /** Per-source rollup of schema backfill and live import application statuses. Reflects only warehouse source imports with sync enabled — manage sources at /data-management/sources. */
+      /** Per-source rollup of copy and register workflow statuses for configured warehouse source imports. */
       sources: ManagedWarehouseSourceSummary[];
     }
 
@@ -41380,6 +41380,36 @@ export namespace Schemas {
       generated_at: string;
     }
 
+    /**
+     * * `copy` - copy
+     * * `register` - register
+     */
+    export type WorkflowTypeEnum = typeof WorkflowTypeEnum[keyof typeof WorkflowTypeEnum];
+
+
+    export const WorkflowTypeEnum = {
+      Copy: 'copy',
+      Register: 'register',
+    } as const;
+
+    /**
+     * * `running` - running
+     * * `completed` - completed
+     * * `failed` - failed
+     * * `skipped` - skipped
+     * * `stale` - stale
+     */
+    export type WorkflowStatusEnum = typeof WorkflowStatusEnum[keyof typeof WorkflowStatusEnum];
+
+
+    export const WorkflowStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+      Stale: 'stale',
+    } as const;
+
     export interface ManagedWarehouseSourceTableStatus {
       /** Imported source schema identifier. */
       schema_id: string;
@@ -41402,17 +41432,28 @@ export namespace Schemas {
       readiness_state: ManagedWarehouseReadinessStateEnum;
       /** Human-readable explanation of the table's readiness state. */
       detail: string;
-      /** Whether the one-time historical copy into the warehouse has completed for this table. */
-      backfilled: boolean;
-      /** Backfill chunks already copied into the warehouse. */
-      completed_chunks: number;
+      /** Workflow applying the latest source import, or null if no workflow has run.
+       *
+       * * `copy` - copy
+       * * `register` - register */
+      workflow_type: WorkflowTypeEnum | null;
+      /** State of the latest copy or register workflow, or null if no workflow has run.
+       *
+       * * `running` - running
+       * * `completed` - completed
+       * * `failed` - failed
+       * * `skipped` - skipped
+       * * `stale` - stale */
+      workflow_status: WorkflowStatusEnum | null;
       /**
-         * Total backfill chunks, or null before the copy plan is ready.
+         * When the latest copy or register workflow started, or null if no workflow has run.
          * @nullable
          */
-      total_chunks: number | null;
+      workflow_started_at: string | null;
+      /** Whether a copy or register workflow has applied this table to the warehouse. */
+      applied: boolean;
       /**
-         * When an imported batch was most recently applied to the warehouse, or null if no apply has been recorded for this table.
+         * When a copy or register workflow most recently applied this table, or null if no workflow completed.
          * @nullable
          */
       last_applied_at: string | null;
@@ -41424,7 +41465,7 @@ export namespace Schemas {
     }
 
     export interface ManagedWarehouseSourceSchemasResponse {
-      /** Per-schema backfill and live import application status for the requested source. */
+      /** Per-schema copy or register workflow status for the requested source. */
       schemas: ManagedWarehouseSourceTableStatus[];
     }
 
