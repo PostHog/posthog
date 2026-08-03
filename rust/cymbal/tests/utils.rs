@@ -44,7 +44,7 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
     db: PgPool,
     storage_bucket: String,
     request_factory: impl Fn() -> Request<Body>,
-    s3_client: Arc<MockS3Client>,
+    _s3_client: Arc<MockS3Client>,
     configure: impl FnOnce(&mut ProcessingConfig),
 ) -> (StatusCode, T) {
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
@@ -53,7 +53,7 @@ pub(crate) async fn get_response_with_config<T: for<'de> Deserialize<'de>>(
 
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 
-    let app_ctx = AppContext::new(&config, s3_client, db.clone(), issue_buckets_redis_client)
+    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
         .await
         .unwrap();
 
@@ -80,14 +80,14 @@ pub(crate) async fn get_raw_response(
     db: PgPool,
     storage_bucket: String,
     request_factory: impl Fn() -> Request<Body>,
-    s3_client: Arc<MockS3Client>,
+    _s3_client: Arc<MockS3Client>,
 ) -> (StatusCode, String) {
     let mut config = ProcessingConfig::init_with_defaults().unwrap();
     config.resolver.object_storage_bucket = storage_bucket.clone();
 
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 
-    let app_ctx = AppContext::new(&config, s3_client, db.clone(), issue_buckets_redis_client)
+    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
         .await
         .unwrap();
 

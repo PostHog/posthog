@@ -353,7 +353,7 @@ fn classify_outcome(
 fn terminal_item_error(token: u64, message: String) -> UnhandledError {
     metrics::counter!(REMOTE_RESOLUTION_REQUESTS, "outcome" => "items_failed").increment(1);
     UnhandledError::Other(format!(
-        "remote resolution item {token} failed terminally; failing batch under all-or-nothing rollout policy ({message})"
+        "remote resolution item {token} failed terminally; failing batch ({message})"
     ))
 }
 

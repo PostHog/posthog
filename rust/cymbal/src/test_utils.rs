@@ -34,13 +34,9 @@ pub async fn create_test_context_with_config(
     db: PgPool,
     config: ProcessingConfig,
 ) -> Arc<AppContext> {
-    let mut mock_s3 = MockS3Client::new();
-    mock_s3.expect_ping_bucket().returning(|_| Ok(()));
-    let s3_client = Arc::new(mock_s3);
-
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 
-    let app_ctx = AppContext::new(&config, s3_client, db.clone(), issue_buckets_redis_client)
+    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
         .await
         .unwrap();
 
@@ -61,12 +57,12 @@ pub async fn create_test_context_with_s3(
 
 pub async fn create_test_context_with_s3_and_config(
     db: PgPool,
-    s3_client: Arc<MockS3Client>,
+    _s3_client: Arc<MockS3Client>,
     config: ProcessingConfig,
 ) -> Arc<AppContext> {
     let issue_buckets_redis_client = Arc::new(MockRedisClient::new());
 
-    let app_ctx = AppContext::new(&config, s3_client, db.clone(), issue_buckets_redis_client)
+    let app_ctx = AppContext::new(&config, db.clone(), issue_buckets_redis_client)
         .await
         .unwrap();
 

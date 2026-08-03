@@ -8,13 +8,7 @@ use tokio::sync::Semaphore;
 
 use crate::{
     error::UnhandledError,
-    stages::{
-        pipeline::ParsedPipelineItem,
-        resolution::{
-            exception::ExceptionResolver, frame::FrameResolver, remote::pool::EndpointPool,
-            ResolutionStage,
-        },
-    },
+    stages::{pipeline::ParsedPipelineItem, resolution::remote::pool::EndpointPool},
     types::{
         batch::Batch,
         exception_event::{ExceptionEvent, Parsed},
@@ -59,9 +53,8 @@ impl RemoteResolutionContext {
 /// Resolve a whole stage batch through the remote pool.
 ///
 /// Flow:
-/// 1. Partition the batch into errored / empty-passthrough / local / remote.
-/// 2. Resolve local events inline (same path as no-remote mode).
-/// 3. Build one logical work item per exception, grouped by routing key for
+/// 1. Partition the batch into errored / empty-passthrough / remote.
+/// 2. Build one logical work item per exception, grouped by routing key for
 ///    deterministic submission, and let each item reroute independently
 ///    through the mux.
 /// 4. Assemble back into the original batch order.
@@ -71,19 +64,16 @@ impl RemoteResolutionContext {
 pub async fn resolve_batch(
     batch: Batch<ParsedPipelineItem>,
     ctx: RemoteResolutionContext,
-    local_stage: ResolutionStage,
 ) -> Result<Batch<ParsedPipelineItem>, UnhandledError> {
     let batch_len = batch.len();
-    let partition = partition_batch(batch, ctx.config.sample_rate)?;
+    let partition = partition_batch(batch)?;
 
-    let local_resolved = resolve_local_events(partition.local, local_stage).await?;
     let remote_resolved = resolve_remote_events(&ctx, partition.remote).await?;
 
     assemble_output(
         batch_len,
         partition.errors,
         partition.empty,
-        local_resolved,
         remote_resolved,
     )
 }
@@ -92,11 +82,10 @@ fn assemble_output(
     batch_len: usize,
     errors: Vec<(usize, ParsedPipelineItem)>,
     empty: Vec<(usize, ParsedPipelineItem)>,
-    local: Vec<(usize, ParsedPipelineItem)>,
     remote: Vec<(usize, ParsedPipelineItem)>,
 ) -> Result<Batch<ParsedPipelineItem>, UnhandledError> {
     let mut output: Vec<Option<ParsedPipelineItem>> = (0..batch_len).map(|_| None).collect();
-    for (idx, item) in errors.into_iter().chain(empty).chain(local).chain(remote) {
+    for (idx, item) in errors.into_iter().chain(empty).chain(remote) {
         output[idx] = Some(item);
     }
     let resolved: Vec<ParsedPipelineItem> = output
@@ -115,7 +104,7 @@ fn assemble_output(
 // Shared data types: an event, exception work item, and resolved slot
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A sampled-remote event with its wire payloads pre-serialized.
+/// An event with its wire payloads pre-serialized for remote resolution.
 ///
 /// Owning the serialized bytes alongside the event means each `RemoteEvent`
 /// moves through the work-item → RPC → apply pipeline by value. No shared
@@ -166,27 +155,6 @@ struct ResolvedRemoteItem {
     event_slot: usize,
     exception_slot: usize,
     exception: Exception,
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Local resolution path (passthrough to the inline stage)
-// ─────────────────────────────────────────────────────────────────────────────
-
-async fn resolve_local_events(
-    local_events: Vec<(usize, ExceptionEvent<Parsed>)>,
-    local_stage: ResolutionStage,
-) -> Result<Vec<(usize, ParsedPipelineItem)>, UnhandledError> {
-    if local_events.is_empty() {
-        return Ok(Vec::new());
-    }
-    let (indexes, events): (Vec<usize>, Vec<ExceptionEvent<Parsed>>) =
-        local_events.into_iter().unzip();
-    let batch = Batch::from(events.into_iter().map(Ok).collect::<Vec<_>>())
-        .apply_operator(ExceptionResolver, local_stage.clone())
-        .await?
-        .apply_operator(FrameResolver, local_stage)
-        .await?;
-    Ok(indexes.into_iter().zip(batch.into_iter()).collect())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

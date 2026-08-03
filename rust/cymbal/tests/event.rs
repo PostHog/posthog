@@ -207,7 +207,6 @@ impl TestHarness {
             },
             Arc::new(Self::create_s3_mock()),
             |config| {
-                config.remote_resolution_enabled = true;
                 config.remote_resolution_host = "127.0.0.1".to_string();
                 config.remote_resolution_port = addr.port();
                 config.resolver.internal_api_secret = "test-secret".to_string();
@@ -220,7 +219,6 @@ impl TestHarness {
                 // Fast tick so the snapshot arrives within the first retry
                 // window even when the stub server runs at default cadence.
                 config.remote_resolution_subscribe_tick_hint_ms = 25;
-                config.remote_resolution_sample_rate = 1.0;
                 config.remote_resolution_dns_refresh_secs = 3600;
             },
         )
