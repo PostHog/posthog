@@ -974,11 +974,11 @@ def social_create_user(
         invite = lookup_invite_for_saml(email, organization_domain_id)
         invite_id = invite.id if invite else None
 
-    # Domain enforcement: settle the landing organization for existing users. Login proceeds even
-    # for a fully blocked member — the per-request gate contains the session, mirroring 2FA. Joins
-    # (below) stay blocked.
-    if user:
-        resolve_login_organization(user)
+    # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+    # Joins (below) stay blocked for everyone.
+    if user and not resolve_login_organization(user):
+        logger.warning("social_create_user_blocked_domain_enforcement", user_id=user.pk)
+        return redirect("/login?error_code=verified_domain_required")
 
     invite_organization = _resolve_invite_organization(invite_id) if invite_id else None
     enforcement_email = user.email if user else email

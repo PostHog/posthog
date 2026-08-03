@@ -1220,10 +1220,9 @@ class TestSignupAPI(APIBaseTest):
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_sso_login_succeeds_but_gated_for_existing_outside_domain_member(self, mock_sso_providers, mock_request):
-        # Mirroring 2FA, an existing member on a non-verified domain still completes the SSO login —
-        # the per-request gate then denies everything except the whitelist, and the membership
-        # itself is left untouched.
+    def test_sso_login_refused_for_blocked_member_but_gated_for_blocked_admin(self, mock_sso_providers, mock_request):
+        # A blocked member is refused outright; a blocked admin still completes the SSO login and
+        # lands in a gated session so they can reach the enforcement escape hatch.
         with self.is_cloud(True):
             org = self._org_enforcing_verified_domain()
             member = User.objects.create_and_join(
@@ -1231,10 +1230,14 @@ class TestSignupAPI(APIBaseTest):
             )
 
             response = self._complete_sso_for_email(mock_request, mock_sso_providers, "outsider@gmail.com")
+            self.assertRedirects(response, "/login?error_code=verified_domain_required")
+            self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertEqual(member.organization_memberships.count(), 1)
 
+            member.organization_memberships.update(level=OrganizationMembership.Level.ADMIN)
+            response = self._complete_sso_for_email(mock_request, mock_sso_providers, "outsider@gmail.com")
             self.assertRedirects(response, "/")
             self.assertIn("_auth_user_id", self.client.session)
-            self.assertEqual(member.organization_memberships.count(), 1)
             team = org.teams.first()
             assert team is not None
             gated = self.client.get(f"/api/projects/{team.id}/")

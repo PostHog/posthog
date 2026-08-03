@@ -1115,9 +1115,9 @@ class UserViewSet(
         if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
             return Response({"success": True, "token": token, "requires_sso": True})
 
-        # Verified-domain enforcement: settle the landing organization. The session may be minted
-        # even for a fully blocked member — the per-request gate contains it, mirroring 2FA.
-        resolve_login_organization(user)
+        # Domain enforcement: refuse blocked members — blocked admins still get a gated session.
+        if not resolve_login_organization(user):
+            return Response({"success": True, "token": token, "requires_login": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)

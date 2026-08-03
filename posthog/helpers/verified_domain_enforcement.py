@@ -6,6 +6,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 
 from posthog.helpers.two_factor_session import is_path_whitelisted
+from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
 
@@ -51,16 +52,18 @@ def enforce_verified_domain(request: Request, user: User) -> None:
         raise PermissionDenied(detail=VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
 
 
-def resolve_login_organization(user: User) -> None:
+def resolve_login_organization(user: User) -> bool:
     """
-    Settle which organization `user` lands in at login. When their current organization no longer
-    admits their email, they're moved to one that does. When no organization admits them, login
-    still proceeds — mirroring 2FA enforcement — and the per-request gate denies everything except
-    the whitelist and the enforcement escape hatch, so a blocked admin can log back in to disable
-    the setting.
+    Settle which organization `user` lands in at login, and return whether login may proceed.
+
+    When the current organization no longer admits their email, they're moved to one that does.
+    When no organization admits them, only admins may still log in — the per-request gate then
+    denies everything except the whitelist and the enforcement escape hatch, so they can disable
+    the setting after their session expired. Members have no recovery action a session would
+    enable, so they're refused outright with a clear error instead of a fully gated app.
     """
     if not OrganizationDomain.objects.is_access_blocked_by_domain_enforcement(user):
-        return
+        return True
 
     permitted_organization = next(
         (
@@ -71,7 +74,7 @@ def resolve_login_organization(user: User) -> None:
         None,
     )
     if permitted_organization is None:
-        return
+        return user.organization_memberships.filter(level__gte=OrganizationMembership.Level.ADMIN).exists()
 
     logger.info(
         "domain_enforcement_moved_user_to_permitted_organization",
@@ -85,3 +88,4 @@ def resolve_login_organization(user: User) -> None:
     # organization; drop the cached values so later code in this request sees the new one.
     user.__dict__.pop("organization", None)
     user.__dict__.pop("team", None)
+    return True
