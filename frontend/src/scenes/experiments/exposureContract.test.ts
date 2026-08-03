@@ -1,8 +1,30 @@
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 
-import { getExposureEventAndProperty, isDefaultExposureConfig } from './exposureContract'
+import {
+    exposureEventLabel,
+    getExposureEventAndProperty,
+    isDefaultExposureConfig,
+    resolvedExposureEvent,
+} from './exposureContract'
 
 describe('exposureContract', () => {
+    it('uses the rollout event for a local draft without a server-resolved event', () => {
+        expect(resolvedExposureEvent({}, '$experiment_exposure')).toBe('$experiment_exposure')
+    })
+
+    it('prefers the server-resolved event over the local draft fallback', () => {
+        expect(resolvedExposureEvent({ resolved_exposure_event: '$feature_flag_called' }, '$experiment_exposure')).toBe(
+            '$feature_flag_called'
+        )
+    })
+
+    it.each([
+        ['$experiment_exposure', 'Experiment exposure'],
+        ['$feature_flag_called', 'Feature flag is called'],
+    ])('labels %s as %s', (event, expectedLabel) => {
+        expect(exposureEventLabel(event)).toBe(expectedLabel)
+    })
+
     it.each([
         [
             'stored default config',

@@ -23,6 +23,7 @@ import { Experiment } from '~/types'
  * `$experiment_exposure` rollout.
  */
 export const EXPOSURE_DEFAULT_EVENT = '$feature_flag_called'
+export const EXPERIMENT_EXPOSURE_EVENT = '$experiment_exposure'
 export const EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY = '$feature_flag_response'
 export const EXPOSURE_FEATURE_FLAG_PROPERTY = '$feature_flag'
 
@@ -31,8 +32,15 @@ export const EXPOSURE_FEATURE_FLAG_PROPERTY = '$feature_flag'
  * (`resolve_default_exposure_event`). Falls back to the pre-rollout default for an experiment that
  * hasn't come from the API yet — a locally-constructed draft, or an older cached payload.
  */
-export function resolvedExposureEvent(experiment: Pick<Experiment, 'resolved_exposure_event'>): string {
-    return experiment.resolved_exposure_event || EXPOSURE_DEFAULT_EVENT
+export function resolvedExposureEvent(
+    experiment: Pick<Experiment, 'resolved_exposure_event'>,
+    fallbackEvent: string = EXPOSURE_DEFAULT_EVENT
+): string {
+    return experiment.resolved_exposure_event || fallbackEvent
+}
+
+export function exposureEventLabel(event: string): string {
+    return event === EXPERIMENT_EXPOSURE_EVENT ? 'Experiment exposure' : 'Feature flag is called'
 }
 
 /** The `$feature/<flag_key>` event property that carries the variant for custom exposure events. */
