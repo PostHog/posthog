@@ -52,7 +52,7 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 // backend/temporal, and the turbo-tests runner already provisions the temporal profile). For these,
 // the temporal durations must count toward product sizing so the product is sharded for that load —
 // otherwise a huge suite lands in one unsharded bucket and times out.
-const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['warehouse-sources'])
+const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set(['managed-warehouse', 'warehouse-sources'])
 // Products that always get their own matrix entry instead of being packed with
 // others — isolates a flaky/hang-prone product so it can't cancel bucket-mates
 // at the job timeout. Trade-off: a dedicated runner.
@@ -309,7 +309,13 @@ function parseTachModules(tomlText) {
 // composition-root hubs where "imports Team" doesn't mean "depends on a
 // product's behavior" — the residual after excluding those is a handful of
 // narrow wrappers reaching at most a few products each.
-function tachDependents(changedProducts, moduleGraph) {
+//
+// `direct` stops the walk after the first hop. Test selection must stay
+// transitive, because a change in A can break C's tests through B without C
+// ever importing A. Merge-queue lane assignment asks a narrower question and
+// passes direct: true; see trunk-impacted-targets.js for why one hop is the
+// boundary there.
+function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     const reverse = new Map()
     for (const [product, deps] of moduleGraph) {
         for (const dep of deps) {
@@ -326,7 +332,7 @@ function tachDependents(changedProducts, moduleGraph) {
         for (const dependent of reverse.get(current) || []) {
             if (visited.has(dependent) || changedSet.has(dependent)) {continue}
             visited.add(dependent)
-            queue.push(dependent)
+            if (!direct) {queue.push(dependent)}
         }
     }
     return [...visited].map(moduleToProduct)

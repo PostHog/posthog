@@ -163,7 +163,11 @@ def query_ai_events(
         raise AIEventsNotFoundError(f"AI events for {query_type} were not found")
 
 
-# Canonical Python list. Node.js mirror: nodejs/src/ingestion/ai/process-ai-event.ts
+# Query-routing list: event types whose full history lives in the dedicated ai_events table.
+# The ingestion list (nodejs/src/ingestion/common/subpipelines/ai-event-types.ts) additionally
+# contains the AI meta-events ($ai_tag, summaries, eval reports); they are excluded here
+# because ai_events lacks their full history, so their queries must stay on the shared
+# events table to avoid misreading the missing rows as expired data.
 AI_EVENT_NAMES = frozenset(
     {
         "$ai_generation",

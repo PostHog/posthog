@@ -44,7 +44,9 @@ use cohort_stream_processor::store::{CohortStore, StoreHandle};
 use cohort_stream_processor::sweep::{
     run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper, ReconcileDrainSweeper,
 };
-use cohort_stream_processor::workers::{MergeWorkerDeps, ReconcileBacklog, ReconcileDeps};
+use cohort_stream_processor::workers::{
+    MergeWorkerDeps, PersonSeedDeps, ReconcileBacklog, ReconcileDeps,
+};
 
 common_alloc::used!();
 
@@ -241,6 +243,10 @@ async fn async_main(config: Config) -> Result<()> {
             enabled: config.cohort_seed_reconcile_enabled,
             scan_page: config.cohort_seed_reconcile_scan_page,
             backlog: reconcile_backlog.clone(),
+        },
+        person_seed: PersonSeedDeps {
+            enabled: config.cohort_seed_person_apply_enabled,
+            live_margin_ms: config.cohort_seed_person_live_margin_ms,
         },
     });
 

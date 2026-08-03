@@ -16,22 +16,26 @@ use cohort_seeder::app::reconcile_dispatch::{
     prepare_reconcile_dispatch, CompletionRequirement, PrepareReconcileDispatchError,
     RegisterBackfillConfirmation,
 };
-use cohort_seeder::domain::{ClaimEpoch, PinnedWarning, ProduceHwms};
+use cohort_seeder::domain::{
+    tile_ranges, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms,
+};
 use cohort_seeder::store::chunks::{ChunkStoreError, PgChunkStore, PlanOutcome};
 use cohort_seeder::store::lease::LeaseFailure;
 use cohort_seeder::store::runs::{
     discover_runs, establish_boundary, fail_run, load_reconcile_run, record_run_warning,
-    BoundaryOutcome, ReconcileRunError, RunError, RunStatus, RunWarningNote,
+    BoundaryOutcome, ReconcileRunError, RunError, RunKind, RunStatus, RunWarningNote,
 };
 use cohort_seeder::store::{Claimant, LeaseDuration, MaxAttempts, RenderedError};
 use cohort_seeder::test_support;
 use common_types::cohort::TeamAllowlist;
 use serde_json::json;
+use uuid::Uuid;
 
 mod support;
 use support::{
-    behavioral_filter, empty_pinned, ensure_lease_lost, insert_participation, insert_run,
-    pinned_condition, planned_count, with_db, ACTIVE_HASH, SUPERSEDED_HASH,
+    behavioral_filter, empty_pinned, ensure_lease_lost, insert_participation, insert_person_run,
+    insert_run, person_filter, person_pinned, pinned_condition, planned_count, with_db,
+    ACTIVE_HASH, SUPERSEDED_HASH,
 };
 
 const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
@@ -72,11 +76,11 @@ async fn discovery_scopes_to_the_allowlist_and_all_admits_every_run() -> Result<
             insert_run(&pool, 5, "team_enablement", "seeding", true, empty_pinned()).await?;
 
         let only_team_two: TeamAllowlist = "2".parse().map_err(anyhow::Error::msg)?;
-        let discovered = discover_runs(&pool, &only_team_two).await?;
+        let discovered = discover_runs(&pool, &only_team_two, &[RunKind::Behavioral]).await?;
         ensure!(discovered.len() == 1);
         ensure!(discovered[0].run_id == self_run);
 
-        let all_runs = discover_runs(&pool, &TeamAllowlist::All).await?;
+        let all_runs = discover_runs(&pool, &TeamAllowlist::All, &[RunKind::Behavioral]).await?;
         ensure!(all_runs.iter().any(|run| run.run_id == self_run));
         ensure!(all_runs.iter().any(|run| run.run_id == other_team_run));
         ensure!(all_runs.iter().any(|run| run.run_id == cross_team_run));
@@ -102,7 +106,7 @@ async fn concurrent_boundary_establishment_promotes_exactly_one_run() -> Result<
         .await?;
 
         let only_team_two: TeamAllowlist = "2".parse().map_err(anyhow::Error::msg)?;
-        let discovered = discover_runs(&pool, &only_team_two).await?;
+        let discovered = discover_runs(&pool, &only_team_two, &[RunKind::Behavioral]).await?;
         let left = discovered[0].clone();
         let right = discovered[0].clone();
         let (left, right) = tokio::join!(
@@ -235,7 +239,7 @@ async fn load_pinned_drops_superseded_and_rejects_cross_team_and_dr() -> Result<
         )
         .await?;
 
-        let all_runs = discover_runs(&pool, &TeamAllowlist::All).await?;
+        let all_runs = discover_runs(&pool, &TeamAllowlist::All, &[RunKind::Behavioral]).await?;
         let self_discovered = all_runs
             .iter()
             .find(|run| run.run_id == self_run)
@@ -853,6 +857,242 @@ async fn fail_truncates_chunk_and_run_error_columns() -> Result<()> {
         .await?;
         ensure!(run_status == RunStatus::Failed.as_str());
         ensure!(run_error_length == 4_096);
+        Ok(())
+    })
+    .await
+}
+
+/// The dark-by-default proof: discovery with `kinds = [Behavioral]` (the gate-off binding) never
+/// yields a person run, while widening the kind set surfaces it with its kind and pinned
+/// `person_scan_since` decoded, and the pinned load validates the person payload.
+#[tokio::test]
+async fn discovery_is_kind_gated_and_person_pinned_load_validates() -> Result<()> {
+    with_db(|pool| async move {
+        let behavioral_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let person_run = insert_person_run(
+            &pool,
+            2,
+            "seeding",
+            true,
+            person_pinned(&[(10, ACTIVE_HASH), (11, SUPERSEDED_HASH)]),
+        )
+        .await?;
+        insert_participation(
+            &pool,
+            person_run,
+            2,
+            10,
+            false,
+            person_filter(ACTIVE_HASH, "email"),
+        )
+        .await?;
+        insert_participation(
+            &pool,
+            person_run,
+            2,
+            11,
+            true,
+            person_filter(SUPERSEDED_HASH, "plan"),
+        )
+        .await?;
+
+        let behavioral_only =
+            discover_runs(&pool, &TeamAllowlist::All, &[RunKind::Behavioral]).await?;
+        ensure!(behavioral_only.iter().all(|run| run.run_id != person_run));
+        ensure!(behavioral_only
+            .iter()
+            .any(|run| run.run_id == behavioral_run));
+
+        let both_kinds = discover_runs(
+            &pool,
+            &TeamAllowlist::All,
+            &[RunKind::Behavioral, RunKind::PersonProperty],
+        )
+        .await?;
+        let discovered = both_kinds
+            .iter()
+            .find(|run| run.run_id == person_run)
+            .cloned()
+            .context("person run was not discovered with the widened kind set")?;
+        ensure!(discovered.kind == RunKind::PersonProperty);
+        ensure!(discovered.person_scan_since.is_some());
+        let behavioral = both_kinds
+            .iter()
+            .find(|run| run.run_id == behavioral_run)
+            .context("behavioral run missing from the widened discovery")?;
+        ensure!(behavioral.kind == RunKind::Behavioral);
+
+        let seedable = match establish_boundary(&pool, discovered).await? {
+            BoundaryOutcome::Established(run) | BoundaryOutcome::AlreadyEstablished(run) => run,
+            BoundaryOutcome::NoLongerSeedable { .. } => bail!("person run was not seedable"),
+        };
+        let PersonRunValidation::Seedable(validated) = seedable.load_person_pinned(&pool).await?
+        else {
+            bail!("person run with an active participation unexpectedly retired");
+        };
+        ensure!(validated.run.conditions.len() == 1);
+        ensure!(validated.run.horizon_days == 30);
+        ensure!(validated.uncovered_cohorts.is_empty());
+        ensure!(validated.warnings.iter().any(|warning| matches!(
+            warning,
+            PinnedWarning::ConditionSuperseded { cohort_id, .. } if *cohort_id == CohortId(11)
+        )));
+        Ok(())
+    })
+    .await
+}
+
+/// The cluster-wide planning claim is exclusive per run and frees on release, so at most one
+/// replica ever runs a run's boundary scan.
+#[tokio::test]
+async fn person_planning_claim_is_exclusive_per_run_until_released() -> Result<()> {
+    with_db(|pool| async move {
+        let run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
+        let other_run = insert_person_run(&pool, 3, "seeding", true, person_pinned(&[])).await?;
+        let store = PgChunkStore::new(pool.clone());
+
+        let held = store
+            .try_claim_person_planning(run)
+            .await?
+            .context("first claim should win")?;
+        ensure!(store.try_claim_person_planning(run).await?.is_none());
+        // Claims are per run: a different run's planner is unaffected.
+        let other = store
+            .try_claim_person_planning(other_run)
+            .await?
+            .context("a different run's claim should win")?;
+
+        held.release().await;
+        other.release().await;
+        let reclaimed = store
+            .try_claim_person_planning(run)
+            .await?
+            .context("a released claim should be reclaimable")?;
+        reclaimed.release().await;
+        Ok(())
+    })
+    .await
+}
+
+/// Person planning is all-or-nothing: one racing planner wins and inserts every range under the
+/// sentinel day with ordinal bands, the loser and any re-plan report `AlreadyPlanned`, and a
+/// non-seeding run refuses.
+#[tokio::test]
+async fn person_planning_is_all_or_nothing_and_idempotent() -> Result<()> {
+    with_db(|pool| async move {
+        let run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let boundaries = [Uuid::from_u128(0x10), Uuid::from_u128(0x20)];
+        let ranges = tile_ranges(&boundaries)?;
+        ensure!(ranges.len() == 3);
+
+        let (left, right) = tokio::join!(
+            store.plan_person_chunks(run, &ranges),
+            store.plan_person_chunks(run, &ranges),
+        );
+        let outcomes = [left?, right?];
+        ensure!(
+            outcomes
+                .iter()
+                .filter(|outcome| matches!(outcome, PlanOutcome::Planned { inserted: 3 }))
+                .count()
+                == 1,
+            "expected exactly one winning planner, got {outcomes:?}"
+        );
+        ensure!(
+            outcomes
+                .iter()
+                .filter(|outcome| matches!(outcome, PlanOutcome::AlreadyPlanned))
+                .count()
+                == 1,
+            "expected the losing planner to observe AlreadyPlanned, got {outcomes:?}"
+        );
+        ensure!(matches!(
+            store.plan_person_chunks(run, &ranges).await?,
+            PlanOutcome::AlreadyPlanned
+        ));
+
+        let rows: Vec<(String, i16, Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+            "SELECT day::text, band, person_range_lo, person_range_hi \
+             FROM cohort_backfill_chunks WHERE run_id = $1 ORDER BY band",
+        )
+        .bind(run)
+        .fetch_all(&pool)
+        .await?;
+        ensure!(rows.len() == 3);
+        ensure!(rows.iter().all(|(day, ..)| day == "9999-01-01"));
+        ensure!(rows.iter().map(|(_, band, ..)| *band).eq(0..3));
+        ensure!(rows[0].2 == Some(Uuid::nil()));
+        ensure!(rows[0].3 == Some(boundaries[0]));
+        ensure!(rows[1].2 == Some(boundaries[0]));
+        ensure!(rows[1].3 == Some(boundaries[1]));
+        ensure!(rows[2].2 == Some(boundaries[1]));
+        ensure!(rows[2].3.is_none());
+
+        let idle =
+            insert_person_run(&pool, 3, "awaiting_boundary", false, person_pinned(&[])).await?;
+        ensure!(matches!(
+            store.plan_person_chunks(idle, &ranges).await?,
+            PlanOutcome::RunNotSeeding
+        ));
+        Ok(())
+    })
+    .await
+}
+
+/// The sentinel day makes person chunks claim strictly after behavioral days on the shared claim
+/// loop, and a person claim decodes its range with `num_bands` = the run's chunk count.
+#[tokio::test]
+async fn person_chunks_claim_after_behavioral_days_and_carry_ranges() -> Result<()> {
+    with_db(|pool| async move {
+        let behavioral_run =
+            insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
+        let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
+        let store = PgChunkStore::new(pool.clone());
+        ensure!(planned_count(store.plan_chunks(behavioral_run, [100], ONE_BAND).await?)? == 1);
+        let boundary = Uuid::from_u128(0x42);
+        let ranges = tile_ranges(&[boundary])?;
+        ensure!(planned_count(store.plan_person_chunks(person_run, &ranges).await?)? == 2);
+
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [behavioral_run, person_run];
+        let claimant = Claimant::new("worker-a")?;
+
+        let first = store
+            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .await?
+            .context("behavioral chunk was not claimed first")?;
+        ensure!(first.chunk.spec().lease.run_id() == behavioral_run);
+        ensure!(first.chunk.spec().person_range.is_none());
+
+        let second = store
+            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .await?
+            .context("first person chunk was not claimed")?;
+        let second_spec = second.chunk.spec();
+        ensure!(second_spec.lease.run_id() == person_run);
+        ensure!(second_spec.band.band() == 0);
+        ensure!(second_spec.band.num_bands().get() == 2);
+        let second_range = second_spec
+            .person_range
+            .context("person claim lost its range")?;
+        ensure!(second_range.lo() == Uuid::nil());
+        ensure!(second_range.hi() == Some(boundary));
+
+        let third = store
+            .claim_next(&run_ids, &claimant, lease60, attempts5)
+            .await?
+            .context("second person chunk was not claimed")?;
+        let third_range = third
+            .chunk
+            .spec()
+            .person_range
+            .context("person claim lost its range")?;
+        ensure!(third_range.lo() == boundary);
+        ensure!(third_range.hi().is_none());
+        drop((first, second, third));
         Ok(())
     })
     .await

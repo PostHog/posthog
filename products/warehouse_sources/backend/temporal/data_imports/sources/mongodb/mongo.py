@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import uuid
 import base64
+import itertools
 import contextlib
 import collections
 from collections.abc import Callable, Iterator
@@ -17,7 +18,7 @@ from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.collection import Collection
 from pymongo.database import Database
-from pymongo.errors import PyMongoError
+from pymongo.errors import OperationFailure, PyMongoError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -560,6 +561,12 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         return 0
 
 
+# Some Atlas tiers (e.g. free/shared) reject no_cursor_timeout outright with OperationFailure
+# code 8000 ("noTimeout cursors are disallowed in this atlas tier"). Matched as a substring since
+# the full error also carries the volatile clusterTime/signature payload.
+_NO_TIMEOUT_CURSORS_DISALLOWED = "noTimeout cursors are disallowed"
+
+
 def mongo_source(
     connection_string: str,
     collection_name: str,
@@ -622,7 +629,26 @@ def mongo_source(
             cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
 
             try:
-                for doc in cursor:
+                doc_iter: Iterator[dict[str, Any]] = iter(cursor)
+                try:
+                    first_doc = next(doc_iter)
+                    doc_iter = itertools.chain([first_doc], doc_iter)
+                except StopIteration:
+                    pass
+                except OperationFailure as e:
+                    if _NO_TIMEOUT_CURSORS_DISALLOWED not in str(e):
+                        raise
+                    # Fails on the very first read before any document is yielded, so it's safe to
+                    # retry without no_cursor_timeout — the tradeoff is the CursorNotFound risk that
+                    # option guards against (see the comment above cursor creation).
+                    logger.debug(
+                        f"MongoDB: no_cursor_timeout disallowed for collection={collection_name}; retrying without it"
+                    )
+                    cursor.close()
+                    cursor = read_collection.find(query, batch_size=chunk_size)
+                    doc_iter = iter(cursor)
+
+                for doc in doc_iter:
                     # Convert BSON types (ObjectId, Binary, UUID, DatetimeMS) to SQL-safe
                     # values. _process_doc_with_field_logging logs the offending field name
                     # before re-raising, so any exception here fails the sync with precise

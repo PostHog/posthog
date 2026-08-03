@@ -16,6 +16,7 @@ from structlog import get_logger
 from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
 
+from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
@@ -505,7 +506,7 @@ def _supersede_cohort_events_backfills(cohort: Cohort) -> None:
             supersede_active_runs,  # noqa: PLC0415 — avoids a model-load cycle
         )
 
-        supersede_active_runs(cohort.team_id, [cohort.id])
+        supersede_active_runs(cohort.team_id, [cohort.id], kind=CohortBackfillKind.BEHAVIORAL)
     except Exception as error:
         logger.exception(
             "failed_to_supersede_cohort_events_backfills",

@@ -89,6 +89,15 @@ jobs:
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs. Excludes
+                        # are order-independent in dorny, so this also covers the broad
+                        # **/*.yml and **/*.md rules below. The desktop CI files live
+                        # outside products/desktop, so exclude them explicitly too.
+                        - '!products/desktop/**'
+                        - '!.github/workflows/desktop-*.yml'
+                        - '!.github/actions/desktop-*/**'
+                        - '!.github/scripts/desktop/**'
                         - 'playwright/**'
                         - 'docs/**/*.tsx'
                         # Make sure we run if someone is explicitly change the workflow
@@ -123,6 +132,9 @@ jobs:
                         - 'products/**/*.ts'
                         - 'products/**/*.tsx'
                         - 'products/**/*.json'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         - 'playwright/**'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
@@ -376,11 +388,21 @@ jobs:
             - name: Fix node-gyp permissions
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Get pnpm store path
               id: pnpm-store
@@ -468,8 +490,10 @@ jobs:
             # After the base build the tree is on the BASE branch, so guard for the scripts'
             # absence (also covers branches predating a check). Budgets are surfaced
             # warn-only further down.
+            # Comment steps skip trunk-merge/**: merge-queue draft PRs are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
             - name: Clean up legacy per-check CI comments
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -480,7 +504,7 @@ jobs:
                   fi
 
             - name: Post CI report — eager graph
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -491,7 +515,7 @@ jobs:
                   fi
 
             - name: Post CI report — bundle size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -502,7 +526,7 @@ jobs:
                   fi
 
             - name: Post CI report — dist size
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -513,7 +537,7 @@ jobs:
                   fi
 
             - name: Post CI report — toolbar bundle
-              if: always() && github.event_name == 'pull_request'
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
@@ -693,10 +717,21 @@ jobs:
               if: matrix.segment == 'FOSS'
               run: rm -rf ee
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Install pnpm dependencies
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Test with Jest
               id: run-jest

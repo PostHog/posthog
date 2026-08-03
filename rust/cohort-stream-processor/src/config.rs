@@ -265,6 +265,17 @@ pub struct Config {
     #[envconfig(from = "COHORT_SEED_RECONCILE_TICK_INTERVAL_MS", default = "2000")]
     pub cohort_seed_reconcile_tick_interval_ms: u64,
 
+    /// Apply `person_property` seeds. Default off; while off they skip and commit, so a run
+    /// produced against a gate-off fleet has to be re-produced after enabling.
+    #[envconfig(from = "COHORT_SEED_PERSON_APPLY_ENABLED", default = "false")]
+    pub cohort_seed_person_apply_enabled: bool,
+
+    /// How far a person seed's scan instant must beat the stored record's stamp before it may
+    /// overwrite live-evaluated state (ms). Covers ClickHouse replication lag plus modest client
+    /// clock skew; ties go to live.
+    #[envconfig(from = "COHORT_SEED_PERSON_LIVE_MARGIN_MS", default = "900000")]
+    pub cohort_seed_person_live_margin_ms: i64,
+
     /// Live-priority gate: pause a seed partition once its live watermark age reaches this (ms).
     /// `0` disables the trigger.
     #[envconfig(from = "COHORT_SEED_LIVE_LAG_PAUSE_MS", default = "120000")]
@@ -774,6 +785,31 @@ impl Config {
             );
         }
 
+        // A negative margin biases the person-seed verdict toward the seed, letting a stale scan
+        // overwrite fresher live state.
+        ensure!(
+            self.cohort_seed_person_live_margin_ms >= 0,
+            "COHORT_SEED_PERSON_LIVE_MARGIN_MS must not be negative.",
+        );
+
+        if self.cohort_seed_person_apply_enabled && !self.cohort_seed_consumer_enabled {
+            warn!(
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_CONSUMER_ENABLED: no person \
+                 seeds can be consumed; enable the seed consumer or turn person apply off.",
+            );
+        }
+
+        // A membership produce that fails after stage 1 commits drops the single-leaf change: the
+        // replayed seed merges to Unchanged and re-emits only composed flips. The reconcile
+        // snapshot is what repairs that, and it can, because the register row committed with
+        // stage 1 — but only if it is switched on.
+        if self.cohort_seed_person_apply_enabled && !self.cohort_seed_reconcile_enabled {
+            warn!(
+                "COHORT_SEED_PERSON_APPLY_ENABLED without COHORT_SEED_RECONCILE_ENABLED: a failed \
+                 membership produce drops its single-leaf change permanently, with no repair path.",
+            );
+        }
+
         ensure!(
             !self.checkpoint_enabled || self.durable_restore_enabled,
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
@@ -1104,6 +1140,8 @@ mod tests {
             cohort_seed_reconcile_enabled: false,
             cohort_seed_reconcile_scan_page: 256,
             cohort_seed_reconcile_tick_interval_ms: 2_000,
+            cohort_seed_person_apply_enabled: false,
+            cohort_seed_person_live_margin_ms: 900_000,
             cohort_seed_live_lag_pause_ms: 120_000,
             cohort_seed_live_lag_resume_ms: 60_000,
             cohort_seed_disk_pause_pct: 60.0,
@@ -1174,6 +1212,38 @@ mod tests {
         config.cohort_seed_consumer_enabled = false;
 
         assert!(config.validate_startup().is_ok());
+    }
+
+    #[test]
+    fn person_seed_knobs_default_dark_and_refuse_a_negative_live_margin() {
+        let defaults = Config::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
+        assert!(!defaults.cohort_seed_person_apply_enabled);
+        assert_eq!(defaults.cohort_seed_person_live_margin_ms, 900_000);
+
+        let env: std::collections::HashMap<String, String> = [
+            ("COHORT_SEED_PERSON_APPLY_ENABLED", "true"),
+            ("COHORT_SEED_PERSON_LIVE_MARGIN_MS", "1234"),
+        ]
+        .into_iter()
+        .map(|(key, value)| (key.to_string(), value.to_string()))
+        .collect();
+        let config = Config::init_from_hashmap(&env).unwrap();
+        assert!(config.cohort_seed_person_apply_enabled);
+        assert_eq!(config.cohort_seed_person_live_margin_ms, 1234);
+
+        let mut negative = test_config();
+        negative.cohort_seed_person_live_margin_ms = -1;
+        assert!(negative
+            .validate_startup()
+            .unwrap_err()
+            .to_string()
+            .contains("COHORT_SEED_PERSON_LIVE_MARGIN_MS"));
+
+        // Apply-on without the consumer is a warning, not a refusal — same as reconcile.
+        let mut orphaned = test_config();
+        orphaned.cohort_seed_person_apply_enabled = true;
+        orphaned.cohort_seed_consumer_enabled = false;
+        assert!(orphaned.validate_startup().is_ok());
     }
 
     /// A flapping (inverted/equal) threshold pair or a never-releasing resume must be refused at
