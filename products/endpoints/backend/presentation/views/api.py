@@ -14,6 +14,7 @@ import re
 import dataclasses
 from typing import cast
 
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
 from django_filters.rest_framework import DjangoFilterBackend
@@ -272,6 +273,18 @@ class EndpointViewSet(
             return sorted({ti.tag.name for ti in endpoint.prefetched_tags})
         return sorted(endpoint.tagged_items.values_list("tag__name", flat=True))
 
+    @staticmethod
+    def _with_serialization_prefetches(queryset):
+        """Load what _serialize reads off each endpoint up front.
+
+        Without this the list costs four extra queries per endpoint: the latest version, its
+        backing saved query, the version count, and the creator. Tags are already prefetched by
+        TaggedItemViewSetMixin.filter_queryset, so adding them here raises a lookup conflict.
+        """
+        return queryset.select_related("created_by").prefetch_related(
+            Prefetch("versions", queryset=EndpointVersion.objects.select_related("saved_query")),
+        )
+
     def _serialize(
         self,
         obj: Endpoint | EndpointVersion,
@@ -311,7 +324,7 @@ class EndpointViewSet(
             "is_materialized": version.is_materialized,
             "current_version": endpoint.current_version,
             "current_version_id": str(version.id),
-            "versions_count": endpoint.versions.count(),
+            "versions_count": len(endpoint.versions.all()),
             "derived_from_insight": endpoint.derived_from_insight,
             "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
             "materialization": build_materialization_info(version),
@@ -343,7 +356,7 @@ class EndpointViewSet(
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
-        queryset = self.filter_queryset(self.get_queryset())
+        queryset = self._with_serialization_prefetches(self.filter_queryset(self.get_queryset()))
         page = self.paginate_queryset(queryset)
         if page is not None:
             results = [self._serialize(endpoint, request) for endpoint in page]
