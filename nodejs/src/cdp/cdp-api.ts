@@ -52,7 +52,6 @@ import { EmailTrackingService } from './services/messaging/email-tracking.servic
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-watcher.service'
-import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
@@ -65,6 +64,7 @@ import {
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
+import { mirrorCall, mirrorCompare } from './utils/mirror-call'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
