@@ -290,6 +290,9 @@ tools:
     task-channels-instructions-destroy:
         operation: task_channels_instructions_destroy
         enabled: false
+    task-channels-instructions-partial-update:
+        operation: task_channels_instructions_partial_update
+        enabled: false
     task-channels-instructions-update:
         operation: task_channels_instructions_update
         enabled: false

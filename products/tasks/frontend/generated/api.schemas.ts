@@ -1263,6 +1263,23 @@ export interface ChannelInstructionsWriteApi {
     base_version?: number | null
 }
 
+/**
+ * Request body for publishing a new instructions version.
+ */
+export interface PatchedChannelInstructionsWriteApi {
+    /**
+     * The complete markdown instructions (CONTEXT.md) for the channel.
+     * @maxLength 100000
+     */
+    content?: string
+    /**
+     * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
+     * @minimum 0
+     * @nullable
+     */
+    base_version?: number | null
+}
+
 export interface PaginatedChannelInstructionsDTOListApi {
     count: number
     /** @nullable */
