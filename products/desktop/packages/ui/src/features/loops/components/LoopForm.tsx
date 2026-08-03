@@ -18,7 +18,7 @@ import {
   navigateToLoops,
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
-import { Box, Flex, Text, TextField } from "@radix-ui/themes";
+import { Box, Flex, Text, TextArea, TextField } from "@radix-ui/themes";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useAuthStateValue } from "../../auth/store";
 import {
@@ -299,11 +299,11 @@ export function LoopForm({
             />
           </Field>
           <Field label="Description">
-            <TextField.Root
-              size="2"
+            <TextArea
               value={values.description}
               placeholder="A short summary shown on the Loops list"
               disabled={isSubmitting}
+              className="min-h-[72px] text-[13px] leading-relaxed"
               onChange={(e) => patch({ description: e.target.value })}
             />
           </Field>
@@ -407,48 +407,26 @@ export function LoopForm({
 
         <Divider />
 
-        <Flex direction="column" gap="4">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((open) => !open)}
-            className="flex items-center gap-1.5 text-left"
-          >
-            <CaretRight
-              size={12}
-              className={`text-gray-10 transition-transform ${
-                showAdvanced ? "rotate-90" : ""
-              }`}
+        <Step title="Advanced" description="Behavior, model, and reasoning.">
+          <Field label="Behavior">
+            <LoopBehaviorFields
+              behaviors={values.behaviors}
+              disabled={isSubmitting}
+              onChange={(behaviors) => patch({ behaviors })}
             />
-            <Text className="font-medium text-[15px] text-gray-12">
-              Advanced
-            </Text>
-            <Text className="text-[12px] text-gray-9">
-              Behavior, model, and reasoning
-            </Text>
-          </button>
-          {showAdvanced ? (
-            <Flex direction="column" gap="4">
-              <Field label="Behavior">
-                <LoopBehaviorFields
-                  behaviors={values.behaviors}
-                  disabled={isSubmitting}
-                  onChange={(behaviors) => patch({ behaviors })}
-                />
-              </Field>
-              <LoopModelFields
-                adapter={values.runtimeAdapter}
-                model={values.model}
-                reasoningEffort={values.reasoningEffort}
-                disabled={isSubmitting}
-                onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
-                onModelChange={(model) => patch({ model })}
-                onReasoningEffortChange={(reasoningEffort) =>
-                  patch({ reasoningEffort })
-                }
-              />
-            </Flex>
-          ) : null}
-        </Flex>
+          </Field>
+          <LoopModelFields
+            adapter={values.runtimeAdapter}
+            model={values.model}
+            reasoningEffort={values.reasoningEffort}
+            disabled={isSubmitting}
+            onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
+            onModelChange={(model) => patch({ model })}
+            onReasoningEffortChange={(reasoningEffort) =>
+              patch({ reasoningEffort })
+            }
+          />
+        </Step>
 
         <Flex
           align="center"
