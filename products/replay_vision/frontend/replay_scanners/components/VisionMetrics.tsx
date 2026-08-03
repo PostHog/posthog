@@ -181,9 +181,11 @@ export function VisionMetrics(): JSX.Element {
                                                 Free
                                             </QuotaMeterLegendItem>
                                         )}
-                                        <QuotaMeterLegendItem>
-                                            {usedFreePct > 0 ? 'Billed' : 'Spent'}
-                                        </QuotaMeterLegendItem>
+                                        {usedPct > usedFreePct && (
+                                            <QuotaMeterLegendItem>
+                                                {usedFreePct > 0 ? 'Billed' : 'Spent'}
+                                            </QuotaMeterLegendItem>
+                                        )}
                                         <QuotaMeterLegendItem barClass={styles.bar} striped>
                                             Projected
                                         </QuotaMeterLegendItem>

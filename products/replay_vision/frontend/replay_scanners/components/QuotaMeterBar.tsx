@@ -13,7 +13,7 @@ export interface QuotaMeterSegment {
 }
 
 /** Shading for the non-billable slice of spend, so free credits don't read as money spent. */
-export const QUOTA_METER_FREE_CLASS = 'bg-fill-success-tertiary'
+export const QUOTA_METER_FREE_CLASS = 'bg-fill-success-secondary'
 
 interface QuotaMeterBarProps {
     /** Solid segment: actual usage as a percentage of the cap. */
