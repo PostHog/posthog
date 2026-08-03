@@ -10,8 +10,8 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1265_delete_duckgresserverteam"),
-        ("tasks", "0077_taskartifact_export_asset_id"),
+        ("posthog", "1281_migrate_managed_warehouse_models"),
+        ("tasks", "0080_channel_repository_configuration"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

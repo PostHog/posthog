@@ -247,7 +247,7 @@ def migrate_desktop_tree(apps, schema_editor):
 class Migration(migrations.Migration):
     dependencies = [
         ("canvas", "0002_source_version_required"),
-        ("tasks", "0077_channelcontextgeneration_channelinstructions_and_more"),
+        ("tasks", "0081_channelcontextgeneration_channelinstructions_and_more"),
         ("posthog", "1265_delete_duckgresserverteam"),
     ]
 
