@@ -111,6 +111,24 @@ def test_ensure_repository_on_disk_passes_when_repo_present(mocker) -> None:
     assert sandbox_repo_path("PostHog/posthog") in sandbox.execute.call_args.args[0]
 
 
+def test_ensure_every_repository_is_on_disk(mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _ensure_repository_on_disk(
+        _context(
+            repository="PostHog/posthog",
+            state={"repositories": ["PostHog/posthog", "PostHog/posthog-js"]},
+        ),
+        sandbox,
+    )
+
+    assert [call.args[0] for call in sandbox.execute.call_args_list] == [
+        f"test -d {sandbox_repo_path('PostHog/posthog')}",
+        f"test -d {sandbox_repo_path('PostHog/posthog-js')}",
+    ]
+
+
 def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker) -> None:
     # Without this, a run whose repo was never cloned (no snapshot, no GitHub credentials) burns
     # repeated 5-minute health-check timeouts and fails with a misleading "Failed to start agent
