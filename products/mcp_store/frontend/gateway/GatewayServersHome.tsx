@@ -23,7 +23,13 @@ import { InstallCustomAuthTypeEnumApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
 import { GatewayAddServerModal } from './GatewayAddServerModal'
 import { toProfileUser } from './gatewayUtils'
-import { GATEWAY_CATEGORY_LABELS, GatewayServerEntry, isTemplateOnlyServer, mcpGatewayLogic } from './mcpGatewayLogic'
+import {
+    CONNECTED_SERVERS_FILTER,
+    GATEWAY_CATEGORY_LABELS,
+    GatewayServerEntry,
+    isTemplateOnlyServer,
+    mcpGatewayLogic,
+} from './mcpGatewayLogic'
 
 const AUTH_TYPE_OPTIONS = [
     { value: 'oauth' as const, label: 'OAuth' },
@@ -55,6 +61,7 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
         searchQuery,
         categoryFilter,
         categoryCounts,
+        connectedServerCount,
         isAdmin,
         mergedServers,
     } = useValues(mcpGatewayLogic)
@@ -90,7 +97,7 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
                     placeholder="Search MCP servers…"
                     value={searchQuery}
                     onChange={setSearchQuery}
-                    className="max-w-md"
+                    className="w-full"
                     aria-label="Search MCP servers"
                 />
             </div>
@@ -121,6 +128,14 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
                     onClick={() => setCategoryFilter(null)}
                 >
                     All <LemonSnack className="ml-1">{mergedServers.length}</LemonSnack>
+                </LemonButton>
+                <LemonButton
+                    size="small"
+                    type={categoryFilter === CONNECTED_SERVERS_FILTER ? 'primary' : 'tertiary'}
+                    aria-pressed={categoryFilter === CONNECTED_SERVERS_FILTER}
+                    onClick={() => setCategoryFilter(CONNECTED_SERVERS_FILTER)}
+                >
+                    Connected <LemonSnack className="ml-1">{connectedServerCount}</LemonSnack>
                 </LemonButton>
                 {categories.map((category) => (
                     <LemonButton
@@ -164,7 +179,7 @@ export function GatewayServersHome({ onOpenServer }: { onOpenServer?: (serverId:
     )
 }
 
-function GatewayServerCard({
+export function GatewayServerCard({
     server,
     onOpenServer,
 }: {
@@ -201,20 +216,27 @@ function GatewayServerCard({
         <div
             className={`border rounded p-3 flex items-center gap-3 hover:border-accent transition-colors ${
                 disabled ? 'opacity-60' : ''
-            }`}
+            } ${recommended ? '' : 'cursor-pointer'}`}
+            role={recommended ? undefined : 'button'}
+            tabIndex={recommended ? undefined : 0}
+            onClick={recommended ? undefined : openServer}
+            onKeyDown={(event) => {
+                if (
+                    !recommended &&
+                    event.target === event.currentTarget &&
+                    (event.key === 'Enter' || event.key === ' ')
+                ) {
+                    event.preventDefault()
+                    openServer()
+                }
+            }}
         >
             <div className="shrink-0">
                 <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={42} />
             </div>
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                    {recommended ? (
-                        <span className="font-semibold">{server.name}</span>
-                    ) : (
-                        <button className="font-semibold text-left hover:text-accent" onClick={openServer}>
-                            {server.name}
-                        </button>
-                    )}
+                    <span className="font-semibold">{server.name}</span>
                     {recommended && <LemonTag type="highlight">Recommended</LemonTag>}
                     {connected && <LemonTag type="success">Connected</LemonTag>}
                     {connection?.pending_oauth && <LemonTag type="warning">Finishing setup</LemonTag>}
@@ -243,12 +265,13 @@ function GatewayServerCard({
                         type="primary"
                         disabledReason={connectionDisabledReason}
                         onClick={() => reconnectServer(connection.installation_id)}
+                        stopPropagation
                     >
                         Reconnect
                     </LemonButton>
                 ) : canConnectIndividual ? (
                     connecting ? (
-                        <LemonButton size="small" disabledReason="Authorizing…" icon={<Spinner />}>
+                        <LemonButton size="small" disabledReason="Authorizing…" icon={<Spinner />} stopPropagation>
                             Authorizing…
                         </LemonButton>
                     ) : (
@@ -257,6 +280,7 @@ function GatewayServerCard({
                             type="secondary"
                             onClick={() => connectServer(server.id)}
                             disabledReason={connectionDisabledReason}
+                            stopPropagation
                         >
                             Connect
                         </LemonButton>
@@ -268,6 +292,7 @@ function GatewayServerCard({
                         icon={<IconGear />}
                         onClick={openServer}
                         aria-label={`Configure ${server.name}`}
+                        stopPropagation
                     >
                         Configure
                     </LemonButton>

@@ -28,7 +28,7 @@ import type {
     MCPServerTemplateApi,
     MCPServiceAccountApi,
 } from '../generated/api.schemas'
-import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
+import { CONNECTED_SERVERS_FILTER, GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
 
 jest.mock('../generated/api', () => ({
     mcpGatewayConfigApplyPresetCreate: jest.fn(),
@@ -525,6 +525,26 @@ describe('mcpGatewayLogic', () => {
         logic.actions.loadServersSuccess([])
 
         expect(logic.values.recommendedTemplates).toEqual([freshTemplate])
+    })
+
+    it('filters to servers with a connection, including connections that need attention', () => {
+        const connectedServer = gatewayServer({
+            id: 'connected-server',
+            your_connection: {
+                installation_id: 'installation-id',
+                is_enabled: false,
+                pending_oauth: false,
+                needs_reauth: true,
+                last_used_at: null,
+            },
+        })
+        const disconnectedServer = gatewayServer({ id: 'disconnected-server' })
+        logic.actions.loadServersSuccess([connectedServer, disconnectedServer])
+
+        logic.actions.setCategoryFilter(CONNECTED_SERVERS_FILTER)
+
+        expect(logic.values.connectedServerCount).toBe(1)
+        expect(logic.values.filteredServers).toEqual([connectedServer])
     })
 
     it.each([

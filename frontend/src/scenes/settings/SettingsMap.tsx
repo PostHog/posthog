@@ -361,8 +361,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         settings: [
             {
                 id: 'mcp-servers-manage',
-                title: 'MCP servers',
-                description: 'Install and manage MCP servers for your PostHog AI and PostHog Desktop agents.',
+                title: null,
                 component: <McpStoreSettings />,
                 keywords: ['mcp', 'server', 'install', 'oauth', 'ai', 'agent'],
             },
