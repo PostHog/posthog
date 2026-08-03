@@ -736,6 +736,11 @@ def _iter_pages(
         except GithubOrgNotFoundError:
             logger.debug(f"Github: org-scoped endpoint not found, syncing zero rows: url={url}")
             return
+        except GithubEmptyRepositoryError:
+            # `commits` is a fan_out_parent (check_runs, commit_statuses), so this walk can hit the
+            # same empty-repo 409 that get_rows handles directly for the non-fan-out `commits` read.
+            logger.debug(f"Github: repository has no commits (empty repository), syncing zero rows: url={url}")
+            return
         data = response.json()
         if response_data_path and isinstance(data, dict):
             data = data.get(response_data_path) or []
