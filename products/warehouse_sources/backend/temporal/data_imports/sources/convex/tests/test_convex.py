@@ -555,7 +555,7 @@ class TestConvexRetryableErrors:
             ("429", "429 Client Error: Too Many Requests for url: https://x.convex.cloud/api/list_snapshot"),
         ]
     )
-    def test_transient_errors_are_recognised_as_retryable(self, _name: str, observed_error: str) -> None:
+    def test_transient_errors_are_recognized_as_retryable(self, _name: str, observed_error: str) -> None:
         retryable_errors = ConvexSource().get_retryable_errors()
         assert any(key in observed_error for key in retryable_errors), observed_error
 
