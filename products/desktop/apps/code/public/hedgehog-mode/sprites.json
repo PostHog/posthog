@@ -1,0 +1,3630 @@
+{
+  "frames": {
+    "accessories/beret.png": {
+      "frame": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/cap.png": {
+      "frame": { "x": 80, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/chef.png": {
+      "frame": { "x": 160, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/cowboy.png": {
+      "frame": { "x": 240, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/eyepatch.png": {
+      "frame": { "x": 320, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/flag.png": {
+      "frame": { "x": 400, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/glasses.png": {
+      "frame": { "x": 480, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/graduation.png": {
+      "frame": { "x": 560, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/parrot.png": {
+      "frame": { "x": 640, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/party.png": {
+      "frame": { "x": 720, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/pineapple.png": {
+      "frame": { "x": 800, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/sunglasses.png": {
+      "frame": { "x": 880, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/tophat.png": {
+      "frame": { "x": 960, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/xmas-antlers.png": {
+      "frame": { "x": 1040, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/xmas-hat.png": {
+      "frame": { "x": 1120, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "accessories/xmas-scarf.png": {
+      "frame": { "x": 1200, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile000.png": {
+      "frame": { "x": 1280, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile001.png": {
+      "frame": { "x": 1360, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile002.png": {
+      "frame": { "x": 1440, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile003.png": {
+      "frame": { "x": 1520, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile004.png": {
+      "frame": { "x": 1600, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile005.png": {
+      "frame": { "x": 1680, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile006.png": {
+      "frame": { "x": 1760, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile007.png": {
+      "frame": { "x": 1840, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile008.png": {
+      "frame": { "x": 1920, "y": 0, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile009.png": {
+      "frame": { "x": 0, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile010.png": {
+      "frame": { "x": 80, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile011.png": {
+      "frame": { "x": 160, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile012.png": {
+      "frame": { "x": 240, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "overlays/fire/tile013.png": {
+      "frame": { "x": 320, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile000.png": {
+      "frame": { "x": 400, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile001.png": {
+      "frame": { "x": 480, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile002.png": {
+      "frame": { "x": 560, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile003.png": {
+      "frame": { "x": 640, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile004.png": {
+      "frame": { "x": 720, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile005.png": {
+      "frame": { "x": 800, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile006.png": {
+      "frame": { "x": 880, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile007.png": {
+      "frame": { "x": 960, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile008.png": {
+      "frame": { "x": 1040, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile009.png": {
+      "frame": { "x": 1120, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile010.png": {
+      "frame": { "x": 1200, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile011.png": {
+      "frame": { "x": 1280, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile012.png": {
+      "frame": { "x": 1360, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile013.png": {
+      "frame": { "x": 1440, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile014.png": {
+      "frame": { "x": 1520, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/action/tile015.png": {
+      "frame": { "x": 1600, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile000.png": {
+      "frame": { "x": 1680, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile001.png": {
+      "frame": { "x": 1760, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile002.png": {
+      "frame": { "x": 1840, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile003.png": {
+      "frame": { "x": 1920, "y": 80, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile004.png": {
+      "frame": { "x": 0, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile005.png": {
+      "frame": { "x": 80, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile006.png": {
+      "frame": { "x": 160, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile007.png": {
+      "frame": { "x": 240, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile008.png": {
+      "frame": { "x": 320, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile009.png": {
+      "frame": { "x": 400, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile010.png": {
+      "frame": { "x": 480, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile011.png": {
+      "frame": { "x": 560, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile012.png": {
+      "frame": { "x": 640, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile013.png": {
+      "frame": { "x": 720, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile014.png": {
+      "frame": { "x": 800, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile015.png": {
+      "frame": { "x": 880, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile016.png": {
+      "frame": { "x": 960, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile017.png": {
+      "frame": { "x": 1040, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile018.png": {
+      "frame": { "x": 1120, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile019.png": {
+      "frame": { "x": 1200, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/death/tile020.png": {
+      "frame": { "x": 1280, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile000.png": {
+      "frame": { "x": 1360, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile001.png": {
+      "frame": { "x": 1440, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile002.png": {
+      "frame": { "x": 1520, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile003.png": {
+      "frame": { "x": 1600, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile004.png": {
+      "frame": { "x": 1680, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile005.png": {
+      "frame": { "x": 1760, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile006.png": {
+      "frame": { "x": 1840, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile007.png": {
+      "frame": { "x": 1920, "y": 160, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/fall/tile008.png": {
+      "frame": { "x": 0, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile000.png": {
+      "frame": { "x": 80, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile001.png": {
+      "frame": { "x": 160, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile002.png": {
+      "frame": { "x": 240, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile003.png": {
+      "frame": { "x": 320, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile004.png": {
+      "frame": { "x": 400, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile005.png": {
+      "frame": { "x": 480, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile006.png": {
+      "frame": { "x": 560, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile007.png": {
+      "frame": { "x": 640, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile008.png": {
+      "frame": { "x": 720, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile009.png": {
+      "frame": { "x": 800, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile010.png": {
+      "frame": { "x": 880, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile011.png": {
+      "frame": { "x": 960, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile012.png": {
+      "frame": { "x": 1040, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile013.png": {
+      "frame": { "x": 1120, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile014.png": {
+      "frame": { "x": 1200, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile015.png": {
+      "frame": { "x": 1280, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile016.png": {
+      "frame": { "x": 1360, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile017.png": {
+      "frame": { "x": 1440, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile018.png": {
+      "frame": { "x": 1520, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile019.png": {
+      "frame": { "x": 1600, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile020.png": {
+      "frame": { "x": 1680, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile021.png": {
+      "frame": { "x": 1760, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile022.png": {
+      "frame": { "x": 1840, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile023.png": {
+      "frame": { "x": 1920, "y": 240, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/flag/tile024.png": {
+      "frame": { "x": 0, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile000.png": {
+      "frame": { "x": 80, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile001.png": {
+      "frame": { "x": 160, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile002.png": {
+      "frame": { "x": 240, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile003.png": {
+      "frame": { "x": 320, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile004.png": {
+      "frame": { "x": 400, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile005.png": {
+      "frame": { "x": 480, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile006.png": {
+      "frame": { "x": 560, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile007.png": {
+      "frame": { "x": 640, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile008.png": {
+      "frame": { "x": 720, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile009.png": {
+      "frame": { "x": 800, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile010.png": {
+      "frame": { "x": 880, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile011.png": {
+      "frame": { "x": 960, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile012.png": {
+      "frame": { "x": 1040, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile013.png": {
+      "frame": { "x": 1120, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile014.png": {
+      "frame": { "x": 1200, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile015.png": {
+      "frame": { "x": 1280, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile016.png": {
+      "frame": { "x": 1360, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile017.png": {
+      "frame": { "x": 1440, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile018.png": {
+      "frame": { "x": 1520, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile019.png": {
+      "frame": { "x": 1600, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile020.png": {
+      "frame": { "x": 1680, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile021.png": {
+      "frame": { "x": 1760, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile022.png": {
+      "frame": { "x": 1840, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile023.png": {
+      "frame": { "x": 1920, "y": 320, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/idle/tile024.png": {
+      "frame": { "x": 0, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile000.png": {
+      "frame": { "x": 80, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile001.png": {
+      "frame": { "x": 160, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile002.png": {
+      "frame": { "x": 240, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile003.png": {
+      "frame": { "x": 320, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile004.png": {
+      "frame": { "x": 400, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile005.png": {
+      "frame": { "x": 480, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile006.png": {
+      "frame": { "x": 560, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile007.png": {
+      "frame": { "x": 640, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile008.png": {
+      "frame": { "x": 720, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile009.png": {
+      "frame": { "x": 800, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile010.png": {
+      "frame": { "x": 880, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile011.png": {
+      "frame": { "x": 960, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile012.png": {
+      "frame": { "x": 1040, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile013.png": {
+      "frame": { "x": 1120, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile014.png": {
+      "frame": { "x": 1200, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile015.png": {
+      "frame": { "x": 1280, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile016.png": {
+      "frame": { "x": 1360, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile017.png": {
+      "frame": { "x": 1440, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile018.png": {
+      "frame": { "x": 1520, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile019.png": {
+      "frame": { "x": 1600, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile020.png": {
+      "frame": { "x": 1680, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile021.png": {
+      "frame": { "x": 1760, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile022.png": {
+      "frame": { "x": 1840, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile023.png": {
+      "frame": { "x": 1920, "y": 400, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile024.png": {
+      "frame": { "x": 0, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile025.png": {
+      "frame": { "x": 80, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile026.png": {
+      "frame": { "x": 160, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile027.png": {
+      "frame": { "x": 240, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile028.png": {
+      "frame": { "x": 320, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile029.png": {
+      "frame": { "x": 400, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile030.png": {
+      "frame": { "x": 480, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile031.png": {
+      "frame": { "x": 560, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile032.png": {
+      "frame": { "x": 640, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile033.png": {
+      "frame": { "x": 720, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile034.png": {
+      "frame": { "x": 800, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/inspect/tile035.png": {
+      "frame": { "x": 880, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile000.png": {
+      "frame": { "x": 960, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile001.png": {
+      "frame": { "x": 1040, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile002.png": {
+      "frame": { "x": 1120, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile003.png": {
+      "frame": { "x": 1200, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile004.png": {
+      "frame": { "x": 1280, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile005.png": {
+      "frame": { "x": 1360, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile006.png": {
+      "frame": { "x": 1440, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile007.png": {
+      "frame": { "x": 1520, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile008.png": {
+      "frame": { "x": 1600, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/jump/tile009.png": {
+      "frame": { "x": 1680, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile000.png": {
+      "frame": { "x": 1760, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile001.png": {
+      "frame": { "x": 1840, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile002.png": {
+      "frame": { "x": 1920, "y": 480, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile003.png": {
+      "frame": { "x": 0, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile004.png": {
+      "frame": { "x": 80, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile005.png": {
+      "frame": { "x": 160, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile006.png": {
+      "frame": { "x": 240, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile007.png": {
+      "frame": { "x": 320, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile008.png": {
+      "frame": { "x": 400, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile009.png": {
+      "frame": { "x": 480, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile010.png": {
+      "frame": { "x": 560, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile011.png": {
+      "frame": { "x": 640, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile012.png": {
+      "frame": { "x": 720, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile013.png": {
+      "frame": { "x": 800, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile014.png": {
+      "frame": { "x": 880, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile015.png": {
+      "frame": { "x": 960, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile016.png": {
+      "frame": { "x": 1040, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile017.png": {
+      "frame": { "x": 1120, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile018.png": {
+      "frame": { "x": 1200, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile019.png": {
+      "frame": { "x": 1280, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile020.png": {
+      "frame": { "x": 1360, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile021.png": {
+      "frame": { "x": 1440, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile022.png": {
+      "frame": { "x": 1520, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile023.png": {
+      "frame": { "x": 1600, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile024.png": {
+      "frame": { "x": 1680, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile025.png": {
+      "frame": { "x": 1760, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile026.png": {
+      "frame": { "x": 1840, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/phone/tile027.png": {
+      "frame": { "x": 1920, "y": 560, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile000.png": {
+      "frame": { "x": 0, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile001.png": {
+      "frame": { "x": 80, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile002.png": {
+      "frame": { "x": 160, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile003.png": {
+      "frame": { "x": 240, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile004.png": {
+      "frame": { "x": 320, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile005.png": {
+      "frame": { "x": 400, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile006.png": {
+      "frame": { "x": 480, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile007.png": {
+      "frame": { "x": 560, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile008.png": {
+      "frame": { "x": 640, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile009.png": {
+      "frame": { "x": 720, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile010.png": {
+      "frame": { "x": 800, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile011.png": {
+      "frame": { "x": 880, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile012.png": {
+      "frame": { "x": 960, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile013.png": {
+      "frame": { "x": 1040, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile014.png": {
+      "frame": { "x": 1120, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile015.png": {
+      "frame": { "x": 1200, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile016.png": {
+      "frame": { "x": 1280, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile017.png": {
+      "frame": { "x": 1360, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile018.png": {
+      "frame": { "x": 1440, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile019.png": {
+      "frame": { "x": 1520, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile020.png": {
+      "frame": { "x": 1600, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile021.png": {
+      "frame": { "x": 1680, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile022.png": {
+      "frame": { "x": 1760, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile023.png": {
+      "frame": { "x": 1840, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile024.png": {
+      "frame": { "x": 1920, "y": 640, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile025.png": {
+      "frame": { "x": 0, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile026.png": {
+      "frame": { "x": 80, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile027.png": {
+      "frame": { "x": 160, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile028.png": {
+      "frame": { "x": 240, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile029.png": {
+      "frame": { "x": 320, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile030.png": {
+      "frame": { "x": 400, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile031.png": {
+      "frame": { "x": 480, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/sign/tile032.png": {
+      "frame": { "x": 560, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile000.png": {
+      "frame": { "x": 640, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile001.png": {
+      "frame": { "x": 720, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile002.png": {
+      "frame": { "x": 800, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile003.png": {
+      "frame": { "x": 880, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile004.png": {
+      "frame": { "x": 960, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile005.png": {
+      "frame": { "x": 1040, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile006.png": {
+      "frame": { "x": 1120, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile007.png": {
+      "frame": { "x": 1200, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile008.png": {
+      "frame": { "x": 1280, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile009.png": {
+      "frame": { "x": 1360, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/walk/tile010.png": {
+      "frame": { "x": 1440, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile000.png": {
+      "frame": { "x": 1520, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile001.png": {
+      "frame": { "x": 1600, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile002.png": {
+      "frame": { "x": 1680, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile003.png": {
+      "frame": { "x": 1760, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile004.png": {
+      "frame": { "x": 1840, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile005.png": {
+      "frame": { "x": 1920, "y": 720, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile006.png": {
+      "frame": { "x": 0, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile007.png": {
+      "frame": { "x": 80, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile008.png": {
+      "frame": { "x": 160, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile009.png": {
+      "frame": { "x": 240, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile010.png": {
+      "frame": { "x": 320, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile011.png": {
+      "frame": { "x": 400, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile012.png": {
+      "frame": { "x": 480, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile013.png": {
+      "frame": { "x": 560, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile014.png": {
+      "frame": { "x": 640, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile015.png": {
+      "frame": { "x": 720, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile016.png": {
+      "frame": { "x": 800, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile017.png": {
+      "frame": { "x": 880, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile018.png": {
+      "frame": { "x": 960, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile019.png": {
+      "frame": { "x": 1040, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile020.png": {
+      "frame": { "x": 1120, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile021.png": {
+      "frame": { "x": 1200, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile022.png": {
+      "frame": { "x": 1280, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile023.png": {
+      "frame": { "x": 1360, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile024.png": {
+      "frame": { "x": 1440, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/default/wave/tile025.png": {
+      "frame": { "x": 1520, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile000.png": {
+      "frame": { "x": 1600, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile001.png": {
+      "frame": { "x": 1680, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile002.png": {
+      "frame": { "x": 1760, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile003.png": {
+      "frame": { "x": 1840, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile004.png": {
+      "frame": { "x": 1920, "y": 800, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile005.png": {
+      "frame": { "x": 0, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile006.png": {
+      "frame": { "x": 80, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile007.png": {
+      "frame": { "x": 160, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile008.png": {
+      "frame": { "x": 240, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile009.png": {
+      "frame": { "x": 320, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile010.png": {
+      "frame": { "x": 400, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/ghost/idle/tile011.png": {
+      "frame": { "x": 480, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile000.png": {
+      "frame": { "x": 560, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile001.png": {
+      "frame": { "x": 640, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile002.png": {
+      "frame": { "x": 720, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile003.png": {
+      "frame": { "x": 800, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile004.png": {
+      "frame": { "x": 880, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile005.png": {
+      "frame": { "x": 960, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile006.png": {
+      "frame": { "x": 1040, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile007.png": {
+      "frame": { "x": 1120, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/fall/tile008.png": {
+      "frame": { "x": 1200, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/idle/tile000.png": {
+      "frame": { "x": 1280, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile000.png": {
+      "frame": { "x": 1360, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile001.png": {
+      "frame": { "x": 1440, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile002.png": {
+      "frame": { "x": 1520, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile003.png": {
+      "frame": { "x": 1600, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile004.png": {
+      "frame": { "x": 1680, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile005.png": {
+      "frame": { "x": 1760, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile006.png": {
+      "frame": { "x": 1840, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile007.png": {
+      "frame": { "x": 1920, "y": 880, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile008.png": {
+      "frame": { "x": 0, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/jump/tile009.png": {
+      "frame": { "x": 80, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile000.png": {
+      "frame": { "x": 160, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile001.png": {
+      "frame": { "x": 240, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile002.png": {
+      "frame": { "x": 320, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile003.png": {
+      "frame": { "x": 400, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile004.png": {
+      "frame": { "x": 480, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile005.png": {
+      "frame": { "x": 560, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile006.png": {
+      "frame": { "x": 640, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile007.png": {
+      "frame": { "x": 720, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile008.png": {
+      "frame": { "x": 800, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/walk/tile009.png": {
+      "frame": { "x": 880, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile000.png": {
+      "frame": { "x": 960, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile001.png": {
+      "frame": { "x": 1040, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile002.png": {
+      "frame": { "x": 1120, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile003.png": {
+      "frame": { "x": 1200, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile004.png": {
+      "frame": { "x": 1280, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile005.png": {
+      "frame": { "x": 1360, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile006.png": {
+      "frame": { "x": 1440, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile007.png": {
+      "frame": { "x": 1520, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile008.png": {
+      "frame": { "x": 1600, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile009.png": {
+      "frame": { "x": 1680, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0010.png": {
+      "frame": { "x": 1760, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0011.png": {
+      "frame": { "x": 1840, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0012.png": {
+      "frame": { "x": 1920, "y": 960, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0013.png": {
+      "frame": { "x": 0, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0014.png": {
+      "frame": { "x": 80, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0015.png": {
+      "frame": { "x": 160, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0016.png": {
+      "frame": { "x": 240, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0017.png": {
+      "frame": { "x": 320, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0018.png": {
+      "frame": { "x": 400, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0019.png": {
+      "frame": { "x": 480, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0020.png": {
+      "frame": { "x": 560, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0021.png": {
+      "frame": { "x": 640, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0022.png": {
+      "frame": { "x": 720, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0023.png": {
+      "frame": { "x": 800, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/hogzilla/wave/tile0024.png": {
+      "frame": { "x": 880, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile000.png": {
+      "frame": { "x": 960, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile001.png": {
+      "frame": { "x": 1040, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile002.png": {
+      "frame": { "x": 1120, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile003.png": {
+      "frame": { "x": 1200, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile004.png": {
+      "frame": { "x": 1280, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile005.png": {
+      "frame": { "x": 1360, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile006.png": {
+      "frame": { "x": 1440, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile007.png": {
+      "frame": { "x": 1520, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/fall/tile008.png": {
+      "frame": { "x": 1600, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/idle/tile000.png": {
+      "frame": { "x": 1680, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile000.png": {
+      "frame": { "x": 1760, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile001.png": {
+      "frame": { "x": 1840, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile002.png": {
+      "frame": { "x": 1920, "y": 1040, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile003.png": {
+      "frame": { "x": 0, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile004.png": {
+      "frame": { "x": 80, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile005.png": {
+      "frame": { "x": 160, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile006.png": {
+      "frame": { "x": 240, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile007.png": {
+      "frame": { "x": 320, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile008.png": {
+      "frame": { "x": 400, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/jump/tile009.png": {
+      "frame": { "x": 480, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile000.png": {
+      "frame": { "x": 560, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile001.png": {
+      "frame": { "x": 640, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile002.png": {
+      "frame": { "x": 720, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile003.png": {
+      "frame": { "x": 800, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile004.png": {
+      "frame": { "x": 880, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile005.png": {
+      "frame": { "x": 960, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile006.png": {
+      "frame": { "x": 1040, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile007.png": {
+      "frame": { "x": 1120, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile008.png": {
+      "frame": { "x": 1200, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile009.png": {
+      "frame": { "x": 1280, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/walk/tile010.png": {
+      "frame": { "x": 1360, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile000.png": {
+      "frame": { "x": 1440, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile001.png": {
+      "frame": { "x": 1520, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile002.png": {
+      "frame": { "x": 1600, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile003.png": {
+      "frame": { "x": 1680, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile004.png": {
+      "frame": { "x": 1760, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile005.png": {
+      "frame": { "x": 1840, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile006.png": {
+      "frame": { "x": 1920, "y": 1120, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile007.png": {
+      "frame": { "x": 0, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile008.png": {
+      "frame": { "x": 80, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile009.png": {
+      "frame": { "x": 160, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile010.png": {
+      "frame": { "x": 240, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile011.png": {
+      "frame": { "x": 320, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile012.png": {
+      "frame": { "x": 400, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile013.png": {
+      "frame": { "x": 480, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile014.png": {
+      "frame": { "x": 560, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile015.png": {
+      "frame": { "x": 640, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile016.png": {
+      "frame": { "x": 720, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile017.png": {
+      "frame": { "x": 800, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile018.png": {
+      "frame": { "x": 880, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile019.png": {
+      "frame": { "x": 960, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile020.png": {
+      "frame": { "x": 1040, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile021.png": {
+      "frame": { "x": 1120, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/robohog/wave/tile022.png": {
+      "frame": { "x": 1200, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile000.png": {
+      "frame": { "x": 1280, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile001.png": {
+      "frame": { "x": 1360, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile002.png": {
+      "frame": { "x": 1440, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile003.png": {
+      "frame": { "x": 1520, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile004.png": {
+      "frame": { "x": 1600, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile005.png": {
+      "frame": { "x": 1680, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile006.png": {
+      "frame": { "x": 1760, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile007.png": {
+      "frame": { "x": 1840, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/fall/tile008.png": {
+      "frame": { "x": 1920, "y": 1200, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/idle/tile000.png": {
+      "frame": { "x": 0, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile000.png": {
+      "frame": { "x": 80, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile001.png": {
+      "frame": { "x": 160, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile002.png": {
+      "frame": { "x": 240, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile003.png": {
+      "frame": { "x": 320, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile004.png": {
+      "frame": { "x": 400, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile005.png": {
+      "frame": { "x": 480, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile006.png": {
+      "frame": { "x": 560, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile007.png": {
+      "frame": { "x": 640, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile008.png": {
+      "frame": { "x": 720, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/jump/tile009.png": {
+      "frame": { "x": 800, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile000.png": {
+      "frame": { "x": 880, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile001.png": {
+      "frame": { "x": 960, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile002.png": {
+      "frame": { "x": 1040, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile003.png": {
+      "frame": { "x": 1120, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile004.png": {
+      "frame": { "x": 1200, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile005.png": {
+      "frame": { "x": 1280, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile006.png": {
+      "frame": { "x": 1360, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile007.png": {
+      "frame": { "x": 1440, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile008.png": {
+      "frame": { "x": 1520, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile009.png": {
+      "frame": { "x": 1600, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/walk/tile010.png": {
+      "frame": { "x": 1680, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile000.png": {
+      "frame": { "x": 1760, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile001.png": {
+      "frame": { "x": 1840, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile002.png": {
+      "frame": { "x": 1920, "y": 1280, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile003.png": {
+      "frame": { "x": 0, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile004.png": {
+      "frame": { "x": 80, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile005.png": {
+      "frame": { "x": 160, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile006.png": {
+      "frame": { "x": 240, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile007.png": {
+      "frame": { "x": 320, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile008.png": {
+      "frame": { "x": 400, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile009.png": {
+      "frame": { "x": 480, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile010.png": {
+      "frame": { "x": 560, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile011.png": {
+      "frame": { "x": 640, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile012.png": {
+      "frame": { "x": 720, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile013.png": {
+      "frame": { "x": 800, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile014.png": {
+      "frame": { "x": 880, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile015.png": {
+      "frame": { "x": 960, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile016.png": {
+      "frame": { "x": 1040, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile017.png": {
+      "frame": { "x": 1120, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile018.png": {
+      "frame": { "x": 1200, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile019.png": {
+      "frame": { "x": 1280, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile020.png": {
+      "frame": { "x": 1360, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile021.png": {
+      "frame": { "x": 1440, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile022.png": {
+      "frame": { "x": 1520, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile023.png": {
+      "frame": { "x": 1600, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile024.png": {
+      "frame": { "x": 1680, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    },
+    "skins/spiderhog/wave/tile025.png": {
+      "frame": { "x": 1760, "y": 1360, "w": 80, "h": 80 },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": { "x": 0, "y": 0, "w": 80, "h": 80 },
+      "sourceSize": { "w": 80, "h": 80 }
+    }
+  },
+  "animations": {
+    "overlays/fire/tile": [
+      "overlays/fire/tile000.png",
+      "overlays/fire/tile001.png",
+      "overlays/fire/tile002.png",
+      "overlays/fire/tile003.png",
+      "overlays/fire/tile004.png",
+      "overlays/fire/tile005.png",
+      "overlays/fire/tile006.png",
+      "overlays/fire/tile007.png",
+      "overlays/fire/tile008.png",
+      "overlays/fire/tile009.png",
+      "overlays/fire/tile010.png",
+      "overlays/fire/tile011.png",
+      "overlays/fire/tile012.png",
+      "overlays/fire/tile013.png"
+    ],
+    "skins/default/action/tile": [
+      "skins/default/action/tile000.png",
+      "skins/default/action/tile001.png",
+      "skins/default/action/tile002.png",
+      "skins/default/action/tile003.png",
+      "skins/default/action/tile004.png",
+      "skins/default/action/tile005.png",
+      "skins/default/action/tile006.png",
+      "skins/default/action/tile007.png",
+      "skins/default/action/tile008.png",
+      "skins/default/action/tile009.png",
+      "skins/default/action/tile010.png",
+      "skins/default/action/tile011.png",
+      "skins/default/action/tile012.png",
+      "skins/default/action/tile013.png",
+      "skins/default/action/tile014.png",
+      "skins/default/action/tile015.png"
+    ],
+    "skins/default/death/tile": [
+      "skins/default/death/tile000.png",
+      "skins/default/death/tile001.png",
+      "skins/default/death/tile002.png",
+      "skins/default/death/tile003.png",
+      "skins/default/death/tile004.png",
+      "skins/default/death/tile005.png",
+      "skins/default/death/tile006.png",
+      "skins/default/death/tile007.png",
+      "skins/default/death/tile008.png",
+      "skins/default/death/tile009.png",
+      "skins/default/death/tile010.png",
+      "skins/default/death/tile011.png",
+      "skins/default/death/tile012.png",
+      "skins/default/death/tile013.png",
+      "skins/default/death/tile014.png",
+      "skins/default/death/tile015.png",
+      "skins/default/death/tile016.png",
+      "skins/default/death/tile017.png",
+      "skins/default/death/tile018.png",
+      "skins/default/death/tile019.png",
+      "skins/default/death/tile020.png"
+    ],
+    "skins/default/fall/tile": [
+      "skins/default/fall/tile000.png",
+      "skins/default/fall/tile001.png",
+      "skins/default/fall/tile002.png",
+      "skins/default/fall/tile003.png",
+      "skins/default/fall/tile004.png",
+      "skins/default/fall/tile005.png",
+      "skins/default/fall/tile006.png",
+      "skins/default/fall/tile007.png",
+      "skins/default/fall/tile008.png"
+    ],
+    "skins/default/flag/tile": [
+      "skins/default/flag/tile000.png",
+      "skins/default/flag/tile001.png",
+      "skins/default/flag/tile002.png",
+      "skins/default/flag/tile003.png",
+      "skins/default/flag/tile004.png",
+      "skins/default/flag/tile005.png",
+      "skins/default/flag/tile006.png",
+      "skins/default/flag/tile007.png",
+      "skins/default/flag/tile008.png",
+      "skins/default/flag/tile009.png",
+      "skins/default/flag/tile010.png",
+      "skins/default/flag/tile011.png",
+      "skins/default/flag/tile012.png",
+      "skins/default/flag/tile013.png",
+      "skins/default/flag/tile014.png",
+      "skins/default/flag/tile015.png",
+      "skins/default/flag/tile016.png",
+      "skins/default/flag/tile017.png",
+      "skins/default/flag/tile018.png",
+      "skins/default/flag/tile019.png",
+      "skins/default/flag/tile020.png",
+      "skins/default/flag/tile021.png",
+      "skins/default/flag/tile022.png",
+      "skins/default/flag/tile023.png",
+      "skins/default/flag/tile024.png"
+    ],
+    "skins/default/idle/tile": [
+      "skins/default/idle/tile000.png",
+      "skins/default/idle/tile001.png",
+      "skins/default/idle/tile002.png",
+      "skins/default/idle/tile003.png",
+      "skins/default/idle/tile004.png",
+      "skins/default/idle/tile005.png",
+      "skins/default/idle/tile006.png",
+      "skins/default/idle/tile007.png",
+      "skins/default/idle/tile008.png",
+      "skins/default/idle/tile009.png",
+      "skins/default/idle/tile010.png",
+      "skins/default/idle/tile011.png",
+      "skins/default/idle/tile012.png",
+      "skins/default/idle/tile013.png",
+      "skins/default/idle/tile014.png",
+      "skins/default/idle/tile015.png",
+      "skins/default/idle/tile016.png",
+      "skins/default/idle/tile017.png",
+      "skins/default/idle/tile018.png",
+      "skins/default/idle/tile019.png",
+      "skins/default/idle/tile020.png",
+      "skins/default/idle/tile021.png",
+      "skins/default/idle/tile022.png",
+      "skins/default/idle/tile023.png",
+      "skins/default/idle/tile024.png"
+    ],
+    "skins/default/inspect/tile": [
+      "skins/default/inspect/tile000.png",
+      "skins/default/inspect/tile001.png",
+      "skins/default/inspect/tile002.png",
+      "skins/default/inspect/tile003.png",
+      "skins/default/inspect/tile004.png",
+      "skins/default/inspect/tile005.png",
+      "skins/default/inspect/tile006.png",
+      "skins/default/inspect/tile007.png",
+      "skins/default/inspect/tile008.png",
+      "skins/default/inspect/tile009.png",
+      "skins/default/inspect/tile010.png",
+      "skins/default/inspect/tile011.png",
+      "skins/default/inspect/tile012.png",
+      "skins/default/inspect/tile013.png",
+      "skins/default/inspect/tile014.png",
+      "skins/default/inspect/tile015.png",
+      "skins/default/inspect/tile016.png",
+      "skins/default/inspect/tile017.png",
+      "skins/default/inspect/tile018.png",
+      "skins/default/inspect/tile019.png",
+      "skins/default/inspect/tile020.png",
+      "skins/default/inspect/tile021.png",
+      "skins/default/inspect/tile022.png",
+      "skins/default/inspect/tile023.png",
+      "skins/default/inspect/tile024.png",
+      "skins/default/inspect/tile025.png",
+      "skins/default/inspect/tile026.png",
+      "skins/default/inspect/tile027.png",
+      "skins/default/inspect/tile028.png",
+      "skins/default/inspect/tile029.png",
+      "skins/default/inspect/tile030.png",
+      "skins/default/inspect/tile031.png",
+      "skins/default/inspect/tile032.png",
+      "skins/default/inspect/tile033.png",
+      "skins/default/inspect/tile034.png",
+      "skins/default/inspect/tile035.png"
+    ],
+    "skins/default/jump/tile": [
+      "skins/default/jump/tile000.png",
+      "skins/default/jump/tile001.png",
+      "skins/default/jump/tile002.png",
+      "skins/default/jump/tile003.png",
+      "skins/default/jump/tile004.png",
+      "skins/default/jump/tile005.png",
+      "skins/default/jump/tile006.png",
+      "skins/default/jump/tile007.png",
+      "skins/default/jump/tile008.png",
+      "skins/default/jump/tile009.png"
+    ],
+    "skins/default/phone/tile": [
+      "skins/default/phone/tile000.png",
+      "skins/default/phone/tile001.png",
+      "skins/default/phone/tile002.png",
+      "skins/default/phone/tile003.png",
+      "skins/default/phone/tile004.png",
+      "skins/default/phone/tile005.png",
+      "skins/default/phone/tile006.png",
+      "skins/default/phone/tile007.png",
+      "skins/default/phone/tile008.png",
+      "skins/default/phone/tile009.png",
+      "skins/default/phone/tile010.png",
+      "skins/default/phone/tile011.png",
+      "skins/default/phone/tile012.png",
+      "skins/default/phone/tile013.png",
+      "skins/default/phone/tile014.png",
+      "skins/default/phone/tile015.png",
+      "skins/default/phone/tile016.png",
+      "skins/default/phone/tile017.png",
+      "skins/default/phone/tile018.png",
+      "skins/default/phone/tile019.png",
+      "skins/default/phone/tile020.png",
+      "skins/default/phone/tile021.png",
+      "skins/default/phone/tile022.png",
+      "skins/default/phone/tile023.png",
+      "skins/default/phone/tile024.png",
+      "skins/default/phone/tile025.png",
+      "skins/default/phone/tile026.png",
+      "skins/default/phone/tile027.png"
+    ],
+    "skins/default/sign/tile": [
+      "skins/default/sign/tile000.png",
+      "skins/default/sign/tile001.png",
+      "skins/default/sign/tile002.png",
+      "skins/default/sign/tile003.png",
+      "skins/default/sign/tile004.png",
+      "skins/default/sign/tile005.png",
+      "skins/default/sign/tile006.png",
+      "skins/default/sign/tile007.png",
+      "skins/default/sign/tile008.png",
+      "skins/default/sign/tile009.png",
+      "skins/default/sign/tile010.png",
+      "skins/default/sign/tile011.png",
+      "skins/default/sign/tile012.png",
+      "skins/default/sign/tile013.png",
+      "skins/default/sign/tile014.png",
+      "skins/default/sign/tile015.png",
+      "skins/default/sign/tile016.png",
+      "skins/default/sign/tile017.png",
+      "skins/default/sign/tile018.png",
+      "skins/default/sign/tile019.png",
+      "skins/default/sign/tile020.png",
+      "skins/default/sign/tile021.png",
+      "skins/default/sign/tile022.png",
+      "skins/default/sign/tile023.png",
+      "skins/default/sign/tile024.png",
+      "skins/default/sign/tile025.png",
+      "skins/default/sign/tile026.png",
+      "skins/default/sign/tile027.png",
+      "skins/default/sign/tile028.png",
+      "skins/default/sign/tile029.png",
+      "skins/default/sign/tile030.png",
+      "skins/default/sign/tile031.png",
+      "skins/default/sign/tile032.png"
+    ],
+    "skins/default/walk/tile": [
+      "skins/default/walk/tile000.png",
+      "skins/default/walk/tile001.png",
+      "skins/default/walk/tile002.png",
+      "skins/default/walk/tile003.png",
+      "skins/default/walk/tile004.png",
+      "skins/default/walk/tile005.png",
+      "skins/default/walk/tile006.png",
+      "skins/default/walk/tile007.png",
+      "skins/default/walk/tile008.png",
+      "skins/default/walk/tile009.png",
+      "skins/default/walk/tile010.png"
+    ],
+    "skins/default/wave/tile": [
+      "skins/default/wave/tile000.png",
+      "skins/default/wave/tile001.png",
+      "skins/default/wave/tile002.png",
+      "skins/default/wave/tile003.png",
+      "skins/default/wave/tile004.png",
+      "skins/default/wave/tile005.png",
+      "skins/default/wave/tile006.png",
+      "skins/default/wave/tile007.png",
+      "skins/default/wave/tile008.png",
+      "skins/default/wave/tile009.png",
+      "skins/default/wave/tile010.png",
+      "skins/default/wave/tile011.png",
+      "skins/default/wave/tile012.png",
+      "skins/default/wave/tile013.png",
+      "skins/default/wave/tile014.png",
+      "skins/default/wave/tile015.png",
+      "skins/default/wave/tile016.png",
+      "skins/default/wave/tile017.png",
+      "skins/default/wave/tile018.png",
+      "skins/default/wave/tile019.png",
+      "skins/default/wave/tile020.png",
+      "skins/default/wave/tile021.png",
+      "skins/default/wave/tile022.png",
+      "skins/default/wave/tile023.png",
+      "skins/default/wave/tile024.png",
+      "skins/default/wave/tile025.png"
+    ],
+    "skins/ghost/idle/tile": [
+      "skins/ghost/idle/tile000.png",
+      "skins/ghost/idle/tile001.png",
+      "skins/ghost/idle/tile002.png",
+      "skins/ghost/idle/tile003.png",
+      "skins/ghost/idle/tile004.png",
+      "skins/ghost/idle/tile005.png",
+      "skins/ghost/idle/tile006.png",
+      "skins/ghost/idle/tile007.png",
+      "skins/ghost/idle/tile008.png",
+      "skins/ghost/idle/tile009.png",
+      "skins/ghost/idle/tile010.png",
+      "skins/ghost/idle/tile011.png"
+    ],
+    "skins/hogzilla/fall/tile": [
+      "skins/hogzilla/fall/tile000.png",
+      "skins/hogzilla/fall/tile001.png",
+      "skins/hogzilla/fall/tile002.png",
+      "skins/hogzilla/fall/tile003.png",
+      "skins/hogzilla/fall/tile004.png",
+      "skins/hogzilla/fall/tile005.png",
+      "skins/hogzilla/fall/tile006.png",
+      "skins/hogzilla/fall/tile007.png",
+      "skins/hogzilla/fall/tile008.png"
+    ],
+    "skins/hogzilla/jump/tile": [
+      "skins/hogzilla/jump/tile000.png",
+      "skins/hogzilla/jump/tile001.png",
+      "skins/hogzilla/jump/tile002.png",
+      "skins/hogzilla/jump/tile003.png",
+      "skins/hogzilla/jump/tile004.png",
+      "skins/hogzilla/jump/tile005.png",
+      "skins/hogzilla/jump/tile006.png",
+      "skins/hogzilla/jump/tile007.png",
+      "skins/hogzilla/jump/tile008.png",
+      "skins/hogzilla/jump/tile009.png"
+    ],
+    "skins/hogzilla/walk/tile": [
+      "skins/hogzilla/walk/tile000.png",
+      "skins/hogzilla/walk/tile001.png",
+      "skins/hogzilla/walk/tile002.png",
+      "skins/hogzilla/walk/tile003.png",
+      "skins/hogzilla/walk/tile004.png",
+      "skins/hogzilla/walk/tile005.png",
+      "skins/hogzilla/walk/tile006.png",
+      "skins/hogzilla/walk/tile007.png",
+      "skins/hogzilla/walk/tile008.png",
+      "skins/hogzilla/walk/tile009.png"
+    ],
+    "skins/hogzilla/wave/tile": [
+      "skins/hogzilla/wave/tile000.png",
+      "skins/hogzilla/wave/tile001.png",
+      "skins/hogzilla/wave/tile002.png",
+      "skins/hogzilla/wave/tile003.png",
+      "skins/hogzilla/wave/tile004.png",
+      "skins/hogzilla/wave/tile005.png",
+      "skins/hogzilla/wave/tile006.png",
+      "skins/hogzilla/wave/tile007.png",
+      "skins/hogzilla/wave/tile008.png",
+      "skins/hogzilla/wave/tile009.png",
+      "skins/hogzilla/wave/tile0010.png",
+      "skins/hogzilla/wave/tile0011.png",
+      "skins/hogzilla/wave/tile0012.png",
+      "skins/hogzilla/wave/tile0013.png",
+      "skins/hogzilla/wave/tile0014.png",
+      "skins/hogzilla/wave/tile0015.png",
+      "skins/hogzilla/wave/tile0016.png",
+      "skins/hogzilla/wave/tile0017.png",
+      "skins/hogzilla/wave/tile0018.png",
+      "skins/hogzilla/wave/tile0019.png",
+      "skins/hogzilla/wave/tile0020.png",
+      "skins/hogzilla/wave/tile0021.png",
+      "skins/hogzilla/wave/tile0022.png",
+      "skins/hogzilla/wave/tile0023.png",
+      "skins/hogzilla/wave/tile0024.png"
+    ],
+    "skins/robohog/fall/tile": [
+      "skins/robohog/fall/tile000.png",
+      "skins/robohog/fall/tile001.png",
+      "skins/robohog/fall/tile002.png",
+      "skins/robohog/fall/tile003.png",
+      "skins/robohog/fall/tile004.png",
+      "skins/robohog/fall/tile005.png",
+      "skins/robohog/fall/tile006.png",
+      "skins/robohog/fall/tile007.png",
+      "skins/robohog/fall/tile008.png"
+    ],
+    "skins/robohog/jump/tile": [
+      "skins/robohog/jump/tile000.png",
+      "skins/robohog/jump/tile001.png",
+      "skins/robohog/jump/tile002.png",
+      "skins/robohog/jump/tile003.png",
+      "skins/robohog/jump/tile004.png",
+      "skins/robohog/jump/tile005.png",
+      "skins/robohog/jump/tile006.png",
+      "skins/robohog/jump/tile007.png",
+      "skins/robohog/jump/tile008.png",
+      "skins/robohog/jump/tile009.png"
+    ],
+    "skins/robohog/walk/tile": [
+      "skins/robohog/walk/tile000.png",
+      "skins/robohog/walk/tile001.png",
+      "skins/robohog/walk/tile002.png",
+      "skins/robohog/walk/tile003.png",
+      "skins/robohog/walk/tile004.png",
+      "skins/robohog/walk/tile005.png",
+      "skins/robohog/walk/tile006.png",
+      "skins/robohog/walk/tile007.png",
+      "skins/robohog/walk/tile008.png",
+      "skins/robohog/walk/tile009.png",
+      "skins/robohog/walk/tile010.png"
+    ],
+    "skins/robohog/wave/tile": [
+      "skins/robohog/wave/tile000.png",
+      "skins/robohog/wave/tile001.png",
+      "skins/robohog/wave/tile002.png",
+      "skins/robohog/wave/tile003.png",
+      "skins/robohog/wave/tile004.png",
+      "skins/robohog/wave/tile005.png",
+      "skins/robohog/wave/tile006.png",
+      "skins/robohog/wave/tile007.png",
+      "skins/robohog/wave/tile008.png",
+      "skins/robohog/wave/tile009.png",
+      "skins/robohog/wave/tile010.png",
+      "skins/robohog/wave/tile011.png",
+      "skins/robohog/wave/tile012.png",
+      "skins/robohog/wave/tile013.png",
+      "skins/robohog/wave/tile014.png",
+      "skins/robohog/wave/tile015.png",
+      "skins/robohog/wave/tile016.png",
+      "skins/robohog/wave/tile017.png",
+      "skins/robohog/wave/tile018.png",
+      "skins/robohog/wave/tile019.png",
+      "skins/robohog/wave/tile020.png",
+      "skins/robohog/wave/tile021.png",
+      "skins/robohog/wave/tile022.png"
+    ],
+    "skins/spiderhog/fall/tile": [
+      "skins/spiderhog/fall/tile000.png",
+      "skins/spiderhog/fall/tile001.png",
+      "skins/spiderhog/fall/tile002.png",
+      "skins/spiderhog/fall/tile003.png",
+      "skins/spiderhog/fall/tile004.png",
+      "skins/spiderhog/fall/tile005.png",
+      "skins/spiderhog/fall/tile006.png",
+      "skins/spiderhog/fall/tile007.png",
+      "skins/spiderhog/fall/tile008.png"
+    ],
+    "skins/spiderhog/jump/tile": [
+      "skins/spiderhog/jump/tile000.png",
+      "skins/spiderhog/jump/tile001.png",
+      "skins/spiderhog/jump/tile002.png",
+      "skins/spiderhog/jump/tile003.png",
+      "skins/spiderhog/jump/tile004.png",
+      "skins/spiderhog/jump/tile005.png",
+      "skins/spiderhog/jump/tile006.png",
+      "skins/spiderhog/jump/tile007.png",
+      "skins/spiderhog/jump/tile008.png",
+      "skins/spiderhog/jump/tile009.png"
+    ],
+    "skins/spiderhog/walk/tile": [
+      "skins/spiderhog/walk/tile000.png",
+      "skins/spiderhog/walk/tile001.png",
+      "skins/spiderhog/walk/tile002.png",
+      "skins/spiderhog/walk/tile003.png",
+      "skins/spiderhog/walk/tile004.png",
+      "skins/spiderhog/walk/tile005.png",
+      "skins/spiderhog/walk/tile006.png",
+      "skins/spiderhog/walk/tile007.png",
+      "skins/spiderhog/walk/tile008.png",
+      "skins/spiderhog/walk/tile009.png",
+      "skins/spiderhog/walk/tile010.png"
+    ],
+    "skins/spiderhog/wave/tile": [
+      "skins/spiderhog/wave/tile000.png",
+      "skins/spiderhog/wave/tile001.png",
+      "skins/spiderhog/wave/tile002.png",
+      "skins/spiderhog/wave/tile003.png",
+      "skins/spiderhog/wave/tile004.png",
+      "skins/spiderhog/wave/tile005.png",
+      "skins/spiderhog/wave/tile006.png",
+      "skins/spiderhog/wave/tile007.png",
+      "skins/spiderhog/wave/tile008.png",
+      "skins/spiderhog/wave/tile009.png",
+      "skins/spiderhog/wave/tile010.png",
+      "skins/spiderhog/wave/tile011.png",
+      "skins/spiderhog/wave/tile012.png",
+      "skins/spiderhog/wave/tile013.png",
+      "skins/spiderhog/wave/tile014.png",
+      "skins/spiderhog/wave/tile015.png",
+      "skins/spiderhog/wave/tile016.png",
+      "skins/spiderhog/wave/tile017.png",
+      "skins/spiderhog/wave/tile018.png",
+      "skins/spiderhog/wave/tile019.png",
+      "skins/spiderhog/wave/tile020.png",
+      "skins/spiderhog/wave/tile021.png",
+      "skins/spiderhog/wave/tile022.png",
+      "skins/spiderhog/wave/tile023.png",
+      "skins/spiderhog/wave/tile024.png",
+      "skins/spiderhog/wave/tile025.png"
+    ]
+  },
+  "meta": {
+    "app": "https://www.codeandweb.com/texturepacker",
+    "version": "1.1",
+    "image": "sprites.png",
+    "format": "RGBA8888",
+    "size": { "w": 2000, "h": 1440 },
+    "scale": "1",
+    "smartupdate": "$TexturePacker:SmartUpdate:eaf580dc95d1dee3bff0f7f346f23dd7:80ac418b0a7cda1be46867d2d5737449:1eabdf11f75e3a4fe3147baf7b5be24b$"
+  }
+}

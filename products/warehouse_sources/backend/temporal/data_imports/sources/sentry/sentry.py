@@ -536,6 +536,9 @@ def _iter_issue_tag_values_rows(
 _UNAVAILABLE_DATASET_STATUSES = (400, 403, 404)
 # Per-project surfaces only ever go missing through permissions or an absent config.
 _MISSING_PROJECT_RESOURCE_STATUSES = (403, 404)
+# Sentry's stats-summary endpoint 400s with this detail when the token's user has no
+# project membership in the org, even though the token itself is otherwise valid.
+_NO_PROJECTS_AVAILABLE_DETAIL = "No projects available"
 
 
 def _iter_rows_tolerating_unavailable(
@@ -672,12 +675,30 @@ def _iter_organization_stats_summary_rows(
     organization_slug: str,
 ) -> Iterator[dict[str, Any]]:
     """Per-project event volume for the retention window, one row per project per category."""
-    payload = _fetch_json(
-        base_api_url,
-        _endpoint_path("organization_stats_summary", organization_slug=organization_slug),
-        headers,
-        {"field": "sum(quantity)", "statsPeriod": f"{SENTRY_RETENTION_DAYS}d"},
-    )
+    try:
+        payload = _fetch_json(
+            base_api_url,
+            _endpoint_path("organization_stats_summary", organization_slug=organization_slug),
+            headers,
+            {"field": "sum(quantity)", "statsPeriod": f"{SENTRY_RETENTION_DAYS}d"},
+        )
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 400:
+            try:
+                detail = response.json().get("detail")
+            except JSONDecodeError:
+                detail = None
+            if detail == _NO_PROJECTS_AVAILABLE_DETAIL:
+                # The requesting token's user isn't a member of any project in this
+                # org — Sentry rejects that as a 400 rather than an empty result.
+                # Skip the table rather than failing the whole sync.
+                logger.warning(
+                    "sentry_source.organization_stats_summary_no_projects_skipped",
+                    organization_slug=organization_slug,
+                )
+                return
+        raise
 
     period_start = payload.get("start")
     period_end = payload.get("end")

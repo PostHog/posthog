@@ -1599,6 +1599,25 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.selectedConnectionSupportsHogQL).toEqual(true)
             expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
             expect(logic.values.sendRawQueryEnabled).toEqual(true)
+
+            // The database sidebar opens a query through this URL without a raw hash param.
+            // The connection stays the same, so the query-opening path must reapply the default.
+            router.actions.push(
+                urls.sqlEditor({
+                    query: 'SELECT * FROM managed_warehouse.events',
+                    connectionId: 'managed-conn-1',
+                })
+            )
+
+            await expectLogic(logic).toDispatchActions(['setSourceQuery', 'createTab', 'updateTab'])
+
+            expect(logic.values.sourceQuery.source.sendRawQuery).toEqual(true)
+            expect(logic.values.sendRawQueryEnabled).toEqual(true)
+            expect(String(router.values.hashParams.raw)).toEqual('1')
+
+            logic.actions.setSendRawQuery(false)
+
+            expect(logic.values.sendRawQueryEnabled).toEqual(false)
         })
 
         it('does not force raw SQL mode for a user-managed Postgres direct connection', async () => {

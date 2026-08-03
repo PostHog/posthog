@@ -754,7 +754,6 @@ export interface eventUsageLogicActions {
     }
     reportDashboardRefreshed: (
         dashboardId: number,
-        dashboard: DashboardType<QueryBasedInsightModel> | null,
         filters: Record<string, any>,
         variables: Record<string, any>,
         lastRefreshed: string | Dayjs | null,
@@ -770,7 +769,6 @@ export interface eventUsageLogicActions {
         }
     ) => {
         action: string
-        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         dashboardId: number
         filters: Record<string, any>
         forceRefresh: boolean
@@ -2133,7 +2131,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ dashboard, themeId }),
         reportDashboardRefreshed: (
             dashboardId: number,
-            dashboard: DashboardType<QueryBasedInsightModel> | null,
             filters: Record<string, any>,
             variables: Record<string, any>,
             lastRefreshed: string | Dayjs | null,
@@ -2149,7 +2146,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
         ) => ({
             dashboardId,
-            dashboard,
             filters,
             variables,
             lastRefreshed,
@@ -2950,7 +2946,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 dashboard_id: id,
                 lastRefreshed: lastRefreshed?.toISOString(),
                 refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
-                dashboard: sanitizeDashboard(dashboard),
                 uses_data_warehouse_source: false,
                 data_warehouse_tiles_count: 0,
             }
@@ -3095,7 +3090,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportDashboardRefreshed: async ({
             dashboardId,
-            dashboard,
             filters,
             variables,
             lastRefreshed,
@@ -3105,7 +3099,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }) => {
             posthog.capture(`dashboard refreshed`, {
                 dashboard_id: dashboardId,
-                dashboard: sanitizeDashboard(dashboard),
                 filters,
                 variables,
                 last_refreshed: lastRefreshed?.toString(),

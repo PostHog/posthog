@@ -4,9 +4,6 @@ from typing import cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from parameterized import parameterized
-
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -15,19 +12,22 @@ _PIPELINE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pip
 
 
 @pytest.mark.asyncio
-async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
-    # Regression: run()'s finally calls get_delta_table() (object-storage I/O) purely for
-    # memory cleanup. When that raised — e.g. a transient object-storage blip — it replaced
-    # the in-flight import error, so a connection failure already classified as non-retryable
+async def test_run_cleanup_does_not_call_get_delta_table_and_does_not_mask_import_error(monkeypatch):
+    # Regression: run()'s finally used to call get_delta_table() (object-storage I/O) purely for
+    # memory cleanup, even on a run that failed before ever fetching a delta table (nothing
+    # cached, nothing to clean up). A transient object-storage blip on that spurious call then
+    # replaced the in-flight import error, so a failure already classified as non-retryable
     # surfaced as the unrelated cleanup error and the job retried to its maximum instead of
-    # stopping. The body error must propagate; the cleanup error must be swallowed.
+    # stopping. Cleanup must pop whatever's cached instead of recomputing it, so it can no
+    # longer make its own object-storage call at all.
     pipeline = PipelineNonDLT.__new__(PipelineNonDLT)
     pipeline._logger = AsyncMock()
     pipeline._resumable_source_manager = None
     pipeline._cdp_producer = cast(CDPProducer, object())  # unused: the patched clear-chunks ignores it
     pipeline._resource = cast(SourceResponse, object())
-    pipeline._delta_table_helper = AsyncMock()
-    pipeline._delta_table_helper.get_delta_table.side_effect = OSError("object storage unavailable")
+    delta_table_helper = AsyncMock()
+    delta_table_helper.get_delta_table.cache_pop.return_value = None
+    pipeline._delta_table_helper = delta_table_helper
 
     class ImportError_(Exception):
         pass
@@ -43,67 +43,36 @@ async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
     with pytest.raises(ImportError_, match="Can't connect to MySQL server on"):
         await pipeline.run()
 
-    pipeline._logger.aexception.assert_awaited_once_with("Failed to clean up delta table helper")
+    # run()'s finally `del self._delta_table_helper`s afterward, so assert on the captured
+    # reference rather than re-reading it off `pipeline`.
+    delta_table_helper.get_delta_table.assert_not_called()
+    delta_table_helper.get_delta_table.cache_pop.assert_called_once_with(delta_table_helper)
 
 
-def _make_pipeline_for_post_run_operations() -> PipelineNonDLT:
+@pytest.mark.asyncio
+async def test_post_run_operations_routes_through_shared_post_load():
+    # The e2e tests mock `_post_run_operations`, so nothing else notices if this wrapper stops
+    # returning the orchestrator's queryable folder (ducklake registration silently loses
+    # `prepared_queryable_folder`) or stops forwarding the resource and last incremental value
+    # (desc-sort cursor finalization silently skips).
     pipeline = PipelineNonDLT.__new__(PipelineNonDLT)
     pipeline._logger = AsyncMock()
     pipeline._delta_table_helper = AsyncMock()
-    pipeline._delta_table_helper.get_delta_table.return_value = MagicMock()
-    pipeline._delta_table_helper.get_file_uris.return_value = []
     pipeline._job = MagicMock(id=uuid.uuid4(), team_id=1)
-    pipeline._table = None
     pipeline._resource_name = "orders"
     pipeline._schema = MagicMock()
-    pipeline._schema.initial_sync_complete = True
-    # Non-CDC skips the CDC-companion-seeding block, so only validate_schema_and_update_table
-    # (mocked below) needs to be reachable.
-    pipeline._schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
-    pipeline._schema.cdc_table_mode = "consolidated"
     pipeline._source = MagicMock()
     pipeline._resource = MagicMock()
     pipeline._internal_schema = MagicMock()
-    pipeline._last_incremental_field_value = None
-    return pipeline
+    pipeline._last_incremental_field_value = 5
 
+    post_load = AsyncMock(return_value="orders__query_2")
+    with patch(f"{_PIPELINE_MODULE}.run_post_load_operations", post_load):
+        result = await pipeline._post_run_operations(row_count=10)
 
-def _fake_database_sync_to_async_pool(fn):
-    async def _inner(*args, **kwargs):
-        return fn(*args, **kwargs)
-
-    return _inner
-
-
-class TestPostRunOperationsCompactionErrorHandling:
-    # Regression: `_post_run_operations` used to call `capture_exception` for every compaction
-    # failure, including transient S3 rate-limit/connectivity blips that are already non-fatal
-    # (the sync completes regardless) — flooding error tracking with noise. A genuine compaction
-    # bug must still be captured.
-    @parameterized.expand(
-        [
-            ("transient_s3_slowdown", OSError("Generic S3 error: Please reduce your request rate."), False),
-            ("genuine_bug", OSError("Access Denied: not authorized"), True),
-        ]
-    )
-    @pytest.mark.asyncio
-    async def test_compaction_error_handling(self, _name: str, error: Exception, expect_capture: bool):
-        pipeline = _make_pipeline_for_post_run_operations()
-        cast(AsyncMock, pipeline._delta_table_helper.compact_table).side_effect = error
-
-        with (
-            patch(f"{_PIPELINE_MODULE}.capture_exception") as mock_capture,
-            patch(f"{_PIPELINE_MODULE}.database_sync_to_async_pool", _fake_database_sync_to_async_pool),
-            patch(f"{_PIPELINE_MODULE}.prepare_s3_files_for_querying", AsyncMock(return_value="orders__query_1")),
-            patch(f"{_PIPELINE_MODULE}.update_last_synced_at", AsyncMock()),
-            patch(f"{_PIPELINE_MODULE}.notify_revenue_analytics_that_sync_has_completed", AsyncMock()),
-            patch(f"{_PIPELINE_MODULE}.finalize_desc_sort_incremental_value", AsyncMock()),
-            patch(f"{_PIPELINE_MODULE}.validate_schema_and_update_table", AsyncMock()),
-        ):
-            await pipeline._post_run_operations(row_count=10)
-
-        assert mock_capture.called is expect_capture
-        if expect_capture:
-            cast(AsyncMock, pipeline._logger.aexception).assert_awaited_once()
-        else:
-            cast(AsyncMock, pipeline._logger.awarning).assert_awaited_once()
+    assert result == "orders__query_2"
+    assert post_load.await_args is not None
+    kwargs = post_load.await_args.kwargs
+    assert kwargs["resource"] is pipeline._resource
+    assert kwargs["last_incremental_field_value"] == 5
+    assert kwargs["row_count"] == 10

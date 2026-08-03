@@ -1,0 +1,37 @@
+{
+  "name": "@posthog/workspace-client",
+  "version": "1.0.0",
+  "description": "Client for a workspace-server (local OR sandbox-via-relay). Thin tRPC client; routes via api-client to resolve sandbox endpoints. Runs in any JS environment.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*.tsx"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "node ../../scripts/rimraf.mjs .turbo"
+  },
+  "dependencies": {
+    "@trpc/client": "catalog:",
+    "superjson": "catalog:"
+  },
+  "peerDependencies": {
+    "@tanstack/react-query": "catalog:",
+    "@trpc/tanstack-react-query": "catalog:",
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@posthog/tsconfig": "workspace:*",
+    "@posthog/workspace-server": "workspace:*",
+    "@tanstack/react-query": "catalog:",
+    "@trpc/tanstack-react-query": "catalog:",
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "^4.1.8"
+  }
+}
