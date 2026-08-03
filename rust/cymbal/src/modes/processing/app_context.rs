@@ -91,12 +91,6 @@ impl AppContext {
         let issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync> =
             Arc::new(issue_buckets_redis_client);
 
-        if config.remote_resolution_host.trim().is_empty() {
-            return Err(UnhandledError::Other(
-                "CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),
-            ));
-        }
-
         AppContext::new(config, posthog_pool, issue_buckets_redis_client).await
     }
 
@@ -105,6 +99,12 @@ impl AppContext {
         posthog_pool: PgPool,
         issue_buckets_redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
     ) -> Result<Self, UnhandledError> {
+        if config.remote_resolution_host.trim().is_empty() {
+            return Err(UnhandledError::Other(
+                "CYMBAL_REMOTE_RESOLUTION_HOST is empty".to_string(),
+            ));
+        }
+
         init_global_state(config);
         let health_registry = HealthRegistry::new("liveness");
 
@@ -239,10 +239,6 @@ fn parse_team_id_allowlist(value: &str) -> Option<HashSet<i32>> {
 async fn build_remote_resolution(
     config: &ProcessingConfig,
 ) -> Result<(Option<RemoteResolutionContext>, Option<JoinHandle<()>>), UnhandledError> {
-    if config.remote_resolution_host.trim().is_empty() {
-        return Ok((None, None));
-    }
-
     let remote_config = RemoteResolutionConfig::from_config(config)?;
     info!(
         host = %remote_config.host,
