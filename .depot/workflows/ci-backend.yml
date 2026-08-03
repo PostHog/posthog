@@ -1744,6 +1744,12 @@ jobs:
               # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
               # changed (requirements.txt has the already-published version)
               run: |
+                  # No-op once the branch has flipped hogql-parser to a uv workspace
+                  # member: uv sync already built it from these sources.
+                  if ! grep -q 'hogql-parser==' pyproject.toml; then
+                      echo "hogql-parser is a workspace member; skipping the wheel-override build."
+                      exit 0
+                  fi
                   sudo apt-get install unzip cmake curl uuid pkg-config
                   curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
                   # Check that the downloaded archive is the expected runtime - a security measure

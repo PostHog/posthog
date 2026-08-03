@@ -3,6 +3,7 @@
 !.devcontainer
 !.kearc
 !bin
+!common/hogql_parser
 !common/hogvm
 !common/esbuilder
 !common/migration_utils
@@ -78,6 +79,12 @@ services/agent-*/.next
 !tools/pr-approval-agent
 !tsconfig.json
 !unit.json.tpl
+# Local hogql-parser build artifacts must not leak into image builds.
+common/hogql_parser/.cache
+common/hogql_parser/build
+common/hogql_parser/build_wasm
+common/hogql_parser/*.egg-info
+common/hogql_parser/*.so
 common/*/*/node_modules
 common/*/node_modules
 common/*/*/dist

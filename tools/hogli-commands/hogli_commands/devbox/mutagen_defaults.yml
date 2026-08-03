@@ -39,7 +39,9 @@ sync:
                 # CMakeLists.txt...) that must sync. Its build outputs are caught
                 # by the *.so/build/dist/.cache/build_wasm ignores instead.
                 - 'common/hogql_parser/.cache'
+                - 'common/hogql_parser/build'
                 - 'common/hogql_parser/build_wasm'
+                - 'common/hogql_parser/hogql_parser.egg-info'
                 - 'frontend/types'
                 - 'frontend/dist'
                 - 'frontend/.cache'

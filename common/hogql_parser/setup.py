@@ -34,30 +34,10 @@ module = Extension(
     extra_compile_args=["-std=c++20"],
 )
 
+# Project metadata lives in pyproject.toml [project]; this file only wires up
+# the C++ extension build, which setuptools cannot express declaratively.
 setup(
-    name="hogql_parser",
-    version="1.3.83",
-    url="https://github.com/PostHog/posthog/tree/master/common/hogql_parser",
-    description="HogQL parser for internal PostHog use",
-    author="PostHog Inc.",
-    author_email="hey@posthog.com",
-    maintainer="PostHog Inc.",
-    maintainer_email="hey@posthog.com",
-    long_description=open("README.md").read(),
-    long_description_content_type="text/markdown",
     packages=["hogql_parser-stubs"],
     include_package_data=True,
     ext_modules=[module],
-    python_requires=">=3.10",
-    license="MIT",
-    classifiers=[
-        "Development Status :: 5 - Production/Stable",
-        "Operating System :: MacOS",
-        "Operating System :: POSIX :: Linux",
-        "Programming Language :: Python",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-        "Programming Language :: Python :: 3.13",
-    ],
 )

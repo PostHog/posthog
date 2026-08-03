@@ -1,5 +1,16 @@
 # Developing `hogql-parser`
 
+## How the parser ships
+
+The Python extension is a uv workspace member.
+Every consumer of the monorepo (local dev, CI, Docker images) compiles it from the sources in this directory during `uv sync`, so the code you see is always the code that runs.
+There is no internal dependency on the PyPI package, and no version to bump for day-to-day parser changes.
+
+The version in `pyproject.toml` only matters for the PyPI release (`hogql-parser`), which exists for consumers outside this repository.
+Bump it when you want a new public release; the release workflow publishes wheels built from the merged sources.
+
+The WebAssembly build (`@posthog/hogql-parser` on npm, used by the frontend SQL editor) still ships as a published package, because building it requires Emscripten.
+
 ## Mandatory reading
 
 If you're new to Python C/C++ extensions, there are some things you must have in mind. The [Python/C API Reference Manual](https://docs.python.org/3/c-api/index.html) is worth a read as a whole.
@@ -52,11 +63,14 @@ Key takeaways:
    brew install antlr4-cpp-runtime
    ```
 
-2. Install `hogql_parser` by building from local sources:
+2. Sync your environment, which builds `hogql_parser` from the local sources:
 
    ```bash
-   pip install ./common/hogql_parser
+   uv sync
    ```
+
+   Editing any `.cpp` or `.h` file here makes the next `uv sync` rebuild the extension.
+   For a tighter loop you can also install it directly with `pip install ./common/hogql_parser`.
 
    > If you're getting compilation errors like this on macOS Sonoma:  
    > `/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/c++/v1/cstring:66:5: error: <cstring> tried including <string.h> but didn't find libc++'s <string.h> header.`  
@@ -71,9 +85,12 @@ Key takeaways:
 
 ## How to install dependencies on Ubuntu
 
-Antlr runtime provided in Ubuntu packages might be of an older version, which results in compilation errors.
+The ANTLR runtime in Ubuntu packages might be of an older version, which results in compilation errors.
+Build and install the pinned static runtime instead:
 
-In that case run commands from [this step](https://github.com/PostHog/posthog/blob/4fba6a63e351131fdb27b85e7ba436446fdb3093/.github/actions/run-backend-tests/action.yml#L100).
+```bash
+sudo bin/install-antlr4-cpp-runtime
+```
 
 ## WebAssembly (JavaScript/TypeScript) build
 

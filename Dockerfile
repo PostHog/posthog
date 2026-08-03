@@ -181,6 +181,9 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     # uv sync validates workspace membership even with --no-dev, so every
     # workspace member must be present in the build context.
     --mount=type=bind,source=tools/owners,target=tools/owners \
+    # hogql-parser builds from these sources during the sync. rw because
+    # setuptools writes build/ into the source dir; BuildKit discards the writes.
+    --mount=type=bind,source=common/hogql_parser,target=common/hogql_parser,rw \
     uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \

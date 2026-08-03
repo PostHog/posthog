@@ -35,6 +35,9 @@ jobs:
                   # Re-downloading the installer on a free runner is cheaper than the churn.
                   use-cache: false
 
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
+
             - name: Activate Flox and verify dev setup
               run: |
                   flox activate -- bash -c '

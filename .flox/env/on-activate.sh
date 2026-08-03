@@ -342,6 +342,19 @@ if [[ "$_PHROCS_SKIP" -eq 0 ]]; then
   _BG_PHROCS_START=$(date +%s)
 fi
 
+# hogql-parser is a workspace member compiled from source during `uv sync`, which
+# needs the ANTLR C++ runtime. Warn up front with the fix instead of letting the
+# sync die mid-build on a C++ include error.
+if [[ "$_UV_SKIP" -ne 1 ]]; then
+  if [[ "$(uname)" == "Darwin" ]]; then
+    if [[ ! -d /opt/homebrew/include/antlr4-runtime && ! -d /usr/local/include/antlr4-runtime ]]; then
+      echo "warning: ANTLR C++ runtime not found; 'uv sync' cannot build hogql-parser. Fix: brew install antlr4-cpp-runtime"
+    fi
+  elif [[ ! -d /usr/include/antlr4-runtime ]]; then
+    echo "warning: ANTLR C++ runtime not found; 'uv sync' cannot build hogql-parser. Fix: sudo $FLOX_ENV_PROJECT/bin/install-antlr4-cpp-runtime"
+  fi
+fi
+
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 if [[ "$_UV_SKIP" -eq 1 ]]; then
   done_step "Python packages (cached)"

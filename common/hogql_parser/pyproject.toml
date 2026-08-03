@@ -1,3 +1,44 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hogql-parser"
+version = "1.3.83"
+description = "HogQL parser for internal PostHog use"
+readme = "README.md"
+requires-python = ">=3.10"
+# Table form, not the PEP 639 SPDX string: the string form needs packaging>=24.2
+# at build time, which older environments running `setup.py --version` lack.
+license = { text = "MIT" }
+authors = [{ name = "PostHog Inc.", email = "hey@posthog.com" }]
+maintainers = [{ name = "PostHog Inc.", email = "hey@posthog.com" }]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+
+[project.urls]
+Homepage = "https://github.com/PostHog/posthog/tree/master/common/hogql_parser"
+
+[tool.uv]
+# uv only rebuilds a path dependency when pyproject.toml/setup.py change; these
+# keys make edits to the C++ sources and stubs invalidate the cached build too.
+# Deliberately flat globs so build/ and build_wasm/ artifacts don't churn the key.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "setup.py" },
+    { file = "*.cpp" },
+    { file = "*.h" },
+    { file = "hogql_parser-stubs/*.pyi" },
+]
+
 [tool.black]
 line-length = 120
 target-version = ['py310']

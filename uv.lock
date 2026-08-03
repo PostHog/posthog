@@ -21,13 +21,13 @@ posthoganalytics = false
 django = false
 google-ads = false
 deltalite = false
-hogql-parser = false
 posthog-hogland = false
 hogql-parser-rs = false
 
 [manifest]
 members = [
     "hogli",
+    "hogql-parser",
     "posthog",
     "posthog-owners",
 ]
@@ -3154,14 +3154,7 @@ provides-extras = ["dev"]
 [[package]]
 name = "hogql-parser"
 version = "1.3.83"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/11/74/454ad6b88a8413dcfd3d9836882bb07100c7104f34f4344fb007b98823c6/hogql_parser-1.3.83.tar.gz", hash = "sha256:918d01242c520133ef9ecfcb10777c1fad50bbefb33ec6fa4e223dd57bfaa0cd", size = 93004, upload-time = "2026-07-30T13:24:39.648Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/47/03db0642fb99ec9f1e85117c6a33deca82a5dd02ad1e0c61470c6c6ff75e/hogql_parser-1.3.83-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:35c70d6e32c943ea2a0169ebecd82cf7ec87637991c5a6480cb04e1433613455", size = 659095, upload-time = "2026-07-30T13:24:33.378Z" },
-    { url = "https://files.pythonhosted.org/packages/9d/da/5ba6cc064dc1793a27d875eb2cc00c46f633e64f361923bb1150feeca038/hogql_parser-1.3.83-cp313-cp313-macosx_15_0_x86_64.whl", hash = "sha256:81b7f3dd65efdb5dc0e127d076b91163b1deee5caf69bb85d1cd025dec44df58", size = 668701, upload-time = "2026-07-30T13:24:35.006Z" },
-    { url = "https://files.pythonhosted.org/packages/b1/ed/97179b82f94e548e577dc3fd78832d8d2ba1bab591051936cf2a15eea24a/hogql_parser-1.3.83-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:bc8d0b44e6bf012e28861fcc5d1dfc5b652c9c67c5a345de2bca281dd2119116", size = 5119661, upload-time = "2026-07-30T13:24:36.542Z" },
-    { url = "https://files.pythonhosted.org/packages/b6/de/13b7ad4db2c2fa87fb811b437bb511f128f71a3c6f8461684c8e0a08a165/hogql_parser-1.3.83-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:491fe843ea4d386cd2f067ea77d78ee9431fc0ceedd224ac3b1ffe663ae2c166", size = 5229817, upload-time = "2026-07-30T13:24:38.23Z" },
-]
+source = { directory = "common/hogql_parser" }
 
 [[package]]
 name = "hogql-parser-rs"
@@ -5901,7 +5894,7 @@ requires-dist = [
     { name = "grimp", specifier = "~=3.14" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.3.83" },
+    { name = "hogql-parser", directory = "common/hogql_parser" },
     { name = "hogql-parser-rs", specifier = "==1.3.107" },
     { name = "humanize", specifier = "~=4.12.3" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
