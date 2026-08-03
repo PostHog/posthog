@@ -86,16 +86,6 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
 
 
 class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest):
-    retention_base_query_variant_comparison_excluded_tests = {
-        "test_month_interval_with_person_on_events_v2",
-        "test_week_interval",
-        "test_retention_event_action",
-        "test_retention_with_user_properties_via_action",
-        "test_timezones",
-        "test_retention_aggregation_sum",
-        "test_retention_aggregation_different_events_ignores_start_event_property_value",
-    }
-
     def teardown_method(self, method) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
@@ -6028,8 +6018,10 @@ class TestClickhouseRetentionGroupAggregation(
     retention_base_query_variant_comparison_excluded_tests = {
         "test_groups_aggregating",
         "test_groups_aggregating_person_on_events",
+        # Asserts sync_execute was called exactly once, but the comparison runs the query once per
+        # variant, so the call count can never match. The test checks the max_execution_time setting
+        # on the emitted SQL rather than query results, so it proves nothing about variant parity.
         "test_limit_is_context_aware",
-        "test_retention_24h_window_calculation",
     }
 
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):
