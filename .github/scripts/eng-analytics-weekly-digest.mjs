@@ -106,9 +106,11 @@ function fmtInt(n) {
     return Math.round(n).toLocaleString('en-US')
 }
 
-// Minutes at CI-bill scale: '3.04M' past a million, thousands-separated below.
+// Minutes at CI-bill scale: M-notation from 100k up ('3.04M', '0.38M'), thousands-separated
+// below. The low threshold keeps same-unit rows — CI minutes and its merge-queue slice — in one
+// notation, while a near-zero slice still reads as a plain count instead of '0.00M'.
 function fmtMinutes(minutes) {
-    return minutes >= 1_000_000 ? `${(minutes / 1_000_000).toFixed(2)}M` : fmtInt(minutes)
+    return minutes >= 100_000 ? `${(minutes / 1_000_000).toFixed(2)}M` : fmtInt(minutes)
 }
 
 // Estimated dollars, no cents ('$13,160').
