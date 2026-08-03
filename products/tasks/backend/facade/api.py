@@ -6143,6 +6143,11 @@ def _agent_thread_updates_enabled(creator: User | None) -> bool:
     """Fail closed: no creator to key the flag on, or a flag-service error, means no post."""
     if creator is None:
         return False
+    # Local dev rarely has the server-side flag client wired up, and failing
+    # closed there silently drops every agent thread update (PR and canvas
+    # announcements vanish from task threads with nothing in the logs).
+    if settings.DEBUG:
+        return True
     distinct_id = creator.distinct_id or f"user_{creator.id}"
     try:
         return bool(

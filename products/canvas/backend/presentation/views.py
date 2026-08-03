@@ -141,6 +141,11 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     template_id=payload.validated_data["template_id"],
                     is_home=payload.validated_data["is_home"],
                     created_by=user,
+                    # A sandbox-created canvas is its task's deliverable: bind
+                    # the two at birth so the client can show the run on the
+                    # canvas and nest the task under it — composer-initiated
+                    # generations have no client-side create to record it.
+                    generation_task_id=self._sandbox_task_id(request),
                 )
         except IntegrityError:
             return Response(
@@ -484,6 +489,16 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return UUID(raw_task_id)
         except ValueError:
             return None
+
+    def _sandbox_task_id(self, request: Request) -> UUID | None:
+        """The calling task's id when this is a sandbox-stamped MCP call for a
+        task in this team; None for human/app saves. Same binding rules as the
+        first-publish announcement — the header alone is forgeable, so only
+        sandbox-minted credentials count."""
+        task_id = self._request_task_id(request)
+        if task_id is None or not self._is_sandbox_authenticated(request):
+            return None
+        return task_id if tasks_facade.task_exists(task_id, self.team_id) else None
 
     def _announce_canvas_created(self, request: Request, canvas: Canvas) -> None:
         """Announce a canvas's first publish in the generating task's thread.
