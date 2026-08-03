@@ -8,3 +8,4 @@ pub mod store;
 pub mod strategy;
 pub mod types;
 pub(crate) mod util;
+pub use util::preregister_router_coordination_metrics;

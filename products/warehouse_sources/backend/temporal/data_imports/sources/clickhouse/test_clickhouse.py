@@ -718,6 +718,11 @@ class TestClickHouseSourceRetryableErrors:
             "Tunnel connection failed: 504 Gateway Timeout",
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
+            # The source dropped the connection mid-stream while reading Arrow batches
+            # (urllib3 ProtocolError wrapping http.client.IncompleteRead). Byte counts vary.
+            "('Connection broken: IncompleteRead(0 bytes read)', IncompleteRead(0 bytes read))",
+            "('Connection broken: IncompleteRead(12345 bytes read, 67 more expected)', "
+            "IncompleteRead(12345 bytes read, 67 more expected))",
         ],
     )
     def test_transient_errors_are_retryable(self, source, error_msg):

@@ -1,22 +1,32 @@
+import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Team
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+
+try:
+    from ee.models.rbac.access_control import AccessControl
+except ImportError:
+    pass
 
 
 class TestEmailReputationAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # Totals are cached per team and the team persists across this class's tests — clear so
-        # one test's mocked totals can't leak into the next.
+        # Totals and the AWS tenant lookup are cached per team and the team persists across
+        # this class's tests — clear so one test's mocked data can't leak into the next.
         cache.clear()
 
     def _create_flow(self, name: str) -> HogFlow:
@@ -30,10 +40,20 @@ class TestEmailReputationAPI(APIBaseTest):
             billable_action_types=["function_email"],
         )
 
-    def _get_reputation(self, totals_by_source: dict, query: str = "") -> dict:
-        with patch(
-            "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source",
-            return_value=totals_by_source,
+    def _get_reputation(
+        self, totals_by_source: dict, query: str = "", aws_tenant: dict | None | Exception = None
+    ) -> dict:
+        provider = MagicMock()
+        if isinstance(aws_tenant, Exception):
+            provider.get_tenant_reputation.side_effect = aws_tenant
+        else:
+            provider.get_tenant_reputation.return_value = aws_tenant
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source",
+                return_value=totals_by_source,
+            ),
+            patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation{query}")
         assert response.status_code == status.HTTP_200_OK
@@ -41,12 +61,77 @@ class TestEmailReputationAPI(APIBaseTest):
 
     def test_reputation_endpoint_returns_empty_shape_when_nothing_was_sent(self):
         assert self._get_reputation({}) == {
+            "aws": None,
             "reputation": None,
             "workflows": [],
             "email_sending_suspended": False,
             "email_sending_suspended_at": None,
             "email_sending_suspension_reason": "",
         }
+
+    @parameterized.expand(
+        [
+            ("no_findings", "ENABLED", None, "healthy"),
+            ("low_impact", "ENABLED", "LOW", "warning"),
+            ("high_impact", "ENABLED", "HIGH", "critical"),
+            ("reinstated_low", "REINSTATED", "LOW", "warning"),
+            ("paused", "DISABLED", "HIGH", "suspended"),
+        ]
+    )
+    def test_reputation_endpoint_maps_aws_tenant_state_to_health(
+        self, _name: str, sending_status: str, impact: str | None, expected_health: str
+    ):
+        data = self._get_reputation(
+            {},
+            aws_tenant={"sending_status": sending_status, "reputation_impact": impact, "findings": []},
+        )
+        assert data["aws"]["health"] == expected_health
+        assert data["aws"]["sending_status"] == sending_status
+
+    def test_reputation_endpoint_passes_through_aws_findings(self):
+        data = self._get_reputation(
+            {},
+            aws_tenant={
+                "sending_status": "ENABLED",
+                "reputation_impact": "LOW",
+                "findings": [
+                    {
+                        "finding_type": "BOUNCE",
+                        "impact": "LOW",
+                        "description": "Your bounce rate is elevated. Clean your recipient lists.",
+                        "last_updated_at": None,
+                    }
+                ],
+            },
+        )
+        assert data["aws"]["findings"] == [
+            {
+                "finding_type": "BOUNCE",
+                "impact": "LOW",
+                "description": "Your bounce rate is elevated. Clean your recipient lists.",
+                "last_updated_at": None,
+            }
+        ]
+
+    def test_reputation_endpoint_survives_aws_being_unreachable(self):
+        data = self._get_reputation({}, aws_tenant=Exception("SES timeout"))
+        assert data["aws"] is None
+        assert data["workflows"] == []
+
+    def test_reputation_endpoint_does_not_redial_aws_after_a_failure(self):
+        provider = MagicMock()
+        provider.get_tenant_reputation.side_effect = Exception("SES timeout")
+        with (
+            patch("products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source", return_value={}),
+            patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+        ):
+            url = f"/api/projects/{self.team.id}/hog_flows/reputation"
+            first = self.client.get(url)
+            second = self.client.get(url)
+
+        assert first.json()["aws"] is None
+        assert second.json()["aws"] is None
+        assert provider.get_tenant_reputation.call_count == 1
 
     # Creating a HogFlowBatchJob fires a post_save signal that dispatches to the plugin server —
     # patched out like every other batch-job test, or CI fails on the outbound HTTP attempt.
@@ -161,3 +246,60 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["email_sending_suspended"] is True
         assert data["email_sending_suspended_at"] == suspended_at.isoformat().replace("+00:00", "Z")
         assert data["email_sending_suspension_reason"] == "critical bounce rate"
+
+
+@pytest.mark.ee
+class TestEmailReputationAccessControl(APIBaseTest):
+    """
+    The AWS tenant verdict and the project-wide rates aggregate both pool ALL workflows' email,
+    so members holding only object-level grants must get neither — just their own workflow rows.
+    """
+
+    def test_object_level_only_member_gets_rows_but_no_project_wide_state(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "obj-only@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name="Granted workflow",
+            status="active",
+            trigger={"type": "event"},
+            edges=[],
+            actions=[],
+            billable_action_types=["function_email"],
+        )
+        # Project-wide default of `none`; the member's only access is the one object grant.
+        AccessControl.objects.create(team=self.team, resource="hog_flow", resource_id=None, access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        self.client.force_login(member)
+
+        provider = MagicMock()
+        provider.get_tenant_reputation.return_value = {
+            "sending_status": "DISABLED",
+            "reputation_impact": "HIGH",
+            "findings": [],
+        }
+        with (
+            patch(
+                "products.workflows.backend.api.hog_flow.fetch_app_metric_totals_by_source",
+                return_value={str(flow.id): {"email_sent": 100, "email_bounced_hard": 5}},
+            ),
+            patch("products.workflows.backend.api.hog_flow.SESProvider", return_value=provider),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/reputation")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["aws"] is None
+        assert data["reputation"] is None
+        assert [row["hog_flow_id"] for row in data["workflows"]] == [str(flow.id)]
