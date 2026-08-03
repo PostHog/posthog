@@ -130,9 +130,10 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
 
         Two cases, both of which the proxy would refuse. Internal teams may point a source at a
         PostHog-internal host. And a tunneled connection is made to the tunnel's own loopback
-        bind address, which the proxy blocks by design — clickhouse-connect honours HTTP_PROXY
-        for every host including loopback, so the request would never reach the forwarded port
-        and the tunnel would open no channel to the customer's ClickHouse.
+        bind address (enforced by `_require_loopback` in the tunnel helpers), which the proxy
+        blocks by design — clickhouse-connect honours HTTP_PROXY for every host including
+        loopback, so the request would never reach the forwarded port and the tunnel would
+        open no channel to the customer's ClickHouse.
 
         ClickHouse is the only tunnel-capable source this bites: the other database drivers use
         raw TCP sockets and ignore the proxy env vars entirely.
