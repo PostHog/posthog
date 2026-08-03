@@ -379,6 +379,8 @@ select = [
 # are necessarily lazy / post-path-insert (PLC0415, E402); the planner's small CLI
 # prints its report (T201).
 "rust/deltalite/python/**" = ["PLC0415", "E402", "T201"]
+# Small analysis scripts that accompany an internal doc print their report (T201).
+"docs/**" = ["T201"]
 # Django settings aggregator: star imports are how settings modules merge into one namespace.
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
