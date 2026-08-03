@@ -225,10 +225,9 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
         expect(payload._meta?.ui).toEqual({ resourceUri: 'ui://posthog/query-results.html' })
     })
 
-    // Regression guard for the relapse report: after the payload moved back into
-    // `structuredContent`, the text channel still carried a full TOON copy of it, so an
-    // inline-exec UI host handed the agent the same rows twice. List and detail shapes
-    // are the two the report flagged (`experiment-list`, `experiment-get`).
+    // A payload the model reads from `structuredContent` must not also be serialized into
+    // the text channel — both reach the model, so mirroring it costs the agent a second
+    // full copy. Covers the list and detail shapes these UI tools return.
     it.each([
         [
             'list',
@@ -257,6 +256,7 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             toolName: 'experiment-list',
             params: {},
             forceUiDataToMeta: true,
+            structuredContentReachesModel: true,
             includeUiResponseMeta: true,
             distinctId: 'd',
         })
@@ -268,7 +268,25 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
         expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
     })
 
-    it('counts the structured payload for token estimation when the text is only a pointer', () => {
+    it('mirrors the payload into text for a client whose model does not read structuredContent', () => {
+        // PostHog Desktop's pi harness and Codex forward only `content` to the model, so
+        // trimming the text there would hand the agent a pointer and no data.
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(/* withFormatted */ false),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            structuredContentReachesModel: false,
+            includeUiResponseMeta: true,
+            distinctId: 'd',
+        })
+
+        expect(payload.content[0]!.text).toContain('_posthogUrl')
+        expect(payload.structuredContent).toMatchObject({ results: expect.any(Array) })
+    })
+
+    it('counts both channels for token estimation when the text is only a pointer', () => {
         // The estimate feeds `$mcp_tool_call.output_tokens`; without this the whole
         // response would be billed as the one-line pointer.
         const payload = buildToolResultPayload({
@@ -277,11 +295,14 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             toolName: 'query-trends',
             params: {},
             forceUiDataToMeta: true,
+            structuredContentReachesModel: true,
             includeUiResponseMeta: true,
             distinctId: 'd',
         })
 
-        expect(estimateResponseTokens(payload)).toBeGreaterThan(estimateTokens(STRUCTURED_CONTENT_ONLY_TEXT))
+        expect(estimateResponseTokens(payload)).toBe(
+            estimateTokens(STRUCTURED_CONTENT_ONLY_TEXT) + estimateTokens(payload.structuredContent)
+        )
     })
 
     it('keeps the mirrored text when the caller asked for JSON output', () => {
@@ -291,6 +312,7 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
             toolName: 'query-trends',
             params: { output_format: 'json' },
             forceUiDataToMeta: true,
+            structuredContentReachesModel: true,
             includeUiResponseMeta: true,
             distinctId: 'd',
         })

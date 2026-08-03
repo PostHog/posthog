@@ -375,6 +375,26 @@ describe('MCPClientProfile', () => {
         })
     })
 
+    describe('forwardsStructuredContentToModel()', () => {
+        // Gates trimming a UI tool's serialized text in favor of `structuredContent`. A
+        // false positive here means the client's model receives a pointer and no data, so
+        // the runtimes that reach this path behind the `posthog-code` consumer but forward
+        // only `content` — PostHog Desktop's pi harness, Codex — must stay false.
+        it.each([
+            ['claude-code', { clientName: 'claude-code' }, true],
+            ['Claude Code CLI', { clientName: 'Claude Code/1.2.3' }, true],
+            ['ClaudeCode vendor header', { vendorClient: 'ClaudeCode' }, true],
+            ['Cowork vendor header', { vendorClient: 'Cowork' }, true],
+            ['pi harness', { clientName: 'posthog-harness-mcp', consumer: POSTHOG_CODE_CONSUMER }, false],
+            ['codex', { clientName: 'codex', consumer: POSTHOG_CODE_CONSUMER }, false],
+            ['posthog-code consumer alone', { consumer: POSTHOG_CODE_CONSUMER }, false],
+            ['cline', { clientName: 'cline' }, false],
+            ['unknown client', {}, false],
+        ])('returns %s → %s', (_label, input, expected) => {
+            expect(new MCPClientProfile(input).forwardsStructuredContentToModel()).toBe(expected)
+        })
+    })
+
     describe('isToolsModeClient()', () => {
         it('does not match the vendor header — Anthropic pooled transports stay in cli mode', () => {
             // Only the self-reported name and the user-agent participate; a vendor

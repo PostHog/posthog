@@ -432,6 +432,7 @@ export class ToolExecutor {
             state.scopeGatedTools,
             {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
+                structuredContentReachesModel: state.clientProfile.forwardsStructuredContentToModel(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
             }
         )

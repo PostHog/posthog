@@ -27,10 +27,19 @@ export interface BuildToolResultOptions {
      * formatted table is available, drop top-level `structuredContent` toward the model so
      * it reads the compact table instead of the verbose JSON, and re-home the app payload
      * onto `_meta` for the UI app (see APP_DATA_META_KEY). When there is NO formatted table
-     * the payload stays in the standard `structuredContent` field and the text channel gets
-     * a pointer instead of a second copy of it. Overridden by an explicit `output_format`.
+     * the payload stays in the standard `structuredContent` field, and the text channel gets
+     * a pointer instead of a second copy when `structuredContentReachesModel` says the
+     * model reads that field. Overridden by an explicit `output_format`.
      */
     forceUiDataToMeta?: boolean | undefined
+    /**
+     * Client's model reads `structuredContent` (see
+     * `MCPClientProfile.forwardsStructuredContentToModel`) — the precondition for keeping a
+     * UI tool's payload there alone instead of mirroring it into `content[].text`. Clients
+     * that forward only `content` (PostHog Desktop's pi harness, Codex) must keep the
+     * mirror, or the model gets a pointer and no data.
+     */
+    structuredContentReachesModel?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
     distinctId?: string | undefined
     /**
@@ -90,12 +99,12 @@ export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's s
  * smaller than JSON for tabular results, so measuring the raw object would
  * over-count. `structuredContent` is normally excluded because it duplicates the
  * text for UI tools; when the text is only the `STRUCTURED_CONTENT_ONLY_TEXT`
- * pointer it duplicates nothing, so the structured payload is what gets counted.
+ * pointer it duplicates nothing, so both channels count.
  */
 export function estimateResponseTokens(response: ToolResultPayload): number {
     const text = response.content.map((part) => part.text).join('')
     if (response.structuredContent && text === STRUCTURED_CONTENT_ONLY_TEXT) {
-        return estimateTokens(response.structuredContent)
+        return estimateTokens(text) + estimateTokens(response.structuredContent)
     }
     return estimateTokens(text)
 }
@@ -124,6 +133,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         params,
         suppressStructuredContentForFormattedResults,
         forceUiDataToMeta,
+        structuredContentReachesModel,
         distinctId,
         includeUiResponseMeta,
     } = opts
@@ -178,14 +188,19 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         formattedResults !== undefined &&
         (!!forceUiDataToMeta || !!suppressStructuredContentForFormattedResults)
 
-    // Inline-exec UI hosts surface BOTH `content[].text` and `structuredContent` to the
-    // model. A UI tool with no compact formatted table has nothing smaller to offer the
-    // text channel, so mirroring the payload there hands the agent a second full copy of
-    // the same rows. Carry it once, in `structuredContent` — the field the UI app reads
-    // from too — and leave a pointer in the text. `output_format` opts back into the
-    // mirrored serialization for callers that parse the text channel.
+    // Clients whose model reads `structuredContent` see BOTH channels. A UI tool with no
+    // compact formatted table has nothing smaller to offer the text channel, so mirroring
+    // the payload there hands the agent a second full copy of the same rows. Carry it once,
+    // in `structuredContent` — the field the UI app reads from too — and leave a pointer in
+    // the text. `output_format` opts back into the mirrored serialization for callers that
+    // parse the text channel.
     const structuredContentOnly =
-        !!forceUiDataToMeta && hasUiResource && !isStringResult && !useJson && formattedResults === undefined
+        !!forceUiDataToMeta &&
+        !!structuredContentReachesModel &&
+        hasUiResource &&
+        !isStringResult &&
+        !useJson &&
+        formattedResults === undefined
 
     const text = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT

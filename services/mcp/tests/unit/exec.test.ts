@@ -300,7 +300,7 @@ describe('exec tool', () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
-            const exec = createExec([tool], 'posthog-code')
+            const exec = createExec([tool], 'posthog-code', { structuredContentReachesModel: true })
             const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
                 content: { type: string; text: string }[]
                 structuredContent?: Record<string, unknown>
@@ -375,7 +375,7 @@ describe('exec tool', () => {
             }
         )
 
-        it('carries the payload once — in structuredContent — when there is no formatted override', async () => {
+        it('mirrors the payload into TOON text when the client does not read structuredContent', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
                 handler: async () => ({
@@ -390,11 +390,10 @@ describe('exec tool', () => {
                 _meta: { [key: string]: unknown }
             }
 
-            // With no compact table there is nothing smaller to put in the text channel, so
-            // the payload stays in the standard structuredContent field and the text carries
-            // a pointer — neither a second copy in text nor one under the `_meta` key.
-            expect(result.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
-            expect(result.content[0]!.text).not.toContain('_posthogUrl')
+            // A client that forwards only `content` to its model (PostHog Desktop's pi
+            // harness, Codex) has to keep the serialized text, or the model sees nothing.
+            // The app payload still stays in structuredContent rather than under `_meta`.
+            expect(result.content[0]!.text).toContain('_posthogUrl')
             const structured = result.structuredContent as { results: unknown }
             expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
             expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()

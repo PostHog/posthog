@@ -63,6 +63,12 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /**
+     * Client's model reads `structuredContent` (see
+     * `MCPClientProfile.forwardsStructuredContentToModel`). Lets a UI tool's payload ride
+     * in `structuredContent` alone instead of being mirrored into the text content.
+     */
+    structuredContentReachesModel?: boolean
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -670,9 +676,10 @@ export function createExecTool(
                                 // onto `_meta` (see APP_DATA_META_KEY) so the model reads the compact
                                 // table and the chart still renders. When there is no formatted table,
                                 // the payload stays in the standard `structuredContent` field — which
-                                // both the model and the app read — and the text channel carries a
-                                // pointer rather than a second copy of the same rows.
+                                // the app reads — and, for clients whose model reads that field too,
+                                // the text channel carries a pointer rather than a second copy.
                                 forceUiDataToMeta: true,
+                                structuredContentReachesModel: options.structuredContentReachesModel === true,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })

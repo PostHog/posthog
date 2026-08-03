@@ -52,6 +52,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             isCliModeEnabled: vi.fn(() => false),
             isClaudeUiHost: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
+            forwardsStructuredContentToModel: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
         } as any,
         requestContext: {
@@ -227,6 +228,7 @@ describe('ToolExecutor', () => {
                         isCliModeEnabled: vi.fn(() => true),
                         isClaudeUiHost: vi.fn(() => false),
                         isInlineExecUiHost: vi.fn(() => false),
+                        forwardsStructuredContentToModel: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                     } as any,
                 })
@@ -264,6 +266,7 @@ describe('ToolExecutor', () => {
                         isCliModeEnabled: vi.fn(() => true),
                         isClaudeUiHost: vi.fn(() => false),
                         isInlineExecUiHost: vi.fn(() => false),
+                        forwardsStructuredContentToModel: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
                     } as any,
                 }

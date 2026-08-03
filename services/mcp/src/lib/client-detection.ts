@@ -29,6 +29,10 @@
  *   that render interactive UI (iframes). Used to advertise the `render-ui`
  *   tool to them.
  *
+ * - `forwardsStructuredContentToModel()` matches clients whose model reads the
+ *   `structuredContent` field, so a UI tool's payload can live there alone
+ *   instead of also being serialized into `content[].text`.
+ *
  * - `isClaudeChatHost()` matches Claude web/desktop only — the chat surfaces that
  *   report `supportsInstructions` but never surface the `instructions` payload to
  *   the model. Used to keep the env-context on the exec command description for
@@ -193,6 +197,17 @@ export const ANTHROPIC_CHAT_HOST_VENDOR_FRAGMENTS = ['claudeai'] as const
 // consumer.
 export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode', 'cowork'] as const
 
+// Clients observed to put `structuredContent` in front of the model, so a UI
+// tool's payload can live there alone instead of being mirrored into
+// `content[].text` (see `forwardsStructuredContentToModel`). Matched on the
+// self-reported `clientInfo.name`, which is how the Claude Agent SDK identifies
+// itself when it connects to the MCP server directly rather than through
+// Anthropic's pooled transport. Deliberately an allow-list: several clients that
+// reach this code path — PostHog Desktop's own pi harness
+// (`posthog-harness-mcp`), Codex — forward only `content` to the model, and for
+// them dropping the mirrored text would drop the result.
+export const STRUCTURED_CONTENT_MODEL_CLIENT_NAME_FRAGMENTS = ['claude-code'] as const
+
 // User-Agent Anthropic clients send when they connect without the
 // `x-anthropic-client` header (Claude.ai web/desktop and internal Anthropic
 // tooling). It's a generic Anthropic signal — Claude Code and Cowork can send it
@@ -329,6 +344,18 @@ export class MCPClientProfile {
         // the exec UI-app branch suppresses it and re-homes the app data onto `_meta`.
         // The per-request vendor header (`ClaudeCode` / `Cowork`) is the reliable signal.
         return matchesAnyFragment(this.vendorClient, INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS)
+    }
+
+    forwardsStructuredContentToModel(): boolean {
+        // Whether this client's model actually reads `structuredContent`. Only then can a
+        // UI tool's payload live there alone; otherwise it has to stay mirrored in
+        // `content[].text` or the model sees nothing. Note that the `posthog-code` consumer
+        // is NOT sufficient — it says the request came from PostHog Desktop, not which
+        // runtime is behind it, and the pi harness bridge forwards only `content`.
+        return (
+            this.isAnthropicClient() ||
+            matchesAnyFragment(this.clientName, STRUCTURED_CONTENT_MODEL_CLIENT_NAME_FRAGMENTS)
+        )
     }
 
     isClaudeChatHost(): boolean {
