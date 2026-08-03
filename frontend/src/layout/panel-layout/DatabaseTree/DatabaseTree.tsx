@@ -21,11 +21,14 @@ export const DatabaseTree = memo(function DatabaseTree({
     databaseTreeRef,
     tabId,
     extraTreeSections,
+    embedded = false,
 }: {
     databaseTreeRef: React.RefObject<HTMLDivElement>
     tabId: string
     /** Extra top-level tree sections owned by the embedding surface — see QueryDatabase. */
     extraTreeSections?: TreeDataItem[]
+    /** Rendered inside a notebook cell rather than the editor scene. */
+    embedded?: boolean
 }): JSX.Element | null {
     const scrollContainerRef = useRef<HTMLDivElement | null>(null)
     const { databaseTreeWidth, databaseTreeResizerProps, isDatabaseTreeCollapsed, databaseTreeWillCollapse } =
@@ -72,7 +75,12 @@ export const DatabaseTree = memo(function DatabaseTree({
             <ScrollableShadows
                 scrollRef={scrollContainerRef}
                 direction="vertical"
-                className="flex flex-col gap-2 z-20 group/colorful-product-icons colorful-product-icons-true h-[calc(100vh-var(--scene-layout-header-height))] overflow-auto"
+                className={cn(
+                    'flex flex-col gap-2 z-20 group/colorful-product-icons colorful-product-icons-true overflow-auto',
+                    // A notebook cell sizes to its content and has no viewport-tall box to fill, so a
+                    // viewport-height panel drags the whole cell open. Cap it and scroll the list instead.
+                    embedded ? 'min-h-0 flex-1 max-h-[280px]' : 'h-[calc(100vh-var(--scene-layout-header-height))]'
+                )}
                 innerClassName="flex flex-col gap-2"
                 styledScrollbars
             >

@@ -47,7 +47,7 @@ import { outputPaneLogic } from './outputPaneLogic'
 import { QueryHistoryModal } from './QueryHistoryModal'
 import { QueryWindow } from './QueryWindow'
 import { sqlEditorLogic } from './sqlEditorLogic'
-import { SQLEditorMode } from './sqlEditorModes'
+import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 
 export enum SQLEditorPanel {
     Full = 'full',
@@ -243,6 +243,7 @@ export function SQLEditor({
                                                             databaseTreeRef={databaseTreeRef}
                                                             tabId={tabId || ''}
                                                             extraTreeSections={extraTreeSections}
+                                                            embedded={isEmbeddedSQLEditorMode(mode)}
                                                         />
                                                     )}
                                                     <div
