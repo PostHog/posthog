@@ -193,7 +193,14 @@ const DEFAULT_INITIAL_CONTENT: JSONContent = {
 }
 
 /** Keep in sync with the content types the media upload API accepts for the `file` field */
-const ATTACHMENT_ACCEPT = 'image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx'
+const ATTACHMENT_EXTENSIONS = ['.pdf', '.txt', '.csv', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx']
+const ATTACHMENT_ACCEPT = ['image/*', ...ATTACHMENT_EXTENSIONS].join(',')
+
+/** Matches the API, which takes an allowed content type or an allowed extension. A drop bypasses `accept`. */
+function isAttachable(file: File): boolean {
+    const name = file.name.toLowerCase()
+    return file.type.startsWith('image/') || ATTACHMENT_EXTENSIONS.some((extension) => name.endsWith(extension))
+}
 
 const ImageExtension = Image.configure({
     HTMLAttributes: {
@@ -622,7 +629,7 @@ export function SupportEditor({
     }
 
     const attachDisabledReason = !objectStorageAvailable
-        ? 'Enable object storage to attach images and files'
+        ? 'Enable object storage to attach files'
         : uploading
           ? 'Wait for the current upload to finish'
           : undefined
@@ -632,6 +639,12 @@ export function SupportEditor({
         (files: File[]): void => {
             if (uploading) {
                 lemonToast.error('Wait for the current upload to finish before attaching another file')
+                return
+            }
+            if (files.some((file) => !isAttachable(file))) {
+                lemonToast.error(
+                    "That file type isn't supported. You can attach images, PDFs, documents and spreadsheets"
+                )
                 return
             }
             setFilesToUpload(files)
