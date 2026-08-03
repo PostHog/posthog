@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconBook, IconChevronDown, IconDownload, IconX } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@posthog/icons'
 import { LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -355,7 +355,8 @@ function AccessControlModal(): JSX.Element | null {
 }
 
 function SQLEditorSceneTitle(): JSX.Element | null {
-    const { titleSectionProps, updateInsightButtonEnabled, saveAsMenuItems } = useValues(editorSceneLogic)
+    const { titleSectionProps, updateInsightButtonEnabled, saveAsMenuItems, notebooksLoading } =
+        useValues(editorSceneLogic)
     const {
         queryInput,
         editingView,
@@ -368,7 +369,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         isMultiQuery,
         featureFlags,
     } = useValues(sqlEditorLogic)
-    const { openHistoryModal } = useActions(editorSceneLogic)
+    const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
     const {
         updateView,
         updateInsight,
@@ -530,6 +531,24 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         : editingView
           ? 'Close this view and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
           : 'Reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
+    const convertToNotebookButton = (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Notebook}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={<IconNotebook />}
+                onClick={() => convertToNotebook()}
+                loading={notebooksLoading}
+                disabledReason={queryInput?.trim() ? undefined : 'Write a SQL query before converting'}
+                data-attr="sql-editor-convert-to-notebook-button"
+            >
+                Convert to notebook
+            </LemonButton>
+        </AccessControlAction>
+    )
 
     return (
         <>
@@ -663,6 +682,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     History
                                 </LemonButton>
+                                {convertToNotebookButton}
                                 <LemonButton
                                     disabledReason={
                                         !isSourceQueryLastRun
@@ -759,36 +779,40 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 />
                             </>
                         ) : (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={onPrimarySaveClick}
-                                disabledReason={
-                                    saveAsDisabledReason ??
-                                    (saveAsMenuItems.primary.action === 'endpoint'
-                                        ? saveAsEndpointAccessDisabledReason
-                                        : saveAsMenuItems.primary.action === 'view'
-                                          ? saveAsViewAccessDisabledReason
-                                          : undefined)
-                                }
-                                sideAction={{
-                                    icon: <IconChevronDown />,
-                                    'data-attr': 'sql-editor-save-options-button',
-                                    dropdown: {
-                                        placement: 'bottom-end',
-                                        overlay: (
-                                            <LemonMenuOverlay
-                                                items={secondarySaveMenuItems.map((item) => ({
-                                                    ...item,
-                                                    disabledReason: saveAsDisabledReason ?? item.accessDisabledReason,
-                                                }))}
-                                            />
-                                        ),
-                                    },
-                                }}
-                            >
-                                {saveAsMenuItems.primary.label}
-                            </LemonButton>
+                            <>
+                                {saveAsMenuItems.primary.action === 'insight' && convertToNotebookButton}
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={onPrimarySaveClick}
+                                    disabledReason={
+                                        saveAsDisabledReason ??
+                                        (saveAsMenuItems.primary.action === 'endpoint'
+                                            ? saveAsEndpointAccessDisabledReason
+                                            : saveAsMenuItems.primary.action === 'view'
+                                              ? saveAsViewAccessDisabledReason
+                                              : undefined)
+                                    }
+                                    sideAction={{
+                                        icon: <IconChevronDown />,
+                                        'data-attr': 'sql-editor-save-options-button',
+                                        dropdown: {
+                                            placement: 'bottom-end',
+                                            overlay: (
+                                                <LemonMenuOverlay
+                                                    items={secondarySaveMenuItems.map((item) => ({
+                                                        ...item,
+                                                        disabledReason:
+                                                            saveAsDisabledReason ?? item.accessDisabledReason,
+                                                    }))}
+                                                />
+                                            ),
+                                        },
+                                    }}
+                                >
+                                    {saveAsMenuItems.primary.label}
+                                </LemonButton>
+                            </>
                         )}
                     </div>
                 }

@@ -4,6 +4,9 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { getMarkdownNotebookMarkdown } from 'scenes/notebooks/Notebook/markdownNotebookV2'
+import { NotebookNodeType } from 'scenes/notebooks/types'
+import { defaultNotebookContent } from 'scenes/notebooks/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -22,7 +25,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, QueryBasedInsightModel } from '~/types'
 
-import { editorSceneLogic } from './editorSceneLogic'
+import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
 import {
     activeTabMatchesUrlTarget,
@@ -437,6 +440,32 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('title section', () => {
+        it.each([
+            ['an unsaved query', null, 'SQL query'],
+            ['a named insight', MOCK_INSIGHT, MOCK_INSIGHT.name],
+        ])('builds a notebook from the current SQL for %s', (_case, editingInsight, expectedTitle) => {
+            const notebook = buildSqlNotebook('SELECT * FROM events LIMIT 10', null, editingInsight)
+
+            expect(notebook).toMatchObject({
+                title: expectedTitle,
+                content: [
+                    {
+                        type: NotebookNodeType.SQLV2,
+                        attrs: {
+                            nodeId: expect.any(String),
+                            code: 'SELECT * FROM events LIMIT 10',
+                            returnVariable: '',
+                            edit: true,
+                        },
+                    },
+                ],
+            })
+
+            const markdown = getMarkdownNotebookMarkdown(defaultNotebookContent(notebook.title, notebook.content))
+
+            expect(markdown).not.toContain('hideFilters')
+        })
+
         it('shows loading view title when opening a view from URL before view loads', async () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
