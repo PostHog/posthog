@@ -206,8 +206,14 @@ class DeltaTableHelper:
                     await self._logger.aerror(
                         f"get_delta_table: deleting unrecoverable delta table for a fresh sync: {error_text}"
                     )
-                    async with aget_s3_client() as s3:
-                        await s3._rm(delta_uri, recursive=True)
+                    # A bare recursive `_rm` can leave `_delta_log` strays behind on S3-compatible
+                    # stores (see `_purge_s3_prefix_once`), which would recreate this exact
+                    # "No table metadata or protocol found" corruption on the very next sync.
+                    async with aget_s3_client(fresh_instance=True) as s3:
+                        try:
+                            await _purge_s3_prefix(s3, delta_uri)
+                        except FileNotFoundError:
+                            pass
                 else:
                     raise
 
