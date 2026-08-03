@@ -14,6 +14,7 @@ const {
     computeTargets,
     compileContractMatcher,
     globToRegExp,
+    isProductDirectory,
     isTripwire,
     parseCrateDependencies,
     reverseClosure,
@@ -299,6 +300,18 @@ test('core changes expand to every leaf target in their own domain', () => {
 test('product frontend and backend changes land in separate domains', () => {
     assert.deepEqual(computeTargets(['products/alpha/frontend/Scene.tsx'], CONTEXT), ['fe:product:alpha'])
     assert.deepEqual(computeTargets(['products/beta/backend/api.py'], CONTEXT), ['py:product:beta'])
+})
+
+// ruff and pytest leave caches next to the products, and a run that treats them
+// as products invents a lane per cache. Nothing downstream rejects a nonsense
+// target name, so the only symptom is a local run disagreeing with CI.
+test('tool caches beside the products are not products', () => {
+    for (const name of ['.ruff_cache', '.pytest_cache', '__pycache__', 'node_modules']) {
+        assert.equal(isProductDirectory(name), false, name)
+    }
+    for (const name of ['surveys', 'error_tracking', 'desktop']) {
+        assert.equal(isProductDirectory(name), true, name)
+    }
 })
 
 test('a product file that is neither backend nor frontend claims both domains', () => {
