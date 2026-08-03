@@ -20,6 +20,7 @@ from products.tasks.backend.presentation.serializers import (
     ChannelFeedMessageSerializer,
     ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
+    ChannelUpdateSerializer,
     ChannelWriteSerializer,
     TaskActivityMarkReadResponseSerializer,
     TaskActivityMarkReadSerializer,
@@ -76,14 +77,14 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ChannelSerializer(channel).data)
 
     @extend_schema(
-        request=ChannelWriteSerializer,
+        request=ChannelUpdateSerializer,
         responses={200: ChannelSerializer},
         summary="Rename a public channel",
     )
     def partial_update(self, request, pk=None, **kwargs):
-        serializer = ChannelWriteSerializer(data=request.data)
+        serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        result = tasks_facade.rename_channel(pk, self.team_id, name=serializer.validated_data["name"])
+        result = tasks_facade.update_channel(pk, self.team_id, self._user_id(), **serializer.validated_data)
         if result == "not_found":
             raise NotFound()
         if result == "personal":

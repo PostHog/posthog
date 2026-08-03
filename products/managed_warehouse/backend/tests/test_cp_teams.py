@@ -1,0 +1,251 @@
+import logging
+from datetime import date
+
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
+
+from parameterized import parameterized
+
+from products.managed_warehouse.backend import cp_teams
+from products.managed_warehouse.backend.cp_teams import CPTeam, team_from_row
+
+
+def _row(**overrides) -> dict:
+    row = {
+        "org_id": "org-1",
+        "team_id": 1,
+        "schema_name": "prod",
+        "enabled": True,
+        "backfill_enabled": True,
+        "events_table_name": None,
+        "persons_table_name": None,
+        "schema_data_imports_name": None,
+        "earliest_event_date": None,
+    }
+    row.update(overrides)
+    return row
+
+
+class TestCPTeamResolution:
+    # The transitional derive rule must stay byte-identical to the django-suffix layout;
+    # a premature switch to the future `<schema>.events` derivation (or broken pin
+    # precedence) would point readers/writers at tables that don't exist.
+    @parameterized.expand(
+        [
+            (
+                "null_pins_derive_from_schema",
+                {"schema_name": "us_prod"},
+                ("events_us_prod", "persons_us_prod", "posthog_data_imports_us_prod"),
+            ),
+            (
+                "pins_win_over_derivation",
+                {
+                    "schema_name": "team_7",
+                    "events_table_name": "events",
+                    "persons_table_name": "persons",
+                    "schema_data_imports_name": "posthog_data_imports_team_7",
+                },
+                ("events", "persons", "posthog_data_imports_team_7"),
+            ),
+            (
+                "partial_pins_mix_with_derivation",
+                {"schema_name": "beta", "events_table_name": "events_legacy"},
+                ("events_legacy", "persons_beta", "posthog_data_imports_beta"),
+            ),
+            (
+                "empty_string_pins_are_treated_as_unset",
+                {"schema_name": "beta", "events_table_name": "", "schema_data_imports_name": ""},
+                ("events_beta", "persons_beta", "posthog_data_imports_beta"),
+            ),
+        ]
+    )
+    def test_resolved_names(self, _name: str, overrides: dict, expected: tuple[str, str, str]) -> None:
+        team = team_from_row(_row(**overrides))
+        assert team is not None
+        assert (team.resolved_events_table, team.resolved_persons_table, team.resolved_data_imports_schema) == expected
+
+
+class TestTeamFromRow:
+    def test_coerces_types_defensively(self) -> None:
+        # A CP that serializes team_id as a string must not break int comparisons, and the
+        # date string must come back as a date so sensor math works.
+        team = team_from_row(_row(team_id="42", earliest_event_date="2020-06-15", backfill_enabled=True))
+        assert team == CPTeam(
+            team_id=42,
+            organization_id="org-1",
+            schema_name="prod",
+            enabled=True,
+            backfill_enabled=True,
+            events_table_name=None,
+            persons_table_name=None,
+            schema_data_imports_name=None,
+            earliest_event_date=date(2020, 6, 15),
+        )
+
+    @parameterized.expand(
+        [
+            ("missing_team_id", {"team_id": None}),
+            ("unparseable_team_id", {"team_id": "abc"}),
+            ("missing_schema_name", {"schema_name": None}),
+            # No org anywhere: a write would target /orgs//teams/... and fail silently.
+            ("missing_org_id", {"org_id": None}),
+        ]
+    )
+    def test_unusable_rows_are_dropped(self, _name: str, overrides: dict) -> None:
+        assert team_from_row(_row(**overrides)) is None
+
+
+class TestTTLCache:
+    def setup_method(self) -> None:
+        cp_teams.clear_cache()
+
+    def teardown_method(self) -> None:
+        cp_teams.clear_cache()
+
+    def test_second_call_within_ttl_hits_cache(self) -> None:
+        with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[_row()]) as mock_fetch:
+            first = cp_teams.list_org_teams("org-1")
+            second = cp_teams.list_org_teams("org-1")
+        assert mock_fetch.call_count == 1
+        assert first == second
+
+    def test_clear_cache_forces_a_refetch(self) -> None:
+        with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[_row()]) as mock_fetch:
+            cp_teams.list_org_teams("org-1")
+            cp_teams.clear_cache()
+            cp_teams.list_org_teams("org-1")
+        assert mock_fetch.call_count == 2
+
+    def test_fresh_read_bypasses_and_replaces_cached_rows(self) -> None:
+        with patch(
+            "products.managed_warehouse.backend.cp_teams._fetch_org_rows",
+            side_effect=[[_row(team_id=1)], [_row(team_id=2, schema_name="two")]],
+        ) as mock_fetch:
+            first = cp_teams.list_org_teams("org-1")
+            fresh = cp_teams.list_org_teams("org-1", use_cache=False)
+            cached = cp_teams.list_org_teams("org-1")
+
+        assert mock_fetch.call_count == 2
+        assert first is not None and [team.team_id for team in first] == [1]
+        assert fresh is not None and [team.team_id for team in fresh] == [2]
+        assert cached == fresh
+
+    def test_org_invalidation_clears_org_and_global_rows_only(self) -> None:
+        with (
+            patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[_row()]) as fetch_org,
+            patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=[_row()]) as fetch_all,
+        ):
+            cp_teams.list_org_teams("org-1")
+            cp_teams.list_org_teams("org-2")
+            cp_teams.list_member_teams()
+            cp_teams.invalidate_org_cache("org-1")
+            cp_teams.list_org_teams("org-1")
+            cp_teams.list_org_teams("org-2")
+            cp_teams.list_member_teams()
+
+        assert fetch_org.call_count == 3
+        assert fetch_all.call_count == 2
+
+    def test_invalidation_during_fetch_prevents_stale_repopulation(self) -> None:
+        responses = iter([[_row(team_id=1)], [_row(team_id=2, schema_name="two")]])
+
+        def fetch_rows(_organization_id: str) -> list[dict]:
+            rows = next(responses)
+            if rows[0]["team_id"] == 1:
+                cp_teams.invalidate_org_cache("org-1")
+            return rows
+
+        with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", side_effect=fetch_rows) as fetch_org:
+            stale = cp_teams.list_org_teams("org-1")
+            fresh = cp_teams.list_org_teams("org-1")
+
+        assert fetch_org.call_count == 2
+        assert stale is not None and [team.team_id for team in stale] == [1]
+        assert fresh is not None and [team.team_id for team in fresh] == [2]
+
+    def test_cache_is_keyed_per_org(self) -> None:
+        with patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[_row()]) as mock_fetch:
+            cp_teams.list_org_teams("org-1")
+            cp_teams.list_org_teams("org-2")
+        assert mock_fetch.call_count == 2
+
+    def test_failed_fetches_are_not_cached(self) -> None:
+        # An outage must not poison the cache: the next call retries immediately.
+        with patch(
+            "products.managed_warehouse.backend.cp_teams._fetch_org_rows", side_effect=[None, [_row()]]
+        ) as mock_fetch:
+            assert cp_teams.list_org_teams("org-1") is None
+            teams = cp_teams.list_org_teams("org-1")
+        assert mock_fetch.call_count == 2
+        assert teams is not None and teams[0].team_id == 1
+
+    def test_expired_entry_is_refetched(self) -> None:
+        with (
+            patch("products.managed_warehouse.backend.cp_teams.CACHE_TTL_SECONDS", 0.0),
+            patch("products.managed_warehouse.backend.cp_teams._fetch_org_rows", return_value=[_row()]) as mock_fetch,
+        ):
+            cp_teams.list_org_teams("org-1")
+            cp_teams.list_org_teams("org-1")
+        assert mock_fetch.call_count == 2
+
+    def test_list_enabled_backfills_filters_disabled_rows(self) -> None:
+        rows = [
+            _row(team_id=1, backfill_enabled=True),
+            _row(team_id=2, schema_name="two", backfill_enabled=False),
+        ]
+        with patch("products.managed_warehouse.backend.cp_teams._fetch_all_rows", return_value=rows):
+            teams = cp_teams.list_enabled_backfills()
+        assert teams is not None
+        assert [team.team_id for team in teams] == [1]
+
+
+class TestControlPlaneTransport:
+    @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
+    def test_org_read_uses_internal_transport_with_the_control_plane_request_shape(self) -> None:
+        response = MagicMock(status_code=200, text="ok")
+        response.json.return_value = {"teams": [_row()]}
+
+        with patch(
+            "products.managed_warehouse.backend.cp_teams.internal_requests.request",
+            return_value=response,
+        ) as request:
+            assert cp_teams._fetch_org_rows("org-1") == [_row()]
+
+        request.assert_called_once_with(
+            "GET",
+            "https://duckgres.example/api/v1/orgs/org-1/teams",
+            json=None,
+            params=None,
+            headers={"X-Duckgres-Internal-Secret": "secret"},
+            timeout=30,
+        )
+
+    @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
+    def test_global_read_preserves_list_payload_shape(self) -> None:
+        response = MagicMock(status_code=200, text="ok")
+        response.json.return_value = [_row()]
+
+        with patch(
+            "products.managed_warehouse.backend.cp_teams.internal_requests.request",
+            return_value=response,
+        ) as request:
+            assert cp_teams._fetch_all_rows() == [_row()]
+
+        request.assert_called_once_with(
+            "GET",
+            "https://duckgres.example/api/v1/teams",
+            json=None,
+            params=None,
+            headers={"X-Duckgres-Internal-Secret": "secret"},
+            timeout=30,
+        )
+
+    @override_settings(DUCKGRES_API_URL="https://duckgres.example/", DUCKGRES_INTERNAL_SECRET="secret")
+    def test_unusable_response_falls_back_to_none(self, caplog) -> None:
+        caplog.set_level(logging.WARNING, logger="products.managed_warehouse.backend.cp_teams")
+        response = MagicMock(status_code=502, text="upstream unavailable")
+        response.json.return_value = {"teams": [_row()]}
+
+        with patch("products.managed_warehouse.backend.cp_teams.internal_requests.request", return_value=response):
+            assert cp_teams._fetch_org_rows("org-1") is None
