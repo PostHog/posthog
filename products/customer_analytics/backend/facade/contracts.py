@@ -636,6 +636,25 @@ class AnnouncementDeliveryView:
     sent_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class AccountAudienceCustomPropertyFilter:
+    """One custom-property predicate of a workflows batch audience (key = definition id)."""
+
+    definition_id: UUID
+    operator: str
+    value: Any = None
+
+
+@dataclass(frozen=True)
+class AccountAudienceFilters:
+    """Account selection for a workflows batch run; empty filters mean every account with an external_id."""
+
+    tag_names: tuple[str, ...] = ()
+    assigned_to_user_ids: tuple[int, ...] = ()
+    all_roles_unassigned: bool = False
+    custom_properties: tuple[AccountAudienceCustomPropertyFilter, ...] = ()
+
+
 @stdlib_dataclass(frozen=True)
 class AnnouncementView:
     # Defaults let the wrapping DataclassSerializer parse create requests, which carry only
