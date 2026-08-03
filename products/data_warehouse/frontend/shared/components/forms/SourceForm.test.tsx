@@ -1,6 +1,6 @@
 import { SourceConfig, SourceFieldSelectConfig, SourceFieldSwitchGroupConfig } from '~/queries/schema/schema-general'
 
-import { sourceFieldToElement } from './SourceForm'
+import { seedJobInputsOnce, sourceFieldToElement } from './SourceForm'
 
 const SELECT_FIELD: SourceFieldSelectConfig = {
     type: 'select',
@@ -47,31 +47,63 @@ const switchGroupState = (storedGroupValue: any, formValue?: any): { checked: bo
     return { checked: toggle.props.checked, childrenVisible: !!children.find((child: any) => child?.props?.name) }
 }
 
-describe('sourceFieldToElement', () => {
-    it('renders a select field caption as field help text', () => {
-        const element = sourceFieldToElement(SELECT_FIELD, SOURCE_CONFIG)
-        expect(element.props.help).toBeTruthy()
+describe('SourceForm', () => {
+    describe('sourceFieldToElement', () => {
+        it('renders a select field caption as field help text', () => {
+            const element = sourceFieldToElement(SELECT_FIELD, SOURCE_CONFIG)
+            expect(element.props.help).toBeTruthy()
+        })
+
+        it('omits help when a select field has no caption', () => {
+            const element = sourceFieldToElement({ ...SELECT_FIELD, caption: undefined }, SOURCE_CONFIG)
+            expect(element.props.help).toBeUndefined()
+        })
+
+        // job_inputs cross an encrypted field that stringifies booleans, so the form prefills `enabled`
+        // as "True"/"False". LemonSwitch checks `checked === true`, so an untranslated "True" rendered
+        // the toggle off while the truthy string still expanded the children below it.
+        it.each([
+            ['prefilled as the string True', undefined, 'True', true],
+            ['prefilled as the string False', undefined, 'False', false],
+            ['toggled on in the form', undefined, true, true],
+            ['stored as the string True before the prefill lands', { enabled: 'True' }, undefined, true],
+            ['never configured', undefined, undefined, false],
+            ['toggled off in the form over a stored True', { enabled: 'True' }, false, false],
+        ])('reflects a switch group %s', (_name, storedGroupValue, formValue, expected) => {
+            expect(switchGroupState(storedGroupValue, formValue)).toEqual({
+                checked: expected,
+                childrenVisible: expected,
+            })
+        })
     })
 
-    it('omits help when a select field has no caption', () => {
-        const element = sourceFieldToElement({ ...SELECT_FIELD, caption: undefined }, SOURCE_CONFIG)
-        expect(element.props.help).toBeUndefined()
-    })
+    // jobInputs is recreated on every poll of the source, even when the change is to an unrelated
+    // field (e.g. sync status) and the user is mid-typing a rotated secret that the API never returns.
+    // Re-seeding on every jobInputs change would reset that field back to its stored/empty value.
+    describe('seedJobInputsOnce', () => {
+        it('seeds every field the first time job inputs load', () => {
+            const setValue = jest.fn()
+            const seeded = seedJobInputsOnce({ auth_api_key: '', host: 'api.example.com' }, false, setValue)
 
-    // job_inputs cross an encrypted field that stringifies booleans, so the form prefills `enabled`
-    // as "True"/"False". LemonSwitch checks `checked === true`, so an untranslated "True" rendered
-    // the toggle off while the truthy string still expanded the children below it.
-    it.each([
-        ['prefilled as the string True', undefined, 'True', true],
-        ['prefilled as the string False', undefined, 'False', false],
-        ['toggled on in the form', undefined, true, true],
-        ['stored as the string True before the prefill lands', { enabled: 'True' }, undefined, true],
-        ['never configured', undefined, undefined, false],
-        ['toggled off in the form over a stored True', { enabled: 'True' }, false, false],
-    ])('reflects a switch group %s', (_name, storedGroupValue, formValue, expected) => {
-        expect(switchGroupState(storedGroupValue, formValue)).toEqual({
-            checked: expected,
-            childrenVisible: expected,
+            expect(seeded).toBe(true)
+            expect(setValue).toHaveBeenCalledWith(['payload', 'auth_api_key'], '')
+            expect(setValue).toHaveBeenCalledWith(['payload', 'host'], 'api.example.com')
+        })
+
+        it('does not re-seed once already seeded, even when job inputs change', () => {
+            const setValue = jest.fn()
+            const seeded = seedJobInputsOnce({ auth_api_key: 'sk_new_from_poll' }, true, setValue)
+
+            expect(seeded).toBe(true)
+            expect(setValue).not.toHaveBeenCalled()
+        })
+
+        it('waits for a non-empty job inputs object before marking itself seeded', () => {
+            const setValue = jest.fn()
+            const seeded = seedJobInputsOnce({}, false, setValue)
+
+            expect(seeded).toBe(false)
+            expect(setValue).not.toHaveBeenCalled()
         })
     })
 })

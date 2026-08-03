@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { FieldName, Form, Group } from 'kea-forms'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 import {
     LemonButton,
@@ -66,6 +66,28 @@ export interface SourceFormProps {
 
 /** How a new source will be queried: synced only, synced + live queries, or live only. */
 export type SourceQueryMode = 'warehouse' | 'warehouse_and_direct' | 'direct'
+
+// Seeds the form's `payload` fields from the source's persisted job_inputs exactly once. `jobInputs`
+// is recreated on every poll of the source (even when only unrelated fields changed), so re-running
+// this on every change would overwrite whatever the user is mid-typing — most visibly a rotated
+// secret, which the API omits from job_inputs entirely, so a re-seed resets it back to empty.
+export function seedJobInputsOnce(
+    jobInputs: Record<string, any> | undefined,
+    alreadySeeded: boolean,
+    setValue: (path: string[], value: any) => void
+): boolean {
+    if (alreadySeeded || !jobInputs) {
+        return alreadySeeded
+    }
+    const keys = Object.keys(jobInputs)
+    if (keys.length === 0) {
+        return false
+    }
+    for (const key of keys) {
+        setValue(['payload', key], jobInputs[key])
+    }
+    return true
+}
 
 export function getSourceQueryMode(
     accessMethod: 'warehouse' | 'direct',
@@ -796,11 +818,14 @@ export function SourceFormComponent({
         }
     }, [initialAccessMethod])
 
+    const hasSeededJobInputsRef = useRef(false)
     useEffect(() => {
-        if (jobInputs && setSourceConfigValue) {
-            for (const input of Object.keys(jobInputs || {})) {
-                setSourceConfigValue(['payload', input], jobInputs[input])
-            }
+        if (setSourceConfigValue) {
+            hasSeededJobInputsRef.current = seedJobInputsOnce(
+                jobInputs,
+                hasSeededJobInputsRef.current,
+                setSourceConfigValue
+            )
         }
     }, [JSON.stringify(jobInputs), setSourceConfigValue, jobInputs])
 

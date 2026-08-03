@@ -6393,6 +6393,26 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
+    def test_update_custom_source_rotated_api_key_replaces_stored_value(self, mock_validate_credentials):
+        # Only the preserve-on-omission path was covered elsewhere: a PATCH that supplies a non-empty
+        # auth_api_key (credential rotation, same host) must actually persist the new value rather than
+        # falling through to the "preserve what you have" branch.
+        source = self._custom_source("https://api.example.com")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"auth_api_key": "sk_rotated"}},
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_api_key"] == "sk_rotated"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
     def test_update_custom_source_path_param_host_injection_is_rejected(self, mock_validate_credentials):
         # The new host is hidden in a path-param value (resolved into the path at sync time), not the
         # literal path — the guard must still detect it and require re-entry.
