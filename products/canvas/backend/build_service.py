@@ -353,8 +353,16 @@ def _queue_build(version: CanvasSourceVersion) -> CanvasBuild:
 
 
 def _enqueue_build(build: CanvasBuild) -> None:
+    """Hand the build to the worker queue and mark when that happened.
+
+    Stamping ``enqueued_at`` is what lets the sweeper distinguish a build the
+    broker lost (queue it again) from a build a worker was just told about —
+    keyed off ``created_at`` instead, a retry of an old failed build would be
+    re-delivered (a duplicate enqueue) every sweep until it was claimed.
+    """
     from products.canvas.backend.tasks import process_canvas_build  # noqa: PLC0415 — avoids a task/service import cycle
 
+    CanvasBuild.objects.unscoped().filter(id=build.id).update(enqueued_at=timezone.now())
     process_canvas_build.delay(build.team_id, str(build.id))
 
 
@@ -554,8 +562,20 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
     prefix = artifact_object_prefix(build.team_id, build.canvas_id, build.id)
     manifest_assets = {asset["path"]: asset for asset in manifest["assets"]}
     uploaded_keys: list[str] = []
+    # Renew the lease as the upload runs so a slow object store can't let the
+    # sweeper reclaim (and re-drive) a healthy in-flight build. The claim sets
+    # lease_expires_at = claimed_at + BUILD_LEASE_DURATION; renew in increments
+    # per file, keyed off wall-clock so writes stay cheap on small builds.
+    lease_renew_after = BUILD_LEASE_DURATION / 2
+    last_lease_touch = timezone.now()
     try:
         for artifact in files:
+            now = timezone.now()
+            if now - last_lease_touch >= lease_renew_after:
+                CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).update(
+                    lease_expires_at=now + BUILD_LEASE_DURATION
+                )
+                last_lease_touch = now
             content_type = _artifact_content_type(artifact["path"])
             key = f"{prefix}/{artifact['path']}"
             object_storage.write(
@@ -575,10 +595,50 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         return
     integrity = hashlib.sha256(json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
-    # Second transaction: mark ready and advance the live pointer only while
-    # this build is still eligible (its source version is still the head).
+    if not _finalize_ready(
+        build,
+        prefix=prefix,
+        integrity=integrity,
+        manifest=manifest,
+        diagnostics=diagnostics,
+    ):
+        # The build reached a terminal state (cancelled, or the sweeper gave up
+        # on it) while the artifacts were uploading. Its objects stay for the
+        # retention sweep; the canvas keeps its last-known-good build.
+        CANVAS_BUILD_OUTCOMES.labels(outcome="failed", code="superseded_during_build").inc()
+        return
+    CANVAS_BUILD_OUTCOMES.labels(outcome="ready", code="").inc()
+    CANVAS_BUILD_DURATION_SECONDS.labels(outcome="ready").observe(
+        max(0, ((build.finished_at or timezone.now()) - build.created_at).total_seconds())
+    )
+    CANVAS_BUILD_ARTIFACT_BYTES.observe(sum(asset["sizeBytes"] for asset in manifest["assets"]))
+
+
+def _finalize_ready(
+    stale_build: CanvasBuild,
+    *,
+    prefix: str,
+    integrity: str,
+    manifest: dict[str, Any],
+    diagnostics: list[dict[str, Any]],
+) -> bool:
+    """Mark a build READY and advance the canvas's live pointer, or bail.
+
+    The claim lock from the first transaction is released for the whole
+    build/upload phase, so this re-claims the row and re-checks the build is
+    still in flight before writing — otherwise a cancel (or the sweeper failing
+    the build) that landed mid-build would be clobbered back to READY by the
+    stale in-memory row. Returns False when the build was finalized by someone
+    else first. The live pointer only advances while this build's source
+    version is still the canvas's head.
+    """
     with transaction.atomic():
-        canvas = Canvas.objects.for_team(team_id).select_for_update().get(pk=build.canvas_id)
+        # Lock canvas before build (same order as publish/revert) to avoid a
+        # lock-ordering deadlock with a concurrent publish of the same canvas.
+        canvas = Canvas.objects.for_team(stale_build.team_id).select_for_update().get(pk=stale_build.canvas_id)
+        build = CanvasBuild.objects.for_team(stale_build.team_id).select_for_update().filter(id=stale_build.id).first()
+        if build is None or build.status != CanvasBuild.STATUS_BUILDING:
+            return False
         build.status = CanvasBuild.STATUS_READY
         build.artifact_object_prefix = prefix
         build.integrity = integrity
@@ -600,11 +660,10 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         if canvas.current_source_version_id == build.source_version_id:
             canvas.published_build = build
             canvas.save(update_fields=["published_build", "updated_at"])
-    CANVAS_BUILD_OUTCOMES.labels(outcome="ready", code="").inc()
-    CANVAS_BUILD_DURATION_SECONDS.labels(outcome="ready").observe(
-        max(0, (build.finished_at - build.created_at).total_seconds())
-    )
-    CANVAS_BUILD_ARTIFACT_BYTES.observe(sum(asset["sizeBytes"] for asset in manifest["assets"]))
+        # Mirror the outcome onto the caller's object for the duration metric.
+        stale_build.status = build.status
+        stale_build.finished_at = build.finished_at
+    return True
 
 
 def _artifact_content_type(path: str) -> str:
@@ -682,13 +741,16 @@ def sweep_canvas_builds() -> dict[str, int]:
                 counts["requeued"] += 1
 
     with transaction.atomic():
+        # Staleness is measured off enqueued_at (when the build was last handed
+        # to the queue), not created_at: a retried build is old but freshly
+        # enqueued, and created_at would make the sweeper re-deliver it forever.
         stale_queued = (
             CanvasBuild.objects.unscoped()
             .select_for_update(skip_locked=True)
-            .filter(status=CanvasBuild.STATUS_QUEUED, created_at__lt=now - STALE_QUEUED_REDELIVERY_AFTER)[:200]
+            .filter(status=CanvasBuild.STATUS_QUEUED, enqueued_at__lt=now - STALE_QUEUED_REDELIVERY_AFTER)[:200]
         )
         for build in stale_queued:
-            if build.created_at < now - STALE_QUEUED_FAILURE_AFTER:
+            if build.enqueued_at < now - STALE_QUEUED_FAILURE_AFTER:
                 _finish_failed(
                     build,
                     [

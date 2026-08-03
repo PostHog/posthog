@@ -19,11 +19,14 @@ follow-up posthog migration.
 """
 
 import re
-from collections import defaultdict
+import logging
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
 from django.db import migrations
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_channel_name(name: str) -> str:
@@ -66,6 +69,11 @@ def migrate_desktop_tree(apps, schema_editor):
     dashboards_by_team: dict[int, list] = defaultdict(list)
     for row in FileSystem.objects.filter(surface="desktop", type__in=["folder", "dashboard"]).iterator(chunk_size=1000):
         (folders_by_team if row.type == "folder" else dashboards_by_team)[row.team_id].append(row)
+
+    # Rows that don't fit the expected shape are skipped or emptied; count them
+    # so an operator can see what the migration dropped before 1266 deletes the
+    # source rows for good.
+    counts: Counter[str] = Counter()
 
     for team_id in sorted(folders_by_team.keys() | dashboards_by_team.keys()):
         team_folders = folders_by_team.get(team_id, [])
@@ -112,11 +120,20 @@ def migrate_desktop_tree(apps, schema_editor):
             if home_id:
                 home_canvas_ids.add(str(home_id))
 
+        # is_home is unique per channel: two folders resolving to the same
+        # channel can both carry homeCanvasId, so only the first one wins —
+        # otherwise the second insert violates unique_home_canvas_per_channel
+        # and aborts the whole migration.
+        home_assigned: set = set()
         for row in team_dashboards:
             meta = row.meta or {}
             channel = channel_by_folder_id.get(str(meta.get("channelId") or "")) or channel_for_path(row.path)
             if channel is None:
+                counts["dashboard_skipped_no_channel"] += 1
                 continue
+            is_home = str(row.id) in home_canvas_ids and channel.id not in home_assigned
+            if is_home:
+                home_assigned.add(channel.id)
             code = meta.get("code")
             Canvas.objects.get_or_create(
                 id=row.id,
@@ -128,7 +145,7 @@ def migrate_desktop_tree(apps, schema_editor):
                     "context": meta.get("context") if isinstance(meta.get("context"), str) else "",
                     "generation_task_id": meta.get("generationTaskId") or None,
                     "pinned_at": _ms_to_datetime(meta.get("pinnedAt")),
-                    "is_home": str(row.id) in home_canvas_ids,
+                    "is_home": is_home,
                     "legacy_code": code if isinstance(code, str) and code.strip() else None,
                     "created_by_id": row.created_by_id,
                     "created_at": _ms_to_datetime(meta.get("createdAt")) or row.created_at,
@@ -163,6 +180,7 @@ def migrate_desktop_tree(apps, schema_editor):
         for marker in FolderContextGeneration.objects.filter(folder_id__in=folder_ids):
             channel = channel_by_folder_id.get(str(marker.folder_id))
             if channel is None or not marker.task_id:
+                counts["context_marker_skipped"] += 1
                 continue
             ChannelContextGeneration.objects.get_or_create(
                 channel_id=channel.id, defaults={"team_id": team_id, "task_id": marker.task_id}
@@ -173,6 +191,7 @@ def migrate_desktop_tree(apps, schema_editor):
         for shortcut in FileSystemShortcut.objects.filter(team_id=team_id, surface="desktop"):
             channel = channel_for_path(shortcut.ref or shortcut.path or "")
             if channel is None or not shortcut.user_id:
+                counts["star_skipped_no_channel"] += 1
                 continue
             ChannelStar.objects.get_or_create(
                 channel_id=channel.id, user_id=shortcut.user_id, defaults={"team_id": team_id}
@@ -187,6 +206,7 @@ def migrate_desktop_tree(apps, schema_editor):
                 continue
             channel = channel_for_path(filing.path)
             if channel is None:
+                counts["task_filing_skipped_no_channel"] += 1
                 continue
             Task.objects.filter(team_id=team_id, id=filing.ref, channel__isnull=True).update(channel_id=channel.id)
 
@@ -207,8 +227,16 @@ def migrate_desktop_tree(apps, schema_editor):
                 target["channel_id"] = str(channel.id)
                 loop.context_target = target
             else:
+                # The folder didn't resolve to a channel; the target is dropped
+                # but the loop survives.
                 loop.context_target = {}
+                counts["loop_target_emptied"] += 1
             loop.save(update_fields=["context_target"])
+
+    if counts:
+        # These rows have no other home after the desktop surface is dropped —
+        # surface what was dropped so it can be reviewed before that runs.
+        logger.warning("desktop_tree_migration_dropped: %s", dict(counts))
 
 
 class Migration(migrations.Migration):

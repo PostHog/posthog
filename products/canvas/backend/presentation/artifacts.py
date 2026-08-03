@@ -64,12 +64,25 @@ def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
     )
 
 
+def _artifact_origin() -> str:
+    """The origin artifacts are linked from and served on.
+
+    DEBUG/TEST with no CANVAS_ARTIFACT_ORIGIN falls back to the application
+    origin (SITE_URL) purely as a local-dev convenience: the view's host check
+    is skipped in those modes, so the canvas renders without standing up a
+    second origin. This must never happen in production — the boot check
+    (checks.py) fails the deploy on a half-configured non-DEBUG origin, and the
+    view enforces the dedicated host there — because serving built user HTML
+    off the app origin would put untrusted markup in the session's origin.
+    """
+    return settings.CANVAS_ARTIFACT_ORIGIN or settings.SITE_URL
+
+
 def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | None:
     token = create_canvas_artifact_token(build)
     if token is None:
         return None
-    origin = settings.CANVAS_ARTIFACT_ORIGIN or settings.SITE_URL
-    return f"{origin}/canvas-artifacts/{token}/{artifact_path}"
+    return f"{_artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
 
 
 def _read_token(token: str) -> dict[str, Any]:

@@ -78,6 +78,56 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
 
+    def test_personal_channel_canvases_are_invisible_to_other_users(self):
+        # A canvas filed into a teammate's personal channel is private to them:
+        # list omits it, and every detail/write action 404s for anyone else.
+        private_channel_id = None
+        public_canvas_id = self._create_canvas(name="Public canvas")
+        with team_scope(self.team.id):
+            private_channel = Channel.objects.create(
+                team=self.team,
+                name="me",
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=self.user,
+            )
+            private_channel_id = str(private_channel.id)
+            private_canvas = Canvas.objects.create(
+                team_id=self.team.id,
+                channel=private_channel,
+                name="Private canvas",
+                created_by=self.user,
+            )
+            private_canvas_id = str(private_canvas.id)
+
+        # The owner sees it in list and can read/write it.
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
+        ids = {row["id"] for row in response.json()["results"]}
+        assert {public_canvas_id, private_canvas_id} <= ids
+        assert self.client.get(f"/api/projects/{self.team.id}/canvases/{private_canvas_id}/").status_code == 200
+        assert self.client.get(f"/api/projects/{self.team.id}/canvases/{private_canvas_id}/source/").status_code == 200
+
+        # A different user on the same team does not.
+        other_user = self._create_user("teammate@example.com")
+        self.client.force_login(other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
+        ids = {row["id"] for row in response.json()["results"]}
+        assert private_canvas_id not in ids
+        assert public_canvas_id in ids
+
+        # Filtering by the personal channel id must not leak it either.
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/?channel={private_channel_id}")
+        assert response.json()["results"] == []
+
+        base = f"/api/projects/{self.team.id}/canvases/{private_canvas_id}"
+        assert self.client.get(f"{base}/").status_code == 404
+        assert self.client.get(f"{base}/source/").status_code == 404
+        assert self.client.get(f"{base}/versions/").status_code == 404
+        assert self.client.get(f"{base}/builds/").status_code == 404
+        assert self.client.patch(f"{base}/", {"name": "Renamed"}, format="json").status_code == 404
+        assert self.client.post(f"{base}/publish/", {"project": self._project()}, format="json").status_code == 404
+        assert self.client.delete(f"{base}/").status_code == 404
+
     def test_create_rejects_unknown_channel(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/",
@@ -345,6 +395,26 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         body = response.json()
         assert body["published_build_id"] == str(published.id)
         assert str(published.id) in {build["id"] for build in body["builds"]}
+
+    def test_build_with_pruned_artifacts_advertises_no_url(self):
+        canvas_id, v1, _ = self._published_canvas()
+        build = CanvasBuild.objects.unscoped().filter(canvas_id=canvas_id).first()
+        assert build is not None
+        build.status = CanvasBuild.STATUS_READY
+        build.manifest = {
+            "entryHtml": "index.html",
+            "assets": [],
+            "dependencies": {},
+            "canvasSdkVersion": "0.1.0",
+            "capabilities": {},
+        }
+        build.artifact_object_prefix = None  # retention pruned the objects
+        build.save()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/builds/")
+        record = next(b for b in response.json()["builds"] if b["id"] == str(build.id))
+        assert record["build_status"] == "ready"
+        assert record["artifact_url"] is None
 
     def test_build_actions(self):
         canvas_id, *_ = self._published_canvas()

@@ -5560,15 +5560,23 @@ def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.Chann
     )
 
 
+def visible_channels_q(user_id: int | None, *, relation: str = "") -> Q:
+    """The channel-visibility rule as a queryset filter: a personal channel is
+    visible only to its creator. ``relation`` names the join to ``Channel`` when
+    filtering another model's queryset (e.g. ``"channel"``); empty filters
+    ``Channel`` rows directly. Single-object callers use ``get_channel``."""
+    prefix = f"{relation}__" if relation else ""
+    return ~Q(**{f"{prefix}channel_type": Channel.ChannelType.PERSONAL}) | Q(**{f"{prefix}created_by_id": user_id})
+
+
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
     """A channel the requester may read: any live public channel on the team, or their
     own personal channel. ``None`` when it's missing or someone else's personal channel."""
-    channel = _team_channels(team_id).filter(id=channel_id, deleted=False).first()
-    if channel is None:
-        return None
-    if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
-        return None
-    return channel
+    return (
+        Channel.objects.select_related("created_by")
+        .filter(visible_channels_q(user_id), id=channel_id, team_id=team_id, deleted=False)
+        .first()
+    )
 
 
 def list_channel_feed_messages(
@@ -5737,14 +5745,29 @@ def publish_channel_instructions(
             raise ChannelInstructionsVersionLimitError(max_version=MAX_CHANNEL_INSTRUCTIONS_VERSION)
         if current_latest is not None:
             ChannelInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
-        published = ChannelInstructions.objects.create(
-            team_id=team_id,
-            channel_id=channel.id,
-            content=content,
-            version=current_version + 1,
-            is_latest=True,
-            created_by_id=user_id,
-        )
+        try:
+            # Nested savepoint: a lost-update race (the select_for_update above
+            # locks no row when none exists yet, and a concurrent delete clears
+            # is_latest without adding a lockable row) makes the insert collide
+            # with the (channel, version) uniqueness. Rolling back to the
+            # savepoint keeps this transaction usable so we can read the winner.
+            with transaction.atomic():
+                published = ChannelInstructions.objects.create(
+                    team_id=team_id,
+                    channel_id=channel.id,
+                    content=content,
+                    version=current_version + 1,
+                    is_latest=True,
+                    created_by_id=user_id,
+                )
+        except IntegrityError:
+            # Surface the race as the conflict the view maps to 409, not a 500.
+            latest = (
+                ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
+                .order_by("-version", "-created_at", "-id")
+                .first()
+            )
+            raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
         # Publishing produced a result, so drop the in-progress generation marker.
         ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
     return _instructions_to_dto(published)
