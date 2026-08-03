@@ -72,6 +72,10 @@ export const POSTHOG_NOTIFICATIONS = {
   /** Marks a boundary for log compaction */
   COMPACT_BOUNDARY: "_posthog/compact_boundary",
 
+  /** Conversation history was cleared via /clear. Carries the fresh SDK
+   * session id; rehydration treats the entry as a conversation boundary. */
+  CONVERSATION_CLEARED: "_posthog/conversation_cleared",
+
   /** Token usage update for a session turn */
   USAGE_UPDATE: "_posthog/usage_update",
 

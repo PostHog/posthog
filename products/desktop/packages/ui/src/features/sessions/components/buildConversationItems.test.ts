@@ -302,6 +302,104 @@ describe("buildConversationItems", () => {
     expect(result.isCompacting).toBe(false);
   });
 
+  it("clears the clearing spinner on a successful completion status, without duplicating the row", () => {
+    // A successful /clear sends a terminal `status: clearing, isComplete:
+    // true`. It must flip the existing status row, not append a second one.
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "/clear"),
+        statusMsg(2, "clearing"),
+        statusMsg(3, "clearing", true),
+      ],
+      null,
+    );
+
+    const statusItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" && i.update.sessionUpdate === "status",
+    );
+    expect(statusItems).toHaveLength(1);
+    expect((statusItems[0].update as { isComplete?: boolean }).isComplete).toBe(
+      true,
+    );
+    // The completion resets the flag that suppressed the generic
+    // "Generating…" footer while the clear ran.
+    expect(result.isClearing).toBe(false);
+    expect(result.isCompacting).toBe(false);
+  });
+
+  it("flags isClearing while a clear is in flight so the generic generating footer is suppressed", () => {
+    // The /clear prompt RPC keeps isPromptPending true for the entire swap,
+    // so the footer needs this flag to avoid rendering "Generating…" next to
+    // the dedicated "Clearing…" row (mirrors isCompacting).
+    const result = buildConversationItems(
+      [userPromptMsg(1, 1, "/clear"), statusMsg(2, "clearing")],
+      true,
+    );
+    expect(result.isClearing).toBe(true);
+    expect(result.isCompacting).toBe(false);
+  });
+
+  it("renders a timed-out clear as a clearing_failed status row and clears the spinner", () => {
+    // A timed-out clear emits no conversation_cleared marker, so the adapter
+    // sends a structured `clearing_failed` status: it clears the spinner (the
+    // original clearing row goes complete) and adds the outcome row.
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "/clear"),
+        statusMsg(2, "clearing"),
+        statusMsg(3, "clearing_failed", undefined, "Timed out after 30000ms."),
+      ],
+      null,
+    );
+
+    const statusItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" && i.update.sessionUpdate === "status",
+    );
+    // Spinner row (now complete) + the failure row.
+    expect(statusItems.map((i) => i.update)).toEqual([
+      {
+        sessionUpdate: "status",
+        status: "clearing",
+        isComplete: true,
+        startedAt: 2,
+      },
+      {
+        sessionUpdate: "status",
+        status: "clearing_failed",
+        error: "Timed out after 30000ms.",
+      },
+    ]);
+    // The failure also releases the generating-footer suppression.
+    expect(result.isClearing).toBe(false);
+  });
+
+  it("renders a conversation_cleared divider after a /clear", () => {
+    const result = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "/clear"),
+        {
+          type: "acp_message",
+          ts: 2,
+          message: {
+            jsonrpc: "2.0",
+            method: "_posthog/conversation_cleared",
+            params: { sessionId: "sdk-new" },
+          },
+        },
+      ],
+      null,
+    );
+
+    const clearedItems = result.items.filter(
+      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+        i.type === "session_update" &&
+        i.update.sessionUpdate === "conversation_cleared",
+    );
+    expect(clearedItems).toHaveLength(1);
+  });
+
   it("renders a terminal refusal as a status row carrying the explanation", () => {
     const result = buildConversationItems(
       [

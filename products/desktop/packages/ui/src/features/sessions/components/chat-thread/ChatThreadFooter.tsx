@@ -44,6 +44,7 @@ export function ChatThreadFooter({
     footerState?.lastTurnInfo ?? eventFooterState.lastTurnInfo;
   const isCompacting =
     footerState?.isCompacting ?? eventFooterState.isCompacting;
+  const isClearing = footerState?.isClearing ?? eventFooterState.isClearing;
   const completedToolCallCount =
     footerState?.completedToolCallCount ??
     eventFooterState.completedToolCallCount;
@@ -68,6 +69,7 @@ export function ChatThreadFooter({
         hasPendingPermission={pendingPermissions.size > 0}
         pausedDurationMs={pausedDurationMs}
         isCompacting={isCompacting}
+        isClearing={isClearing}
         completedToolCallCount={completedToolCallCount}
       />
     </div>

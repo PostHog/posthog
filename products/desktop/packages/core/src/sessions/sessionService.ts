@@ -3002,7 +3002,11 @@ export class SessionService {
         const session = this.d.store.getSessions()[taskRunId];
         const params = (
           msg as {
-            params?: { agentVersion?: unknown; steering?: unknown };
+            params?: {
+              agentVersion?: unknown;
+              steering?: unknown;
+              conversationClear?: unknown;
+            };
           }
         ).params;
         const agentVersion =
@@ -3018,6 +3022,12 @@ export class SessionService {
           session?.steering !== params.steering
         ) {
           updates.steering = params.steering;
+        }
+        if (
+          params?.conversationClear === true &&
+          session?.conversationClear !== true
+        ) {
+          updates.conversationClear = true;
         }
         if (session?.isCloud && session.status !== "connected") {
           updates.status = "connected";

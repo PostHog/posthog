@@ -54,6 +54,7 @@ import {
 } from "../claude/context-breakdown";
 import { isLocalSkillCommandChunk } from "../local-skill";
 import { LOCAL_TOOLS_MCP_NAME } from "../local-tools";
+import { visiblePromptBlocks } from "../prompt-blocks";
 import { resolveSpokenNarration } from "../session-meta";
 import {
   AppServerClient,
@@ -154,17 +155,6 @@ const GOAL_COMMAND = {
   description: "Set or view the goal for a long-running task",
   input: { hint: "[<objective>|clear|pause|resume]" },
 };
-
-function isHiddenPromptBlock(block: PromptRequest["prompt"][number]): boolean {
-  const meta = block._meta as { ui?: { hidden?: boolean } } | undefined;
-  return meta?.ui?.hidden === true;
-}
-
-function visiblePromptBlocks(
-  prompt: PromptRequest["prompt"],
-): PromptRequest["prompt"] {
-  return prompt.filter((block) => !isHiddenPromptBlock(block));
-}
 
 function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
   const visible = visiblePromptBlocks(prompt);
