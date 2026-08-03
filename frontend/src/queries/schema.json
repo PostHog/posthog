@@ -36208,6 +36208,17 @@
             "required": ["products", "games", "metadata"],
             "type": "object"
         },
+        "ProjectUIConfiguration": {
+            "additionalProperties": false,
+            "description": "Per-project UI overrides. All fields optional; absent means \"no override\".",
+            "properties": {
+                "accentColor": {
+                    "description": "Accent color for the app chrome when this project is active, as a hex color like `#f54e00`. Useful to tell environments apart (e.g. prod vs staging).",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "PropertyFilterBaseValue": {
             "type": ["string", "number", "boolean"]
         },
@@ -46788,14 +46799,71 @@
             "additionalProperties": false,
             "description": "Customization of the main navigation sidebar.",
             "properties": {
+                "density": {
+                    "$ref": "#/definitions/SidebarDensity",
+                    "description": "Row density of the sidebar."
+                },
+                "flattened": {
+                    "description": "When true, sidebar items render as one flat list without section headers or grouping.",
+                    "type": "boolean"
+                },
+                "groups": {
+                    "description": "User-defined named groups of pinned items, in display order.",
+                    "items": {
+                        "$ref": "#/definitions/SidebarCustomGroup"
+                    },
+                    "type": "array"
+                },
+                "itemOrder": {
+                    "description": "Display order of the main sidebar items, as item keys (including always-visible ones like `activity`). Keys not listed keep their default order after the listed ones; unknown keys are ignored.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "items": {
                     "$ref": "#/definitions/SidebarItemsConfiguration"
                 },
                 "sections": {
                     "$ref": "#/definitions/SidebarSectionsConfiguration"
+                },
+                "toolOrder": {
+                    "description": "Display order of the tools in \"My tools\", as product paths. Paths not listed sort after the listed ones in their default order; unknown paths are ignored.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"
+        },
+        "SidebarCustomGroup": {
+            "additionalProperties": false,
+            "description": "A user-defined named group of pinned items, rendered as its own sidebar section. Items reference file system shortcuts by id; ids that no longer resolve are skipped, and shortcuts not referenced by any group render in the default pinned list.",
+            "properties": {
+                "id": {
+                    "description": "Client-generated identifier, stable across renames.",
+                    "type": "string"
+                },
+                "items": {
+                    "description": "Ids of the file system shortcuts contained in this group, in display order.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "label": {
+                    "description": "User-facing name of the group.",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "label"],
+            "type": "object"
+        },
+        "SidebarDensity": {
+            "description": "How densely the sidebar renders its rows. An absent value means \"comfortable\".",
+            "enum": ["comfortable", "compact"],
+            "type": "string"
         },
         "SidebarItemsConfiguration": {
             "additionalProperties": false,
@@ -50821,6 +50889,13 @@
             "additionalProperties": false,
             "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\", which for visibility is \"shown\", so newly added UI surfaces appear for everyone until explicitly hidden. Writers must send the complete object; the server validates and replaces it wholesale.",
             "properties": {
+                "projects": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/ProjectUIConfiguration"
+                    },
+                    "description": "Per-project UI overrides (e.g. accent color), keyed by project id.",
+                    "type": "object"
+                },
                 "sidebar": {
                     "$ref": "#/definitions/SidebarConfiguration"
                 },

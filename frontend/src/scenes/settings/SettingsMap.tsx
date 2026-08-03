@@ -82,6 +82,7 @@ import { DefaultExperimentStatsMethod } from './environment/DefaultExperimentSta
 import { DefaultOnlyCountMaturedUsers } from './environment/DefaultOnlyCountMaturedUsers'
 import { DefaultSequentialTestingEnabled } from './environment/DefaultSequentialTestingEnabled'
 import { DefaultSequentialTuningParameter } from './environment/DefaultSequentialTuningParameter'
+import { DefaultSidebarConfiguration } from './environment/DefaultSidebarConfiguration'
 import { DiscussionMentionNotifications } from './environment/DiscussionSettings'
 import { ErrorTrackingConfigurationMovedBanner } from './environment/ErrorTrackingConfigurationMovedBanner'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
@@ -175,7 +176,14 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import { HomepageSetting, SidebarItemsSetting, SidebarMyToolsSetting } from './user/SidebarSettings'
+import {
+    HomepageSetting,
+    SidebarAccentColorSetting,
+    SidebarItemsSetting,
+    SidebarLayoutSetting,
+    SidebarMyToolsSetting,
+    SidebarPresetsSetting,
+} from './user/SidebarSettings'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
@@ -282,6 +290,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Set the timezone and week start day used for displaying and bucketing time-series data in insights and dashboards. You may need to refresh insights for changes to apply.',
                 component: <TeamTimezone />,
                 keywords: ['timezone', 'utc', 'locale', 'week start'],
+            },
+            {
+                id: 'default-sidebar-configuration',
+                title: 'Default sidebar',
+                description:
+                    'Set a default sidebar layout for everyone in this project. Members who have customized their own sidebar keep their personal layout.',
+                flag: 'UI_CUSTOMIZATION',
+                component: <DefaultSidebarConfiguration />,
+                keywords: ['sidebar', 'navigation', 'default', 'team', 'admin', 'layout'],
             },
             {
                 // Project-wide, not product analytics specific: these filters apply to insights,
@@ -2055,20 +2072,55 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
             },
             {
+                id: 'sidebar-presets',
+                title: 'Presets',
+                description:
+                    'Apply a ready-made sidebar layout as a starting point, or reset your customization. You can tweak everything afterwards.',
+                component: <SidebarPresetsSetting />,
+                keywords: ['sidebar', 'preset', 'layout', 'template', 'reset', 'default'],
+            },
+            {
+                id: 'sidebar-layout',
+                title: 'Layout',
+                description: 'Control how the sidebar is structured and how dense its rows are.',
+                component: <SidebarLayoutSetting />,
+                keywords: ['sidebar', 'layout', 'flatten', 'sections', 'density', 'compact', 'comfortable'],
+            },
+            {
                 id: 'sidebar-items',
                 title: 'Navigation items',
                 description:
-                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
+                    'Choose which items appear in your sidebar and in what order. These preferences only apply to you. Activity and Settings always stay visible; hidden items remain available from the More menu.',
                 component: <SidebarItemsSetting />,
-                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
+                keywords: [
+                    'sidebar',
+                    'navigation',
+                    'navbar',
+                    'menu',
+                    'hide',
+                    'show',
+                    'customize',
+                    'starred',
+                    'pinned',
+                    'reorder',
+                    'order',
+                ],
             },
             {
                 id: 'sidebar-my-tools',
                 title: 'My Tools',
                 description:
-                    'Choose which tools appear in the My Tools section of your sidebar. This selection applies to the current project.',
+                    'Choose which tools appear in the My Tools section of your sidebar, and in what order. This selection applies to the current project.',
                 component: <SidebarMyToolsSetting />,
-                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize'],
+                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'customize', 'reorder', 'order'],
+            },
+            {
+                id: 'sidebar-accent-color',
+                title: 'Accent color',
+                description:
+                    'Set an accent color for this project, for example to tell production apart from staging. This preference only applies to you.',
+                component: <SidebarAccentColorSetting />,
+                keywords: ['accent', 'color', 'theme', 'brand', 'project', 'environment'],
             },
         ],
     },

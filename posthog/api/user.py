@@ -22,7 +22,6 @@ from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
-import pydantic
 import requests
 import structlog
 import posthoganalytics
@@ -44,8 +43,6 @@ from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.schema import UserUIConfiguration
-
 from posthog.api.email_verification import EmailVerifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
@@ -61,6 +58,7 @@ from posthog.api.oauth.toolbar_service import (
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
+from posthog.api.ui_configuration import validate_ui_configuration_value
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
@@ -649,18 +647,7 @@ class UserSerializer(serializers.ModelSerializer):
         return cast(Notifications, current_settings)
 
     def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
-        if value is None:
-            return None
-        try:
-            UserUIConfiguration.model_validate(value)
-        except pydantic.ValidationError as e:
-            errors = "; ".join(
-                f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()
-            )
-            raise serializers.ValidationError(
-                f"Does not match the UserUIConfiguration schema: {errors}", code="invalid_input"
-            )
-        return value
+        return validate_ui_configuration_value(value)
 
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]

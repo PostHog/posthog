@@ -24,6 +24,7 @@ from posthog.schema import AttributionMode, HogQLQueryModifiers
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
+from posthog.api.ui_configuration import validate_ui_configuration_value
 from posthog.api.utils import action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.constants import LOGS_RETENTION_FEATURES_BY_DAYS, AvailableFeature
@@ -32,7 +33,14 @@ from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
-from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
+from posthog.models import (
+    ProductIntent,
+    Team,
+    TeamMarketingAnalyticsConfig,
+    TeamRevenueAnalyticsConfig,
+    TeamUICustomizationConfig,
+    User,
+)
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     Detail,
@@ -373,6 +381,10 @@ TEAM_CONFIG_FIELDS = (
     "conversations_settings",
     "proactive_tasks_enabled",
     "workflows_config",
+    # Backed by the TeamUICustomizationConfig extension row, not a posthog_team column. Absent from
+    # TEAM_CONFIG_MEMBER_FIELDS on purpose: that puts it in TEAM_CONFIG_ADMIN_FIELDS_SET, so
+    # validate_team_attrs rejects non-admin writes while reads stay open to all members.
+    "default_ui_configuration",
 )
 
 TEAM_CONFIG_FIELDS_SET = set(TEAM_CONFIG_FIELDS)
@@ -705,6 +717,19 @@ def _get_organization_for_logs_settings_check(serializer: serializers.BaseSerial
     return None
 
 
+class DefaultUIConfigurationField(serializers.JSONField):
+    """JSONField backed by the TeamUICustomizationConfig extension row instead of a Team column.
+
+    Reads tolerate teams without a row (the extension is created lazily on first write),
+    returning None just like a NULL value."""
+
+    def get_attribute(self, instance: Team) -> Any | None:
+        # The reverse one-to-one descriptor raises RelatedObjectDoesNotExist (an AttributeError
+        # subclass) when the extension row is absent, so getattr-with-default handles both cases.
+        config = getattr(instance, "ui_customization_config", None)
+        return config.default_ui_configuration if config is not None else None
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -720,6 +745,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
+    default_ui_configuration = DefaultUIConfigurationField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Project-wide default UI customization (currently sidebar element visibility), validated against "
+            "the `UserUIConfiguration` schema. Members who haven't set their own `ui_configuration` inherit it. "
+            "Send the complete object: it replaces the stored value wholesale. Null means no project default. "
+            "Only project admins can modify it."
+        ),
+    )
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
     event_retention_months = serializers.IntegerField(
         read_only=True,
@@ -892,6 +927,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not serializer.is_valid():
             raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
         return serializer.validated_data
+
+    @staticmethod
+    def validate_default_ui_configuration(value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return validate_ui_configuration_value(value)
 
     @staticmethod
     def validate_workflows_config(value):
@@ -1461,6 +1500,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         validated_data["project_id"] = self.context["project_id"]
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
 
+        # Lives on the TeamUICustomizationConfig extension row, so it can't be passed to create_with_data.
+        default_ui_configuration = validated_data.pop("default_ui_configuration", None)
+
         if "week_start_day" not in validated_data:
             country_code = get_geoip_properties(get_ip_address(request)).get("$geoip_country_code", None)
             if country_code:
@@ -1474,6 +1516,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization=self.context["view"].organization,
             **validated_data,
         )
+
+        if default_ui_configuration is not None:
+            config = get_or_create_team_extension(team, TeamUICustomizationConfig)
+            config.default_ui_configuration = default_ui_configuration
+            config.save(update_fields=["default_ui_configuration"])
 
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
@@ -1507,6 +1554,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if config_data := validated_data.pop("workflows_config", None):
             self._update_workflows_config(instance, config_data)
+
+        # Membership check (not truthiness): explicit null must clear the project default. Popped
+        # here because the extension row holds the value — it must not reach the Team save() below.
+        if "default_ui_configuration" in validated_data:
+            self._update_default_ui_configuration(instance, validated_data.pop("default_ui_configuration"))
 
         if "session_recording_retention_period" in validated_data:
             self._verify_update_session_recording_retention_period(
@@ -1649,6 +1701,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
         return updated_team
+
+    def _update_default_ui_configuration(self, instance: Team, value: dict[str, Any] | None) -> Team:
+        config = get_or_create_team_extension(instance, TeamUICustomizationConfig)
+        old_value = config.default_ui_configuration
+        config.default_ui_configuration = value
+        config.save(update_fields=["default_ui_configuration"])
+
+        self._capture_diff(instance, "default_ui_configuration", old_value, value)
+        return instance
 
     def _update_revenue_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         # Capture old config before saving
@@ -1793,7 +1854,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 f"This organization does not have permission to set retention period of length '{new_retention_period}' - longest allowable retention period is '{highest_retention_entitlement}'."
             )
 
-    def _capture_diff(self, instance: Team, key: str, before: dict, after: dict):
+    def _capture_diff(self, instance: Team, key: str, before: Any, after: Any) -> None:
         changes = dict_changes_between(
             "Team",
             {key: before},
@@ -2185,6 +2246,10 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
                 snapshot[field_name] = getattr(team, f"{field_name}_id")
             else:
                 snapshot[field_name] = None
+        # Backed by the TeamUICustomizationConfig extension row; Team deliberately has no accessor for it.
+        snapshot["default_ui_configuration"] = getattr(
+            getattr(team, "ui_customization_config", None), "default_ui_configuration", None
+        )
 
         # Fetch Team-scoped activity logs after the target timestamp
         logs = (

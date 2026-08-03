@@ -649,6 +649,12 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish(),
         onboarding_tasks: zod.unknown().optional(),
         web_analytics_pre_aggregated_tables_enabled: zod.boolean().nullish(),
+        default_ui_configuration: zod
+            .unknown()
+            .optional()
+            .describe(
+                "Project-wide default UI customization (currently sidebar element visibility), validated against the `UserUIConfiguration` schema. Members who haven't set their own `ui_configuration` inherit it. Send the complete object: it replaces the stored value wholesale. Null means no project default. Only project admins can modify it."
+            ),
     })
     .describe('Mixin for serializers to add user access control fields')
 

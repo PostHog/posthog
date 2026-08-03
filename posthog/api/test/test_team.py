@@ -34,7 +34,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
-from posthog.models.team import Team
+from posthog.models.team import Team, TeamUICustomizationConfig
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -3434,6 +3434,99 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         # nothing is deleted, so the org is not left team-less.
         response = self.client.delete(f"/api/environments/{self.team.id}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+_VALID_DEFAULT_UI_CONFIGURATION: dict[str, Any] = {
+    "version": 1,
+    "sidebar": {"items": {"files": {"visible": False}, "starred": {"visible": False}}},
+}
+
+
+class TestTeamDefaultUIConfiguration(APIBaseTest):
+    def _set_membership_level(self, level: OrganizationMembership.Level) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+    def test_admin_can_set_default_ui_configuration(self) -> None:
+        self._set_membership_level(OrganizationMembership.Level.ADMIN)
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"default_ui_configuration": _VALID_DEFAULT_UI_CONFIGURATION},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["default_ui_configuration"] == _VALID_DEFAULT_UI_CONFIGURATION
+        config = TeamUICustomizationConfig.objects.get(team=self.team)
+        assert config.default_ui_configuration == _VALID_DEFAULT_UI_CONFIGURATION
+
+        get_response = self.client.get("/api/environments/@current/")
+        assert get_response.status_code == status.HTTP_200_OK
+        assert get_response.json()["default_ui_configuration"] == _VALID_DEFAULT_UI_CONFIGURATION
+
+    def test_admin_can_clear_default_ui_configuration_with_null(self) -> None:
+        self._set_membership_level(OrganizationMembership.Level.ADMIN)
+        TeamUICustomizationConfig.objects.update_or_create(
+            team=self.team, defaults={"default_ui_configuration": _VALID_DEFAULT_UI_CONFIGURATION}
+        )
+
+        response = self.client.patch("/api/environments/@current/", {"default_ui_configuration": None}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["default_ui_configuration"] is None
+        config = TeamUICustomizationConfig.objects.get(team=self.team)
+        assert config.default_ui_configuration is None
+
+    def test_invalid_default_ui_configuration_is_rejected(self) -> None:
+        self._set_membership_level(OrganizationMembership.Level.ADMIN)
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"default_ui_configuration": {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "default_ui_configuration"
+        assert not TeamUICustomizationConfig.objects.filter(
+            team=self.team, default_ui_configuration__isnull=False
+        ).exists()
+
+    def test_member_cannot_set_default_ui_configuration(self) -> None:
+        self._set_membership_level(OrganizationMembership.Level.MEMBER)
+        TeamUICustomizationConfig.objects.update_or_create(
+            team=self.team, defaults={"default_ui_configuration": _VALID_DEFAULT_UI_CONFIGURATION}
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"default_ui_configuration": {"version": 2}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        config = TeamUICustomizationConfig.objects.get(team=self.team)
+        assert config.default_ui_configuration == _VALID_DEFAULT_UI_CONFIGURATION
+
+    def test_member_can_read_default_ui_configuration(self) -> None:
+        self._set_membership_level(OrganizationMembership.Level.MEMBER)
+        TeamUICustomizationConfig.objects.update_or_create(
+            team=self.team, defaults={"default_ui_configuration": _VALID_DEFAULT_UI_CONFIGURATION}
+        )
+
+        response = self.client.get("/api/environments/@current/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["default_ui_configuration"] == _VALID_DEFAULT_UI_CONFIGURATION
+
+    def test_read_tolerates_missing_extension_row(self) -> None:
+        TeamUICustomizationConfig.objects.filter(team=self.team).delete()
+
+        response = self.client.get("/api/environments/@current/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["default_ui_configuration"] is None
 
 
 class TestTeamSerializerValidationNoDB(SimpleTestCase):

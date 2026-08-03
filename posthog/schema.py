@@ -235,6 +235,7 @@ from posthog.schema_enums import (
     SessionAttributionGroupBy as SessionAttributionGroupBy,
     SessionsV2JoinMode as SessionsV2JoinMode,
     SessionTableVersion as SessionTableVersion,
+    SidebarDensity as SidebarDensity,
     SlackIntegrationScope as SlackIntegrationScope,
     SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
@@ -2247,6 +2248,20 @@ class PieChartSettings(BaseModel):
     )
 
 
+class ProjectUIConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    accentColor: str | None = Field(
+        default=None,
+        description=(
+            "Accent color for the app chrome when this project is active, as a hex"
+            " color like `#f54e00`. Useful to tell environments apart (e.g. prod vs"
+            " staging)."
+        ),
+    )
+
+
 class Mark(BaseModel):
     attrs: dict[str, Any] | None = None
     type: str
@@ -2519,6 +2534,18 @@ class SharingConfigurationSettings(BaseModel):
     showInspector: bool | None = None
     theme: Theme | None = None
     whitelabel: bool | None = None
+
+
+class SidebarCustomGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(..., description="Client-generated identifier, stable across renames.")
+    items: list[str] | None = Field(
+        default=None,
+        description=("Ids of the file system shortcuts contained in this group, in display order."),
+    )
+    label: str = Field(..., description="User-facing name of the group.")
 
 
 class SimilarIssue(BaseModel):
@@ -22579,8 +22606,33 @@ class SidebarConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    density: SidebarDensity | None = Field(default=None, description="Row density of the sidebar.")
+    flattened: bool | None = Field(
+        default=None,
+        description=("When true, sidebar items render as one flat list without section headers or grouping."),
+    )
+    groups: list[SidebarCustomGroup] | None = Field(
+        default=None,
+        description="User-defined named groups of pinned items, in display order.",
+    )
+    itemOrder: list[str] | None = Field(
+        default=None,
+        description=(
+            "Display order of the main sidebar items, as item keys (including"
+            " always-visible ones like `activity`). Keys not listed keep their default"
+            " order after the listed ones; unknown keys are ignored."
+        ),
+    )
     items: SidebarItemsConfiguration | None = None
     sections: SidebarSectionsConfiguration | None = None
+    toolOrder: list[str] | None = Field(
+        default=None,
+        description=(
+            'Display order of the tools in "My tools", as product paths. Paths not'
+            " listed sort after the listed ones in their default order; unknown paths"
+            " are ignored."
+        ),
+    )
 
 
 class SurveyCreationSchema(BaseModel):
@@ -22804,6 +22856,10 @@ class UsageMetricsQuery(BaseModel):
 class UserUIConfiguration(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    projects: dict[str, ProjectUIConfiguration] | None = Field(
+        default=None,
+        description=("Per-project UI overrides (e.g. accent color), keyed by project id."),
     )
     sidebar: SidebarConfiguration | None = None
     version: int = Field(

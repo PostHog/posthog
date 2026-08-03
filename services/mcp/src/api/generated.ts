@@ -55083,6 +55083,8 @@ export namespace Schemas {
       readonly event_retention_months?: number;
       /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
       readonly events_retention_enforced?: boolean;
+      /** Project-wide default UI customization (currently sidebar element visibility), validated against the `UserUIConfiguration` schema. Members who haven't set their own `ui_configuration` inherit it. Send the complete object: it replaces the stored value wholesale. Null means no project default. Only project admins can modify it. */
+      default_ui_configuration?: unknown;
     }
 
     export interface PatchedProjectSecretAPIKey {
@@ -57091,6 +57093,8 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       workflows_config?: TeamWorkflowsConfig;
+      /** Project-wide default UI customization (currently sidebar element visibility), validated against the `UserUIConfiguration` schema. Members who haven't set their own `ui_configuration` inherit it. Send the complete object: it replaces the stored value wholesale. Null means no project default. Only project admins can modify it. */
+      default_ui_configuration?: unknown;
       readonly effective_membership_level?: EffectiveMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedTeamGroupTypesItem[];
@@ -59173,6 +59177,8 @@ export namespace Schemas {
       readonly event_retention_months: number;
       /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
       readonly events_retention_enforced: boolean;
+      /** Project-wide default UI customization (currently sidebar element visibility), validated against the `UserUIConfiguration` schema. Members who haven't set their own `ui_configuration` inherit it. Send the complete object: it replaces the stored value wholesale. Null means no project default. Only project admins can modify it. */
+      default_ui_configuration?: unknown;
     }
 
     /**
@@ -73029,6 +73035,8 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       workflows_config?: TeamWorkflowsConfig;
+      /** Project-wide default UI customization (currently sidebar element visibility), validated against the `UserUIConfiguration` schema. Members who haven't set their own `ui_configuration` inherit it. Send the complete object: it replaces the stored value wholesale. Null means no project default. Only project admins can modify it. */
+      default_ui_configuration?: unknown;
       readonly effective_membership_level: EffectiveMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly TeamGroupTypesItem[];

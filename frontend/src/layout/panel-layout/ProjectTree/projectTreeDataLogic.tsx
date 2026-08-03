@@ -38,6 +38,7 @@ import {
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
+import { orderKeys, uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
@@ -61,7 +62,7 @@ const DELETE_ALERT_LIMIT = 0
  */
 const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
 export const PAGINATION_LIMIT = 100
-const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
+export const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
 }
 
@@ -167,6 +168,8 @@ export interface projectTreeDataLogicValues {
     groupTypes: Map<GroupTypeIndex, GroupType> // groupsModel
     groupTypesLoading: boolean // groupsModel
     groupsAccessStatus: GroupsAccessStatus // groupsModel
+    isSidebarFlattened: boolean // uiCustomizationLogic
+    sidebarToolOrder: string[] | null // uiCustomizationLogic
     user: UserType | null // userLogic
     folderLoadOffset: Record<string, number>
     folderStates: Record<string, FolderState>
@@ -486,7 +489,7 @@ export interface projectTreeDataLogicMeta {
         groupItems: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             groupsAccessStatus: GroupsAccessStatus,
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun,
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun, // groupsModel
             shortcutData: FileSystemEntry[],
             featureFlags: FeatureFlagsSet
         ) => FileSystemImport[]
@@ -510,7 +513,9 @@ export interface projectTreeDataLogicMeta {
             customProducts: UserProductListItem[],
             featureFlags: FeatureFlagsSet,
             folderStates: Record<string, FolderState>,
-            users: Record<string, UserBasicType>
+            users: Record<string, UserBasicType>,
+            sidebarToolOrder: any,
+            isSidebarFlattened: any
         ) => (searchTerm: string) => TreeDataItem[]
     }
 }
@@ -536,6 +541,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             ['customProducts'],
             userLogic,
             ['user'],
+            uiCustomizationLogic,
+            ['sidebarToolOrder', 'isSidebarFlattened'],
         ],
         actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
     })),
@@ -891,7 +898,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
                     eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
-                    lemonToast.success('Added to starred', {
+                    lemonToast.success('Pinned to sidebar', {
                         button: {
                             label: 'View',
                             dataAttr: 'project-tree-view-shortcuts',
@@ -906,7 +913,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     try {
                         await api.fileSystemShortcuts.reorder(orderedIds)
                     } catch (error) {
-                        lemonToast.error('Could not save starred order')
+                        lemonToast.error('Could not save pinned order')
                         throw error
                     }
                     // Optimistic reducer below already applied the new order; return the live
@@ -921,7 +928,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         shortcut?.type ?? 'unknown',
                         shortcut?.path ?? 'unknown'
                     )
-                    lemonToast.success('Removed from starred')
+                    lemonToast.success('Removed from sidebar')
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
             },
@@ -1526,12 +1533,21 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 new Set(shortcutData.filter((shortcut) => shortcut.type !== 'folder').map((shortcut) => shortcut.path)),
         ],
         getCustomProductTreeItems: [
-            (s) => [s.customProducts, s.featureFlags, s.folderStates, s.users],
+            (s) => [
+                s.customProducts,
+                s.featureFlags,
+                s.folderStates,
+                s.users,
+                s.sidebarToolOrder,
+                s.isSidebarFlattened,
+            ],
             (
                 customProducts: import('~/queries/schema/schema-general').UserProductListItem[],
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
                 folderStates: Record<string, FolderState>,
-                users: Record<string, UserBasicType>
+                users: Record<string, UserBasicType>,
+                sidebarToolOrder: string[] | null,
+                isSidebarFlattened: boolean
             ): ((searchTerm: string) => TreeDataItem[]) => {
                 return function getCustomProductItems(searchTerm: string): TreeDataItem[] {
                     const allProducts = getDefaultTreeProducts()
@@ -1569,11 +1585,25 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         })
                         .filter((p): p is FileSystemImport => p !== null)
 
-                    const imports = selectedProducts
+                    // A user-defined tool order (or a flattened sidebar) replaces category
+                    // grouping entirely: order comes from the stored list, headers disappear.
+                    const hasCustomOrder = !!sidebarToolOrder?.length
+                    const flatTools = hasCustomOrder || isSidebarFlattened
+                    const orderedProducts = hasCustomOrder
+                        ? orderKeys(
+                              selectedProducts.map((product) => product.path),
+                              sidebarToolOrder
+                          )
+                              .map((path) => selectedProducts.find((product) => product.path === path))
+                              .filter((product): product is FileSystemImport => !!product)
+                        : selectedProducts
+
+                    const imports = orderedProducts
                         .filter((f) => !f.flag || (featureFlags as Record<string, boolean>)[f.flag])
-                        .map((i) => ({
+                        .map((i, index) => ({
                             ...i,
                             protocol: 'custom-products://',
+                            ...(flatTools ? { category: undefined, visualOrder: index } : {}),
                         }))
 
                     return convertFileSystemEntryToTreeDataItem({
@@ -1586,7 +1616,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         searchTerm,
                         // With only a few tools pinned, category headers add more noise than structure —
                         // list them in sequence instead.
-                        disableCategories: imports.length <= 5,
+                        disableCategories: flatTools || imports.length <= 5,
                         disabledReason: (item) => getProductAccessDisabledReason(item as FileSystemImport),
                     })
                 }

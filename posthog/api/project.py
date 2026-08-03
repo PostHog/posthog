@@ -29,6 +29,7 @@ from posthog.api.team import (
     TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    DefaultUIConfigurationField,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamCustomerAnalyticsConfigSerializer,
@@ -77,6 +78,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.models.team.team_ui_customization_config import TeamUICustomizationConfig
 from posthog.models.team.util import actions_that_require_current_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import (
@@ -129,7 +131,7 @@ MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 # on a project's passthrough Team. They live here — not imported from team.py — so /api/projects/ keeps working
 # after /api/environments/ is retired. Until then both surfaces intentionally carry equivalent logic; the
 # introspection test in test_team_project_parity.py guards against drift.
-def capture_team_config_diff(team: Team, key: str, before: dict, after: dict, *, context: dict) -> None:
+def capture_team_config_diff(team: Team, key: str, before: Any, after: Any, *, context: dict) -> None:
     changes = dict_changes_between("Team", {key: before}, {key: after}, use_field_exclusions=True)
     if changes:
         request = context["request"]
@@ -143,6 +145,15 @@ def capture_team_config_diff(team: Team, key: str, before: dict, after: dict, *,
             activity="updated",
             detail=Detail(name=str(team.name), changes=changes),
         )
+
+
+def update_team_default_ui_configuration(team: Team, value: dict[str, Any] | None, *, context: dict) -> None:
+    config = get_or_create_team_extension(team, TeamUICustomizationConfig)
+    old_value = config.default_ui_configuration
+    config.default_ui_configuration = value
+    config.save(update_fields=["default_ui_configuration"])
+
+    capture_team_config_diff(team, "default_ui_configuration", old_value, value, context=context)
 
 
 def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, Any], *, context: dict) -> None:
@@ -588,6 +599,16 @@ class ProjectBackwardCompatSerializer(
     marketing_analytics_config = TeamMarketingAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)  # Compat with TeamSerializer
     workflows_config = TeamWorkflowsConfigSerializer(required=False)  # Compat with TeamSerializer
+    default_ui_configuration = DefaultUIConfigurationField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Project-wide default UI customization (currently sidebar element visibility), validated against "
+            "the `UserUIConfiguration` schema. Members who haven't set their own `ui_configuration` inherit it. "
+            "Send the complete object: it replaces the stored value wholesale. Null means no project default. "
+            "Only project admins can modify it."
+        ),
+    )  # Compat with TeamSerializer
     # No `default` on purpose: a default value would be auto-injected into every create payload, which trips the
     # admin-only-fields-on-creation gate in validate_team_attrs and blocks members allowed to create projects.
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, required=False)  # Compat with TeamSerializer
@@ -703,6 +724,7 @@ class ProjectBackwardCompatSerializer(
             "web_analytics_pre_aggregated_tables_enabled",  # Compat with TeamSerializer
             "event_retention_months",  # Compat with TeamSerializer
             "events_retention_enforced",  # Compat with TeamSerializer
+            "default_ui_configuration",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -804,6 +826,9 @@ class ProjectBackwardCompatSerializer(
             "customer_analytics_config",
             "workflows_config",
             "event_retention_months",
+            # Reads resolve the extension row through the passthrough Team; writes are popped out of
+            # the generic passthrough loop in update() because the value lives on the extension row.
+            "default_ui_configuration",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
@@ -931,6 +956,10 @@ class ProjectBackwardCompatSerializer(
     def validate_workflows_config(value):
         return TeamSerializer.validate_workflows_config(value)
 
+    @staticmethod
+    def validate_default_ui_configuration(value: dict[str, Any] | None) -> dict[str, Any] | None:
+        return TeamSerializer.validate_default_ui_configuration(value)
+
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
         team = project.passthrough_team
         return self.user_permissions.team(team).effective_membership_level
@@ -1054,6 +1083,9 @@ class ProjectBackwardCompatSerializer(
         ):
             validated_data.pop(config_field, None)
 
+        # Lives on the TeamUICustomizationConfig extension row, so keep it out of team_fields below.
+        default_ui_configuration = validated_data.pop("default_ui_configuration", None)
+
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
 
@@ -1075,6 +1107,11 @@ class ProjectBackwardCompatSerializer(
             **validated_data,
             team_fields=team_fields,
         )
+
+        if default_ui_configuration is not None:
+            config = get_or_create_team_extension(team, TeamUICustomizationConfig)
+            config.default_ui_configuration = default_ui_configuration
+            config.save(update_fields=["default_ui_configuration"])
 
         request.user.current_team = team
         request.user.team = request.user.current_team  # Update cached property
@@ -1119,6 +1156,13 @@ class ProjectBackwardCompatSerializer(
             update_team_customer_analytics_config(team, config_data, context=config_context)
         if config_data := validated_data.pop("workflows_config", None):
             update_team_workflows_config(team, config_data, context=config_context)
+
+        # Membership check (not truthiness): explicit null must clear the project default. Popped
+        # here because the extension row holds the value — it must not reach the passthrough loop.
+        if "default_ui_configuration" in validated_data:
+            update_team_default_ui_configuration(
+                team, validated_data.pop("default_ui_configuration"), context=config_context
+            )
 
         if "session_recording_retention_period" in validated_data:
             verify_team_session_recording_retention_period(team, validated_data["session_recording_retention_period"])

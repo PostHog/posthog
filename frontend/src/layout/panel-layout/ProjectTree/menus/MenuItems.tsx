@@ -252,7 +252,7 @@ export function MenuItems({
                         data-attr="tree-item-menu-remove-from-shortcuts-button"
                     >
                         <ButtonPrimitive menuItem variant="danger" forceVariant>
-                            <IconStar className="size-4 text-inherit" /> Remove from starred
+                            <IconStar className="size-4 text-inherit" /> Unpin from sidebar
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : isItemAlreadyInShortcut ? (
@@ -273,7 +273,7 @@ export function MenuItems({
                         data-attr="tree-item-menu-add-to-shortcuts-button"
                     >
                         <ButtonPrimitive menuItem>
-                            <IconStar className="size-4 text-tertiary" /> Add to starred
+                            <IconStar className="size-4 text-tertiary" /> Pin to sidebar
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : null

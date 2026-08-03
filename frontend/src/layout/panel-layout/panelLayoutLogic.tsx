@@ -81,6 +81,13 @@ export interface panelLayoutLogicActions {
     setNavExperimentTab: (tab: NavExperimentTab) => {
         tab: NavExperimentTab
     }
+    setNavSectionExpanded: (
+        section: string,
+        expanded: boolean
+    ) => {
+        expanded: boolean
+        section: string
+    }
     setNavbarWidth: (width: number) => {
         width: number
     }
@@ -161,6 +168,9 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setMainContentRect: (rect: DOMRect) => ({ rect }),
         setSidePanelWidth: (width: number) => ({ width }),
         toggleNavSection: (section: string) => ({ section }),
+        // Explicit variant for sections that default to expanded when their key is absent,
+        // where a first toggleNavSection would be a visual no-op.
+        setNavSectionExpanded: (section: string, expanded: boolean) => ({ section, expanded }),
         setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
         setNavbarWidth: (width: number) => ({ width }),
     }),
@@ -301,6 +311,10 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 toggleNavSection: (state, { section }) => ({
                     ...state,
                     [section]: !state[section],
+                }),
+                setNavSectionExpanded: (state, { section, expanded }) => ({
+                    ...state,
+                    [section]: expanded,
                 }),
             },
         ],

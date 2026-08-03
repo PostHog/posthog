@@ -193,18 +193,18 @@ export function ProjectTree({
         if (root === 'shortcuts://' && (fullFileSystemFiltered.length === 0 || !shortcutHelperDismissed)) {
             treeData.push({
                 id: 'products/shortcuts-helper-category',
-                name: 'Starred items',
+                name: 'Pinned items',
                 type: 'category',
                 displayName: (
                     <div className={cn('border border-primary text-xs font-normal rounded-xs p-2 -mx-1')}>
-                        Add a starred item by clicking{' '}
+                        Pin an item by clicking{' '}
                         <IconEllipsis className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> next to
                         an item in the Files sidebar, then selecting "
-                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add to
-                        starred". You can also add a starred item by opening a resource, clicking its project name in
-                        the side panel, and selecting "
-                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Add to
-                        starred".{' '}
+                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Pin to
+                        sidebar". You can also pin an item by opening a resource, clicking its project name in the side
+                        panel, and selecting "
+                        <IconStar className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> Pin to
+                        sidebar".{' '}
                         {fullFileSystemFiltered.length > 0 && (
                             <span className="cursor-pointer underline" onClick={() => setShortcutHelperDismissed(true)}>
                                 Dismiss.
@@ -731,7 +731,7 @@ export function ProjectTree({
                                             'text-primary': selectMode === 'multi',
                                         })}
                                     />
-                                    Add to starred
+                                    Pin to sidebar
                                 </>
                             ),
                         }),

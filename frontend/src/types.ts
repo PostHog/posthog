@@ -860,6 +860,8 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     group_types: GroupType[]
     primary_dashboard: number | null // Dashboard shown on the project homepage
+    /** Project-wide default UI configuration set by admins, inherited by members without their own. */
+    default_ui_configuration?: UserUIConfiguration | null
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
     live_events_token: string
     cookieless_server_hash_mode?: CookielessServerHashMode

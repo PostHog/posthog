@@ -58,7 +58,7 @@ export function PanelLayoutPanels(): JSX.Element | null {
             Shortcuts: (
                 <ProjectTree
                     root="shortcuts://"
-                    searchPlaceholder="Search starred items"
+                    searchPlaceholder="Search pinned items"
                     isActiveInPanel={activePanelIdentifier === 'Shortcuts'}
                 />
             ),

@@ -590,6 +590,11 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
             ],
         }
     },
+    default_ui_configuration: (change) => {
+        return {
+            description: [<>{change.after ? 'set' : 'cleared'} the project's default sidebar configuration</>],
+        }
+    },
     flags_persistence_default: (change) => {
         return {
             description: [

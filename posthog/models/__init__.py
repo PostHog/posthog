@@ -63,7 +63,7 @@ from .share_password import SharePassword
 from .sharing_configuration import SharingConfiguration
 from .tag import Tag
 from .tagged_item import TaggedItem
-from .team import Team, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig
+from .team import Team, TeamRevenueAnalyticsConfig, TeamMarketingAnalyticsConfig, TeamUICustomizationConfig
 from .event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from .global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from .uploaded_media import UploadedMedia
@@ -167,6 +167,7 @@ __all__ = [
     "Team",
     "TeamRevenueAnalyticsConfig",
     "TeamMarketingAnalyticsConfig",
+    "TeamUICustomizationConfig",
     "EventIngestionRestrictionConfig",
     "GlobalRateLimitThresholdConfig",
     "UploadedMedia",

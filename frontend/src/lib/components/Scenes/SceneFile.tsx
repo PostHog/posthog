@@ -94,7 +94,7 @@ export function SceneFile({ dataAttrKey }: { dataAttrKey: string }): JSX.Element
                                 }
                             >
                                 {isAlreadyStarred ? <IconStarFilled className="text-warning" /> : <IconStar />}
-                                {isAlreadyStarred ? 'Remove from starred' : 'Add to starred'}
+                                {isAlreadyStarred ? 'Unpin from sidebar' : 'Pin to sidebar'}
                             </ButtonPrimitive>
                         </DropdownMenuItem>
                     </DropdownMenuGroup>

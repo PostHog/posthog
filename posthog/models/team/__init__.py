@@ -5,3 +5,4 @@ from .team_caching import get_team_in_cache, set_team_in_cache  # noqa: F401
 from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig  # noqa: F401
 from .team_provisioning_config import TeamProvisioningConfig  # noqa: F401
 from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig  # noqa: F401
+from .team_ui_customization_config import TeamUICustomizationConfig  # noqa: F401

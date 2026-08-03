@@ -2228,6 +2228,10 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
             ("non_boolean_visible", {"version": 1, "sidebar": {"items": {"home": {"visible": "nope"}}}}),
             ("unknown_node_key", {"version": 1, "sidebar": {"items": {"home": {"visible": False, "size": 1}}}}),
+            (
+                "oversized_blob",
+                {"version": 1, "sidebar": {"itemOrder": ["x" * 1000] * 100}},
+            ),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):

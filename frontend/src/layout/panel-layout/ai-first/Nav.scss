@@ -1,0 +1,11 @@
+// Compact density tightens every row in the navbar (see the sidebar density setting).
+// Row heights come from the button primitives' height variable, so overriding it here
+// cascades to nav links, panel triggers, and tree rows alike.
+[data-nav-density='compact'] {
+    --button-height-base: var(--button-height-xs);
+    --lemon-tree-button-height: var(--button-height-xs);
+
+    .button-primitive {
+        font-size: 0.75rem;
+    }
+}

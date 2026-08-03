@@ -3698,6 +3698,11 @@ class Theme(StrEnum):
     SYSTEM = "system"
 
 
+class SidebarDensity(StrEnum):
+    COMFORTABLE = "comfortable"
+    COMPACT = "compact"
+
+
 class SlackIntegrationScope(StrEnum):
     APP_MENTIONS_READ = "app_mentions:read"
     CHANNELS_HISTORY = "channels:history"

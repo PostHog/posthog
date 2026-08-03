@@ -10,6 +10,7 @@ import { ProductEmptyStateGate } from 'lib/components/ProductEmptyState/ProductE
 import { productSetupPreloadLogic } from 'lib/components/ProductEmptyState/productSetupPreloadLogic'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
+import { useProjectAccentColor } from 'lib/hooks/useProjectAccentColor'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -88,6 +89,7 @@ export function App(): JSX.Element | null {
     }, [])
 
     useThemedHtml()
+    useProjectAccentColor()
 
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
     // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.

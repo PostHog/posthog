@@ -268,6 +268,9 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.web_analytics_pre_aggregated_tables_enabled !== undefined) {
             body['web_analytics_pre_aggregated_tables_enabled'] = params.web_analytics_pre_aggregated_tables_enabled
         }
+        if (params.default_ui_configuration !== undefined) {
+            body['default_ui_configuration'] = params.default_ui_configuration
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'PATCH',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,

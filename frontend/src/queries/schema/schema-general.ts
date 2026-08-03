@@ -8886,10 +8886,52 @@ export interface SidebarItemsConfiguration {
     help?: UIVisibilityConfig
 }
 
+/** How densely the sidebar renders its rows. An absent value means "comfortable". */
+export type SidebarDensity = 'comfortable' | 'compact'
+
+/**
+ * A user-defined named group of pinned items, rendered as its own sidebar section.
+ * Items reference file system shortcuts by id; ids that no longer resolve are skipped,
+ * and shortcuts not referenced by any group render in the default pinned list.
+ */
+export interface SidebarCustomGroup {
+    /** Client-generated identifier, stable across renames. */
+    id: string
+    /** User-facing name of the group. */
+    label: string
+    /** Ids of the file system shortcuts contained in this group, in display order. */
+    items?: string[]
+}
+
 /** Customization of the main navigation sidebar. */
 export interface SidebarConfiguration {
     sections?: SidebarSectionsConfiguration
     items?: SidebarItemsConfiguration
+    /** When true, sidebar items render as one flat list without section headers or grouping. */
+    flattened?: boolean
+    /** Row density of the sidebar. */
+    density?: SidebarDensity
+    /**
+     * Display order of the main sidebar items, as item keys (including always-visible ones like `activity`).
+     * Keys not listed keep their default order after the listed ones; unknown keys are ignored.
+     */
+    itemOrder?: string[]
+    /**
+     * Display order of the tools in "My tools", as product paths.
+     * Paths not listed sort after the listed ones in their default order; unknown paths are ignored.
+     */
+    toolOrder?: string[]
+    /** User-defined named groups of pinned items, in display order. */
+    groups?: SidebarCustomGroup[]
+}
+
+/** Per-project UI overrides. All fields optional; absent means "no override". */
+export interface ProjectUIConfiguration {
+    /**
+     * Accent color for the app chrome when this project is active, as a hex color like `#f54e00`.
+     * Useful to tell environments apart (e.g. prod vs staging).
+     */
+    accentColor?: string
 }
 
 /**
@@ -8905,6 +8947,8 @@ export interface UserUIConfiguration {
      */
     version: number
     sidebar?: SidebarConfiguration
+    /** Per-project UI overrides (e.g. accent color), keyed by project id. */
+    projects?: Record<string, ProjectUIConfiguration>
 }
 
 // Keep this in alphabetical order if you wanna maintain Rafa's sanity
