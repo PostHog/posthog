@@ -36,6 +36,8 @@ interface EvaluationRunRowOverrides {
     resultType?: EvaluationRunRow[10]
     sentimentLabel?: EvaluationRunRow[11]
     sentimentScore?: EvaluationRunRow[12]
+    sessionId?: EvaluationRunRow[13]
+    skipped?: EvaluationRunRow[14]
 }
 
 function makeEvaluationRunRow({
@@ -45,6 +47,8 @@ function makeEvaluationRunRow({
     resultType = 'boolean',
     sentimentLabel = null,
     sentimentScore = null,
+    sessionId = null,
+    skipped = null,
 }: EvaluationRunRowOverrides = {}): EvaluationRunRow {
     return [
         'run-1',
@@ -60,6 +64,8 @@ function makeEvaluationRunRow({
         resultType,
         sentimentLabel,
         sentimentScore,
+        sessionId,
+        skipped,
     ]
 }
 

@@ -34,6 +34,7 @@ export function LLMASessionEvaluationsDisplay({ sessionId }: LLMASessionEvaluati
                                 status: 'completed',
                                 result: evaluation.verdict,
                                 result_type: 'boolean',
+                                skipped: evaluation.skipped,
                             }}
                             size="medium"
                         />

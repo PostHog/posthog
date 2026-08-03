@@ -122,9 +122,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const isAggregateTarget = evaluation.target === 'trace' || evaluation.target === 'session'
     const isSessionTarget = evaluation.target === 'session'
     const offersSessionTarget = evaluationOffersSessionTarget(evaluation, settlingStrategyEnabled)
-    const effectiveStrategy: EvaluationSettleStrategy = settlingStrategyEnabled
-        ? (evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window'))
-        : 'fixed_window'
+    // Read the stored strategy whether or not the flag is on. The flag gates the *picker*, not what
+    // the row contains: an API- or MCP-created session eval is inactivity, and forcing fixed_window
+    // here rendered a "wait 30 minutes" field holding a default the config never had.
+    const effectiveStrategy: EvaluationSettleStrategy =
+        evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
     const isReportableEvaluation = evaluationSupportsReports(evaluation)
     const supportsRunSummary = evaluationSupportsRunSummary(evaluation)
     const isBooleanOutput = isBooleanEvaluationOutput(evaluation.output_type)

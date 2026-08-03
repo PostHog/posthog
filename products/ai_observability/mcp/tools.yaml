@@ -214,10 +214,10 @@ tools:
             Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
             model; provider_key_id may be null when no key is pinned. 'hog': evaluation_config.source (Hog returning a
             boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional
-            evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or
-            'session' — a session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle
-            strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately,
-            false to create it paused). Results are '$ai_evaluation' events.
+            evaluation_config.source='user_messages'. `target` accepts 'generation' (default), 'trace', or 'session' — a
+            session target runs once per `$ai_session_id` and defaults to the 'inactivity' settle strategy. Pass
+            `enabled` as a boolean (true to start scoring new $ai_generation events immediately, false to create it
+            paused). Results are '$ai_evaluation' events.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true

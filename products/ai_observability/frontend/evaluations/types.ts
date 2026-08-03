@@ -124,6 +124,9 @@ export interface EvaluationRun {
     evaluation_name: string
     generation_id: string | null
     trace_id: string
+    // Session-target verdicts carry no $ai_trace_id, so the session id is the only thing that
+    // identifies what was graded. Absent on every other target.
+    session_id?: string | null
     timestamp: string
     evaluation_type?: EvaluationType
     result_type?: EvaluationOutputType
@@ -131,6 +134,9 @@ export interface EvaluationRun {
     sentiment_label?: string | null
     sentiment_score?: number | null
     applicable?: boolean
+    // A skipped run completed without grading anything. Its `result` is still false when the
+    // evaluation disallows N/A, so it has to be read alongside this rather than on its own.
+    skipped?: boolean
     reasoning: string
     status: 'completed' | 'failed' | 'running'
 }

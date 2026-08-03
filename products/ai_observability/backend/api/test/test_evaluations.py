@@ -16,6 +16,7 @@ from posthog.models import Organization, Project, Team, User
 
 from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer, _TargetConfigField
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
+from products.ai_observability.backend.models.evaluation_configs import validate_target_config
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
@@ -203,6 +204,60 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation.target, "trace")
         self.assertEqual(evaluation.target_config, {"strategy": "fixed_window", "window_seconds": 30 * 60})
         self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 1)
+
+    @parameterized.expand(
+        [
+            ("trace", "session", {"strategy": "inactivity", "quiet_period_seconds": 3600, "max_age_seconds": 86400}),
+            ("session", "trace", {"strategy": "fixed_window", "window_seconds": 1800}),
+        ]
+    )
+    def test_changing_target_reseeds_the_settle_config(self, from_target, to_target, expected):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name=f"switch {from_target} to {to_target}",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            conditions=[],
+            target=from_target,
+            target_config=validate_target_config(from_target, {}),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/", {"target": to_target}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["target_config"], expected)
+
+    def test_changing_target_still_honors_an_explicit_settle_config(self):
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="switch with explicit config",
+            evaluation_type="hog",
+            evaluation_config={"source": "return true"},
+            output_type="boolean",
+            output_config={},
+            conditions=[],
+            target="trace",
+            target_config=validate_target_config("trace", {}),
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+            {
+                "target": "session",
+                "target_config": {"strategy": "inactivity", "quiet_period_seconds": 120, "max_age_seconds": 3600},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["target_config"],
+            {"strategy": "inactivity", "quiet_period_seconds": 120, "max_age_seconds": 3600},
+        )
 
     def test_trace_target_accepts_custom_window(self):
         response = self.client.post(

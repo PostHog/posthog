@@ -15,12 +15,14 @@ from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    MAX_SETTLE_POLLS_PER_RUN,
     CheckSessionSettledInputs,
     CheckTraceSettledInputs,
     RunAggregateEvaluationInputs,
     RunAggregateEvaluationWorkflow,
     check_session_settled_activity,
     check_trace_settled_activity,
+    resolve_poll_interval,
     resolve_settle_plan,
 )
 from posthog.temporal.ai_observability.run_session_evaluation import ExecuteSessionEvaluationInputs
@@ -133,6 +135,33 @@ class TestResolveSettlePlan:
     )
     def test_resolves_and_clamps_for_session_target(self, settle, expected):
         assert resolve_settle_plan(settle, "session") == expected
+
+
+class TestResolvePollInterval:
+    @pytest.mark.parametrize(
+        "primary_seconds,poll_budget_seconds,expected",
+        [
+            # Session defaults: a quarter of the quiet period, unchanged by the budget floor.
+            (3600, 82785, 900),
+            # The corner the floor exists for — quiet=10s with a 7-day max age. A quarter of the
+            # quiet period alone would be 10s, i.e. ~60k polls for one (evaluation, session).
+            (10, 604775, 605),
+            # Every in-bounds trace config must keep its old interval so in-flight trace runs
+            # replay with an unchanged retry policy. These are the trace extremes.
+            (10, 7175, 10),
+            (300, 6885, 75),
+            (1800, 5385, 450),
+        ],
+    )
+    def test_floors_the_cadence_on_the_budget_as_well_as_the_quiet_period(
+        self, primary_seconds, poll_budget_seconds, expected
+    ):
+        assert resolve_poll_interval(primary_seconds, poll_budget_seconds) == expected
+
+    def test_no_config_can_exceed_the_poll_ceiling(self):
+        for primary_seconds, poll_budget_seconds in [(10, 604775), (60, 604740), (10, 7175)]:
+            interval = resolve_poll_interval(primary_seconds, poll_budget_seconds)
+            assert poll_budget_seconds // interval <= MAX_SETTLE_POLLS_PER_RUN
 
 
 def _mock_activities(calls: list[str], exclude: set[str] | None = None) -> list[Any]:

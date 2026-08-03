@@ -13,6 +13,10 @@ describe('evaluationCapabilities', () => {
         ['sentiment', 'generation', true, false],
         ['boolean', 'trace', true, false],
         ['sentiment', 'trace', false, false],
+        // The report agent still assumes generation-shaped target ids, so a session evaluation
+        // must not offer reports. The backend refuses too; this pins the frontend twin.
+        ['boolean', 'session', false, false],
+        ['sentiment', 'session', false, false],
     ])(
         'supports the expected capabilities for %s %s evaluations',
         (outputType, target, supportsReports, supportsSummary) => {

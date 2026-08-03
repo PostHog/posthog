@@ -104,6 +104,14 @@ every generation or on none, so an SDK that does not set it will never trigger a
 evaluation. `$ai_session_id` is not `$session_id`: the second is PostHog's product-analytics
 session and is unrelated.
 
+A session evaluation can also come back skipped rather than graded. The emitted `$ai_evaluation`
+event then carries `$ai_evaluation_skipped: true` and an `$ai_evaluation_skip_reason`, and its
+`$ai_evaluation_result` is `false` when the evaluation disallows N/A, so any analysis of pass rates
+has to exclude skipped runs rather than count them as failures. Sessions are skipped when
+they hold more than 2500 events (usually a session id shared across conversations), when nothing
+was found in the evaluation window, and, for an LLM judge, when the transcript is too long to send
+in full.
+
 A session is evaluated at most once per evaluation, for as long as the completed run stays inside
 Temporal's retention window. A session that resumes long after being evaluated may be evaluated
 again, so pick a quiet period long enough that the session is really finished. A longer quiet period

@@ -28,6 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import is_terminal_user_error_result
@@ -192,24 +193,29 @@ def check_session_settled_activity(inputs: CheckSessionSettledInputs) -> str:
     session has had no structural activity for quiet_period + margin; the activity's retry
     schedule is the poll loop, so this function never sleeps."""
     team = Team.objects.get(id=inputs.team_id)
-    result = query_ai_events(
-        query=parse_select(_SESSION_SETTLE_POLL_SQL),
-        placeholders={
-            "liveness_events": ast.Constant(value=list(_LIVENESS_EVENTS)),
-            "session_id": ast.Constant(value=inputs.session_id),
-            "date_from": ast.Constant(value=datetime.now(UTC) - timedelta(seconds=inputs.lookback_seconds)),
-        },
-        team=team,
-        query_type="SessionSettlePoll",
-        fall_back_to_events=False,
-        workload=Workload.OFFLINE,
-    )
+    # Tagged like every other AI-observability query so it routes to the LLM_ANALYTICS ClickHouse
+    # user and takes its concurrency slot; untagged, a settling session's polls compete with
+    # interactive traffic on the default user.
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = query_ai_events(
+            query=parse_select(_SESSION_SETTLE_POLL_SQL),
+            placeholders={
+                "liveness_events": ast.Constant(value=list(_LIVENESS_EVENTS)),
+                "session_id": ast.Constant(value=inputs.session_id),
+                "date_from": ast.Constant(value=datetime.now(UTC) - timedelta(seconds=inputs.lookback_seconds)),
+            },
+            team=team,
+            query_type="SessionSettlePoll",
+            fall_back_to_events=False,
+            workload=Workload.OFFLINE,
+        )
     row = result.results[0] if result.results else (None, 0)
     last_seen, event_count = row[0], int(row[1] or 0)
     if event_count > inputs.max_events:
         # Bail at the first probe rather than after the full max_age budget: a shared or constant
         # session id is the session analogue of trace id "0" and would otherwise hold a workflow
         # open for days before the fetch-time cap noticed.
+        increment_settle_poll("too_large", target="session")
         raise ApplicationError(
             f"session has {event_count} events, over the {inputs.max_events} cap",
             type="session_too_large",
@@ -264,6 +270,23 @@ _SETTLE_BOUNDS: dict[str, dict[str, tuple[int, int, int]]] = {
         ),
     },
 }
+
+
+# Ceiling on poll activities per settling run. Sessions accept quiet=10s alongside max_age=7d, and
+# a cadence derived from the quiet period alone would schedule ~60k ClickHouse aggregates for one
+# (evaluation, session). Large enough that no in-bounds trace config is affected, so in-flight trace
+# runs replay with an unchanged retry policy.
+MAX_SETTLE_POLLS_PER_RUN = 1000
+
+
+def resolve_poll_interval(primary_seconds: int, poll_budget_seconds: int) -> int:
+    """Seconds between settle probes: a quarter of the quiet period, floored so a long max-age
+    budget can't turn a short quiet period into tens of thousands of polls.
+
+    The budget floor rounds up, so the ceiling holds exactly rather than off by one.
+    """
+    budget_floor = -(-poll_budget_seconds // MAX_SETTLE_POLLS_PER_RUN)
+    return max(primary_seconds // 4, budget_floor, 10)
 
 
 def resolve_settle_plan(settle: dict[str, Any] | None, target: str = "trace") -> tuple[str, int, int]:
@@ -344,6 +367,15 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
     async def run(self, inputs: RunAggregateEvaluationInputs) -> WorkflowResult:
         window_start = temporalio.workflow.now()
 
+        # Fail loudly rather than falling through to the trace path, which would grade `trace_id`
+        # and emit a trace-shaped verdict under a session evaluation's name. Unreachable from the
+        # scheduler, which drops these as `no_ai_session_id`; this is the backstop for a malformed
+        # payload or a manual start. Emits no command, so trace histories replay unchanged.
+        if inputs.target == "session" and inputs.ai_session_id is None:
+            raise ApplicationError(
+                "A session-target evaluation needs an $ai_session_id", type="missing_ai_session_id", non_retryable=True
+            )
+
         strategy, primary_seconds, max_age_seconds = resolve_settle_plan(inputs.settle, inputs.target)
         is_session = inputs.target == "session" and inputs.ai_session_id is not None
         if strategy == "inactivity":
@@ -353,7 +385,7 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
             await asyncio.sleep(initial_sleep_seconds)
             poll_budget_seconds = max_age_seconds - initial_sleep_seconds
             if poll_budget_seconds > 0:
-                poll_interval = max(primary_seconds // 4, 10)
+                poll_interval = resolve_poll_interval(primary_seconds, poll_budget_seconds)
                 retry_policy = RetryPolicy(
                     initial_interval=timedelta(seconds=poll_interval),
                     backoff_coefficient=1.0,

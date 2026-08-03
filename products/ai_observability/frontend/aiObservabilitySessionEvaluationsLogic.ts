@@ -2,14 +2,21 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 
 import api from 'lib/api'
 
-import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 
+import { EVALUATION_SUMMARY_MAX_RUNS } from './evaluations/constants'
 import { isExplicitEvaluationPass } from './utils'
+
+// Session verdicts land after the session settles, up to the 7-day session max age. This is
+// generously past both that and ai_events retention, and exists so the query prunes partitions at
+// all — without it every session page view scans the team's whole $ai_evaluation history.
+const SESSION_EVALUATION_LOOKBACK_DAYS = 90
 
 export interface SessionEvaluation {
     evaluationId: string
     evaluationName: string
     verdict: boolean | null
+    skipped: boolean
     reasoning: string
     timestamp: string
 }
@@ -89,34 +96,47 @@ export const aiObservabilitySessionEvaluationsLogic = kea<aiObservabilitySession
             // Session verdicts carry no $ai_trace_id, so SessionQueryRunner's `trace_id != ''`
             // filter drops them. They have to be read by $ai_session_id directly, the same way
             // aiObservabilitySessionFeedbackLogic reads $ai_metric session feedback.
-            const evaluationsQuery: HogQLQuery = {
-                kind: NodeKind.HogQLQuery,
-                query: `
-                    SELECT
-                        properties.$ai_evaluation_id as evaluation_id,
-                        properties.$ai_evaluation_name as evaluation_name,
-                        properties.$ai_evaluation_result as verdict,
-                        properties.$ai_evaluation_reasoning as reasoning,
-                        timestamp
-                    FROM events
-                    WHERE event = '$ai_evaluation'
-                      AND properties.$ai_target_type = 'session_id'
-                      AND properties.$ai_session_id = {sessionId}
-                    ORDER BY timestamp DESC
-                `,
-                values: { sessionId },
-            }
+            const evaluationsQuery = hogql`
+                SELECT
+                    properties.$ai_evaluation_id as evaluation_id,
+                    properties.$ai_evaluation_name as evaluation_name,
+                    properties.$ai_evaluation_result as verdict,
+                    properties.$ai_evaluation_reasoning as reasoning,
+                    properties.$ai_evaluation_skipped as skipped,
+                    timestamp
+                FROM events
+                WHERE event = '$ai_evaluation'
+                  AND properties.$ai_target_type = 'session_id'
+                  AND properties.$ai_session_id = ${sessionId}
+                  AND timestamp >= now() - INTERVAL ${SESSION_EVALUATION_LOOKBACK_DAYS} DAY
+                ORDER BY timestamp DESC
+                LIMIT ${EVALUATION_SUMMARY_MAX_RUNS}
+            `
 
             try {
-                const response = await api.query(evaluationsQuery)
-                const evaluations: SessionEvaluation[] = (response.results || []).map((row: any[]) => ({
-                    evaluationId: row[0] || '',
-                    evaluationName: row[1] || '',
-                    verdict: row[2] === null || row[2] === undefined ? null : isExplicitEvaluationPass(row[2]),
-                    reasoning: row[3] || '',
-                    timestamp: row[4] || '',
-                }))
-                actions.loadSessionEvaluationsSuccess(evaluations)
+                const response = await api.queryHogQL(evaluationsQuery, {
+                    scene: 'AIObservability',
+                    productKey: 'llm_analytics',
+                })
+                // A session that resumes after being evaluated can be evaluated again, so keep only
+                // the newest verdict per evaluation — otherwise the header renders a stale False
+                // beside a fresh True with nothing to tell them apart.
+                const latestByEvaluation = new Map<string, SessionEvaluation>()
+                for (const row of (response.results || []) as unknown[][]) {
+                    const evaluationId = (row[0] as string) || ''
+                    if (latestByEvaluation.has(evaluationId)) {
+                        continue
+                    }
+                    latestByEvaluation.set(evaluationId, {
+                        evaluationId,
+                        evaluationName: (row[1] as string) || '',
+                        verdict: row[2] === null || row[2] === undefined ? null : isExplicitEvaluationPass(row[2]),
+                        skipped: isExplicitEvaluationPass(row[4]),
+                        reasoning: (row[3] as string) || '',
+                        timestamp: (row[5] as string) || '',
+                    })
+                }
+                actions.loadSessionEvaluationsSuccess(Array.from(latestByEvaluation.values()))
             } catch (error) {
                 console.error('Error loading session evaluations:', error)
                 actions.loadSessionEvaluationsFailure()

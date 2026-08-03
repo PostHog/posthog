@@ -21,6 +21,7 @@ from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.models.team import Team
@@ -54,11 +55,16 @@ _MIN_TRACE_CHARS_IN_SESSION = 2_000
 _SESSION_SKIP_REASONING = {
     "session_not_found": "No session events were found within the evaluation window; evaluation skipped.",
     "session_too_large": (
-        f"Session exceeds {MAX_SESSION_EVAL_EVENTS} events — likely a shared or runaway session id; evaluation skipped."
+        f"This session has more than {MAX_SESSION_EVAL_EVENTS} events, which usually means one session id is "
+        "shared across several conversations. Give each conversation its own $ai_session_id so it can be evaluated."
     ),
     "session_truncated": (
-        f"Session has more than {MAX_SELECT_TRACES_LIMIT_EXPORT} traces in the evaluation window; evaluation "
-        "skipped rather than judged on a partial transcript."
+        f"This session has more than {MAX_SELECT_TRACES_LIMIT_EXPORT} traces, which is more than one evaluation "
+        "can read, so it was not graded."
+    ),
+    "session_too_long_to_judge": (
+        "This session's transcript is too long to grade in one piece. A Hog evaluation has no transcript limit, "
+        "or you can evaluate each trace instead."
     ),
 }
 
@@ -67,14 +73,28 @@ _SESSION_SKIP_REASONING = {
 # computed, so it doubles as the floor on how far back a fetch is allowed to search.
 AI_EVENTS_RETENTION_DAYS = 30
 
-# Structural activity only, matching the settle poll: $ai_evaluation / $ai_feedback / $ai_metric
-# are post-hoc annotations and are not part of the unit under evaluation. minOrNull(timestamp)
-# rides the same scan as the count, so finding the session's real start costs nothing extra.
+# Must select exactly the rows `SessionQueryRunner` will read, or the cap it gates bounds nothing.
+# Two ways the fetch is wider than a naive `session_id = X` count, both deliberate over there:
+# it reads six event types (annotations included, unlike the settle poll, where they correctly
+# don't count as liveness), and it resolves traces first, then reads every event of those traces
+# — `session_id` is per-event and nullable, so a producer that tags only the trace root would
+# otherwise preflight at 1 and fetch the whole trace. minOrNull(timestamp) rides the same scan,
+# and over this row set it means the session's real start rather than its first tagged event.
 _SESSION_EVENT_COUNT_SQL = """
 SELECT count() AS event_count, minOrNull(timestamp) AS first_seen
 FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_trace')
-  AND session_id = {session_id}
+WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+  AND isNotNull(trace_id)
+  AND trace_id != ''
+  AND trace_id IN (
+      SELECT trace_id
+      FROM posthog.ai_events AS ai_events
+      WHERE session_id = {session_id}
+        AND isNotNull(trace_id)
+        AND trace_id != ''
+        AND timestamp >= {date_from}
+        AND timestamp <= {date_to}
+  )
   AND timestamp >= {date_from}
   AND timestamp <= {date_to}
 """
@@ -113,18 +133,19 @@ def _count_session_events(team: Team, session_id: str, date_from: datetime, date
     returns exactly one row, so query_ai_events's empty-result probe never fires and a session
     that aged out of ai_events can never silently degrade to a stripped events scan.
     """
-    result = query_ai_events(
-        query=parse_select(_SESSION_EVENT_COUNT_SQL),
-        placeholders={
-            "session_id": ast.Constant(value=session_id),
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=date_to),
-        },
-        team=team,
-        query_type="SessionEvaluationEventCount",
-        fall_back_to_events=False,
-        workload=Workload.OFFLINE,
-    )
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = query_ai_events(
+            query=parse_select(_SESSION_EVENT_COUNT_SQL),
+            placeholders={
+                "session_id": ast.Constant(value=session_id),
+                "date_from": ast.Constant(value=date_from),
+                "date_to": ast.Constant(value=date_to),
+            },
+            team=team,
+            query_type="SessionEvaluationEventCount",
+            fall_back_to_events=False,
+            workload=Workload.OFFLINE,
+        )
     if not result.results:
         return _SessionEventCount(event_count=0, first_seen=None)
     event_count, first_seen = result.results[0]
@@ -237,16 +258,18 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
     which matters for "did the user accomplish their goal" — the answer often lives in the
     opening and closing turns, not the biggest one.
 
-    Returns `None` when even the per-trace floor overshoots the overall budget, meaning a final
-    slice would silently drop trailing traces. The caller must treat that as a `session_truncated`
-    skip rather than judge a transcript that's missing its close — the same rule the trace-count
-    path in `fetch_session_for_evaluation` already applies for a session with too many traces.
+    Returns `None` only when the *rendered* transcript overshoots the budget, meaning a final slice
+    would silently drop trailing traces. The caller must treat that as a `session_too_long_to_judge`
+    skip rather than judge a transcript that's missing its close.
+
+    Deliberately measured after rendering rather than from `per_trace_budget * len(traces)`: the
+    per-trace budget is a ceiling, not a prediction, and real traces render well under it. Deciding
+    on the product turned this into a hard cliff at 251 traces regardless of how little those traces
+    actually contained.
     """
     if not traces:
         return ""
     per_trace_budget = max(JUDGE_SESSION_MAX_CHARS // len(traces), _MIN_TRACE_CHARS_IN_SESSION)
-    if per_trace_budget * len(traces) > JUDGE_SESSION_MAX_CHARS:
-        return None
     options: FormatterOptions = {
         "include_markers": False,
         "collapsed": False,
@@ -259,7 +282,10 @@ def format_session_for_judge(traces: list[LLMTrace]) -> str | None:
         trace_dict, hierarchy = llm_trace_to_formatter_format(trace)
         text, _ = format_trace_text_repr(trace_dict, hierarchy, options)
         sections.append(f"=== Trace {index} of {len(traces)} (id: {trace.id}) ===\n{text}")
-    return "\n\n".join(sections)
+    rendered = "\n\n".join(sections)
+    if len(rendered) > JUDGE_SESSION_MAX_CHARS:
+        return None
+    return rendered
 
 
 def build_session_skip_result(allows_na: bool, skip_reason: str) -> EvaluationActivityResult:
@@ -334,7 +360,7 @@ def execute_session_llm_judge_activity(inputs: ExecuteSessionEvaluationInputs) -
 
     transcript = format_session_for_judge(outcome.traces)
     if transcript is None:
-        return build_session_skip_result(allows_na, "session_truncated")
+        return build_session_skip_result(allows_na, "session_too_long_to_judge")
 
     return call_llm_judge(
         evaluation=evaluation,

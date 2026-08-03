@@ -12,7 +12,6 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 
 from posthog.temporal.ai_observability.run_session_evaluation import (
-    _MIN_TRACE_CHARS_IN_SESSION,
     _SESSION_EVENT_COUNT_SQL,
     AI_EVENTS_RETENTION_DAYS,
     JUDGE_SESSION_MAX_CHARS,
@@ -115,17 +114,21 @@ class TestBuildSessionHogGlobals:
 
 class TestFormatSessionForJudge:
     def test_returns_none_rather_than_silently_dropping_trailing_traces(self):
-        # 260 traces of 100 events each render past JUDGE_SESSION_MAX_CHARS even after the
-        # per-trace floor split, because each trace's own rendered text already exceeds the
-        # floor. A final [:JUDGE_SESSION_MAX_CHARS] slice would drop the closing traces with no
-        # marker, so the caller must skip the session instead of judging a partial transcript.
+        # A final [:JUDGE_SESSION_MAX_CHARS] slice would drop the closing traces with no marker, so
+        # the caller must skip the session instead of judging a partial transcript.
         traces = [_trace(f"t{i}", cost=0, latency=0, event_count=100) for i in range(260)]
-        # Fails loudly if a constant change makes the floor fit inside the budget again, which
-        # would leave this test passing without exercising the overflow path.
-        assert max(JUDGE_SESSION_MAX_CHARS // len(traces), _MIN_TRACE_CHARS_IN_SESSION) * len(traces) > (
-            JUDGE_SESSION_MAX_CHARS
-        )
         assert format_session_for_judge(traces) is None
+
+    def test_many_small_traces_are_judged_rather_than_skipped_on_count_alone(self):
+        """The overflow check must measure the rendered transcript, not `per_trace_budget * n`.
+        The product form made this a hard cliff at 251 traces however little they contained, so a
+        long thin conversation was skipped while its content sat far inside the budget.
+        """
+        traces = [_trace(f"t{i}", cost=0, latency=0) for i in range(400)]
+        rendered = format_session_for_judge(traces)
+        assert rendered is not None
+        assert len(rendered) <= JUDGE_SESSION_MAX_CHARS
+        assert "t399" in rendered
 
     def test_every_trace_appears(self):
         traces = [_trace("t-alpha", cost=0, latency=0), _trace("t-beta", cost=0, latency=0)]
@@ -145,6 +148,19 @@ class TestCountSessionEvents:
         normalized = " ".join(_SESSION_EVENT_COUNT_SQL.split()).upper()
         assert "GROUP BY" not in normalized
         assert "HAVING" not in normalized
+
+    def test_counts_the_rows_the_fetch_will_read_not_just_the_tagged_ones(self):
+        """`MAX_SESSION_EVAL_EVENTS` only bounds the payload if the preflight and
+        `SessionQueryRunner._build_query` select the same rows. The runner reads six event types and
+        resolves traces first, then reads every event of those traces — `session_id` is per-event and
+        nullable, so a producer that tags only the trace root would otherwise preflight at 1 while
+        the fetch reads the whole trace.
+        """
+        normalized = " ".join(_SESSION_EVENT_COUNT_SQL.split())
+        for event in ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace"):
+            assert f"'{event}'" in normalized
+        assert "trace_id IN (" in normalized
+        assert "session_id = {session_id}" in normalized
 
     def test_never_falls_back_to_the_stripped_events_table(self):
         first_seen = datetime(2026, 7, 1, tzinfo=UTC)
@@ -369,7 +385,7 @@ class TestExecuteSessionActivities:
                 )
             )
         assert result["skipped"] is True
-        assert result["skip_reason"] == "session_truncated"
+        assert result["skip_reason"] == "session_too_long_to_judge"
         mock_call_llm_judge.assert_not_called()
 
     def test_our_bug_page_names_the_session_target(self):

@@ -439,10 +439,16 @@ class EvaluationSerializer(serializers.ModelSerializer):
         # Surfaces a clean field error for an out-of-range window; the model's save() re-runs this
         # so untouched requests still get normalized.
         if "target" in data or "target_config" in data:
-            target = data.get("target") or getattr(self.instance, "target", None) or "generation"
+            stored_target = getattr(self.instance, "target", None)
+            target = data.get("target") or stored_target or "generation"
             config = data.get("target_config")
             if config is None:
-                config = getattr(self.instance, "target_config", {})
+                # Carrying the stored bag across a target change would keep the old target's
+                # strategy — a trace's fixed_window surviving onto a session means grading 30
+                # minutes into a conversation instead of when it goes quiet, which is exactly what
+                # DEFAULT_SETTLE_STRATEGY_BY_TARGET exists to prevent. Reseed instead, matching
+                # what the form does client-side.
+                config = {} if target != stored_target else getattr(self.instance, "target_config", {})
             try:
                 data["target_config"] = validate_target_config(target, config or {})
             except ValueError as e:
