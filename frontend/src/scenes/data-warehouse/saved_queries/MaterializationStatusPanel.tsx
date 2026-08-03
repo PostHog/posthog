@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRevert, IconX } from '@posthog/icons'
-import { LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonDialog, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -30,6 +32,9 @@ import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { materializationJobsLogic } from './materializationJobsLogic'
 
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
+
+// Matches DataModelingJobEngine.CLICKHOUSE, the engine materialized queries are served from.
+const SERVING_ENGINE = 'clickhouse'
 
 interface MaterializationStatusPanelProps {
     viewId: string
@@ -137,10 +142,13 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
         dataModelingJobsLoading,
         hasMoreJobsToLoad,
         startingMaterialization,
+        resumingMaterialization,
         savedQuery,
         savedQueryLoading,
     } = useValues(jobsLogic)
-    const { loadDataModelingJobs, loadOlderDataModelingJobs, setStartingMaterialization } = useActions(jobsLogic)
+    const { loadDataModelingJobs, loadOlderDataModelingJobs, setStartingMaterialization, resumeMaterialization } =
+        useActions(jobsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
     const {
@@ -175,6 +183,15 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
     const currentJobStatus = dataModelingJobs?.results?.[0]?.status || null
     const { sync, cancel, revert } = getMaterializationDisabledReasons(currentJobStatus, startingMaterialization)
 
+    // Prefer the serving engine's entry when several engines are suspended.
+    const suspension = savedQuery.suspended
+        ? (savedQuery.suspended[SERVING_ENGINE] ?? Object.values(savedQuery.suspended)[0])
+        : undefined
+    const showSuspendedBanner =
+        !!featureFlags[FEATURE_FLAGS.DATA_MODELING_SUSPEND_FAILING_NODES] &&
+        !!suspension &&
+        !!savedQuery.is_materialized
+
     return (
         <div className="overflow-auto" data-attr="materialization-status-panel">
             <div className="flex flex-col flex-1 gap-4">
@@ -188,12 +205,37 @@ export function MaterializationStatusPanel({ viewId, kind = 'view' }: Materializ
                             </Tooltip>
                         )}
                     </div>
+                    {showSuspendedBanner && suspension && (
+                        <LemonBanner
+                            type="error"
+                            className="mt-2"
+                            action={{
+                                children: 'Resume',
+                                onClick: () => resumeMaterialization(),
+                                loading: resumingMaterialization,
+                                disabledReason: materializationAccessReason || undefined,
+                                tooltip: 'If the query keeps failing, it will pause again.',
+                            }}
+                        >
+                            <div data-attr="materialization-suspended-banner">
+                                <div>
+                                    Scheduled runs are paused for this {kind === 'endpoint' ? 'endpoint' : 'view'}{' '}
+                                    because materialization kept failing. Fix the query, then resume.
+                                </div>
+                                <Tooltip title={suspension.reason} interactive>
+                                    <div className="mt-1 text-xs font-normal line-clamp-2">
+                                        Paused {humanFriendlyDetailedTime(suspension.at)} · {suspension.reason}
+                                    </div>
+                                </Tooltip>
+                            </div>
+                        </LemonBanner>
+                    )}
                     <div>
                         {savedQuery?.is_materialized ? (
                             <div>
                                 {savedQuery?.last_run_at ? (
                                     `Last run at ${humanFriendlyDetailedTime(savedQuery?.last_run_at)}`
-                                ) : (
+                                ) : showSuspendedBanner ? null : (
                                     <div>
                                         <span>Materialization scheduled</span>
                                     </div>

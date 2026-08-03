@@ -120,8 +120,6 @@ import {
     DataWarehouseTable,
     DataWarehouseViewLink,
     DataWarehouseViewLinkValidation,
-    Dataset,
-    DatasetItem,
     EarlyAccessFeatureType,
     EmailSenderDomainStatus,
     EndpointType,
@@ -2021,22 +2019,6 @@ export class ApiRequest {
         return this.addPathComponent('wizard')
     }
 
-    public datasets(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets')
-    }
-
-    public dataset(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('datasets').addPathComponent(id)
-    }
-
-    public datasetItems(teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items')
-    }
-
-    public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
-        return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
-    }
-
     public evaluationRuns(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('evaluation_runs')
     }
@@ -3551,8 +3533,11 @@ const api = {
                             // If we can't read the response, just use the status
                         }
 
-                        // For any error, call onError and abort to prevent retries
-                        onError(new Error(errorMessage))
+                        // Carry the real HTTP status so callers can classify the failure by status code
+                        // rather than string-matching the message (which misfires on transient/stream errors).
+                        const error = new Error(errorMessage) as Error & { status?: number }
+                        error.status = response.status
+                        onError(error)
                         abortController.abort()
                         return
                     }
@@ -6256,8 +6241,8 @@ const api = {
         async get(id: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(id).get()
         },
-        async create(data: Partial<IntegrationType> | FormData): Promise<IntegrationType> {
-            return await new ApiRequest().integrations().create({ data })
+        async create(data: Partial<IntegrationType> | FormData, teamId?: TeamType['id']): Promise<IntegrationType> {
+            return await new ApiRequest().integrations(teamId).create({ data })
         },
         async delete(integrationId: IntegrationType['id']): Promise<IntegrationType> {
             return await new ApiRequest().integration(integrationId).delete()
@@ -6265,8 +6250,16 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string }): string {
-            return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
+        authorizeUrl(params: { kind: string; next?: string; extraParams?: Record<string, string> }): string {
+            // `kind` and `next` are common to every integration; anything kind-specific (e.g. the
+            // posthog connection's `region`/`scopes`) rides along in `extraParams` rather than
+            // bloating this shared signature.
+            const { extraParams, ...common } = params
+            return new ApiRequest()
+                .integrations()
+                .withAction('authorize')
+                .withQueryString({ ...common, ...extraParams })
+                .assembleFullUrl(true)
         },
         async slackChannels(
             id: IntegrationType['id'],
@@ -7020,39 +7013,6 @@ const api = {
         },
     },
 
-    datasets: {
-        list({
-            ids,
-            ...params
-        }: {
-            search?: string
-            order_by?: string
-            offset?: number
-            limit?: number
-            ids?: string[]
-        }): Promise<CountedPaginatedResponse<Dataset>> {
-            return new ApiRequest()
-                .datasets()
-                .withQueryString({
-                    ...params,
-                    id__in: ids?.join(','),
-                })
-                .get()
-        },
-
-        get(datasetId: string): Promise<Dataset> {
-            return new ApiRequest().dataset(datasetId).get()
-        },
-
-        async create(data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().datasets().create({ data })
-        },
-
-        async update(datasetId: string, data: Omit<Partial<Dataset>, 'created_by' | 'team'>): Promise<Dataset> {
-            return await new ApiRequest().dataset(datasetId).update({ data })
-        },
-    },
-
     evaluationRuns: {
         async create(data: {
             evaluation_id: string
@@ -7067,24 +7027,6 @@ const api = {
             target_event_id: string
         }> {
             return await new ApiRequest().evaluationRuns().create({ data })
-        },
-    },
-
-    datasetItems: {
-        list(data: {
-            dataset: string
-            limit?: number
-            offset?: number
-        }): Promise<CountedPaginatedResponse<DatasetItem>> {
-            return new ApiRequest().datasetItems().withQueryString(data).get()
-        },
-
-        async create(data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItems().create({ data })
-        },
-
-        async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
-            return await new ApiRequest().datasetItem(datasetItemId).update({ data })
         },
     },
 

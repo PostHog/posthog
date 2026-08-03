@@ -9,6 +9,7 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db.utils import OperationalError
 from django.test import override_settings
 
 from asgiref.sync import sync_to_async
@@ -213,6 +214,28 @@ class TestRowTracking(BaseTest):
         ):
             mock_get_billing.side_effect = redis_exceptions.ConnectionError(
                 "Error -3 connecting to redis:6379. Temporary failure in name resolution."
+            )
+
+            assert await self._run(source, 10) is False
+
+        mock_capture_exception.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_row_tracking_fails_open_on_operational_error_without_capturing_exception(self):
+        # A dropped Postgres connection while fetching billing data is a transient infra
+        # blip, not a bug, and must fail open like any other billing-check error without
+        # being reported to error tracking.
+        source = await self._create_source()
+
+        with (
+            mock.patch("ee.billing.billing_manager.BillingManager.get_billing") as mock_get_billing,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.row_tracking.capture_exception"
+            ) as mock_capture_exception,
+        ):
+            mock_get_billing.side_effect = OperationalError(
+                'connection failed: connection to server at "127.0.0.1", port 5432 failed: '
+                "server closed the connection unexpectedly"
             )
 
             assert await self._run(source, 10) is False
