@@ -1406,7 +1406,7 @@ export const billingLogic = kea<billingLogicType>([
             // Find ALL products over limit, filtering out hidden and dismissed ones
             const productsOverLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
-                    if (x.percentage_usage <= 1 || !x.usage_key) {
+                    if (x.percentage_usage < 1 || !x.usage_key) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
@@ -1450,7 +1450,7 @@ export const billingLogic = kea<billingLogicType>([
             const productsApproachingLimit =
                 values.billing.products?.filter((x: BillingProductV2Type) => {
                     // Only include products approaching but not over the limit
-                    if (x.percentage_usage <= ALLOCATION_THRESHOLD_ALERT || x.percentage_usage > 1) {
+                    if (x.percentage_usage <= ALLOCATION_THRESHOLD_ALERT || x.percentage_usage >= 1) {
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
