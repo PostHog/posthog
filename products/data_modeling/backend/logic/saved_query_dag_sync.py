@@ -8,7 +8,7 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.logic.schedule_reconcile import maybe_reconcile_dag
-from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.dag import DAG, REVENUE_ANALYTICS_DAG_NAME
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -25,6 +25,25 @@ logger = structlog.get_logger(__name__)
 def get_dag_id(team_id: int) -> str:
     """Return the standard dag_id for a team."""
     return f"posthog_{team_id}"
+
+
+def _managed_cross_dag_reference(
+    team: "Team", dag: DAG, dependency_name: str, saved_query: "DataWarehouseSavedQuery"
+) -> Node | None:
+    """A table node in `dag` standing in for a saved-query parent whose node lives in a managed
+    DAG (Revenue Analytics). Cross-dag edges are forbidden, so a same-dag reference is the only
+    join available. Returns None when the parent is not in a managed DAG, so the caller resolves
+    normally and a user's own extra DAG stays a loud failure rather than a silent orphan."""
+    if not Node.objects.filter(team=team, saved_query=saved_query, dag__name=REVENUE_ANALYTICS_DAG_NAME).exists():
+        return None
+    node, _ = Node.objects.get_or_create(
+        team=team,
+        dag=dag,
+        name=dependency_name,
+        type=NodeType.TABLE,
+        defaults={"properties": {"origin": "cross_dag_view", "saved_query_id": str(saved_query.id)}},
+    )
+    return node
 
 
 def resolve_dependency_to_node(
@@ -48,6 +67,9 @@ def resolve_dependency_to_node(
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
+    if dag is None:
+        dag = DAG.get_or_create_default(team)
+
     # get hogql's understanding of this table
     try:
         table = database.get_table(dependency_name)
@@ -59,15 +81,10 @@ def resolve_dependency_to_node(
         node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).first()
         if node is not None:
             return node
-        # parent lives in another dag; cross-dag edges are forbidden, so reference it as a table
-        node, _ = Node.objects.get_or_create(
-            team=team,
-            dag=dag,
-            name=dependency_name,
-            type=NodeType.TABLE,
-            defaults={"properties": {"origin": "cross_dag_view", "saved_query_id": str(saved_query.id)}},
-        )
-        return node
+        reference = _managed_cross_dag_reference(team, dag, dependency_name, saved_query)
+        if reference is not None:
+            return reference
+        return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -80,7 +97,11 @@ def resolve_dependency_to_node(
                 node = Node.objects.filter(team=team, dag=dag, saved_query=matview_saved_query).first()
                 if node is not None:
                     return node
-            # warehouse table (also the fallback when the matview's node lives in another dag)
+                reference = _managed_cross_dag_reference(team, dag, dependency_name, matview_saved_query)
+                if reference is not None:
+                    return reference
+                return Node.objects.get(team=team, dag=dag, saved_query=matview_saved_query, name=dependency_name)
+            # warehouse table
             warehouse_table = (
                 DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
             )
