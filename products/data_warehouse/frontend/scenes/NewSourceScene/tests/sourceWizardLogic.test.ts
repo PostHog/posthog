@@ -72,6 +72,12 @@ describe('sourceWizardLogic', () => {
                 'Invalid credentials'
             )
         })
+
+        it('never returns undefined for a 4xx with no message body', () => {
+            const message = resolveConnectErrorMessage({ status: 400 })
+            expect(message).toBeTruthy()
+            expect(message).not.toEqual('undefined')
+        })
     })
 
     describe('getDatabaseSchemaPayload', () => {

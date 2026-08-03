@@ -253,22 +253,21 @@ function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | nu
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
 
-// Turn a caught request error into user-facing copy for the connect flow. A thrown fetch never
-// reaches an HTTP status, so its message is the raw "Failed to fetch", most often an ad blocker or
-// browser extension blocking the request, which is unactionable on its own. Prefer any API-provided
-// message, then name the likely cause for a network-level failure, then fall back to a server hint.
+// A thrown fetch has no HTTP status, so its message is the raw "Failed to fetch", most often an ad
+// blocker or extension blocking the request. Name that likely cause instead of echoing it.
 export function resolveConnectErrorMessage(e: any): string {
     const apiMessage = e?.data?.message ?? e?.detail
     if (apiMessage) {
         return apiMessage
     }
-    if (e?.status === undefined || e?.status === 0) {
+    if (e?.status === undefined || e?.status === null || e?.status === 0) {
         return "PostHog couldn't reach the server to set up your source. This is often an ad blocker or browser extension blocking the request. Try pausing it or switching networks, then try again."
     }
     if (e?.status >= 500) {
         return 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
     }
-    return e?.message
+    // A 4xx without a message body would otherwise toast "undefined".
+    return e?.message ?? 'Something went wrong setting up your source. Please try again.'
 }
 
 const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
