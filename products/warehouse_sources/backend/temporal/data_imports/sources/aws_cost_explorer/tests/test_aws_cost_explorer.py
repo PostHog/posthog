@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
     error_for_response,
     get_rows,
     normalize_results,
+    resolve_end_date,
     resolve_start_date,
     send_operation,
     validate_credentials,
@@ -148,6 +149,19 @@ class TestResolveStartDate:
 
     def test_ignores_an_unparseable_watermark(self) -> None:
         assert resolve_start_date("2024-01-01", COST_DAILY, True, "not-a-date", self.END) == dt.date(2024, 1, 1)
+
+
+class TestResolveEndDate:
+    TODAY = dt.date(2024, 6, 1)
+
+    def test_cost_and_usage_reaches_through_tomorrow_for_todays_estimated_row(self) -> None:
+        assert resolve_end_date(COST_DAILY, self.TODAY) == dt.date(2024, 6, 2)
+
+    @pytest.mark.parametrize("endpoint_config", [RESERVATION, SAVINGS_PLANS])
+    def test_utilization_endpoints_stop_at_today(self, endpoint_config: Any) -> None:
+        # AWS rejects an `End` date that isn't strictly before today for these operations with
+        # DataUnavailableException, unlike Cost and Usage which returns partial estimated data.
+        assert resolve_end_date(endpoint_config, self.TODAY) == self.TODAY
 
 
 class TestBuildPayload:

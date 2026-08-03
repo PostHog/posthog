@@ -136,6 +136,17 @@ def resolve_start_date(
     return min(start, end)
 
 
+def resolve_end_date(endpoint_config: CostExplorerEndpointConfig, today: dt.date) -> dt.date:
+    """The exclusive upper bound for this run's request window.
+
+    Cost and Usage reports return a partial, `Estimated`-flagged row for the still-open current
+    day, so requesting through tomorrow captures it. Utilization reports (Reservation, Savings
+    Plans) have no such estimate: AWS rejects an `End` date that isn't strictly before today with
+    `DataUnavailableException`, so the window must stop at today instead.
+    """
+    return today + dt.timedelta(days=1) if endpoint_config.metrics else today
+
+
 def build_windows(start: dt.date, end: dt.date, window_days: int) -> list[TimeWindow]:
     """Split [start, end) into request windows. `end` is exclusive, matching `TimePeriod`."""
     windows: list[TimeWindow] = []
@@ -369,8 +380,7 @@ def get_rows(
     session = make_session(aws_secret_access_key, aws_session_token)
     credentials = Credentials(aws_access_key_id, aws_secret_access_key, aws_session_token or None)
 
-    # `End` is exclusive, so tomorrow captures today's partial (flagged estimated) too.
-    end = dt.datetime.now(dt.UTC).date() + dt.timedelta(days=1)
+    end = resolve_end_date(endpoint_config, dt.datetime.now(dt.UTC).date())
     start = resolve_start_date(
         start_date, endpoint_config, should_use_incremental_field, db_incremental_field_last_value, end
     )
