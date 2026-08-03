@@ -8,8 +8,6 @@ import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
-import { UnifiedModelSelector } from "@posthog/ui/features/sessions/components/UnifiedModelSelector";
-import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { ChannelContextChip } from "@posthog/ui/features/task-detail/components/ChannelContextChip";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useRef, useState } from "react";
@@ -123,12 +121,8 @@ interface HarnessProps
   text?: string;
   chips?: MentionChip[];
   attachments?: FileAttachment[];
-  /**
-   * `merged` is what a live session renders: one pill carrying model and
-   * effort. `split` is the older pair — a model dropdown beside an effort-only
-   * pill — still reachable from the task composer.
-   */
-  selectors?: "merged" | "split" | "none";
+  /** The merged model + effort pill a live session renders. */
+  showSelectors?: boolean;
   showMode?: boolean;
   showHistory?: boolean;
   showSteerQueue?: boolean;
@@ -141,7 +135,7 @@ function PromptInputHarness({
   text,
   chips,
   attachments,
-  selectors = "merged",
+  showSelectors = true,
   showMode = true,
   showHistory = true,
   showSteerQueue = true,
@@ -151,9 +145,6 @@ function PromptInputHarness({
 }: HarnessProps) {
   const ref = useRef<EditorHandle>(null);
   const seededRef = useRef(false);
-  const [adapter, setAdapter] = useState<AgentAdapter>("claude");
-  const [modelOption, setModelOption] =
-    useState<SessionConfigOption>(mockModelOption);
   const [reasoningOption, setReasoningOption] =
     useState<SessionConfigOption>(mockReasoningOption);
   const [modeOption, setModeOption] =
@@ -183,24 +174,13 @@ function PromptInputHarness({
           : undefined
       }
       allowBypassPermissions
-      modelSelector={
-        selectors === "split" ? (
-          <UnifiedModelSelector
-            modelOption={modelOption}
-            adapter={adapter}
-            onAdapterChange={setAdapter}
-            onModelChange={(value) =>
-              setModelOption({ ...mockModelOption, currentValue: value })
-            }
-          />
-        ) : null
-      }
+      modelSelector={null}
       reasoningSelector={
-        selectors === "none" ? null : (
+        showSelectors ? (
           <ReasoningLevelSelector
             thoughtOption={reasoningOption}
-            modelOption={selectors === "merged" ? modelOption : undefined}
-            adapter={adapter}
+            modelOption={mockModelOption}
+            adapter="claude"
             onChange={(value) =>
               setReasoningOption({
                 ...mockReasoningOption,
@@ -208,7 +188,7 @@ function PromptInputHarness({
               })
             }
           />
-        )
+        ) : null
       }
       historyButton={
         showHistory ? (
@@ -259,7 +239,7 @@ const meta: Meta<typeof PromptInputHarness> = {
     isActiveSession: true,
     enableBashMode: true,
     enableCommands: true,
-    selectors: "merged",
+    showSelectors: true,
     showMode: true,
     showHistory: true,
     showSteerQueue: true,
@@ -271,7 +251,7 @@ const meta: Meta<typeof PromptInputHarness> = {
     isLoading: { control: "boolean" },
     enableBashMode: { control: "boolean" },
     enableCommands: { control: "boolean" },
-    selectors: { control: "radio", options: ["merged", "split", "none"] },
+    showSelectors: { control: "boolean" },
     showMode: { control: "boolean" },
     showHistory: { control: "boolean" },
     showSteerQueue: { control: "boolean" },
@@ -519,14 +499,9 @@ export const SubmitBlocked: Story = {
 
 // --- Toolbar composition ---
 
-export const SplitSelectors: Story = {
-  name: "Toolbar: split model + effort pills",
-  args: { sessionId: "sb-split-selectors", selectors: "split" },
-};
-
 export const NoSelectors: Story = {
   name: "Toolbar: no model or reasoning",
-  args: { sessionId: "sb-no-selectors", selectors: "none" },
+  args: { sessionId: "sb-no-selectors", showSelectors: false },
 };
 
 export const NoMode: Story = {
@@ -548,7 +523,7 @@ export const ToolbarBare: Story = {
   name: "Toolbar: nothing but attach",
   args: {
     sessionId: "sb-bare",
-    selectors: "none",
+    showSelectors: false,
     showMode: false,
     showHistory: false,
     showSteerQueue: false,
@@ -607,15 +582,14 @@ const MATRIX: Array<{ label: string; args: Partial<HarnessProps> }> = [
   },
   { label: "Running", args: { isLoading: true, text: SAMPLE_TEXT } },
   { label: "Disabled", args: { disabled: true, text: SAMPLE_TEXT } },
-  { label: "Split model + effort", args: { selectors: "split" } },
   {
     label: "No selectors",
-    args: { selectors: "none", text: SAMPLE_TEXT },
+    args: { showSelectors: false, text: SAMPLE_TEXT },
   },
   {
     label: "Attach only",
     args: {
-      selectors: "none",
+      showSelectors: false,
       showMode: false,
       showHistory: false,
       showSteerQueue: false,
