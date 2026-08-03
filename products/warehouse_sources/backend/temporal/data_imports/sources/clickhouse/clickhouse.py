@@ -264,8 +264,8 @@ def _get_client(
     of our own SSH tunnel — the proxy blocks the tunnel's loopback bind, and no
     request would reach the forwarded port. For a customer-supplied host the
     egress proxy is the SSRF backstop and must stay in the path, so callers
-    take the tunnel flag from the helper that produced the address rather than
-    inferring it from the host looking like loopback.
+    derive the tunnel case from the same predicate the tunnel branch itself
+    uses rather than inferring it from the host looking like loopback.
     """
     attempt = 0
     while True:

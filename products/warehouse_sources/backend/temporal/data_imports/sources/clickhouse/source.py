@@ -69,6 +69,13 @@ _TEMPORARILY_UNAVAILABLE = (
     "ClickHouse is temporarily busy or unavailable and didn't accept the connection. Wait a moment and try again."
 )
 
+# Connections that skip the egress proxy don't follow redirects, so a redirecting endpoint
+# comes back as a 3xx response code instead of a request to wherever it pointed.
+_REDIRECTED = (
+    "We reached your ClickHouse host but it redirected us, and redirects aren't followed. Point the source at the "
+    "ClickHouse HTTP interface directly rather than at a proxy or load balancer in front of it."
+)
+
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
 ClickHouseErrors: dict[str, str] = {
@@ -82,6 +89,10 @@ ClickHouseErrors: dict[str, str] = {
     "name or service not known": "Could not resolve the ClickHouse host",
     "connection refused": "Could not connect to ClickHouse on the given host/port",
     "connection timed out": "Connection to ClickHouse timed out. Does your database have our IP addresses allow-listed?",
+    # Must stay above the generic "ssl" entry, which would otherwise match first and send the
+    # user to the wrong toggle. Expected over an SSH tunnel: we connect to the tunnel's local
+    # address, which a certificate issued for the database's own hostname doesn't cover.
+    "hostname mismatch": "The server's TLS certificate doesn't cover the address we connect to. Set 'Verify SSL certificate?' to No, or use a host the certificate covers.",
     "ssl": "TLS/SSL handshake failed. If your server does not use TLS, disable the HTTPS toggle.",
     # The host answered but isn't serving the ClickHouse HTTP interface on this
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
@@ -90,6 +101,10 @@ ClickHouseErrors: dict[str, str] = {
     # `_get_client` raises this when the host answers 2xx with a body that isn't a
     # ClickHouse response (a proxy/LB page, or a different service on the host/port).
     "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
+    "returned response code 301": _REDIRECTED,
+    "returned response code 302": _REDIRECTED,
+    "returned response code 307": _REDIRECTED,
+    "returned response code 308": _REDIRECTED,
     "returned response code 429": _TEMPORARILY_UNAVAILABLE,
     "returned response code 502": _TEMPORARILY_UNAVAILABLE,
     "returned response code 503": _TEMPORARILY_UNAVAILABLE,

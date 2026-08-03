@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     get_primary_keys_for_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
+    _REDIRECTED,
     _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
     ClickHouseSource,
@@ -958,6 +959,24 @@ class TestTranslateError:
         msg = f"HTTPDriver for https://host:8443 returned response code {code}"
         assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
 
+    @pytest.mark.parametrize("code", ["301", "302", "307", "308"])
+    def test_redirect_responses_name_the_redirect(self, code):
+        # Proxy-bypassing connections don't follow redirects, so the 3xx reaches the user.
+        msg = f"HTTPDriver for https://host:8443 returned response code {code}"
+        assert ClickHouseSource._translate_error(msg) == _REDIRECTED
+
+    def test_certificate_hostname_mismatch_points_at_the_verify_toggle(self):
+        # Expected when tunneling: the certificate covers the database's own hostname, not
+        # the tunnel's local address. Matching the generic "ssl" entry first would tell the
+        # user to disable HTTPS, which is the wrong toggle.
+        msg = (
+            "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: Hostname mismatch, "
+            "certificate is not valid for '127.0.0.1'"
+        )
+        translated = ClickHouseSource._translate_error(msg)
+        assert translated is not None
+        assert "Verify SSL certificate?" in translated
+
 
 class TestGetSchemas:
     """Tests `get_schemas` with a fully mocked ClickHouse client."""
@@ -1537,8 +1556,8 @@ class TestGetClientEgressProxyRouting:
                     with pytest.raises(ClickHouseConnectionError):
                         _connect_to(port=bound_port, bypass_env_proxy=bypass)
 
-        assert bool(bound_requests) is bypass
-        assert bool(proxy_requests) is not bypass
+        assert bool(bound_requests) == bypass
+        assert bool(proxy_requests) == (not bypass)
 
     def test_redirect_away_from_the_target_is_not_followed(self) -> None:
         # A bypassing connection skips the egress proxy, so following a redirect would let the
