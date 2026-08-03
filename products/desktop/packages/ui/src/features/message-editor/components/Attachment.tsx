@@ -13,6 +13,14 @@ import type { ReactNode } from "react";
 export type AttachmentUploadStatus = "uploading" | "error";
 
 /**
+ * Extensions that read better as their own mark than as text. ".JSON" is five
+ * characters crammed into a 32px square; "{}" is the same idea at a glance.
+ */
+const EXTENSION_GLYPHS: Record<string, string> = {
+  ".json": "{}",
+};
+
+/**
  * One attachment on a prompt: a square the size of the composer's other icon
  * buttons, showing the file's own picture when it has one and a document glyph
  * when it doesn't. The filename lives in the tooltip rather than beside the
@@ -39,9 +47,12 @@ export function Attachment({
   status?: AttachmentUploadStatus;
 }) {
   const extension = fileExtensionLabel(label);
+  const glyph = extension ? EXTENSION_GLYPHS[extension] : undefined;
   const face =
     preview ??
-    (extension ? (
+    (glyph ? (
+      <span className="font-medium font-mono text-[13px]">{glyph}</span>
+    ) : extension ? (
       <span className="font-medium text-[10px] uppercase">{extension}</span>
     ) : (
       <FileIcon size={16} weight="duotone" />
