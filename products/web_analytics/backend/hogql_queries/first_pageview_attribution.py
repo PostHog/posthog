@@ -5,7 +5,7 @@ from posthog.schema import HogQLQueryModifiers, PropertyOperator, SessionPropert
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import _expr_to_compare_op, property_to_expr
+from posthog.hogql.property import expr_to_compare_op, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.models.property import Property, ValueT
@@ -178,6 +178,9 @@ def first_pageview_session_filter_expr(
     `distributed_product_mode=global`, so the id set is collected once on the
     initiator rather than re-derived per shard.
     """
+    if isinstance(prop.value, list) and len(prop.value) == 0:
+        return ast.Constant(value=1)
+
     breakdown = SESSION_PROPERTY_TO_FIRST_PAGEVIEW[prop.key]
     matching_sessions = parse_select(
         """
@@ -204,7 +207,7 @@ WHERE {match}
                 if session_id_present is not None
                 else parse_expr("events.$session_id_uuid IS NOT NULL")
             ),
-            "match": _expr_to_compare_op(
+            "match": expr_to_compare_op(
                 expr=first_pageview_filter_value_expr(breakdown, modifiers=modifiers, timings=timings),
                 value=cast(ValueT, prop.value),
                 operator=prop.operator or PropertyOperator.EXACT,
