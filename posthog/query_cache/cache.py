@@ -4,6 +4,8 @@ from typing import Optional
 
 from django.conf import settings
 
+import structlog
+
 from posthog.cache_utils import OrjsonJsonSerializer
 from posthog.query_cache.failures import Budget, FailureKind, QueryFailureCache, QueryFailureRecord
 from posthog.query_cache.freshness_index import remove_last_refresh, update_target_age
@@ -11,6 +13,8 @@ from posthog.query_cache.metrics import count_cache_write_data
 from posthog.query_cache.results import fetch_entry
 from posthog.query_cache.serialization import CachedEntry, encode_split_cached_response
 from posthog.query_cache.size_tracker import TeamCacheSizeTracker
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -66,9 +70,14 @@ class QueryCache:
             fresh_response_serialized = OrjsonJsonSerializer({}).dumps(response)
         data_size = len(fresh_response_serialized)
 
-        # Set cache with per-team size limit enforcement
-        tracker = TeamCacheSizeTracker(self.team_id)
-        tracker.set(self.cache_key, fresh_response_serialized, data_size, settings.CACHED_RESULTS_TTL)
+        # Set cache with per-team size limit enforcement. Caching is an optimization: the query
+        # has already run, so a bookkeeping failure here must not fail the response.
+        try:
+            tracker = TeamCacheSizeTracker(self.team_id)
+            tracker.set(self.cache_key, fresh_response_serialized, data_size, settings.CACHED_RESULTS_TTL)
+        except Exception:
+            logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
+            return
 
         if target_age:
             update_target_age(

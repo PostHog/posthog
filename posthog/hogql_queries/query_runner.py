@@ -45,6 +45,8 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPToolCallBreakdownQuery,
+    MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
     MCPToolCategoryCountsQuery,
     MCPToolDailyStatsQuery,
@@ -148,6 +150,8 @@ from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
+
+from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
@@ -365,6 +369,8 @@ RunnableQueryNode = Union[
     EndpointsUsageTrendsQuery,
     MetricsQuery,
     MCPHarnessBreakdownQuery,
+    MCPToolCallBreakdownQuery,
+    MCPToolCallsAndErrorsQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
     MCPToolFailureOccurrencesQuery,
@@ -714,6 +720,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "WebBotsTableQuery":
+        from products.web_analytics.backend.hogql_queries.web_bots import WebBotsTableQueryRunner
+
+        return WebBotsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "WebVitalsPathBreakdownQuery":
         from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import (
             WebVitalsPathBreakdownQueryRunner,
@@ -924,6 +942,28 @@ def get_query_runner(
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCallBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCallBreakdownQueryRunner
+
+        return MCPToolCallBreakdownQueryRunner(
+            query=cast(MCPToolCallBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolCallsAndErrorsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolCallsAndErrorsQueryRunner
+
+        return MCPToolCallsAndErrorsQueryRunner(
+            query=cast(MCPToolCallsAndErrorsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1372,6 +1412,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         _modifiers = modifiers or extract_modifiers(query)
         self.modifiers = create_default_modifiers_for_team(team, _modifiers)
         self.query = query
+        self.modifiers.webAnalyticsFirstPageviewFilters = resolve_first_pageview_filters_modifier(
+            query, team, self.modifiers.webAnalyticsFirstPageviewFilters
+        )
         self.__post_init__()
 
     def __post_init__(self):

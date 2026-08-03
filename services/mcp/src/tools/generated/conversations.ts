@@ -13,7 +13,13 @@ import {
     ConversationsTicketsRetrieveParams,
     ConversationsViewsListQueryParams,
 } from '@/generated/conversations/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    withAgentNote,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithAgentNote,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ConversationsTicketsListSchema = ConversationsTicketsListQueryParams
@@ -130,7 +136,7 @@ const ConversationsTicketsRetrieveSchema = ConversationsTicketsRetrieveParams.om
 
 const conversationsTicketsRetrieve = (): ToolBase<
     typeof ConversationsTicketsRetrieveSchema,
-    WithPostHogUrl<Schemas.Ticket>
+    WithAgentNote<WithPostHogUrl<Schemas.Ticket>>
 > => ({
     name: 'conversations-tickets-retrieve',
     schema: ConversationsTicketsRetrieveSchema,
@@ -164,7 +170,10 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'created_at',
             'updated_at',
         ]) as typeof result
-        return await withPostHogUrl(context, filtered, `/support/tickets/${filtered.id}`)
+        return withAgentNote(
+            await withPostHogUrl(context, filtered, `/support/tickets/${filtered.id}`),
+            "The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To surface them, call inbox-reports-list with source_id set to this ticket's `id` and source_product=conversations (add include_all_statuses=true to include dismissed ones). Those reports hold the investigation and findings; the ticket's own messages do not."
+        )
     },
 })
 

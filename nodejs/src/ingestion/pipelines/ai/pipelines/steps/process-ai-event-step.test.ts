@@ -52,6 +52,10 @@ describe('processAiEventStep', () => {
         '$ai_trace',
         '$ai_metric',
         '$ai_feedback',
+        '$ai_tag',
+        '$ai_generation_summary',
+        '$ai_trace_summary',
+        '$ai_evaluation_report',
     ])('calls processAiEvent for %s event', async (eventName) => {
         const event = createTestEvent({ event: eventName, properties: { $ai_model: 'gpt-4' } })
         const step = createProcessAiEventStep()

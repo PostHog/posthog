@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, cast
 
 from posthog.schema import (
@@ -9,21 +10,24 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.marketstack import (
     MarketstackSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.marketstack.marketstack import (
+    MARKETSTACK_API_VERSION_V1,
+    MARKETSTACK_API_VERSION_V2,
     MarketstackResumeConfig,
     marketstack_source,
     validate_credentials as validate_marketstack_credentials,
@@ -35,9 +39,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v1",)
-    default_version = "v1"
-    api_docs_url = "https://marketstack.com/documentation"
+    supported_versions = (MARKETSTACK_API_VERSION_V1, MARKETSTACK_API_VERSION_V2)
+    default_version = MARKETSTACK_API_VERSION_V2
+    # Vendor deprecated v1 for use after this date; v2 is the current GA API.
+    deprecated_versions = (VersionDeprecation(version=MARKETSTACK_API_VERSION_V1, sunset_at=date(2025, 6, 30)),)
+    api_docs_url = "https://marketstack.com/documentation_v2"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -79,6 +85,8 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
+        # The endpoint catalog and incremental fields are identical across v1 and v2 (v2 only adds
+        # response columns, absorbed by the auto-inferred schema), so discovery ignores the pin.
         schemas = [
             SourceSchema(
                 name=endpoint.name,
@@ -105,7 +113,9 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_marketstack_credentials(config.access_key):
+        # Pre-creation calls pass no pin and resolve to default_version (what new rows are stamped
+        # with); a pinned source revalidates against its own version's base URL.
+        if validate_marketstack_credentials(config.access_key, self.resolve_api_version(api_version)):
             return True, None
 
         return False, "Invalid Marketstack access key"
@@ -125,6 +135,7 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            api_version=self.resolve_api_version(inputs.api_version),
             symbols=config.symbols,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field

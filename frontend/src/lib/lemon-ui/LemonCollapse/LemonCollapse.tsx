@@ -1,7 +1,7 @@
 import './LemonCollapse.scss'
 
 import clsx from 'clsx'
-import React, { ReactNode, useEffect, useMemo, useState } from 'react'
+import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
@@ -131,7 +131,8 @@ function LemonCollapsePanel({
     onHeaderClick,
 }: LemonCollapsePanelProps): JSX.Element {
     const { height: contentHeight, ref: contentRef } = useResizeObserver({ box: 'border-box' })
-    const { rendered, shown } = useAnimatedPresence(isExpanded, 200)
+    const bodyRef = useRef<HTMLDivElement>(null)
+    const { rendered, shown } = useAnimatedPresence(isExpanded, 200, bodyRef)
 
     const { headerChildren, headerProps } = useMemo((): HeaderDefinition => {
         if (header && typeof header === 'object' && 'children' in header) {
@@ -174,6 +175,7 @@ function LemonCollapsePanel({
 
             {rendered && (
                 <div
+                    ref={bodyRef}
                     className="LemonCollapsePanel__body"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ height: shown ? contentHeight : 0 }}

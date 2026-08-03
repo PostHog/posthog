@@ -1,22 +1,13 @@
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
-import { IconBug, IconCursorClick, IconGlobe, IconKeyboard, IconPlay } from '@posthog/icons'
+import { IconBug, IconCursorClick, IconGlobe, IconKeyboard } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
-import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
-import ViewRecordingButton, {
-    RecordingPlayerType,
-    useRecordingButton,
-} from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 
 import type {
     SessionProblemEventEntryApi,
@@ -109,37 +100,14 @@ function TimelineRow({
     )
 }
 
-/** Live card for a session-replay problem segment: thumbnail preview, replay link-out, and an event timeline. */
+/** Live card for a session-replay problem segment: a replay link-out and an event timeline. */
 export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Element {
-    const { currentTeamId } = useValues(teamLogic)
     const [showAllEvents, setShowAllEvents] = useState(false)
-    const [thumbnailFailed, setThumbnailFailed] = useState(false)
 
     const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtraApi
     const problemTag = PROBLEM_TYPE_TAG[extra.problem_type]
 
-    const hasThumbnail = extra.exported_asset_id !== undefined && currentTeamId !== null && !thumbnailFailed
-    const thumbnailSrc = hasThumbnail
-        ? getExportsContentRetrieveUrl(String(currentTeamId), extra.exported_asset_id as number)
-        : undefined
-
     const segmentSeekTime = recordingSeekTime(extra.session_start_time ?? undefined, extra.start_time)
-
-    // Mirror ViewRecordingButton's `checkRecordingExists`: batch-check the recording so the play
-    // affordance disables (rather than opening an empty player) when the recording wasn't captured.
-    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
-    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
-    useEffect(() => {
-        checkRecordingInfo(extra.session_id)
-    }, [extra.session_id, checkRecordingInfo])
-    const hasRecording = getRecordingExists(extra.session_id)
-
-    const { onClick: openRecording, disabledReason } = useRecordingButton({
-        sessionId: extra.session_id,
-        timestamp: segmentSeekTime,
-        openPlayerIn: RecordingPlayerType.Modal,
-        hasRecording,
-    })
 
     const events = extra.event_history ?? []
     const visibleEvents = showAllEvents ? events : events.slice(0, TIMELINE_PREVIEW_COUNT)
@@ -167,35 +135,17 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 </LemonMarkdown>
             )}
 
-            {/* The 16:9 preview frame is itself the play affordance — clicking it opens the recording at the segment. */}
-            <button
-                type="button"
-                onClick={openRecording}
-                disabled={!!disabledReason}
-                title={typeof disabledReason === 'string' ? disabledReason : undefined}
-                aria-label="Play recording"
-                className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
-            >
-                {thumbnailSrc && (
-                    <img
-                        src={thumbnailSrc}
-                        alt={`Recording preview for ${extra.segment_title}`}
-                        className="absolute inset-0 size-full object-cover"
-                        onError={() => setThumbnailFailed(true)}
-                    />
-                )}
-                <div
-                    className={clsx(
-                        'absolute inset-0 flex items-center justify-center transition-colors',
-                        thumbnailSrc ? 'bg-black/20 group-hover:bg-black/30' : 'group-hover:bg-fill-highlight-100'
-                    )}
-                >
-                    <IconPlay
-                        className={clsx('size-10 drop-shadow', thumbnailSrc ? 'text-white' : 'text-tertiary')}
-                        aria-hidden
-                    />
-                </div>
-            </button>
+            {/* Opens the recording at the segment in the player modal; disables when it wasn't captured. */}
+            <ViewRecordingButton
+                sessionId={extra.session_id}
+                timestamp={segmentSeekTime}
+                openPlayerIn={RecordingPlayerType.Modal}
+                checkRecordingExists
+                label="View replay"
+                type="secondary"
+                size="small"
+                className="mb-2"
+            />
 
             {/* Dot-separated meta line: affected user, segment window, active/total duration. */}
             <div className="flex items-center gap-1.5 flex-wrap text-xs text-tertiary mb-2">

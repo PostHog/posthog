@@ -602,7 +602,7 @@ class CDCExtractActivity:
             if schema is None:
                 continue
 
-            activity.heartbeat()
+            self._safe_heartbeat()
 
             # raw_table has one row per source change event (before SCD2/dedup fan-out).
             events_extracted += raw_table.num_rows
@@ -991,6 +991,17 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
+    def _safe_heartbeat(self, *details: typing.Any) -> None:
+        """Heartbeat is a best-effort liveness signal, not a required step. The SDK relays a
+        sync activity's heartbeat through the worker's event loop with its own short internal
+        timeout, and a transient miss there must never abort an otherwise-healthy multi-hour
+        WAL read.
+        """
+        try:
+            activity.heartbeat(*details)
+        except Exception:
+            self.log.debug("cdc_heartbeat_failed", exc_info=True)
+
     def _make_read_heartbeat(self) -> Callable[[], None]:
         """Throttled ``activity.heartbeat`` for ``read_changes``' per-row callback.
 
@@ -1004,7 +1015,7 @@ class CDCExtractActivity:
             nonlocal last_heartbeat
             now = time.monotonic()
             if now - last_heartbeat >= CDC_READ_HEARTBEAT_INTERVAL_SECONDS:
-                activity.heartbeat()
+                self._safe_heartbeat()
                 last_heartbeat = now
 
         return heartbeat
@@ -1029,7 +1040,7 @@ class CDCExtractActivity:
         limit = CDC_MAX_CHANGES_PER_READ
         while True:
             for event in self.reader.read_changes(upto_nchanges=limit, on_row=on_row):
-                activity.heartbeat()
+                self._safe_heartbeat()
 
                 # Resolve to the schema's stored `name` so downstream keying lines up. Log
                 # unmatched drops: a silent drop here is how a name mismatch starves a table.
@@ -1133,7 +1144,7 @@ class CDCExtractActivity:
             self._confirm_position(commit_lsn)
             self.last_confirmed_lsn = commit_lsn
             self.last_end_lsn = commit_lsn
-            activity.heartbeat()
+            self._safe_heartbeat()
             return True
         return False
 
@@ -1385,6 +1396,12 @@ class CDCExtractActivity:
     def _handle_failure(self, exc: Exception) -> CDCErrorInfo:
         """Classify the failure, store the friendly message on the jobs/schemas, return the info."""
         self.log.exception("cdc_extract_failed")
+        # `exc` itself may be a dropped/killed DB connection (e.g. the source read or a write
+        # earlier in this run hit "server closed the connection unexpectedly"). Django leaves that
+        # connection in the pool until the next query touches it, so without this the job/schema
+        # writes below immediately re-fail with "the connection is closed", masking the real error
+        # and leaving jobs stuck RUNNING instead of recording the friendly failure message.
+        close_old_connections()
         info = classify_cdc_error(exc, self.adapter)
         friendly = info.friendly_message[:MAX_FRIENDLY_MESSAGE_LENGTH]
         self._fail_created_jobs(friendly)

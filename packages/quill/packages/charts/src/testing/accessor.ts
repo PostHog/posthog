@@ -63,6 +63,8 @@ interface SlopeLegendItemSummary {
 export interface HogChart<Meta = unknown> {
     /** The wrapper div of this chart. */
     element: HTMLElement
+    /** The static (data) canvas, as opposed to the `aria-hidden` hover overlay. */
+    canvas: HTMLCanvasElement
     /** Number of non-excluded data series rendered (read from the chart's aria-label). */
     seriesCount: number
     /** Visible y-axis tick labels (left axis). */
@@ -175,6 +177,7 @@ export function getHogChart<Meta = unknown>(
 
     return {
         element: wrapper,
+        canvas,
         seriesCount,
         get hasRightAxis(): boolean {
             return wrapper.querySelectorAll('[data-attr="hog-chart-axis-tick-yr"]').length > 0

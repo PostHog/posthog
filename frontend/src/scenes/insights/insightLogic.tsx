@@ -517,6 +517,18 @@ export type insightLogicType = MakeLogicType<
     insightLogicMeta
 >
 
+export function insightOverridesPresent(
+    filtersOverride?: DashboardFilter | null,
+    variablesOverride?: Record<string, HogQLVariable> | null,
+    tileFiltersOverride?: TileFilters | null
+): boolean {
+    return (
+        !isDashboardFilterEmpty(filtersOverride) ||
+        (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
+        !isDashboardFilterEmpty(tileFiltersOverride)
+    )
+}
+
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({ filtersOverride: null, variablesOverride: null, tileFiltersOverride: null } as InsightLogicProps),
     key((props) => keyForInsightLogicProps('new')(props)),
@@ -615,10 +627,21 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 ) => {
                     await breakpoint(100)
                     try {
+                        // Overrides are merged into the query before caching, giving the overridden
+                        // variant a cache key of its own that no scheduled refresh warms. A plain
+                        // `async` read returns `result: null` on that cold key, and in dashboard
+                        // context the data node won't load on its own — the scene dead-ends on
+                        // "Chart data didn't load". Block on a genuine miss instead; warm and stale
+                        // keys behave exactly as before.
+                        const hasOverrides = insightOverridesPresent(
+                            filtersOverride,
+                            variablesOverride,
+                            tileFiltersOverride
+                        )
                         const insight = await insightsApi.getByShortId(
                             shortId,
                             undefined,
-                            'async',
+                            hasOverrides ? 'async_except_on_cache_miss' : 'async',
                             filtersOverride,
                             variablesOverride,
                             tileFiltersOverride
@@ -1003,11 +1026,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 variablesOverride: Record<string, HogQLVariable> | null,
                 tileFiltersOverride: TileFilters | null
             ) => {
-                return (
-                    !isDashboardFilterEmpty(filtersOverride) ||
-                    (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
-                    !isDashboardFilterEmpty(tileFiltersOverride)
-                )
+                return insightOverridesPresent(filtersOverride, variablesOverride, tileFiltersOverride)
             },
         ],
         editingDisabledReason: [

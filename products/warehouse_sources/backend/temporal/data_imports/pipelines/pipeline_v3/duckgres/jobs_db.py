@@ -62,6 +62,13 @@ def _latest_status_lateral(status_table: str, batch_alias: str) -> str:
 ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS = 30_000
 
 
+def is_eligibility_query_timeout(error: BaseException) -> bool:
+    """True when ``error`` is a query cancellation, the expected shape of
+    ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS tripping under a slow/loaded queue DB.
+    Callers should skip the tick and retry rather than report it as a defect."""
+    return isinstance(error, psycopg.errors.QueryCanceled)
+
+
 @asynccontextmanager
 async def _statement_timeout(conn: psycopg.AsyncConnection[Any], timeout_ms: int) -> AsyncIterator[None]:
     """Bound the wrapped query with a server-side ``statement_timeout``.
@@ -693,7 +700,7 @@ class DuckgresBatchQueue:
         hard-blocked schema (failure streak at threshold / needs_resync);
         counted separately so one wedged schema can neither trigger nor mask
         the page. Durable per-schema failure tracking lives on
-        DuckgresSinkSchemaState (this count ages out with queue retention).
+        sink state (this count ages out with queue retention).
         """
         scoped = team_ids is not None
         async with _statement_timeout(conn, ELIGIBILITY_QUERY_STATEMENT_TIMEOUT_MS), conn.cursor() as cur:

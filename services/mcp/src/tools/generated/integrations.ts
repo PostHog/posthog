@@ -165,7 +165,7 @@ const integrationsList = (): ToolBase<
                 pickResponseFields(item, ['id', 'kind', 'display_name', 'errors', 'created_at', 'created_by'])
             ),
         } as typeof result
-        return await withPostHogUrl(context, filtered, '/settings/integrations')
+        return await withPostHogUrl(context, filtered, '/settings/environment-integrations')
     },
 })
 
