@@ -129,7 +129,7 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         showStartupCapLine: [
             (s) => [s.startupCapCredits, s.displayQuota],
             (capCredits: number | null, quota: VisionQuotaApi | null) =>
-                capCredits !== null && quota?.credit_limit !== capCredits,
+                capCredits !== null && quota !== null && quota.credit_limit !== capCredits,
         ],
     }),
 

@@ -79,6 +79,11 @@ describe('visionQuotaLogic', () => {
         // A limit above the cap is displayed clamped to the cap, so the line would repeat it.
         logic.actions.loadQuotaSuccess(makeQuota({ credit_limit: STARTUP_CAP_CREDITS + 100_000 }))
         expect(logic.values.showStartupCapLine).toBe(false)
+
+        // Enrollment alone is not enough for the line: with no quota there is no limit to compare against.
+        logic.actions.loadQuotaSuccess(null)
+        expect(logic.values.showStartupCap).toBe(true)
+        expect(logic.values.showStartupCapLine).toBe(false)
     })
 
     it('loadQuota overwrites any optimistic adjustment with the server value', async () => {

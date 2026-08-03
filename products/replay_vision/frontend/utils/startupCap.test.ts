@@ -1,7 +1,17 @@
-import { makeQuota } from './quotaTestUtils'
-import { STARTUP_CAP_CREDITS, applyStartupCap } from './startupCap'
+import { BillingType, StartupProgramLabel } from '~/types'
 
-describe('applyStartupCap', () => {
+import { makeQuota } from './quotaTestUtils'
+import { STARTUP_CAP_CREDITS, applyStartupCap, startupCapCredits } from './startupCap'
+
+describe('startupCap', () => {
+    it.each([
+        ['billing has not loaded', null, null],
+        ['the org is not on the startup program', {} as BillingType, null],
+        ['the org is enrolled', { startup_program_label: StartupProgramLabel.YC } as BillingType, STARTUP_CAP_CREDITS],
+    ])('startupCapCredits when %s', (_name, billing: BillingType | null, expected: number | null) => {
+        expect(startupCapCredits(billing)).toBe(expected)
+    })
+
     it.each([
         ['fills in the cap when billing reports no limit', null, STARTUP_CAP_CREDITS],
         ['clamps a limit above the cap', STARTUP_CAP_CREDITS + 100_000, STARTUP_CAP_CREDITS],
