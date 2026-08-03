@@ -9220,16 +9220,6 @@
                   "table": null,
                   "type": "datetime"
               },
-              "channel_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "channel_id",
-                  "id": null,
-                  "name": "channel_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
-              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -18119,16 +18109,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
-              },
-              "channel_id": {
-                  "chain": null,
-                  "fields": null,
-                  "hogql_value": "channel_id",
-                  "id": null,
-                  "name": "channel_id",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "string"
               },
               "created_at": {
                   "chain": null,
