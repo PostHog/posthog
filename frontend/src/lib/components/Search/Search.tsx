@@ -197,6 +197,22 @@ const getIconForItem = (item: SearchItem): ReactNode => {
     return null
 }
 
+/**
+ * Cmd/Ctrl activation means "open in a new tab", so it only applies to items that navigate.
+ * Items that run an action instead (log out, theme toggle) have nothing to open, and firing
+ * their action on a new-tab request would be surprising — or destructive.
+ */
+const canOpenInNewTab = (item: SearchItem): boolean => {
+    if (!item.href || item.onSelect) {
+        return false
+    }
+    if (item.id === SETTINGS_THEME_ITEM_ID) {
+        const record = item.record as { themeMode?: UserTheme; toggleTheme?: boolean } | undefined
+        return !record?.themeMode && !record?.toggleTheme
+    }
+    return true
+}
+
 const commandItemToTreeDataItem = (item: SearchItem): TreeDataItem => {
     return {
         id: item.id,
@@ -506,6 +522,9 @@ function SearchRoot({
             if (item.disabledReason) {
                 return
             }
+            if (openInNewTab && !canOpenInNewTab(item)) {
+                return
+            }
             if (logicKey === 'command') {
                 const position = orderedItemsRef.current.findIndex((i) => i.id === item.id)
                 posthog.capture('command menu item selected', {
@@ -704,6 +723,7 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 if (
                     highlighted &&
                     !highlighted.disabledReason &&
+                    canOpenInNewTab(highlighted) &&
                     filteredItems.some((item) => item.id === highlighted.id)
                 ) {
                     e.preventDefault()
