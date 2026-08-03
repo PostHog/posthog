@@ -75,7 +75,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-create": {
-        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account. To assign users (CSM, account executive, ...), use `accounts-relationships-create` after creating the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account",
@@ -135,7 +135,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -270,7 +270,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. These are the built-in fields only; a team's own typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are the built-in fields only; a team's own typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -1040,7 +1040,7 @@
         }
     },
     "cdp-functions-create": {
-        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.\nRecipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly. For Discord, the user provides an incoming webhook URL\n   (https://discord.com/api/webhooks/...) directly — no integration needed, like a webhook.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook or\n   template-discord), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"block_id\": \"insight_alert_snooze:{event.properties.alert_id}\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"},\n           {\"type\": \"static_select\", \"action_id\": \"insight_alert_snooze\",\n            \"placeholder\": {\"type\": \"plain_text\", \"text\": \"Snooze…\"},\n            \"options\": [\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 hour\"}, \"value\": \"{event.properties.alert_id}|1h\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 6 hours\"}, \"value\": \"{event.properties.alert_id}|6h\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 day\"}, \"value\": \"{event.properties.alert_id}|1d\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 week\"}, \"value\": \"{event.properties.alert_id}|1w\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"Pick a date & time…\"}, \"value\": \"{event.properties.alert_id}|custom\"}\n            ]}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n     # Discord — incoming webhook URL (https://discord.com/api/webhooks/...). No integration.\n     # Override content with the same shape the alert-wizard UI uses, so agent-created and\n     # UI-created alerts produce identical Discord messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-discord in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"webhookUrl\": {\"value\": \"<discord_webhook_url>\"},\n       \"content\": {\"value\": \"**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\\n{event.properties.breaches}\\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n     }\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.\n\nAfter a successful create, do not stop at a silent success: in chat, tell the user the function was created and offer a link to it. Build the link with the generate-app-url tool, path template /functions/{id} and the created function's id. Never share a URL read from the function's inputs — those are destination endpoints (e.g. incoming webhook URLs) and may grant access to the destination.",
+        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field. Create destinations disabled: test with cdp-functions-invocations-create, then enable with cdp-functions-partial-update once the config looks right. (Other types, like internal_destination below, create as sent.)\nRecipe — deliver an insight alert to Slack, a webhook, or Discord (canonical reference; alert-create / alert-update point here):\n1. Pick the integration. For Slack, call integrations-list (filter by kind=slack) to find the integration\n   id, then call integrations-channels-retrieve with that id to list channels. For a webhook, the user\n   provides the destination URL directly. For Discord, the user provides an incoming webhook URL\n   (https://discord.com/api/webhooks/...) directly — no integration needed, like a webhook.\n\n2. Dedupe before creating. Call cdp-functions-list with type=internal_destination and limit=1000; the\n   response now includes filters. Look for an existing function whose filters.properties has an entry\n   with key=alert_id and value equal to <alert.id>. If one exists, call cdp-functions-partial-update on\n   that id; if not, proceed to step 3. (Paginate until you have checked every page or found a match.)\n\n3. Create. Use type=internal_destination, template_id=template-slack (or template-webhook or\n   template-discord), and:\n     filters = {\n       \"events\": [{\"id\": \"$insight_alert_firing\", \"type\": \"events\"}],\n       \"properties\": [{\"key\": \"alert_id\", \"value\": \"<alert.id>\", \"operator\": \"exact\", \"type\": \"event\"}]\n     }\n     # Slack. Channel id is preferred (e.g. C0123ABC); \"#general\" is also accepted.\n     # Override text + blocks with the same shape the alert-wizard UI uses, so\n     # agent-created and UI-created alerts produce identical Slack messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-slack in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"Alert triggered: {event.properties.insight_name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"Alert '{event.properties.alert_name}' firing for insight '{event.properties.insight_name}'\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"{event.properties.breaches}\"}},\n         {\"type\": \"context\", \"elements\": [{\"type\": \"mrkdwn\",\n           \"text\": \"Project: <{project.url}|{project.name}>\"}]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"block_id\": \"insight_alert_snooze:{event.properties.alert_id}\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Insight\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}\"},\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Alert\"},\n            \"url\": \"{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"},\n           {\"type\": \"static_select\", \"action_id\": \"insight_alert_snooze\",\n            \"placeholder\": {\"type\": \"plain_text\", \"text\": \"Snooze…\"},\n            \"options\": [\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 hour\"}, \"value\": \"{event.properties.alert_id}|1h\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 6 hours\"}, \"value\": \"{event.properties.alert_id}|6h\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 day\"}, \"value\": \"{event.properties.alert_id}|1d\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"For 1 week\"}, \"value\": \"{event.properties.alert_id}|1w\"},\n              {\"text\": {\"type\": \"plain_text\", \"text\": \"Pick a date & time…\"}, \"value\": \"{event.properties.alert_id}|custom\"}\n            ]}\n         ]}\n       ]}\n     }\n     # Webhook — must be an https:// URL.\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n     # Discord — incoming webhook URL (https://discord.com/api/webhooks/...). No integration.\n     # Override content with the same shape the alert-wizard UI uses, so agent-created and\n     # UI-created alerts produce identical Discord messages.\n     # Source of truth: HOG_FUNCTION_SUB_TEMPLATES['insight-alert-firing'] for\n     # template-discord in frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts.\n     inputs = {\n       \"webhookUrl\": {\"value\": \"<discord_webhook_url>\"},\n       \"content\": {\"value\": \"**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\\n{event.properties.breaches}\\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}\"}\n     }\n\n4. $insight_alert_firing event properties available for templating: alert_id, alert_name, insight_name,\n   insight_id (short_id), state (always \"Firing\" — the event is only emitted on a firing transition,\n   not on recovery), last_checked_at (ISO 8601 string or null), breaches (human-readable summary, e.g.\n   \"Series A is below 1000\"), and detector metadata: alert_mode (always present), detector_type and\n   ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is\n   available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do\n   not reference value, threshold_lower, or insight_url — those are not emitted.\n\nAfter a successful create, do not stop at a silent success: in chat, tell the user the function was created and offer a link to it. Build the link with the generate-app-url tool, path template /functions/{id} and the created function's id. Never share a URL read from the function's inputs — those are destination endpoints (e.g. incoming webhook URLs) and may grant access to the destination.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Create function",
@@ -1067,8 +1067,36 @@
             "readOnlyHint": false
         }
     },
+    "cdp-functions-discard-draft": {
+        "description": "Throw away the config staged on a function, leaving the live config untouched. Idempotent — discarding when nothing is staged is a no-op. Returns 400 when drafts aren't enabled for the project.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Discard staged changes",
+        "title": "Discard staged changes",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-get-revision": {
+        "description": "Get one version of a function's config by version number, including the full snapshot (hog, inputs_schema, inputs, filters, mappings, masking) as it was at that version. Secret input values are never included. Use cdp-functions-list-revisions first to find the version you want.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Get function revision",
+        "title": "Get function revision",
+        "required_scopes": ["hog_function:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "cdp-functions-invocations-create": {
-        "description": "Test-invoke a function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests.",
+        "description": "Test-invoke a function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests. To test config that is staged for review, pass 'use_draft: true' instead of a 'configuration' — staged secret inputs are used, so the test exercises exactly what publishing would ship.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Test-invoke function",
@@ -1087,6 +1115,20 @@
         "feature": "hog_functions",
         "summary": "List functions",
         "title": "List functions",
+        "required_scopes": ["hog_function:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-list-revisions": {
+        "description": "List a function's config versions, newest first — one per change to its live config, with who made it and when. The config itself is not included; fetch a single version with cdp-functions-get-revision, then stage it for review with cdp-functions-restore-revision. Returns 400 when revision history isn't enabled for the project.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "List function revisions",
+        "title": "List function revisions",
         "required_scopes": ["hog_function:read"],
         "annotations": {
             "destructiveHint": false,
@@ -1124,7 +1166,7 @@
         }
     },
     "cdp-functions-partial-update": {
-        "description": "Partially update a function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the cdp-functions-delete tool instead.",
+        "description": "Partially update a function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the cdp-functions-delete tool instead.\nOn a destination that is currently enabled, config edits (hog, inputs_schema, inputs, filters, mappings, masking) are staged for review rather than applied — they show up as 'draft' on the function and do not change what is running. Name, description and enable/disable still apply immediately, except that enabling a function with staged config is refused until it is published or discarded. Tell the user what you staged and that they need to publish it; publish it yourself only when they ask, with cdp-functions-publish. Discard it with cdp-functions-discard-draft. To test a staged config before publishing, call cdp-functions-invocations-create with 'use_draft: true'. Optionally pass 'base_updated_at' (the draft_updated_at or updated_at you last read) to fail with 409 instead of overwriting a concurrent edit.",
         "category": "Functions",
         "feature": "hog_functions",
         "summary": "Update function",
@@ -1133,6 +1175,20 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-publish": {
+        "description": "Apply the config staged on a function to what is actually running. Two steps, and the first is mandatory on an enabled function: call it without 'confirm' to see which config fields would change and get a 'confirm_token', then call it again with confirm=true and that token. The token expires after 15 minutes, and any further edit to either the staged config or the live config invalidates it (409) — so you always publish exactly what you previewed, and never silently overwrite someone else's edit. A disabled function processes nothing, so publishing into one skips the token. Returns 400 when nothing is staged, when the token is missing or expired, or when drafts aren't enabled for the project.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Publish staged changes",
+        "title": "Publish staged changes",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -1146,6 +1202,20 @@
         "required_scopes": ["hog_function:write"],
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-restore-revision": {
+        "description": "Roll a function back to an earlier version by staging that version's config for review. Nothing goes live here — finish with cdp-functions-publish so the rollback is previewed and confirmed like any other change. Returns 409 when config is already staged; pass overwrite=true to replace it.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Restore function revision",
+        "title": "Restore function revision",
+        "required_scopes": ["hog_function:write"],
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

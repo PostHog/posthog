@@ -54,7 +54,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.clickhouse.query_tagging import Feature, tag_queries
-from posthog.event_usage import EventSource, get_event_source, report_user_action
+from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team
 from posthog.models.filters import Filter
 from posthog.plugins.plugin_server_api import (
@@ -2365,13 +2365,6 @@ def mint_publish_confirm_token(hog_flow: HogFlow) -> str:
 # caller saw the recipient count for the filters being dispatched. Short max-age keeps it fresh.
 AUDIENCE_CONFIRM_TOKEN_MAX_AGE = timedelta(minutes=15)
 _AUDIENCE_CONFIRM_SALT = "hogflow-batch-audience"
-
-# Surfaces where an LLM drives the request through a managed channel (classification is stamped by
-# the harness, not self-reported by the model). These get the audience-confirm gate; the web builder
-# has its own confirm UI, and headless callers (raw API keys, Terraform) dispatch in one call.
-AGENT_EVENT_SOURCES = frozenset(
-    {EventSource.MCP, EventSource.POSTHOG_CODE, EventSource.WIZARD, EventSource.CLI, EventSource.POSTHOG_AI}
-)
 
 
 def _audience_confirm_value(
