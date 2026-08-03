@@ -371,7 +371,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     } = useValues(sqlEditorLogic)
     const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
     const {
-        updateView,
+        reviewViewUpdate,
         updateInsight,
         closeEditingObject,
         saveAsInsight,
@@ -599,7 +599,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 >
                                     <LemonButton
                                         onClick={() =>
-                                            updateView({
+                                            reviewViewUpdate({
                                                 id: editingView.id,
                                                 query: {
                                                     ...sourceQuery.source,

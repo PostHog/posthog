@@ -13,6 +13,7 @@ import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
+import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
 import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
@@ -25,7 +26,13 @@ const COLLECTION_ID = 'replay-vision-list-observations'
 export function VisionMetrics(): JSX.Element {
     const { scannerStats, chartDateFrom, chartDateTo } = useValues(replayScannersLogic)
     const { setChartDateRange } = useActions(replayScannersLogic)
-    const { quota, quotaLoading } = useValues(visionQuotaLogic)
+    const {
+        displayQuota: quota,
+        quotaLoading,
+        startupCapCredits,
+        showStartupCap,
+        showStartupCapLine,
+    } = useValues(visionQuotaLogic)
 
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, projectedPct } = projection
@@ -149,6 +156,14 @@ export function VisionMetrics(): JSX.Element {
                                                     Monthly limit:{' '}
                                                     <strong>{formatCreditCount(quota.credit_limit ?? 0)}</strong>
                                                 </div>
+                                                {showStartupCapLine && (
+                                                    <div>
+                                                        Startup program cap:{' '}
+                                                        <strong>
+                                                            {formatCreditCount(startupCapCredits ?? 0)}/month
+                                                        </strong>
+                                                    </div>
+                                                )}
                                                 {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
                                             </div>
                                         }
@@ -177,6 +192,9 @@ export function VisionMetrics(): JSX.Element {
                                     /month from enabled scanners. Set a billing limit in your billing settings to cap
                                     spend.
                                 </div>
+                            )}
+                            {showStartupCap && (
+                                <div className="text-xs text-muted mt-1.5">{STARTUP_CAP_EXPLANATION}</div>
                             )}
                             <div className="mt-2">
                                 <Link to={`${urls.replayVision()}?tab=usage`} className="text-xs">
