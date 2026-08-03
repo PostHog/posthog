@@ -205,8 +205,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         )
         from products.data_modeling.backend.logic.schedule_reconcile import (
             apply_saved_query_frequency_target,
+            maybe_bootstrap_dag_to_tiers,
             tiered_schedules_enabled,
         )
+        from products.data_modeling.backend.models.node import Node
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
         from products.data_warehouse.backend.facade.api import (
             saved_query_workflow_exists,
@@ -219,7 +221,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # create or revive a per-query v1 schedule. This Temporal lookup stays inside the try so
             # that, if it fails, we honor the failure contract below rather than leaving
             # is_materialized=True with no schedule backing it.
-            if self.id in get_v2_saved_query_ids([self.id]):
+            on_v2 = self.id in get_v2_saved_query_ids([self.id])
+            if not on_v2:
+                # Nothing creates a DAG's first v2 schedule outside the migration commands, so a
+                # brand-new team would fall through to v1 forever. Bootstrap it instead — declined
+                # unless the DAG has never been scheduled at all.
+                node = Node.objects.filter(team_id=self.team_id, saved_query_id=self.id).select_related("dag").first()
+                if node is not None and node.dag is not None:
+                    on_v2 = maybe_bootstrap_dag_to_tiers(node.dag)
+
+            if on_v2:
                 # Tiered v2: the interval is one-shot transport for frequency intent — consume
                 # it into the node target(s) and reconcile. Validation raises before the
                 # nulling below, so a rejected frequency stays visible for retry. A call with

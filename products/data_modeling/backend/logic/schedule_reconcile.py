@@ -37,7 +37,13 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import async_connect, sync_connect
-from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule, delete_schedule
+from posthog.temporal.common.schedule import (
+    a_create_schedule,
+    a_delete_schedule,
+    a_update_schedule,
+    delete_schedule,
+    schedule_exists,
+)
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
 
 from products.data_modeling.backend.logic.cohort_scheduling import (
@@ -119,6 +125,54 @@ def _reconcile_dag_best_effort(dag: DAG) -> None:
         reconcile_dag_schedules(dag, require_tiered=True, graph=graph)
     except Exception as error:
         logger.exception("Freshness schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
+        capture_exception(error)
+
+
+def dag_has_live_v1_schedules(dag: DAG) -> bool:
+    """Whether any of the DAG's schedulable saved queries still has a live v1 per-query schedule.
+
+    Short-circuits on the first hit, so an unmigrated DAG — where the first query checked almost
+    always has one — costs a single Temporal call.
+    """
+    temporal = sync_connect()
+    for saved_query_id in schedulable_nodes(dag).values_list("saved_query_id", flat=True):
+        if saved_query_id is None:
+            continue
+        if schedule_exists(temporal, schedule_id=str(saved_query_id)):
+            return True
+    return False
+
+
+def maybe_bootstrap_dag_to_tiers(dag: DAG) -> bool:
+    """Put a never-scheduled DAG straight onto cadence tiers. Returns whether it is now on v2.
+
+    Callers reach this only once the v2 lookup has said the DAG has no `execute-dag` schedule.
+    Adding "and no live v1 schedules either" identifies a DAG that nothing has ever scheduled —
+    a new team's first materialization — where seeding tiers cannot double-schedule anything.
+    That is the one safe moment to do it: without this a fresh DAG mints a v1 per-query schedule
+    (v2 is otherwise created only by the migration commands), so every new team is born on v1 and
+    the v1 population grows on its own.
+
+    A DAG carrying live v1 schedules is deliberately left alone — tiers next to them would
+    materialize everything twice. It stays for a migration command to convert and sweep.
+
+    Targets are seeded inside the caller's transaction; the Temporal writes are deferred to
+    commit so a rolled-back enable cannot leak schedules.
+    """
+    if not tiered_schedules_enabled(dag.team):
+        return False
+    if dag_has_live_v1_schedules(dag):
+        return False
+    persist_seed_targets(dag)
+    transaction.on_commit(lambda: _bootstrap_dag_best_effort(dag))
+    return True
+
+
+def _bootstrap_dag_best_effort(dag: DAG) -> None:
+    try:
+        reconcile_dag_schedules(dag)
+    except Exception as error:
+        logger.exception("Freshness schedule bootstrap failed", dag_id=str(dag.id), team_id=dag.team_id)
         capture_exception(error)
 
 
