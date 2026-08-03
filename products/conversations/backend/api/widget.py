@@ -80,21 +80,31 @@ def _identity_secrets(team: Team) -> list[tuple[str, str]]:
     """(source, secret) pairs to verify a hash against, preferred store first.
 
     The conversations signing secret is where this credential is moving; the legacy
-    Team.secret_api_token stays a fallback so teams that predate the backfill (or whose
-    row drifted) keep verifying. The rotation backup is accepted too, so hashes signed
-    with the previous secret survive a rotation.
-    """
-    secrets: list[tuple[str, str]] = []
+    Team.secret_api_token stays a fallback so teams that predate the backfill keep
+    verifying. The rotation backup is accepted too, so hashes signed with the previous
+    secret survive a rotation.
 
+    While the legacy column exists it remains the revocation authority: rotating and then
+    deleting the backup has to actually revoke the old key. A signing secret matching
+    neither current legacy value is stale (a rotation whose sync didn't land), so it is
+    skipped rather than allowed to keep a revoked key working.
+    """
+    legacy_secrets: list[tuple[str, str]] = []
+    if team.secret_api_token:
+        legacy_secrets.append(("legacy_token", team.secret_api_token))
+    if team.secret_api_token_backup:
+        legacy_secrets.append(("legacy_backup", team.secret_api_token_backup))
+
+    secrets: list[tuple[str, str]] = []
     signing_secret = SigningSecret.objects.for_team(team.id).first()
     if signing_secret and signing_secret.secret:
-        secrets.append(("signing_secret", signing_secret.secret))
-    if team.secret_api_token:
-        secrets.append(("legacy_token", team.secret_api_token))
-    if team.secret_api_token_backup:
-        secrets.append(("legacy_backup", team.secret_api_token_backup))
+        legacy_values = [secret for _, secret in legacy_secrets]
+        if not legacy_values or signing_secret.secret in legacy_values:
+            secrets.append(("signing_secret", signing_secret.secret))
+        else:
+            logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
 
-    return secrets
+    return secrets + legacy_secrets
 
 
 def _verify_identity(data: dict, team: Team) -> str | None:

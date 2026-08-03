@@ -693,6 +693,27 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
 
+    def test_list_tickets_stale_signing_secret_cannot_resurrect_revoked_key(self):
+        # Rotating and then deleting the backup revokes the old key. If a rotation sync
+        # didn't land, the signing secret row still holds that key — accepting it would
+        # keep a revoked key signing identities indefinitely.
+        SigningSecret.objects.for_team(self.team.id).create(team=self.team, secret=self.secret)
+        self.team.secret_api_token = "rotated_new_secret"
+        self.team.secret_api_token_backup = None
+        self.team.save()
+        self._create_ticket()
+
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": self.identity_hash,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_list_tickets_invalid_hash_returns_forbidden(self):
         self._create_ticket()
         response = self.client.get(
