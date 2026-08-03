@@ -55,7 +55,8 @@ BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED", False, type_cast=str_to_bool
 )
 # Bounds one finalizer pass: held runs come back every pass, so an unbounded scan would grow with a
-# stalled seeder instead of staying proportional to what a pass can actually resolve.
+# stalled seeder instead of staying proportional to what a pass can actually resolve. Split evenly
+# across the finalizable kinds, so opening the person readiness gate halves the behavioral share.
 BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS: int = get_from_env(
     "BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS", 500, type_cast=int
 )

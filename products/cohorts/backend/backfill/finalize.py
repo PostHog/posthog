@@ -140,9 +140,7 @@ def finalize_backfill_runs() -> FinalizerPass:
         )
 
     # Deliberate, documented cross-team scan: the finalizer serves all teams. Each row is re-locked
-    # per team inside the loop, so the unscoped read is discovery only. Oldest-observed first, which
-    # `cohort_bfr_observed_idx` serves ordered, so the cap terminates the walk instead of bounding a
-    # sort. The kind predicate is a recheck along that walk, not a leading column, and it does two
+    # per team inside the loop, so the unscoped read is discovery only. The kind predicate does two
     # jobs: while `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` is off it holds person runs in
     # `reconciling` rather than stamping them, and it is what makes "a kind with no stamp is never
     # discovered", rather than "is discovered and then raises", protect `_STAMP_BY_KIND`.
@@ -150,7 +148,10 @@ def finalize_backfill_runs() -> FinalizerPass:
     # One query per kind, each with its own slice of the budget: the person backlog parked while
     # the readiness gate was off all sorts ahead of live behavioral runs under
     # `reconcile_observed_at`, so a single shared cap would hand it the entire budget for the first
-    # passes after the gate opens.
+    # passes after the gate opens. Per-kind equality is also what keeps the walk cheap:
+    # `cohort_bfr_reconciling_idx` leads with `backfill_kind`, so each query enters the index at its
+    # own kind and reads `reconcile_observed_at` already ordered — the cap terminates the walk
+    # rather than bounding a sort, and neither kind pays for the other's parked backlog.
     kinds = _finalizable_kinds()
     per_kind = max(1, settings.BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS // len(kinds))
     observed = [

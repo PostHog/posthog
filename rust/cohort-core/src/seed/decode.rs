@@ -192,16 +192,22 @@ mod tests {
             }
         );
 
-        let mut newer_reconcile = reconcile.clone();
-        newer_reconcile["schema_version"] = serde_json::json!(2);
-        newer_reconcile["filters_hash"] = serde_json::json!("");
-        assert_eq!(
-            decode(&newer_reconcile).unwrap(),
-            DecodedSeed::UnsupportedSchema {
-                kind: "reconcile".to_string(),
-                schema_version: 2,
-            },
-        );
+        // Both reconcile kinds have to reach the unsupported-schema arm. A person tile at a future
+        // schema that missed it would count as `unknown_kind` instead, reading as "some other
+        // producer's message" rather than "this message is ours and we are too old for it".
+        for base in [&reconcile, &person_reconcile] {
+            let mut newer_reconcile = base.clone();
+            let kind = newer_reconcile["kind"].as_str().unwrap().to_string();
+            newer_reconcile["schema_version"] = serde_json::json!(2);
+            newer_reconcile["filters_hash"] = serde_json::json!("");
+            assert_eq!(
+                decode(&newer_reconcile).unwrap(),
+                DecodedSeed::UnsupportedSchema {
+                    kind,
+                    schema_version: 2,
+                },
+            );
+        }
 
         // A supported kind/schema with a malformed body is a decode error, not a skip: the probe
         // admits it, the full parse rejects it (zero count here).

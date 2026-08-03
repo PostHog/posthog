@@ -1,5 +1,7 @@
 //! App layer: the automatic reconcile-dispatch driver, dark by default. Ticked from the orchestrator
-//! poll arm after `fill_claim_slots`, it discovers seeding/reconciling runs of the configured kinds,
+//! poll arm after `fill_claim_slots`, it discovers the seeding and not-yet-observed reconciling runs
+//! of the configured kinds (an observed run's remaining work belongs to Django's finalizer, so it
+//! leaves the working set and survives only in the reconciling-run gauge, counted separately),
 //! transitions a fully-confirmed run `seeding → reconciling`, produces the reconcile control tiles,
 //! and persists the dispatch record (produce HWMs + marker-watch start positions + fence epoch)
 //! through the same store path the CLI uses. Its second, independently gated half publishes the
@@ -46,7 +48,7 @@ use crate::observability::metrics::{
     RECONCILE_ZERO_MARKER_RUNS, RUNS_OBSERVED, RUNS_RECONCILING,
 };
 use crate::store::completion::{
-    cas_run_reconciling, confirm_reconciling, discover_completions,
+    cas_run_reconciling, confirm_reconciling, count_reconciling_by_kind, discover_completions,
     mark_run_observed_unreconcilable, runs_with_all_chunks_confirmed, CompletionStoreError,
     DiscoveredCompletion, ObservationParticipation, ReconcilingClaim,
 };
@@ -257,8 +259,17 @@ impl CompletionDriver {
 
         let now = Utc::now();
         // Per kind, not summed: "person runs are piling up undispatched" is the failure this protocol
-        // exists to prevent, and it is invisible against behavioral traffic.
-        let mut reconciling: HashMap<RunKind, u64> = HashMap::new();
+        // exists to prevent, and it is invisible against behavioral traffic. Counted separately from
+        // discovery because discovery deliberately drops observed runs, and a backlog parked behind
+        // Django's readiness gate is made entirely of those.
+        let reconciling =
+            match count_reconciling_by_kind(&self.pool, &self.allowlist, self.kinds).await {
+                Ok(counts) => Some(counts),
+                Err(error) => {
+                    warn!(error = %error, "counting reconciling runs failed");
+                    None
+                }
+            };
         let mut oldest_stalled: Option<DateTime<Utc>> = None;
         let mut directives = Vec::new();
         let mut undispatched: HashMap<RunId, RunKind> = HashMap::new();
@@ -275,10 +286,10 @@ impl CompletionDriver {
         for completion in discovered {
             match &completion.phase {
                 CompletionPhase::Observed => {
-                    *reconciling.entry(completion.kind).or_default() += 1;
+                    // Discovery filters these out — the run's remaining work is Django's. The arm
+                    // stays because the classifier still names the state.
                 }
                 CompletionPhase::Reconciling(dispatched) => {
-                    *reconciling.entry(completion.kind).or_default() += 1;
                     // Age from the dispatch, not the run's creation: a run that legitimately spent
                     // days seeding would otherwise read as stalled-by-days the instant it dispatches.
                     track_oldest(&mut oldest_stalled, dispatched.epoch.as_datetime());
@@ -316,7 +327,6 @@ impl CompletionDriver {
                     }
                 }
                 CompletionPhase::ReconcilingUndispatched(reason) => {
-                    *reconciling.entry(completion.kind).or_default() += 1;
                     undispatched.insert(completion.run_id, completion.kind);
                     // A run holds this phase until a re-dispatch records — across a whole
                     // observe-only rollout window, if auto-dispatch is off. Count and warn once per
@@ -382,14 +392,20 @@ impl CompletionDriver {
         // only set when non-empty keeps its last reading forever once that kind drains.
         let mut undispatched_by_kind: HashMap<RunKind, u64> = HashMap::new();
         for kind in self.kinds {
-            reconciling.entry(*kind).or_default();
             undispatched_by_kind.entry(*kind).or_default();
         }
         for kind in undispatched.values() {
             *undispatched_by_kind.entry(*kind).or_default() += 1;
         }
-        for (kind, count) in &reconciling {
-            gauge!(RUNS_RECONCILING, "kind" => kind.as_str()).set(*count as f64);
+        // Left at its previous reading when the count failed: zeroing it would read as "the backlog
+        // drained" rather than "we could not tell".
+        if let Some(mut reconciling) = reconciling {
+            for kind in self.kinds {
+                reconciling.entry(*kind).or_default();
+            }
+            for (kind, count) in &reconciling {
+                gauge!(RUNS_RECONCILING, "kind" => kind.as_str()).set(*count as f64);
+            }
         }
         // A standing count: the first-sighting counter goes flat while runs stay stranded.
         for (kind, count) in &undispatched_by_kind {

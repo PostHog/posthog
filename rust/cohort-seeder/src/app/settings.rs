@@ -24,8 +24,8 @@ pub struct PersonSettings {
     pub max_concurrent_chunks: NonZeroUsize,
     pub emit_nonmatchers: bool,
     /// Whether completion discovery may surface person runs. Separate from the seed gate so the
-    /// reconcile half can be staged after the processor fleet carries the person guard — seeding a
-    /// person run is inert, dispatching its tiles to an old processor is not.
+    /// reconcile half can be staged after the processor fleet decodes `reconcile_person` tiles —
+    /// seeding a person run is inert, dispatching its tiles to an old processor is not.
     pub reconcile_dispatch: bool,
 }
 

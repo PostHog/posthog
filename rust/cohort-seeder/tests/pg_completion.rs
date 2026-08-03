@@ -22,12 +22,12 @@ use cohort_seeder::domain::{
 };
 use cohort_seeder::store::chunks::PgChunkStore;
 use cohort_seeder::store::completion::{
-    cas_run_reconciling, confirm_reconciling, discover_completions, load_current_shape_hashes,
-    load_observation_participations, mark_chunks_planned, mark_participation_completed,
-    mark_run_observed, mark_run_observed_unreconcilable, persist_marker_observations,
-    persist_observation_ends, read_planning_stamp, record_participation_partial,
-    record_participation_shortfall, runs_with_all_chunks_confirmed, CompletionStoreError,
-    CurrentShapeHash, PlanningStampOutcome,
+    cas_run_reconciling, confirm_reconciling, count_reconciling_by_kind, discover_completions,
+    load_current_shape_hashes, load_observation_participations, mark_chunks_planned,
+    mark_participation_completed, mark_run_observed, mark_run_observed_unreconcilable,
+    persist_marker_observations, persist_observation_ends, read_planning_stamp,
+    record_participation_partial, record_participation_shortfall, runs_with_all_chunks_confirmed,
+    CompletionStoreError, CurrentShapeHash, PlanningStampOutcome,
 };
 use cohort_seeder::store::runs::{load_reconcile_run, RunKind};
 use cohort_seeder::store::RenderedError;
@@ -722,12 +722,21 @@ async fn unreconcilable_runs_are_marked_observed_for_django() -> Result<()> {
         insert_participation(&pool, stranded, 2, 301, true, empty_pinned()).await?;
         mark_run_observed_unreconcilable(&pool, stranded, RunKind::Behavioral).await?;
 
+        let observed_stamp: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "SELECT reconcile_observed_at FROM cohort_backfill_runs WHERE id = $1",
+        )
+        .bind(stranded)
+        .fetch_one(&pool)
+        .await?;
+        ensure!(observed_stamp.is_some());
+        // Observing it is what removes it from the driver's working set: everything left is
+        // Django's, and the gauge reads it from the aggregate instead.
         let discovered = discover_completions(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
-        let phase = discovered
+        ensure!(!discovered
             .iter()
-            .find(|completion| completion.run_id == stranded)
-            .map(|completion| completion.phase.clone());
-        ensure!(phase == Some(CompletionPhase::Observed));
+            .any(|completion| completion.run_id == stranded));
+        let counts = count_reconciling_by_kind(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        ensure!(counts.get(&RunKind::Behavioral) == Some(&1));
 
         let live = insert_reconciling_run(&pool, 3).await?;
         insert_participation(&pool, live, 3, 401, false, empty_pinned()).await?;
@@ -806,9 +815,10 @@ async fn marker_observations_or_merge_round_trip_including_bit_63() -> Result<()
 }
 
 /// Discovery classifies each completion phase, including a reconciling run whose completion
-/// columns are all NULL.
+/// columns are all NULL — and drops the observed run, whose remaining work is Django's, while the
+/// reconciling-run count still reports it.
 #[tokio::test]
-async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result<()> {
+async fn discovery_classifies_each_phase_and_drops_observed_runs() -> Result<()> {
     with_db(|pool| async move {
         let unplanned =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
@@ -862,7 +872,22 @@ async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result
                     UndispatchedReason::NeverDispatched
                 ))
         );
-        ensure!(phase(observed) == Some(CompletionPhase::Observed));
+        // Dropped from discovery rather than hydrated and matched away: a run parked here behind
+        // Django's readiness gate would otherwise cost two per-partition JSONB decodes every tick.
+        ensure!(phase(observed).is_none());
+
+        // The three reconciling runs, observed or not, all still reach the gauge.
+        let counts = count_reconciling_by_kind(&pool, &TeamAllowlist::All, BOTH_KINDS).await?;
+        ensure!(counts.get(&RunKind::Behavioral) == Some(&3));
+        ensure!(!counts.contains_key(&RunKind::PersonProperty));
+
+        // Both statements have a team-scoped variant, and dev — where this rollout lands first —
+        // is the environment that runs allowlisted.
+        let allowlisted = TeamAllowlist::Only([4, 6].into_iter().collect());
+        let scoped = discover_completions(&pool, &allowlisted, BOTH_KINDS).await?;
+        ensure!(scoped.iter().map(|row| row.run_id).eq([dispatched]));
+        let scoped_counts = count_reconciling_by_kind(&pool, &allowlisted, BOTH_KINDS).await?;
+        ensure!(scoped_counts.get(&RunKind::Behavioral) == Some(&2));
         Ok(())
     })
     .await

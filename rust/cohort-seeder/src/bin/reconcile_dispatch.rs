@@ -102,18 +102,11 @@ async fn async_main(args: Args, config: Config) -> Result<()> {
         );
         return Ok(());
     }
-    // The kind is derived from the run row, so without this the CLI would put person-scoped tiles
-    // on the seed topic while the fleet-wide gate is still off. Keyed on the reconcile gate
-    // rather than the seed gate: producing tiles is the step an old processor cannot survive, and
-    // the two are staged separately. Dry runs stay allowed.
-    if prepared.run_kind() == RunKind::PersonProperty
-        && !config.seeder_person_reconcile_dispatch_enabled
-    {
-        bail!(
-            "run {run_id:?} is a person_property run; set SEEDER_PERSON_RECONCILE_DISPATCH_ENABLED \
-             once every processor decodes reconcile_person tiles"
-        );
-    }
+    validate_person_dispatch(
+        run_id,
+        prepared.run_kind(),
+        config.seeder_person_reconcile_dispatch_enabled,
+    )?;
     eprintln!(
         "Dispatching {} active cohorts across {} seed partitions for run {}.",
         prepared.cohort_count(),
@@ -226,6 +219,19 @@ async fn acquire_claim(
     claim.context("the run changed state before it could be claimed for dispatch; re-run")
 }
 
+/// The kind is derived from the run row, so without this the CLI would put person-scoped tiles on
+/// the seed topic while the fleet-wide gate is still off. Keyed on the reconcile gate rather than
+/// the seed gate: producing tiles is the step an old processor cannot survive, and the two are
+/// staged separately. Called after the dry-run early return, so a rehearsal stays allowed.
+fn validate_person_dispatch(run_id: RunId, kind: RunKind, dispatch_enabled: bool) -> Result<()> {
+    anyhow::ensure!(
+        kind != RunKind::PersonProperty || dispatch_enabled,
+        "run {run_id:?} is a person_property run; set SEEDER_PERSON_RECONCILE_DISPATCH_ENABLED \
+         once every processor decodes reconcile_person tiles"
+    );
+    Ok(())
+}
+
 fn validate_partition_count(configured: u32) -> Result<()> {
     anyhow::ensure!(
         configured == COHORT_PARTITION_COUNT,
@@ -280,5 +286,18 @@ mod tests {
     fn cli_rejects_a_noncontract_partition_count() {
         assert!(validate_partition_count(COHORT_PARTITION_COUNT).is_ok());
         assert!(validate_partition_count(8).is_err());
+    }
+
+    /// The gate an operator would otherwise be the only thing standing between a person run and
+    /// `reconcile_person` tiles a processor predating the split skip-commits without a marker,
+    /// stranding the run a marker short of complete.
+    #[test]
+    fn cli_dispatches_a_person_run_only_once_the_reconcile_gate_is_open() {
+        let run_id = RunId(Uuid::parse_str(RUN_ID).unwrap());
+        assert!(validate_person_dispatch(run_id, RunKind::PersonProperty, false).is_err());
+        assert!(validate_person_dispatch(run_id, RunKind::PersonProperty, true).is_ok());
+        // The gate is person-only: a behavioral run dispatches whatever it is set to.
+        assert!(validate_person_dispatch(run_id, RunKind::Behavioral, false).is_ok());
+        assert!(validate_person_dispatch(run_id, RunKind::Behavioral, true).is_ok());
     }
 }

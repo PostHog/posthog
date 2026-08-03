@@ -221,9 +221,9 @@ class TestBackfillFinalizer(BaseTest):
         self.assertFalse(person_cohorts[0].is_flag_compatible)
 
     def test_mixed_cohort_earns_both_stamps_from_two_runs_on_one_cohort(self) -> None:
-        # The production shape `cohort_bfr_active_cohort_kind_uq` permits: one mixed cohort, one
-        # active run per kind. The second stamp must neither be blocked by nor clobber the first —
-        # only with both columns does the cohort become flag-compatible.
+        # The production shape `cohort_bfr_active_team_kind_uq` permits: one mixed cohort reached by
+        # two team-scoped runs, one per kind. The second stamp must neither be blocked by nor clobber
+        # the first — only with both columns does the cohort become flag-compatible.
         behavioral, cohorts = self._make_run(["completed"])
         person, _ = self._make_run(["completed"], kind=CohortBackfillKind.PERSON_PROPERTY, cohorts=cohorts)
 
@@ -267,20 +267,29 @@ class TestBackfillFinalizer(BaseTest):
         self.assertEqual(result.gated, 1)
         self.assertEqual(result.held, 0)
 
-    @override_settings(BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS=1)
+    @override_settings(BEHAVIORAL_BACKFILL_FINALIZER_MAX_RUNS_PER_PASS=2)
     def test_budget_is_sliced_per_kind_so_a_person_backlog_cannot_starve_behavioral_runs(self) -> None:
-        # The person run is older, so under one shared cap it would take the entire budget and the
-        # behavioral run would wait behind the whole parked-person backlog draining first.
-        person, _ = self._make_run(["completed"], kind=CohortBackfillKind.PERSON_PROPERTY)
+        # Two kinds split the cap one slot each. Both person runs are older than the behavioral one,
+        # so under a single shared cap they would take the whole budget. Cohort scope because
+        # `cohort_bfr_active_team_kind_uq` forbids two active team-scoped runs of one kind per team.
+        first_person, _ = self._make_run(
+            ["completed"], kind=CohortBackfillKind.PERSON_PROPERTY, scope=CohortBackfillScope.COHORT
+        )
+        second_person, _ = self._make_run(
+            ["completed"], kind=CohortBackfillKind.PERSON_PROPERTY, scope=CohortBackfillScope.COHORT
+        )
         behavioral, _ = self._make_run(["completed"])
 
         result = finalize_backfill_runs()
 
-        behavioral.refresh_from_db()
-        person.refresh_from_db()
+        for run in (first_person, second_person, behavioral):
+            run.refresh_from_db()
         self.assertEqual(result.completed, 2)
+        self.assertEqual(first_person.status, CohortBackfillRunStatus.COMPLETED)
         self.assertEqual(behavioral.status, CohortBackfillRunStatus.COMPLETED)
-        self.assertEqual(person.status, CohortBackfillRunStatus.COMPLETED)
+        # The slice still truncates, so a pass stays bounded in the runs it walks and the older
+        # person backlog does not take the behavioral slot.
+        self.assertEqual(second_person.status, CohortBackfillRunStatus.RECONCILING)
 
     def test_second_fire_is_a_noop(self) -> None:
         run, _cohorts = self._make_run(["completed", "completed"])

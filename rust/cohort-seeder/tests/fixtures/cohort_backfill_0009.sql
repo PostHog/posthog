@@ -1,4 +1,4 @@
--- Snapshot pinned to products/cohorts/backend/migrations/0010_cohort_bfr_observed_idx.py.
+-- Snapshot pinned to products/cohorts/backend/migrations/0009_cohort_backfill_per_kind_uniqueness.py.
 -- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
 
 CREATE TABLE cohort_backfill_runs (
@@ -32,8 +32,8 @@ CREATE TABLE cohort_backfill_runs (
 
 CREATE INDEX cohort_bfr_team_status_idx ON cohort_backfill_runs(team_id, status);
 CREATE INDEX cohort_bfr_team_created_idx ON cohort_backfill_runs(team_id, created_at DESC);
-CREATE INDEX cohort_bfr_observed_idx
-    ON cohort_backfill_runs(reconcile_observed_at, backfill_kind)
+CREATE INDEX cohort_bfr_reconciling_idx
+    ON cohort_backfill_runs(backfill_kind, reconcile_observed_at)
     WHERE status = 'reconciling';
 CREATE UNIQUE INDEX cohort_bfr_active_cohort_kind_uq
     ON cohort_backfill_runs(cohort_id, backfill_kind)

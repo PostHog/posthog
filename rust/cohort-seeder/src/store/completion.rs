@@ -66,6 +66,13 @@ macro_rules! confirmed_chunk_status {
 
 // The kind predicate binds the caller's allowed-kind set, mirroring `runs::discover_runs`: with the
 // person gate off, discovery binds `['behavioral']` and the person path stays inert.
+//
+// An already-observed reconciling run is excluded, because the driver has no work left for one —
+// Django terminalizes it. Returning it is not free: `completion_columns!` hydrates `reconcile_hwms`
+// and `marker_watch`, two per-partition JSONB documents, for every row. A person run observed while
+// `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` is shut holds `reconciling` until the gate opens,
+// so the pass would decode the whole parked backlog every tick to reach a gauge. That gauge comes
+// from [`count_reconciling_by_kind`] instead.
 const DISCOVER_COMPLETION_ALL: &str = concat!(
     "\n    SELECT ",
     completion_columns!(),
@@ -76,6 +83,9 @@ const DISCOVER_COMPLETION_ALL: &str = concat!(
     reconciling_status!(),
     ")",
     "\n      AND backfill_kind = ANY($1)",
+    "\n      AND (status = ",
+    seeding_status!(),
+    " OR reconcile_observed_at IS NULL)",
     "\n    ORDER BY created_at\n"
 );
 
@@ -90,7 +100,33 @@ const DISCOVER_COMPLETION_ONLY: &str = concat!(
     ")",
     "\n      AND backfill_kind = ANY($2)",
     "\n      AND team_id = ANY($1)",
+    "\n      AND (status = ",
+    seeding_status!(),
+    " OR reconcile_observed_at IS NULL)",
     "\n    ORDER BY created_at\n"
+);
+
+// Counts rather than rows, and no `reconcile_observed_at` predicate: the point is to report the
+// runs discovery drops as well as the ones it keeps. Driven by `cohort_bfr_reconciling_idx`, whose
+// partial `status = 'reconciling'` predicate and leading `backfill_kind` make this cost the live
+// reconciling set rather than the table's terminal history.
+const COUNT_RECONCILING_ALL: &str = concat!(
+    "\n    SELECT backfill_kind, count(*) AS runs",
+    "\n    FROM cohort_backfill_runs",
+    "\n    WHERE status = ",
+    reconciling_status!(),
+    "\n      AND backfill_kind = ANY($1)",
+    "\n    GROUP BY backfill_kind\n"
+);
+
+const COUNT_RECONCILING_ONLY: &str = concat!(
+    "\n    SELECT backfill_kind, count(*) AS runs",
+    "\n    FROM cohort_backfill_runs",
+    "\n    WHERE status = ",
+    reconciling_status!(),
+    "\n      AND backfill_kind = ANY($2)",
+    "\n      AND team_id = ANY($1)",
+    "\n    GROUP BY backfill_kind\n"
 );
 
 const CAS_RUN_RECONCILING: &str = concat!(
@@ -777,8 +813,10 @@ pub struct DiscoveredCompletion {
     pub phase: CompletionPhase,
 }
 
-/// Discover every seeding/reconciling run of an allowed kind and classify each. Rows whose status
-/// or kind is outside the vocabulary the query already bounds are skipped defensively.
+/// Discover every seeding run, and every not-yet-observed reconciling run, of an allowed kind, and
+/// classify each. Rows whose status or kind is outside the vocabulary the query already bounds are
+/// skipped defensively. An observed run is the driver's exit condition, so it is filtered in SQL
+/// rather than hydrated and then matched away — [`count_reconciling_by_kind`] still sees it.
 pub async fn discover_completions(
     pool: &PgPool,
     allowlist: &TeamAllowlist,
@@ -803,6 +841,42 @@ pub async fn discover_completions(
         }
     };
     Ok(rows.into_iter().filter_map(classify_row).collect())
+}
+
+/// How many runs hold `reconciling`, per kind — including the observed ones discovery drops, which
+/// is the whole point: while the person readiness gate is shut, that backlog is the only thing the
+/// `seeder_runs_reconciling` gauge has to report, and it is exactly what the driver cannot act on.
+/// One aggregate, so the gauge costs a count rather than a hydration of every parked row.
+pub async fn count_reconciling_by_kind(
+    pool: &PgPool,
+    allowlist: &TeamAllowlist,
+    kinds: &[RunKind],
+) -> Result<HashMap<RunKind, u64>, CompletionStoreError> {
+    let bound_kinds = kinds.iter().map(|kind| kind.as_str()).collect::<Vec<_>>();
+    let rows = match allowlist {
+        TeamAllowlist::All => {
+            sqlx::query_as::<_, ReconcilingCountRow>(COUNT_RECONCILING_ALL)
+                .bind(bound_kinds)
+                .fetch_all(pool)
+                .await?
+        }
+        TeamAllowlist::Only(team_ids) => {
+            let mut team_ids = team_ids.iter().copied().collect::<Vec<_>>();
+            team_ids.sort_unstable();
+            sqlx::query_as::<_, ReconcilingCountRow>(COUNT_RECONCILING_ONLY)
+                .bind(team_ids)
+                .bind(bound_kinds)
+                .fetch_all(pool)
+                .await?
+        }
+    };
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| {
+            let kind = row.backfill_kind.parse::<RunKind>().ok()?;
+            Some((kind, row.runs.max(0) as u64))
+        })
+        .collect())
 }
 
 fn classify_row(row: CompletionRunRow) -> Option<DiscoveredCompletion> {
@@ -890,6 +964,12 @@ struct CompletionRunRow {
 }
 
 #[derive(Debug, FromRow)]
+struct ReconcilingCountRow {
+    backfill_kind: String,
+    runs: i64,
+}
+
+#[derive(Debug, FromRow)]
 struct ObservationParticipationRow {
     cohort_id: i32,
     behavioral_filters_shape_hash: String,
@@ -952,5 +1032,7 @@ mod tests {
         assert!(CAS_RUN_RECONCILING.contains(confirmed_chunk_status!()));
         assert!(RUNS_WITH_ALL_CHUNKS_CONFIRMED.contains(confirmed_chunk_status!()));
         assert!(DISCOVER_COMPLETION_ALL.contains(seeding_status!()));
+        assert!(COUNT_RECONCILING_ALL.contains(reconciling_status!()));
+        assert!(COUNT_RECONCILING_ONLY.contains(reconciling_status!()));
     }
 }
