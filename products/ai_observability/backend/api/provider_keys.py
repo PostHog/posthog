@@ -28,6 +28,11 @@ from ..llm.providers.azure_openai import (
     error_field_for_validation_message,
     is_allowed_azure_endpoint,
 )
+from ..llm.providers.openai_compatible import (
+    DISALLOWED_BASE_URL_MESSAGE,
+    error_field_for_validation_message as openai_compatible_error_field,
+    is_allowed_custom_base_url,
+)
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
@@ -78,13 +83,27 @@ def validate_provider_key(provider: str, api_key: str, **kwargs) -> tuple[str, s
 def _validation_error_field(provider: str, error_message: str | None) -> str:
     """Pick the serializer field to attach a validation error to.
 
-    Defaults to `api_key` — most providers only validate the key itself. Azure OpenAI may fail
-    because of endpoint issues (unreachable, wrong domain, 404), in which case the error is
-    attributed to `azure_endpoint` so the UI can highlight the right input.
+    Defaults to `api_key` — most providers only validate the key itself. Azure OpenAI and
+    OpenAI-compatible providers may fail because of endpoint issues (unreachable, wrong domain,
+    404), in which case the error is attributed to the endpoint field so the UI can highlight
+    the right input.
     """
     if provider == LLMProvider.AZURE_OPENAI:
         return error_field_for_validation_message(error_message) or "api_key"
+    if provider == LLMProvider.OPENAI_COMPATIBLE:
+        return openai_compatible_error_field(error_message) or "api_key"
     return "api_key"
+
+
+# Write-only serializer fields that carry provider-specific config into encrypted_config.
+# Fields for other providers are dropped on write so a stray value never persists.
+_PROVIDER_CONFIG_FIELDS: dict[str, tuple[str, ...]] = {
+    LLMProvider.AZURE_OPENAI: ("azure_endpoint", "api_version"),
+    LLMProvider.OPENAI_COMPATIBLE: ("base_url",),
+}
+_ALL_PROVIDER_CONFIG_FIELDS: tuple[str, ...] = tuple(
+    {field for fields in _PROVIDER_CONFIG_FIELDS.values() for field in fields}
+)
 
 
 class LLMProviderKeySerializer(serializers.ModelSerializer):
@@ -96,6 +115,15 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     )
     azure_endpoint_display = serializers.SerializerMethodField(help_text="Azure endpoint (read-only, for display)")
     api_version_display = serializers.SerializerMethodField(help_text="Azure API version (read-only, for display)")
+    base_url = serializers.URLField(
+        write_only=True,
+        required=False,
+        help_text="Base URL of an OpenAI-compatible API (e.g. https://api.example.com/v1). "
+        "Required for the openai_compatible provider; must be a public https:// URL.",
+    )
+    base_url_display = serializers.SerializerMethodField(
+        help_text="OpenAI-compatible base URL (read-only, for display)"
+    )
     set_as_active = serializers.BooleanField(write_only=True, required=False, default=False)
     created_by = UserBasicSerializer(read_only=True)
 
@@ -113,6 +141,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             "api_version",
             "azure_endpoint_display",
             "api_version_display",
+            "base_url",
+            "base_url_display",
             "set_as_active",
             "created_at",
             "created_by",
@@ -136,6 +166,11 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             return None
         return obj.encrypted_config.get("api_version")
 
+    def get_base_url_display(self, obj: LLMProviderKey) -> str | None:
+        if obj.provider != LLMProvider.OPENAI_COMPATIBLE:
+            return None
+        return obj.encrypted_config.get("base_url")
+
     def validate_api_key(self, value: str) -> str:
         provider = self.initial_data.get("provider", self.instance.provider if self.instance else LLMProvider.OPENAI)
 
@@ -150,8 +185,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ZEABUR:
             if not value.startswith("sk-"):
                 raise serializers.ValidationError("Invalid Zeabur AI Hub API key format. Key should start with 'sk-'.")
-        # Azure, Gemini, Together AI, OpenRouter, Fireworks, and MiniMax keys have no standard
-        # prefix, so no format validation is enforced here.
+        # Azure, Gemini, Together AI, OpenRouter, Fireworks, MiniMax, and OpenAI-compatible keys
+        # have no standard prefix, so no format validation is enforced here.
 
         return value
 
@@ -171,21 +206,31 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             if has_endpoint and not is_allowed_azure_endpoint(data["azure_endpoint"]):
                 raise serializers.ValidationError({"azure_endpoint": f"{DISALLOWED_ENDPOINT_MESSAGE}."})
 
+        if provider == LLMProvider.OPENAI_COMPATIBLE:
+            has_base_url = bool(data.get("base_url"))
+            has_existing_base_url = self.instance and self.instance.encrypted_config.get("base_url")
+            if not has_base_url and not has_existing_base_url:
+                raise serializers.ValidationError({"base_url": "Base URL is required for OpenAI-compatible providers."})
+
+            # Same rationale as the Azure branch: attribute a bad URL to base_url, not api_key.
+            if has_base_url and not is_allowed_custom_base_url(data["base_url"]):
+                raise serializers.ValidationError({"base_url": f"{DISALLOWED_BASE_URL_MESSAGE}."})
+
         return data
 
-    def _pop_azure_kwargs(self, validated_data: dict) -> dict:
-        """Pop Azure-specific write-only fields out of ``validated_data`` and return them as kwargs.
+    def _pop_provider_config_kwargs(self, provider: str, validated_data: dict) -> dict:
+        """Pop provider-specific write-only fields out of ``validated_data`` and return them as kwargs.
 
-        Mutates the input dict by removing ``azure_endpoint`` and ``api_version`` so that
-        ``super().create()`` / ``super().update()`` don't try to set them on the model.
+        Mutates the input dict by removing every config field (for any provider) so that
+        ``super().create()`` / ``super().update()`` don't try to set them on the model. Only
+        the fields belonging to ``provider`` are returned, so a stray field sent for the wrong
+        provider never reaches ``encrypted_config``.
         """
         kwargs: dict = {}
-        azure_endpoint = validated_data.pop("azure_endpoint", None)
-        api_version = validated_data.pop("api_version", None)
-        if azure_endpoint:
-            kwargs["azure_endpoint"] = azure_endpoint
-        if api_version:
-            kwargs["api_version"] = api_version
+        for field in _ALL_PROVIDER_CONFIG_FIELDS:
+            value = validated_data.pop(field, None)
+            if value and field in _PROVIDER_CONFIG_FIELDS.get(provider, ()):
+                kwargs[field] = value
         return kwargs
 
     def _normalize_azure_config(self, provider: str, azure_kwargs: dict) -> dict:
@@ -206,20 +251,20 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         api_key = validated_data.pop("api_key", None)
         set_as_active = validated_data.pop("set_as_active", False)
-        azure_kwargs = self._pop_azure_kwargs(validated_data)
+        provider = validated_data.get("provider", LLMProvider.OPENAI)
+        config_kwargs = self._pop_provider_config_kwargs(provider, validated_data)
         team = self.context["get_team"]()
         validated_data["team"] = team
         validated_data["created_by"] = self.context["request"].user
-        provider = validated_data.get("provider", LLMProvider.OPENAI)
 
-        azure_kwargs = self._normalize_azure_config(provider, azure_kwargs)
+        config_kwargs = self._normalize_azure_config(provider, config_kwargs)
 
         if api_key:
-            state, error_message = validate_provider_key(provider, api_key, **azure_kwargs)
+            state, error_message = validate_provider_key(provider, api_key, **config_kwargs)
             if state != LLMProviderKey.State.OK:
                 error_field = _validation_error_field(provider, error_message)
                 raise serializers.ValidationError({error_field: error_message or "Key validation failed"})
-            validated_data["encrypted_config"] = {"api_key": api_key, **azure_kwargs}
+            validated_data["encrypted_config"] = {"api_key": api_key, **config_kwargs}
             validated_data["state"] = state
             validated_data["error_message"] = None
 
@@ -234,11 +279,13 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         api_key = validated_data.pop("api_key", None)
-        azure_kwargs = self._normalize_azure_config(instance.provider, self._pop_azure_kwargs(validated_data))
+        config_kwargs = self._normalize_azure_config(
+            instance.provider, self._pop_provider_config_kwargs(instance.provider, validated_data)
+        )
 
         if api_key:
-            # Fall back to existing config for Azure fields not provided in the update.
-            extra_kwargs = {**instance.provider_extra_kwargs(), **azure_kwargs}
+            # Fall back to existing config for provider fields not provided in the update.
+            extra_kwargs = {**instance.provider_extra_kwargs(), **config_kwargs}
 
             state, error_message = validate_provider_key(instance.provider, api_key, **extra_kwargs)
             if state != LLMProviderKey.State.OK:
@@ -248,18 +295,28 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             if instance.provider == LLMProvider.AZURE_OPENAI:
                 encrypted_config["azure_endpoint"] = extra_kwargs.get("azure_endpoint", "")
                 encrypted_config["api_version"] = extra_kwargs.get("api_version", "")
+            elif instance.provider == LLMProvider.OPENAI_COMPATIBLE:
+                encrypted_config["base_url"] = extra_kwargs.get("base_url", "")
             instance.encrypted_config = encrypted_config
             instance.state = state
             instance.error_message = None
-        elif azure_kwargs and instance.provider == LLMProvider.AZURE_OPENAI:
+        elif config_kwargs and instance.provider == LLMProvider.AZURE_OPENAI:
             # Update Azure config fields without changing the API key. Endpoint or version
             # changes can invalidate the existing key (different Azure resource, different
             # SKU), so reset state to UNKNOWN — user must re-validate explicitly.
             config = dict(instance.encrypted_config)
-            if "azure_endpoint" in azure_kwargs:
-                config["azure_endpoint"] = azure_kwargs["azure_endpoint"]
-            if "api_version" in azure_kwargs:
-                config["api_version"] = azure_kwargs["api_version"]
+            if "azure_endpoint" in config_kwargs:
+                config["azure_endpoint"] = config_kwargs["azure_endpoint"]
+            if "api_version" in config_kwargs:
+                config["api_version"] = config_kwargs["api_version"]
+            instance.encrypted_config = config
+            instance.state = LLMProviderKey.State.UNKNOWN
+            instance.error_message = None
+        elif config_kwargs and instance.provider == LLMProvider.OPENAI_COMPATIBLE:
+            # Update the base URL without changing the API key. A different endpoint can
+            # invalidate the existing key, so reset state to UNKNOWN until the user re-validates.
+            config = dict(instance.encrypted_config)
+            config["base_url"] = config_kwargs["base_url"]
             instance.encrypted_config = config
             instance.state = LLMProviderKey.State.UNKNOWN
             instance.error_message = None
@@ -520,9 +577,16 @@ class LLMProviderKeyValidationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 extra_kwargs["azure_endpoint"] = azure_endpoint
             if api_version:
                 extra_kwargs["api_version"] = api_version
+        elif provider == LLMProvider.OPENAI_COMPATIBLE:
+            base_url = request.data.get("base_url")
+            if base_url:
+                extra_kwargs["base_url"] = base_url
 
         state, error_message = validate_provider_key(provider, api_key, **extra_kwargs)
-        error_field = (
-            error_field_for_validation_message(error_message) if provider == LLMProvider.AZURE_OPENAI else None
-        )
+        if provider == LLMProvider.AZURE_OPENAI:
+            error_field = error_field_for_validation_message(error_message)
+        elif provider == LLMProvider.OPENAI_COMPATIBLE:
+            error_field = openai_compatible_error_field(error_message)
+        else:
+            error_field = None
         return Response({"state": state, "error_message": error_message, "error_field": error_field})

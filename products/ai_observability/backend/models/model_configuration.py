@@ -50,7 +50,7 @@ class LLMModelConfiguration(UUIDTModel):
             from products.ai_observability.backend.llm.client import Client
 
             api_key = self.provider_key.encrypted_config.get("api_key")
-            return Client.list_models(self.provider, api_key)
+            return Client.list_models(self.provider, api_key, **self.provider_key.provider_extra_kwargs())
 
         from products.ai_observability.backend.llm import PLAYGROUND_MODELS_BY_PROVIDER
 
