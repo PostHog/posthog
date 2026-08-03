@@ -10,7 +10,13 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -25,6 +31,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
@@ -726,7 +733,15 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         archive_delivery(instance, team=self.team)
         super().perform_destroy(instance)
 
-    @extend_schema(request=None, responses={202: RunActionResponseSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            202: RunActionResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The summary run couldn't be started."
+            ),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],

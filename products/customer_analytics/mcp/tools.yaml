@@ -112,16 +112,15 @@ tools:
         description: >
             Create a new Customer Analytics account. An account is a logical container for assigning ownership across
             the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional
-            `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system
-            identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional
-            `tags` to categorize the account.
+            `properties` to set external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`,
+            `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account. To assign users (CSM, account
+            executive, ...), use `accounts-relationships-create` after creating the account.
         param_overrides:
             properties:
                 description: >
-                    Typed account properties. `csm`, `account_executive`, `account_owner` are role assignments — each
-                    takes `{id, email}` of an existing user. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`,
-                    `sfdc_id`, `zendesk_id` are optional string identifiers for the account in external systems. All
-                    fields are optional.
+                    Typed account properties. `stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`,
+                    `zendesk_id` are optional string identifiers for the account in external systems. All fields are
+                    optional.
             tags:
                 description: >
                     Tag names to attach to the account. Tags are created on demand if they do not already exist for the
@@ -189,17 +188,18 @@ tools:
         title: List accounts
         description: >
             List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the
-            account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive,
-            account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
-            zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g.
-            `["enterprise","priority"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve`
-            for a single account by id. The `properties` above are the built-in fields only; teams also define their own
-            typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list`
-            first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole
-            schema or guessing at property names. To link a user to a specific account rather than the bare list,
-            deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is
-            optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the
-            list to that account, expands it, and opens the tab.
+            account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id,
+            hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. User assignments
+            (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags`
+            (JSON-encoded array, e.g. `["enterprise","priority"]`) to filter to accounts that have any of the listed
+            tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields
+            only; teams also define their own typed attributes as custom properties, which do not appear here. Call
+            `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than
+            assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific
+            account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>`
+            (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g.
+            `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the
+            tab.
         param_overrides:
             tags:
                 description: >
@@ -284,9 +284,9 @@ tools:
             properties:
                 description: >
                     Typed account properties. The server replaces the `properties` object as a whole, so include any
-                    existing values you want to preserve. Supported keys: `csm`, `account_executive`, `account_owner`
-                    (each `{id, email}` of an existing user), plus `stripe_customer_id`, `hubspot_deal_id`,
-                    `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems).
+                    existing values you want to preserve. Supported keys: `stripe_customer_id`, `hubspot_deal_id`,
+                    `billing_id`, `sfdc_id`, `zendesk_id` (optional string identifiers for external systems). To assign
+                    users (CSM, account executive, ...), use `accounts-relationships-create` instead.
             tags:
                 description: >
                     Tag names to set on the account. Replaces the full existing tag set — pass the complete list, not a
@@ -356,14 +356,14 @@ tools:
             idempotent: true
         title: Get account
         description: >
-            Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm,
-            account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id,
-            zendesk_id external identifiers) and `tags`. These are the built-in fields only; a team's own typed
-            attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see
-            what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user
-            to this account rather than the bare list, deep-link it with the path
-            `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of
-            notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
+            Fetch a single Customer Analytics account by id. Returns the full account including typed `properties`
+            (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. User
+            assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`.
+            These are the built-in fields only; a team's own typed attributes are custom properties and are not returned
+            here. Call `custom-property-definitions-list` to see what the team tracks, then
+            `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than
+            the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`;
+            tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).
         feature_flag: customer-analytics-csp
     accounts-summaries-list:
         operation: accounts_summaries_list
