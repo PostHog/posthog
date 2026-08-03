@@ -4,6 +4,8 @@ from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 
+from parameterized import parameterized
+
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
@@ -14,6 +16,7 @@ from products.slack_app.backend.api import (
     ROUTE_HANDLED_LOCALLY,
     ROUTE_NO_INTEGRATION,
     _channel_onboarding_cache_key,
+    _team_join_onboarding_cache_key,
     route_posthog_code_event_to_relevant_region,
 )
 from products.slack_app.backend.services.slack_auth import get_cached_auth_state
@@ -180,3 +183,123 @@ class TestMemberJoinedChannelRouting(TestCase):
         assert cached_state is not None
         assert cached_state.ok is True
         assert cached_state.bot_user_id == self.BOT_USER_ID
+
+
+@override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+class TestTeamJoinRouting(TestCase):
+    """Routing-level coverage for the new-workspace-member welcome DM.
+
+    Same shape as the channel onboarding tests above: real Postgres rows for
+    the workspace/org/membership, mocked Slack client, and the assistant
+    feature flag patched at the ``api`` import site.
+    """
+
+    SLACK_TEAM_ID = "T12345"
+    JOINER_ID = "U_NEW"
+    MEMBER_EMAIL = "dev@example.com"
+
+    def setUp(self):
+        cache.clear()
+        self.factory = RequestFactory()
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create(email=self.MEMBER_EMAIL, distinct_id="user-1")
+        OrganizationMembership.objects.create(organization=self.organization, user=self.user)
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id=self.SLACK_TEAM_ID,
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+        from products.slack_app.backend.services.slack_auth import write_auth_state_ok
+
+        write_auth_state_ok(self.integration.id, bot_user_id=None)
+
+    def _request(self):
+        return self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+    def _event(self, *, email: str | None = MEMBER_EMAIL, **user_flags) -> dict:
+        profile = {"email": email} if email is not None else {}
+        return {"type": "team_join", "user": {"id": self.JOINER_ID, "profile": profile, **user_flags}}
+
+    def _mock_slack(self, slack_cls_mock, *, post_ok: bool = True):
+        instance = MagicMock()
+        if post_ok:
+            instance.client.chat_postMessage.return_value = {"ok": True}
+        else:
+            instance.client.chat_postMessage.side_effect = RuntimeError("slack down")
+        slack_cls_mock.return_value = instance
+        return instance
+
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_org_member_join_sends_dm_and_claims_dedupe(self, slack_cls, _flag):
+        instance = self._mock_slack(slack_cls)
+
+        result = route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        instance.client.chat_postMessage.assert_called_once()
+        assert instance.client.chat_postMessage.call_args.kwargs["channel"] == self.JOINER_ID
+        assert cache.get(_team_join_onboarding_cache_key(self.SLACK_TEAM_ID, self.JOINER_ID)) is True
+
+    @parameterized.expand(
+        [
+            ("bot", {"is_bot": True}),
+            ("restricted_guest", {"is_restricted": True}),
+            ("ultra_restricted_guest", {"is_ultra_restricted": True}),
+        ]
+    )
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_non_full_members_are_ignored(self, _name, user_flags, slack_cls, _flag):
+        result = route_posthog_code_event_to_relevant_region(
+            self._request(), self._event(**user_flags), self.SLACK_TEAM_ID
+        )
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        slack_cls.assert_not_called()
+        assert cache.get(_team_join_onboarding_cache_key(self.SLACK_TEAM_ID, self.JOINER_ID)) is None
+
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_joiner_without_org_membership_gets_no_dm(self, slack_cls, _flag):
+        instance = self._mock_slack(slack_cls)
+
+        result = route_posthog_code_event_to_relevant_region(
+            self._request(), self._event(email="stranger@example.com"), self.SLACK_TEAM_ID
+        )
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        instance.client.chat_postMessage.assert_not_called()
+
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=False)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_assistant_flag_off_gets_no_dm(self, slack_cls, _flag):
+        instance = self._mock_slack(slack_cls)
+
+        result = route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        instance.client.chat_postMessage.assert_not_called()
+
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_duplicate_delivery_is_idempotent(self, slack_cls, _flag):
+        instance = self._mock_slack(slack_cls)
+
+        route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
+        route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
+
+        instance.client.chat_postMessage.assert_called_once()
+
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
+    @patch("products.slack_app.backend.api.SlackIntegration")
+    def test_post_failure_releases_dedupe_slot(self, slack_cls, _flag):
+        self._mock_slack(slack_cls, post_ok=False)
+
+        result = route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        assert cache.get(_team_join_onboarding_cache_key(self.SLACK_TEAM_ID, self.JOINER_ID)) is None
