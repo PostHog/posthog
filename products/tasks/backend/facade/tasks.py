@@ -17,6 +17,16 @@ __all__ = ["reconcile_loop_trigger_schedules_task", "sweep_loop_task_retention_t
 logger = logging.getLogger(__name__)
 
 
+@shared_task(ignore_result=True, bind=True, max_retries=2)
+def resume_parent_with_pending_wakes_task(self, parent_run_id: str) -> None:
+    from products.tasks.backend.logic.services.orchestration import resume_parent_with_pending_wakes
+
+    try:
+        resume_parent_with_pending_wakes(parent_run_id)
+    except Exception as error:
+        raise self.retry(exc=error, countdown=10 * (self.request.retries + 1))
+
+
 @shared_task(ignore_result=True)
 def notify_parent_of_child_event_task(child_run_id: str, event: str) -> None:
     from products.tasks.backend.logic.services.orchestration import (  # noqa: PLC0415 — keeps Temporal off the Celery import path
