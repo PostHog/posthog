@@ -12,7 +12,7 @@ import type {
     ActivateRequestApi,
     ConfigListResponseApi,
     ConfigVersionApi,
-    GrowthScoreLabConfigsRetrieveParams,
+    GrowthAiEnrichmentConfigsRetrieveParams,
     IdentityMatchingLinksListParams,
     IdentityMatchingLinksResponseApi,
     IdentityMatchingRunsResponseApi,
@@ -23,22 +23,22 @@ import type {
     SdkHealthReportRetrieveParams,
 } from './api.schemas'
 
-export const getGrowthScoreLabActivateCreateUrl = () => {
-    return `/api/growth_score_lab/activate/`
+export const getGrowthAiEnrichmentActivateCreateUrl = () => {
+    return `/api/growth_ai_enrichment/activate/`
 }
 
 /**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * Staff-only, unscoped API for the enrichment AI enrichment: browse labels and their prompt
  * config versions, and flip which version is active.
  *
  * Registered on the root router so it is not team-nested - prompt configs are instance-global,
  * not scoped to any team or org.
  */
-export const growthScoreLabActivateCreate = async (
+export const growthAiEnrichmentActivateCreate = async (
     activateRequestApi: ActivateRequestApi,
     options?: RequestInit
 ): Promise<ConfigVersionApi> => {
-    return apiMutator<ConfigVersionApi>(getGrowthScoreLabActivateCreateUrl(), {
+    return apiMutator<ConfigVersionApi>(getGrowthAiEnrichmentActivateCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -46,7 +46,7 @@ export const growthScoreLabActivateCreate = async (
     })
 }
 
-export const getGrowthScoreLabConfigsRetrieveUrl = (params: GrowthScoreLabConfigsRetrieveParams) => {
+export const getGrowthAiEnrichmentConfigsRetrieveUrl = (params: GrowthAiEnrichmentConfigsRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -58,40 +58,40 @@ export const getGrowthScoreLabConfigsRetrieveUrl = (params: GrowthScoreLabConfig
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/growth_score_lab/configs/?${stringifiedParams}`
-        : `/api/growth_score_lab/configs/`
+        ? `/api/growth_ai_enrichment/configs/?${stringifiedParams}`
+        : `/api/growth_ai_enrichment/configs/`
 }
 
 /**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * Staff-only, unscoped API for the enrichment AI enrichment: browse labels and their prompt
  * config versions, and flip which version is active.
  *
  * Registered on the root router so it is not team-nested - prompt configs are instance-global,
  * not scoped to any team or org.
  */
-export const growthScoreLabConfigsRetrieve = async (
-    params: GrowthScoreLabConfigsRetrieveParams,
+export const growthAiEnrichmentConfigsRetrieve = async (
+    params: GrowthAiEnrichmentConfigsRetrieveParams,
     options?: RequestInit
 ): Promise<ConfigListResponseApi> => {
-    return apiMutator<ConfigListResponseApi>(getGrowthScoreLabConfigsRetrieveUrl(params), {
+    return apiMutator<ConfigListResponseApi>(getGrowthAiEnrichmentConfigsRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getGrowthScoreLabLabelsRetrieveUrl = () => {
-    return `/api/growth_score_lab/labels/`
+export const getGrowthAiEnrichmentLabelsRetrieveUrl = () => {
+    return `/api/growth_ai_enrichment/labels/`
 }
 
 /**
- * Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+ * Staff-only, unscoped API for the enrichment AI enrichment: browse labels and their prompt
  * config versions, and flip which version is active.
  *
  * Registered on the root router so it is not team-nested - prompt configs are instance-global,
  * not scoped to any team or org.
  */
-export const growthScoreLabLabelsRetrieve = async (options?: RequestInit): Promise<LabelListResponseApi> => {
-    return apiMutator<LabelListResponseApi>(getGrowthScoreLabLabelsRetrieveUrl(), {
+export const growthAiEnrichmentLabelsRetrieve = async (options?: RequestInit): Promise<LabelListResponseApi> => {
+    return apiMutator<LabelListResponseApi>(getGrowthAiEnrichmentLabelsRetrieveUrl(), {
         ...options,
         method: 'GET',
     })

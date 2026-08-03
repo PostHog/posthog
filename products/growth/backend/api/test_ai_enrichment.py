@@ -16,7 +16,7 @@ _OUTPUT_FIELDS = [
 ]
 
 
-class TestScoreLabAPI(APIBaseTest):
+class TestAIEnrichmentAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.user.is_staff = True
@@ -43,9 +43,9 @@ class TestScoreLabAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("labels", "get", "/api/growth_score_lab/labels/"),
-            ("configs", "get", "/api/growth_score_lab/configs/?label=test_label"),
-            ("activate", "post", "/api/growth_score_lab/activate/"),
+            ("labels", "get", "/api/growth_ai_enrichment/labels/"),
+            ("configs", "get", "/api/growth_ai_enrichment/configs/?label=test_label"),
+            ("activate", "post", "/api/growth_ai_enrichment/activate/"),
         ]
     )
     def test_non_staff_user_gets_403(self, _name, method, url):
@@ -62,7 +62,7 @@ class TestScoreLabAPI(APIBaseTest):
         self._config(label="test_label", version="v2", is_active=True)
         self._config(label="other_test_label", version="v1", is_active=True)
 
-        response = self.client.get("/api/growth_score_lab/labels/")
+        response = self.client.get("/api/growth_ai_enrichment/labels/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         by_label = {row["label"]: row for row in response.json()["results"]}
@@ -87,7 +87,7 @@ class TestScoreLabAPI(APIBaseTest):
             output={"test_label": True, "confidence": 0.9, "reasoning": "x"},
         )
 
-        response = self.client.get("/api/growth_score_lab/configs/?label=test_label")
+        response = self.client.get("/api/growth_ai_enrichment/configs/?label=test_label")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         by_version = {row["version"]: row for row in response.json()["results"]}
@@ -101,7 +101,7 @@ class TestScoreLabAPI(APIBaseTest):
         old_active = self._config(label="test_label", version="test-v1", is_active=True)
         target = self._config(label="test_label", version="test-v2", is_active=False)
 
-        response = self.client.post("/api/growth_score_lab/activate/", {"config_id": str(target.id)}, format="json")
+        response = self.client.post("/api/growth_ai_enrichment/activate/", {"config_id": str(target.id)}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_active"])
@@ -118,7 +118,7 @@ class TestScoreLabAPI(APIBaseTest):
         target = self._config(label="old_label", version="v2", is_active=False)
         EnrichmentPromptConfig.objects.filter(name="old_label").update(name="new_label")
 
-        response = self.client.post("/api/growth_score_lab/activate/", {"config_id": str(target.id)}, format="json")
+        response = self.client.post("/api/growth_ai_enrichment/activate/", {"config_id": str(target.id)}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         target.refresh_from_db()
@@ -127,5 +127,7 @@ class TestScoreLabAPI(APIBaseTest):
         self.assertFalse(old_active.is_active)
 
     def test_activate_unknown_config_returns_404(self):
-        response = self.client.post("/api/growth_score_lab/activate/", {"config_id": str(uuid.uuid4())}, format="json")
+        response = self.client.post(
+            "/api/growth_ai_enrichment/activate/", {"config_id": str(uuid.uuid4())}, format="json"
+        )
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

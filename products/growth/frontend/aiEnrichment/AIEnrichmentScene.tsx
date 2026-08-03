@@ -12,22 +12,22 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { ConfigVersionApi, LabelSummaryApi } from '../generated/api.schemas'
-import { scoreLabLogic } from './scoreLabLogic'
+import { aiEnrichmentLogic } from './aiEnrichmentLogic'
 
 export const scene: SceneExport = {
-    component: ScoreLabScene,
-    logic: scoreLabLogic,
+    component: AIEnrichmentScene,
+    logic: aiEnrichmentLogic,
 }
 
-function ScoreLabLabelPicker(): JSX.Element {
-    const { labels, labelsLoading } = useValues(scoreLabLogic)
+function AIEnrichmentLabelPicker(): JSX.Element {
+    const { labels, labelsLoading } = useValues(aiEnrichmentLogic)
     const results = labels?.results ?? []
 
     const columns: LemonTableColumns<LabelSummaryApi> = [
         {
             title: 'Label',
             key: 'label',
-            render: (_, row) => <Link to={urls.scoreLab(row.label)}>{row.label}</Link>,
+            render: (_, row) => <Link to={urls.aiEnrichment(row.label)}>{row.label}</Link>,
         },
         { title: 'Versions', key: 'version_count', dataIndex: 'version_count' },
         {
@@ -51,9 +51,10 @@ function ScoreLabLabelPicker(): JSX.Element {
     )
 }
 
-function ScoreLabVersionRail(): JSX.Element {
-    const { selectedLabel, versions, configsLoading, selectedVersion, activateResultLoading } = useValues(scoreLabLogic)
-    const { activateVersion } = useActions(scoreLabLogic)
+function AIEnrichmentVersionRail(): JSX.Element {
+    const { selectedLabel, versions, configsLoading, selectedVersion, activateResultLoading } =
+        useValues(aiEnrichmentLogic)
+    const { activateVersion } = useActions(aiEnrichmentLogic)
 
     const columns: LemonTableColumns<ConfigVersionApi> = [
         {
@@ -124,9 +125,9 @@ function ScoreLabVersionRail(): JSX.Element {
     )
 }
 
-export function ScoreLabScene(): JSX.Element {
+export function AIEnrichmentScene(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { selectedLabel } = useValues(scoreLabLogic)
+    const { selectedLabel } = useValues(aiEnrichmentLogic)
 
     if (!user?.is_staff) {
         return <AccessDenied object="page" reason="This page is only accessible to staff users." />
@@ -135,11 +136,11 @@ export function ScoreLabScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Score lab"
+                name="AI enrichment"
                 description="See which classifier version is live for a label, and switch which one is live."
                 resourceType={{ type: 'llm_analytics' }}
             />
-            {selectedLabel ? <ScoreLabVersionRail /> : <ScoreLabLabelPicker />}
+            {selectedLabel ? <AIEnrichmentVersionRail /> : <AIEnrichmentLabelPicker />}
         </SceneContent>
     )
 }

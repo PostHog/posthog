@@ -17,20 +17,20 @@ export const manifest: ProductManifest = {
                 'Review probable links between anonymous visitors and identified persons, recovered from first-party signals.',
             iconType: 'persons',
         },
-        ScoreLab: {
-            name: 'Score lab',
-            import: () => import('./frontend/scoreLab/ScoreLabScene'),
+        AIEnrichment: {
+            name: 'AI enrichment',
+            import: () => import('./frontend/aiEnrichment/AIEnrichmentScene'),
             instanceLevel: true,
         },
     },
     routes: {
         '/identity-matching': ['IdentityMatching', 'identityMatching'],
-        '/score-lab': ['ScoreLab', 'scoreLab'],
-        '/score-lab/:label': ['ScoreLab', 'scoreLab'],
+        '/ai-enrichment': ['AIEnrichment', 'aiEnrichment'],
+        '/ai-enrichment/:label': ['AIEnrichment', 'aiEnrichment'],
     },
     urls: {
         identityMatching: (): string => '/identity-matching',
-        scoreLab: (label?: string): string => `/score-lab${label ? `/${label}` : ''}`,
+        aiEnrichment: (label?: string): string => `/ai-enrichment${label ? `/${label}` : ''}`,
     },
     treeItemsProducts: [
         {

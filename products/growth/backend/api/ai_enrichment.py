@@ -1,10 +1,10 @@
-"""Staff-only DRF API for the enrichment "score lab": list labels, list a label's prompt
+"""Staff-only DRF API for the enrichment "AI enrichment": list labels, list a label's prompt
 config versions, and flip which version is active.
 
 Shaped around config version + input rows + verdict rows, not around enrichment orgs, so the
 same contract can host a future team-scoped customer-facing product without a rewrite.
 
-Serializers live in score_lab_serializers.py.
+Serializers live in ai_enrichment_serializers.py.
 """
 
 from typing import Any
@@ -24,7 +24,7 @@ from posthog.api.utils import ErrorResponseSerializer
 from posthog.helpers.impersonation import is_impersonated
 from posthog.permissions import IsStaffUser
 
-from products.growth.backend.api.score_lab_serializers import (
+from products.growth.backend.api.ai_enrichment_serializers import (
     ActivateRequestSerializer,
     ConfigListResponseSerializer,
     ConfigsQuerySerializer,
@@ -36,9 +36,9 @@ from products.growth.backend.models import EnrichmentLabelResult, EnrichmentProm
 logger = structlog.get_logger(__name__)
 
 
-class ScoreLabViewSet(viewsets.ViewSet):
+class AIEnrichmentViewSet(viewsets.ViewSet):
     """
-    Staff-only, unscoped API for the enrichment score lab: browse labels and their prompt
+    Staff-only, unscoped API for the enrichment AI enrichment: browse labels and their prompt
     config versions, and flip which version is active.
 
     Registered on the root router so it is not team-nested - prompt configs are instance-global,
@@ -121,7 +121,7 @@ class ScoreLabViewSet(viewsets.ViewSet):
             config.save(update_fields=["is_active"])
 
         logger.info(
-            "growth_score_lab_activate",
+            "growth_ai_enrichment_activate",
             staff_user_id=request.user.id,
             was_impersonated=is_impersonated(request),
             label=config.name,

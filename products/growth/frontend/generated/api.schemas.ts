@@ -507,7 +507,7 @@ export interface SdkHealthReportApi {
     sdks: SdkAssessmentApi[]
 }
 
-export type GrowthScoreLabConfigsRetrieveParams = {
+export type GrowthAiEnrichmentConfigsRetrieveParams = {
     /**
      * Label name to list prompt config versions for.
      * @minLength 1

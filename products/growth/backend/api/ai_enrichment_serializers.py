@@ -1,4 +1,4 @@
-"""Request and response serializers for the staff score lab API (see score_lab.py).
+"""Request and response serializers for the staff AI enrichment API (see ai_enrichment.py).
 
 These are the source of truth for the generated frontend types and MCP tool schemas, so every
 field carries help_text and every response shape is a declared serializer rather than a raw dict.

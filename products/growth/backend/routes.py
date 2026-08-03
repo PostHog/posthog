@@ -1,8 +1,8 @@
 from posthog.api.routing import RouterRegistry
 
+from products.growth.backend.api.ai_enrichment import AIEnrichmentViewSet
 from products.growth.backend.api.identity_matching import IdentityMatchingLinkViewSet
 from products.growth.backend.api.product_push import ProductPushCampaignViewSet
-from products.growth.backend.api.score_lab import ScoreLabViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -16,4 +16,4 @@ def register_routes(routers: RouterRegistry) -> None:
         ["organization_id"],
     )
     # Staff-only, unscoped: prompt configs are instance-global, not team/org scoped.
-    routers.root.register(r"growth_score_lab", ScoreLabViewSet, "growth_score_lab")
+    routers.root.register(r"growth_ai_enrichment", AIEnrichmentViewSet, "growth_ai_enrichment")
