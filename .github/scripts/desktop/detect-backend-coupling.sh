@@ -15,30 +15,8 @@ GITHUB_OUTPUT="${GITHUB_OUTPUT:-/dev/stdout}"
 CURRENT_SHA="${CURRENT_SHA:-$(git rev-parse "${CURRENT_TAG:?}")}"
 UPDATE_FEED_URL="${UPDATE_FEED_URL:-https://desktop-releases.posthog.com/stable/latest.yml}"
 
-# Deploy-relevant subset of ci-backend.yml's `backend` filter: only paths that
-# ship in the deployed image. Its tooling/test entries (pyproject.toml, uv.lock,
-# conftest.py, docker-compose*, ...) are deliberately excluded so they cannot
-# hold a release hostage.
-is_backend_path() {
-    case "$1" in
-        *.md | *.mdx) return 1 ;;
-        products/desktop/*) return 1 ;;
-        posthog/*) return 0 ;;
-        ee/frontend/*) return 1 ;;
-        ee/*) return 0 ;;
-        common/__init__.py | common/hogql_parser/* | common/hogvm/* | common/ingestion/* | common/migration_utils/* | common/plugin_transpiler/*) return 0 ;;
-        products/*/backend/* | products/*.py) return 0 ;;
-        frontend/src/products.json) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-is_desktop_path() {
-    case "$1" in
-        products/desktop/*) return 0 ;;
-        *) return 1 ;;
-    esac
-}
+# shellcheck source=.github/scripts/desktop/backend-coupling-paths.sh
+source "$(dirname "${BASH_SOURCE[0]}")/backend-coupling-paths.sh"
 
 # A GitHub API failure must fail the gate, not read as an empty result: a
 # missed Requires-Backend declaration would ship a release its author said
@@ -140,12 +118,8 @@ while IFS= read -r sha; do
         esac
     fi
 
-    while IFS= read -r line; do
-        ref=$(printf '%s' "$line" | cut -d: -f2- | tr -d ' #')
-        [ -n "$ref" ] || continue
-        # PR numbers cap at 9 digits so an unlucky all-numeric commit SHA
-        # still routes to the commit branch below.
-        if [[ "$ref" =~ ^[0-9]{1,9}$ ]]; then
+    while IFS= read -r ref; do
+        if is_pr_number_ref "$ref"; then
             dep_json=$(fetch_api "repos/$REPOSITORY/pulls/$ref") || exit 1
             # merged must be checked explicitly: open PRs carry an ephemeral
             # test-merge merge_commit_sha, so non-emptiness proves nothing. A
@@ -167,7 +141,7 @@ while IFS= read -r sha; do
         fi
         echo "PR #${pr_number:-unknown} requires backend $resolved (Requires-Backend: $ref)"
         REQUIRED+=("$resolved")
-    done < <(grep -iE '^requires-backend:' <<<"$pr_body" || true)
+    done < <(requires_backend_refs <<<"$pr_body" || true)
 done < <(range_commits)
 
 UNIQUE=$(printf '%s\n' ${REQUIRED[@]+"${REQUIRED[@]}"} | awk 'NF && !seen[$0]++' | paste -sd' ' -)
