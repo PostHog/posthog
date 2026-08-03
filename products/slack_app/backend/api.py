@@ -66,7 +66,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
-from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping, SlackUserProfileCache
 from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
@@ -119,6 +119,7 @@ HANDLED_EVENT_TYPES = [
     "assistant_thread_started",
     "assistant_thread_context_changed",
     "app_home_opened",
+    "app_uninstalled",
 ]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
@@ -1799,6 +1800,19 @@ def route_posthog_code_event_to_relevant_region(
         us_domain=_us_region_domain(),
         eu_domain=_eu_region_domain(),
     )
+
+    # Slack-side removal of the app: drop the workspace's cached Slack profiles so a
+    # reinstall resolves users from fresh ``users.info`` data instead of emails cached
+    # under the previous install. Fanned out once to the other region (loop-guarded)
+    # since a dual-owned workspace caches profiles on both sides.
+    if event_type == "app_uninstalled":
+        deleted, _ = SlackUserProfileCache.objects.filter(
+            integration__kind=SLACK_INTEGRATION_KIND, integration__integration_id=slack_team_id
+        ).delete()
+        logger.info("slack_app_uninstalled_profile_cache_cleared", slack_team_id=slack_team_id, rows_deleted=deleted)
+        if not proxied and cross_region_routing_enabled():
+            _proxy_event_to_region(request, other_domain)
+        return ROUTE_HANDLED_LOCALLY
 
     # App Home tab: published per-user when they open the Home tab. Always
     # handled locally — `views.publish` just renders a snapshot of the user's
