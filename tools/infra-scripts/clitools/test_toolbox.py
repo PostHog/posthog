@@ -862,6 +862,10 @@ class TestToolbox(unittest.TestCase):
         diagnostic = "aws: [ERROR]: ForbiddenException when calling GetRoleCredentials: No access\nUnable to connect"
         self.assertEqual(summarize_diagnostic(diagnostic), "AWS reports that this profile currently has no access")
 
+    def test_summarize_diagnostic_recognizes_whoami_unauthorized(self):
+        diagnostic = "error: You must be logged in to the server (Unauthorized)"
+        self.assertEqual(summarize_diagnostic(diagnostic), "Kubernetes rejected the cached AWS SSO credentials")
+
     @patch("builtins.input", return_value="y")
     @patch("toolbox.kubernetes.login_to_sso", return_value=True)
     @patch("toolbox.kubernetes.time.monotonic", return_value=10)
@@ -883,7 +887,7 @@ class TestToolbox(unittest.TestCase):
     @patch("toolbox.kubernetes.get_context_profile", return_value="prod-eu-eks")
     @patch("toolbox.kubernetes.time.monotonic", side_effect=[0, 1, 2])
     def test_wait_refreshes_rejected_cached_credentials(self, mock_time, mock_profile, mock_access, mock_login):
-        diagnostic = "the server has asked for the client to provide credentials"
+        diagnostic = "error: You must be logged in to the server (Unauthorized)"
         self.assertTrue(wait_for_context_access("prod-eu-eks", "posthog", initial_diagnostic=diagnostic))
         mock_login.assert_called_once_with("prod-eu-eks", timeout=599)
 

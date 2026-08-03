@@ -157,7 +157,14 @@ def _needs_sso_login(diagnostic: str) -> bool:
 
 def _needs_sso_reset(diagnostic: str) -> bool:
     """Return whether Kubernetes rejected credentials from an otherwise active SSO grant."""
-    return "the server has asked for the client to provide credentials" in diagnostic.lower()
+    diagnostic = diagnostic.lower()
+    return any(
+        marker in diagnostic
+        for marker in (
+            "the server has asked for the client to provide credentials",
+            "you must be logged in to the server (unauthorized)",
+        )
+    )
 
 
 def summarize_diagnostic(diagnostic: str) -> str:
