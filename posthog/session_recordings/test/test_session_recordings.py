@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from urllib.parse import urlencode
@@ -582,6 +583,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # any-user mode excludes it
         any_user = self.client.get(f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=any-user")
         assert self._result_ids(any_user) == ["unviewed"]
+
+    @parameterized.expand([("from_clickhouse", False), ("persisted_to_s3", True)])
+    def test_session_ids_results_follow_the_requested_order(self, _name: str, persisted: bool):
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        for index, session_id in enumerate(["alpha", "beta", "gamma"]):
+            self.produce_replay_summary("user1", session_id, base_time + relativedelta(seconds=index * 10))
+            if persisted:
+                SessionRecording.objects.create(
+                    team=self.team, session_id=session_id, full_recording_v2_path=f"s3://bucket/{session_id}"
+                )
+
+        # Pinned collections and the experiment tab's session buckets both rely on the response
+        # keeping the order they asked for, which is not the list's own recency ordering. Once every
+        # requested recording is persisted there is nothing left to look up in ClickHouse, so the
+        # ordering has to survive skipping that branch.
+        requested = ["gamma", "alpha", "beta"]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?session_ids={json.dumps(requested)}"
+        )
+        assert self._result_ids(response) == requested
 
     def test_hide_viewed_recordings_does_not_apply_to_explicit_session_ids(self):
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -1347,6 +1368,88 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         for result in results:
             assert "timestamp" in result
 
+    @parameterized.expand(
+        [
+            (
+                # The shape the experiment recordings tab sends once a metric is picked: the
+                # exposure event ANDed with the metric's event. No single event carries both
+                # names, so intersecting per-filter matches by event id finds nothing — the
+                # event filters must be unioned before the session's events are matched.
+                "disjoint_event_names",
+                [
+                    {"id": "$feature_flag_called", "type": "events", "order": 0, "name": "$feature_flag_called"},
+                    {
+                        "id": "alert creation completed",
+                        "type": "events",
+                        "order": 1,
+                        "name": "alert creation completed",
+                    },
+                ],
+                [
+                    ("$feature_flag_called", {}, True),
+                    ("an event neither filter asks for", {}, False),
+                    ("alert creation completed", {}, True),
+                ],
+            ),
+            (
+                # Two predicates that can match the same event row: the union is deliberately
+                # wider than the intersection. Every pageview is returned, not only the
+                # /checkout ones — same semantics as the client-side 'name' match path, which
+                # highlights on event name alone whatever the operand.
+                "overlapping_predicates_return_the_union",
+                [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 1,
+                        "name": "$pageview",
+                        "properties": [
+                            {"key": "$current_url", "value": "/checkout", "operator": "icontains", "type": "event"}
+                        ],
+                    },
+                ],
+                [
+                    ("$pageview", {"$current_url": "https://example.com/home"}, True),
+                    ("an event neither filter asks for", {}, False),
+                    ("$pageview", {"$current_url": "https://example.com/checkout"}, True),
+                ],
+            ),
+        ]
+    )
+    def test_get_matching_events_with_two_anded_event_filters(
+        self, _name: str, event_filters: list[dict], session_events: list[tuple[str, dict, bool]]
+    ) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        session_id = str(uuid7())
+        self.produce_replay_summary("user", session_id, base_time)
+        expected_event_ids = []
+        for seconds, (event_name, extra_properties, expected) in enumerate(session_events):
+            event_id = _create_event(
+                event=event_name,
+                properties={"$session_id": session_id, **extra_properties},
+                team=self.team,
+                distinct_id=uuid7(),
+                timestamp=base_time + timedelta(seconds=seconds + 1),
+            )
+            if expected:
+                expected_event_ids.append(event_id)
+
+        query_params = [
+            f'session_ids=["{session_id}"]',
+            f"events={json.dumps(event_filters)}",
+            "operand=AND",
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        result_uuids = sorted([r["uuid"] for r in response.json()["results"]])
+        assert result_uuids == sorted(expected_event_ids)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:
         query_params = "&".join(
@@ -2108,6 +2211,38 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 {"recent_session": True},  # must be in results, with expected matches_filters
                 ["no_such_session"],  # must NOT be in results
             ),
+            (
+                "recording_outside_supplied_session_ids_is_included_but_flagged",
+                # The caller supplies an explicit session_ids set (how the experiment recordings tab
+                # sends bucket results) and asks for a recording that isn't in it.
+                {
+                    "recordings": [
+                        {"session_id": "bucket_session", "days_ago": 1},
+                        {"session_id": "open_session", "days_ago": 1},
+                    ],
+                    "date_from": "-3d",
+                    "session_ids": ["bucket_session"],
+                    "session_recording_id": "open_session",
+                },
+                {"bucket_session": True, "open_session": False},
+                [],  # must NOT be in results
+            ),
+            (
+                "recording_inside_supplied_session_ids_is_not_flagged",
+                # The same shape, except the requested recording is part of the supplied set, so it
+                # is a genuine member of the list rather than a retained selection.
+                {
+                    "recordings": [
+                        {"session_id": "bucket_session", "days_ago": 1},
+                        {"session_id": "open_session", "days_ago": 1},
+                    ],
+                    "date_from": "-3d",
+                    "session_ids": ["bucket_session", "open_session"],
+                    "session_recording_id": "open_session",
+                },
+                {"bucket_session": True, "open_session": True},
+                [],  # must NOT be in results
+            ),
         ]
     )
     def test_session_recording_id_respects_filters(
@@ -2138,6 +2273,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             params["limit"] = config["limit"]
         if "session_recording_id" in config:
             params["session_recording_id"] = config["session_recording_id"]
+        if "session_ids" in config:
+            params["session_ids"] = json.dumps(config["session_ids"])
 
         params_string = urlencode(params)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
