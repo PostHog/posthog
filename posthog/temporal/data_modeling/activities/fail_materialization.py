@@ -23,6 +23,7 @@ from products.data_warehouse.backend.facade.api import pause_saved_query_schedul
 from ..metrics import get_node_suspended_metric
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
+    bind_data_modeling_log_context,
     maybe_suspend_node_for_engine,
     strip_hostname_from_error,
     update_node_system_properties,
@@ -148,6 +149,8 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> No
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     _, job = await _fail_node_and_data_modeling_job(inputs)
+    if job.saved_query_id is not None:
+        bind_data_modeling_log_context(inputs.team_id, job.saved_query_id)
     await logger.aerror(
         f"Failed materialization job: node={inputs.node_id} dag={inputs.dag_id} job={job.id} "
         f"workflow={job.workflow_id} workflow_run={job.workflow_run_id} error={inputs.error}"

@@ -29,6 +29,7 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import get_client as get_clickhouse_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
 
 from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
@@ -487,6 +488,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.DATA_MODELING)
 
     objects = await _get_matview_input_objects(inputs)
+    bind_data_modeling_log_context(inputs.team_id, objects.saved_query.id)
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
     table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
