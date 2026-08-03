@@ -270,7 +270,6 @@ IMPORTANT: Signals should be grouped if they are meaningfully related, not just 
 - Two "experiment reached significance" signals from DIFFERENT, unrelated experiments should NOT match
 - Two signals about the SAME experiment (e.g., significance + follow-up analysis) SHOULD match
 - Two error-tracking signals from the SAME underlying defect — the same exception class, or the same fix applied at different call sites — SHOULD match, even if they surface in different files, components, or pages (they resolve to one fix)
-- Two signals that share only a symptom keyword but stem from different root causes needing different fixes should NOT match
 
 You will receive:
 1. A new signal with its description and source information
@@ -322,21 +321,14 @@ SPECIFIC — one root cause or one shared fix, so one engineer ships it in a sin
 - "Treat handled 404s as null instead of reporting them" — one interceptor-level fix stops the 404 noise from several endpoints
 - "Fix funnel conversion calculation for time-based bins" — one feature, one issue
 
-VAGUE — the signals need SEPARATE, unrelated fixes that no single engineer would take on together:
-- "Fix various PostHog AI issues" — multiple unrelated areas
-- "Multiple workflow and integration improvements" — different systems, different fixes
-- "Address feature flag and authentication concerns" — unrelated domains, unrelated fixes
+Reject the group only when the signals need SEPARATE, unrelated fixes that no single engineer would take on together, such as "Fix various PostHog AI issues" or "Address feature flag and authentication concerns".
 
-Red flags that the group is genuinely too broad (split it):
-- You need words like "various", "multiple", or "and" joining UNRELATED changes
-- The signals share only a symptom keyword (e.g. "workflows", "flags", "Next.js") but stem from DIFFERENT root causes needing DIFFERENT fixes
-- Resolving them would require separate, independent changes with no common fix
-
-NOT red flags (keep these together in one PR):
+None of these are reasons to split:
 - The same fix touches several files, call sites, or components
-- The signals surface in different pages or views but share one root cause or one remedy
+- The signals surface in different pages, views, or systems but share one root cause or one remedy
+- The signals describe different symptoms of the same underlying behaviour
 
-When in doubt, ask: would one focused change fix all of these? If yes, keep them in one PR.
+When in doubt, keep them in one PR.
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""
