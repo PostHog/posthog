@@ -602,6 +602,10 @@ async def _write_batch_export_record_batches_to_internal_stage(
         min_insert_block_size_bytes=settings.BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES,
         # Disable all of these so only the bytes limits counts.
         min_insert_block_size_rows=0,
+        # TEMPORARY: pin batch export queries to ClickHouse 26.6 semantics during the initial
+        # upgrade period, so query behavior stays stable while the cluster is upgraded. Remove
+        # once the upgrade has settled.
+        compatibility="26.6",
     ) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
