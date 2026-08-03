@@ -152,16 +152,15 @@ impl HandoffHandler for LeaderHandoffHandler {
         // ever committed sits below the watermark the warm is about to
         // read. Fencing after the read would leave a gap where a zombie
         // commits an acked write the warm never sees.
-        // Skip the acquire when this pod already holds a fence it took
-        // during the convergence still running. Re-taking it bumps the
-        // epoch out from under the writes the earlier warm admitted, and
-        // nothing else can have taken it in between: a successor cannot
-        // warm until this pod's own handoff completes.
-        let fence_to_take = match &self.fenced {
-            Some(fenced) if !self.freshly_fenced.contains(&partition) => Some(fenced),
-            _ => None,
-        };
-        let fence_guard = if let Some(fenced) = fence_to_take {
+        // Deliberately re-acquired even when this pod already holds a
+        // fence from a convergence torn down before it could record the
+        // warm. Skipping would spare the writes that warm admitted, but
+        // it leaves this pod's own uncommitted records between the read
+        // and the high watermark, and the warm below then waits for
+        // records it can never read. Re-acquiring aborts that window,
+        // which is what lets the read complete; the admitted writes fail
+        // as fenced and their versions stay spent.
+        let fence_guard = if let Some(fenced) = &self.fenced {
             fenced
                 .acquire(partition)
                 .await

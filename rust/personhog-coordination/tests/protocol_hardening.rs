@@ -23,8 +23,8 @@ use async_trait::async_trait;
 use common::{
     revoke_lease_of_key, start_coordinator, start_coordinator_named,
     start_coordinator_reconcile_parked, start_pod, start_pod_gated, start_pod_with_flaky_resume,
-    start_pod_with_lease_ttl, start_router_with_lease_ttl, store_at, test_store,
-    test_store_with_prefix, wait_for_condition, CutoverEvent, FlakyProxy, HandoffEvent,
+    start_pod_with_lease_ttl, start_pod_with_stuck_drain, start_router_with_lease_ttl, store_at,
+    test_store, test_store_with_prefix, wait_for_condition, CutoverEvent, FlakyProxy, HandoffEvent,
     MockCutoverHandler, MockHandoffHandler, ETCD_ENDPOINT, POLL_INTERVAL, WAIT_TIMEOUT,
 };
 use personhog_coordination::error::Result;
@@ -3180,6 +3180,132 @@ async fn pod_retries_resume_after_a_failed_attempt() {
     // to it rather than treating the partition as resumed.
     store.delete_handoff(0).await.expect("delete handoff");
     wait_for_event(&pod.events, HandoffEvent::Resumed(0)).await;
+
+    cancel.cancel();
+}
+
+/// A drain that cannot quiesce must not keep the pod serving everything
+/// else it no longer owns.
+///
+/// Self-fencing runs because the pod has lost the right to serve, so the
+/// release is the point of it. Returning on the first drain failure left
+/// every other held partition still served by a pod with no lease —
+/// precisely the zombie the fence exists to prevent.
+#[tokio::test]
+async fn a_stuck_drain_does_not_strand_the_other_partitions_on_lease_loss() {
+    let (store, prefix) = test_store_with_prefix("stuck-drain-fence").await;
+    let cancel = CancellationToken::new();
+    let pod = start_pod_with_stuck_drain(Arc::clone(&store), "stuck-pod-0", 1, 5, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "stuck-pod-0"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    // Two partitions: one whose drain refuses, one ordinary.
+    for partition in [0, 1] {
+        put_handoff(
+            &store,
+            partition,
+            None,
+            "stuck-pod-0",
+            HandoffPhase::Warming,
+        )
+        .await;
+    }
+    let events = Arc::clone(&pod.events);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            let seen = events.lock().await;
+            [0u32, 1u32].iter().all(|p| {
+                seen.iter()
+                    .any(|e| matches!(e, HandoffEvent::Warmed(w) if w == p))
+            })
+        }
+    })
+    .await;
+
+    revoke_lease_of_key(&format!("{prefix}pods/stuck-pod-0")).await;
+
+    // Partition 0's drain succeeds and 1's never will, so 0 must still
+    // be given up.
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .any(|e| matches!(e, HandoffEvent::Released(0)))
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
+/// A drain that fails must still leave the partition recorded as fenced.
+///
+/// The handler fences the data plane as its first act and can fail
+/// afterwards. `resume_partition` — the only branch that lifts that
+/// fence — is reachable only through `fenced_partitions`, so a record
+/// written only on success leaves writes rejected with no branch left to
+/// re-enter, while reads carry on and the convergence reports healthy.
+#[tokio::test]
+async fn a_failed_drain_still_leaves_a_partition_that_can_be_resumed() {
+    let (store, _prefix) = test_store_with_prefix("failed-drain-resume").await;
+    let cancel = CancellationToken::new();
+    let pod = start_pod_with_stuck_drain(Arc::clone(&store), "stuck-pod-1", 0, 30, cancel.clone());
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .list_pods()
+                .await
+                .map(|pods| pods.iter().any(|p| p.pod_name == "stuck-pod-1"))
+                .unwrap_or(false)
+        }
+    })
+    .await;
+
+    // Own it, then start a handoff away whose drain refuses.
+    put_handoff(&store, 0, None, "stuck-pod-1", HandoffPhase::Warming).await;
+    let events = Arc::clone(&pod.events);
+    wait_for_event(&events, HandoffEvent::Warmed(0)).await;
+    put_handoff(
+        &store,
+        0,
+        Some("stuck-pod-1"),
+        "other-pod",
+        HandoffPhase::Draining,
+    )
+    .await;
+
+    // Cancel the handoff. The pod is serving again, so it must resume —
+    // which it can only do if the failed drain was still recorded.
+    put_handoff(&store, 0, None, "stuck-pod-1", HandoffPhase::Complete).await;
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let events = Arc::clone(&events);
+        async move {
+            events
+                .lock()
+                .await
+                .iter()
+                .any(|e| matches!(e, HandoffEvent::Resumed(0)))
+        }
+    })
+    .await;
 
     cancel.cancel();
 }

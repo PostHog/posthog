@@ -688,3 +688,44 @@ async fn a_window_that_cannot_settle_still_lets_the_handoff_proceed() {
         .await
         .expect("a condemned producer must not fail the drain");
 }
+
+/// A resume that skipped its acquire must leave the mark for the retry.
+///
+/// The skip branch consumed the mark, so a convergence torn down after
+/// the resume returned — but before `apply` recorded it — retried with
+/// the partition still listed as fenced and nothing to say the fence was
+/// already held. That retry re-acquires and bumps the epoch out from
+/// under the writes the first resume admitted.
+#[tokio::test]
+async fn a_repeated_resume_does_not_fence_the_window_the_first_one_admitted() {
+    let topic = format!("fence_resume_twice_{}", uuid::Uuid::new_v4().simple());
+    let producers = Arc::new(fenced_producers_with_window(
+        &topic,
+        Duration::from_secs(10),
+    ));
+    let handler = common::test_handoff_handler(&topic, Arc::clone(&producers));
+
+    producers.acquire(0).await.expect("seed the topic");
+    producers
+        .produce(0, &test_person(1))
+        .await
+        .expect("seed record");
+    handler.warm_partition(0).await.expect("warm the partition");
+    handler.resume_partition(0).await.expect("first resume");
+
+    let writing = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(2)).await })
+    };
+    sleep(Duration::from_millis(300)).await;
+
+    // The convergence was torn down before it could record the resume,
+    // so the same one runs again.
+    handler.resume_partition(0).await.expect("retried resume");
+
+    let result = writing.await.expect("the write task must not panic");
+    assert!(
+        result.is_ok(),
+        "a retried resume must not fence the window the first one admitted, got {result:?}"
+    );
+}

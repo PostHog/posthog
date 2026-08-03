@@ -267,6 +267,88 @@ pub fn start_pod_with_flaky_resume(
     }
 }
 
+/// A handler whose `drain_partition_inflight` always fails for one
+/// partition — the shape of a drain that cannot quiesce whatever the
+/// pod does.
+pub struct StuckDrainHandler {
+    pub events: Arc<Mutex<Vec<HandoffEvent>>>,
+    stuck: u32,
+}
+
+#[async_trait]
+impl HandoffHandler for StuckDrainHandler {
+    async fn drain_partition_inflight(&self, partition: u32) -> Result<()> {
+        if partition == self.stuck {
+            return Err(personhog_coordination::error::Error::invalid_state(
+                format!("drain refuses for partition {partition}"),
+            ));
+        }
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Drained(partition));
+        Ok(())
+    }
+
+    async fn warm_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Warmed(partition));
+        Ok(())
+    }
+
+    async fn release_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Released(partition));
+        Ok(())
+    }
+
+    async fn resume_partition(&self, partition: u32) -> Result<()> {
+        self.events
+            .lock()
+            .await
+            .push(HandoffEvent::Resumed(partition));
+        Ok(())
+    }
+}
+
+/// Start a pod whose drain refuses for exactly one partition.
+pub fn start_pod_with_stuck_drain(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    stuck: u32,
+    lease_ttl: i64,
+    cancel: CancellationToken,
+) -> PodHandles {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let handler = StuckDrainHandler {
+        events: Arc::clone(&events),
+        stuck,
+    };
+    let pod = PodHandle::new(
+        store,
+        PodConfig {
+            pod_name: name.to_string(),
+            lease_ttl,
+            heartbeat_interval: Duration::from_secs((lease_ttl / 5).max(1) as u64),
+            advertise_address: None,
+            reconcile_interval: Duration::from_secs(86_400),
+            ..Default::default()
+        },
+        Arc::new(handler),
+        None,
+    );
+    let token = cancel.child_token();
+    let join_handle = tokio::spawn(async move { pod.run(token).await });
+    PodHandles {
+        events,
+        join_handle: Some(join_handle),
+    }
+}
+
 /// Start a pod whose warm_partition blocks forever. Useful for testing
 /// crashes during the Warming phase.
 pub fn start_pod_blocking(
