@@ -83,7 +83,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         utm_campaign: str | None = None,
         utm_source: str | None = None,
         utm_medium: str | None = None,
-        referring_domain: str = "$direct",
+        referring_domain: str | None = "$direct",
         pageviews: int = 1,
     ) -> None:
         """One session's worth of pageviews. uuid7 seeds the session id so `$start_timestamp` lands on
@@ -101,7 +101,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
                     "$session_id": session_id,
                     "$current_url": "https://example.com/",
                     "$pathname": "/",
-                    "$referring_domain": referring_domain,
+                    **({"$referring_domain": referring_domain} if referring_domain is not None else {}),
                     **({"utm_campaign": utm_campaign} if utm_campaign else {}),
                     **({"utm_source": utm_source} if utm_source else {}),
                     **({"utm_medium": utm_medium} if utm_medium else {}),
@@ -122,6 +122,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         breakdown: MarketingAnalyticsAttributionBreakdown,
         *,
         exclude_direct: bool = False,
+        exclude_unattributed: bool = False,
         date_from: str = "2023-01-01",
         date_to: str = "2023-01-31",
         lookback_days: int | None = None,
@@ -133,6 +134,7 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
             breakdownBy=breakdown,
             conversionGoalId=GOAL_ID,
             excludeDirectTraffic=exclude_direct,
+            excludeUnattributed=exclude_unattributed,
             lookbackWindowDays=lookback_days,
             allowMultipleConversionsPerVisitor=allow_multiple_conversions,
             properties=[],
@@ -374,6 +376,44 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         )
         self.assertNotIn("Direct", without_direct)
         self.assertAlmostEqual(without_direct[paid_channel][AttributionMode.LINEAR], 1.0, places=4)
+
+    def test_excluding_unattributed_redistributes_the_none_rows_credit(self):
+        # Same before-the-weights placement as the direct exclusion, judged on the breakdown's raw
+        # session field: a session with no utm_campaign renders as the "(none)" row, and excluding it
+        # hands its share to the campaigns that were actually tagged.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_campaign="summer")
+        self._session("p1", ONE_DAY_BEFORE)  # no utm_campaign -> the "(none)" row
+        self._conversion("p1", CONVERSION_AT)
+
+        with_none = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN))
+        self.assertIn("", with_none)
+        self.assertAlmostEqual(with_none["summer"][AttributionMode.LINEAR], 0.5, places=4)
+
+        without_none = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, exclude_unattributed=True)
+        )
+        self.assertNotIn("", without_none)
+        self.assertAlmostEqual(without_none["summer"][AttributionMode.LINEAR], 1.0, places=4)
+
+    def test_excluding_unattributed_drops_unknown_channels(self):
+        # Channel is special-cased: the classifier's raw value can literally be "Unknown" (a session with
+        # no referrer sentinel at all), which must be treated as unattributed alongside empty values.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", TWO_DAYS_BEFORE, utm_source="google", utm_medium="cpc")
+        self._session("p1", ONE_DAY_BEFORE, referring_domain=None)  # unclassifiable -> Unknown
+        self._conversion("p1", CONVERSION_AT)
+
+        with_unknown = self._by_breakdown(self._run(MarketingAnalyticsAttributionBreakdown.CHANNEL))
+        self.assertIn("Unknown", with_unknown)
+        paid_channel = next(channel for channel in with_unknown if channel != "Unknown")
+        self.assertAlmostEqual(with_unknown[paid_channel][AttributionMode.LINEAR], 0.5, places=4)
+
+        without_unknown = self._by_breakdown(
+            self._run(MarketingAnalyticsAttributionBreakdown.CHANNEL, exclude_unattributed=True)
+        )
+        self.assertNotIn("Unknown", without_unknown)
+        self.assertAlmostEqual(without_unknown[paid_channel][AttributionMode.LINEAR], 1.0, places=4)
 
     def test_repeat_touches_on_one_dimension_sum_their_weight(self):
         # A dimension touched on three of four sessions should hold 0.75 of the linear credit as one row,
