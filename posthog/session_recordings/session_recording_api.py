@@ -2171,12 +2171,13 @@ def list_recordings_from_query(
             recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
             recordings = recordings + recordings_from_clickhouse
 
-            # If we have specified session_ids we need to sort them by the order they were specified.
-            # An explicitly requested recording outside that set sorts first, which is where
-            # prepending already put it.
-            if all_session_ids:
-                ordering = {session_id: index for index, session_id in enumerate(all_session_ids)}
-                recordings = sorted(recordings, key=lambda x: ordering.get(x.session_id, -1))
+    # If we have specified session_ids we need to sort them by the order they were specified. This sits
+    # outside the ClickHouse branch because a request whose ids are all already persisted skips that
+    # branch entirely, and it needs the caller's ordering just the same. An explicitly requested
+    # recording outside the set sorts first, which is where prepending already put it.
+    if all_session_ids:
+        ordering = {session_id: index for index, session_id in enumerate(all_session_ids)}
+        recordings = sorted(recordings, key=lambda x: ordering.get(x.session_id, -1))
 
     # Deduplicate recordings by session_id (if session_recording_id was fetched separately and also in results)
     if session_recording_id_to_prepend:

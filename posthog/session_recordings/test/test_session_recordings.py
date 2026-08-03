@@ -584,13 +584,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         any_user = self.client.get(f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=any-user")
         assert self._result_ids(any_user) == ["unviewed"]
 
-    def test_session_ids_results_follow_the_requested_order(self):
+    @parameterized.expand([("from_clickhouse", False), ("persisted_to_s3", True)])
+    def test_session_ids_results_follow_the_requested_order(self, _name: str, persisted: bool):
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         for index, session_id in enumerate(["alpha", "beta", "gamma"]):
             self.produce_replay_summary("user1", session_id, base_time + relativedelta(seconds=index * 10))
+            if persisted:
+                SessionRecording.objects.create(
+                    team=self.team, session_id=session_id, full_recording_v2_path=f"s3://bucket/{session_id}"
+                )
 
         # Pinned collections and the experiment tab's session buckets both rely on the response
-        # keeping the order they asked for, which is not the list's own recency ordering.
+        # keeping the order they asked for, which is not the list's own recency ordering. Once every
+        # requested recording is persisted there is nothing left to look up in ClickHouse, so the
+        # ordering has to survive skipping that branch.
         requested = ["gamma", "alpha", "beta"]
         response = self.client.get(
             f"/api/projects/{self.team.id}/session_recordings?session_ids={json.dumps(requested)}"
