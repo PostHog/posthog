@@ -98,7 +98,7 @@ Guarding it inside the workflow is worse: skipping the gate job cascades to the 
 #### Stacked PRs
 
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
-If the Trunk merge queue is re-enabled (it is paused, see below), never restack while any branch in the stack is sitting in it: the force-push removes the PR from the queue.
+Never restack while any branch in the stack is sitting in the merge queue — the force-push removes it from the queue.
 Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
 The overflow fails as `startup_failure` and takes unrelated runs in the same window down too.
 Draft status doesn't help, since runs are dispatched before draft/skip logic applies.
@@ -115,15 +115,14 @@ In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix
 
 ### Merging PRs
 
-Merges into `master` currently go through `gh pr merge <number> --squash`.
-Squash is the only merge method the repo allows, so `--merge` and `--rebase` are rejected.
+All merges into `master` go through the Trunk merge queue.
+Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
 
-**The Trunk merge queue is paused.** Its ruleset is disabled, so `/trunk merge` and `/trunk cancel` comments and the `trunk-merge-queue-submit` label are no-ops: no `Trunk Merge Queue (master)` check run appears and the bot never replies. Don't reach for them.
-
-- Branch protection on `master` is unchanged and still enforced: an approving review, code owner review, the required status checks, and signed commits. `gh pr merge` refuses until all of those pass.
-- Shortly after a force-push or a label change, GitHub's mergeability cache can be stale and the first attempt fails with "the base branch policy prohibits the merge". Retrying a moment later works.
-- [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) is still written for the Trunk flow, so it's stale pending a follow-up. Its preflight and CI failure-handling advice still applies; its enqueue and queue-watching steps don't.
-- If Trunk is re-enabled, the old flow was: enqueue with `gh pr comment <number> --body "/trunk merge"`, watch the `Trunk Merge Queue (master)` check run on the head commit rather than the PR's own checks, and never force-push while the PR sits in the queue.
+- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
+- After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
+- Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
+- On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
+- Never force-push a branch while it is in the queue — it removes the PR from the queue.
 
 ### Public open source repo guidance
 
@@ -234,7 +233,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 
 **Invoke when in the area:**
 
-- `/merging-prs` — merging a PR, or babysitting one through CI (written for the Trunk queue, so partly stale while it's paused)
+- `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support

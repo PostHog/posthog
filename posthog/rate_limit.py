@@ -480,20 +480,16 @@ class CopyFlagsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "300/hour"
 
 
-# The batch session-context endpoint computes experiment context for up to 20 recordings per
-# call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
-# — and its primary caller is the session-authenticated replay/experiment UI, which the
-# ClickHouse*RateThrottle pair deliberately does not cover. PersonalApiKeyOrUserRateThrottle
-# applies regardless of auth method. The UI fires at most one prefetch per user action (page
-# load, filter change — debounced client-side — or recording open), and repeats hit the
-# server-side cache, so these rates clear a whole project's worth of concurrent viewers while
-# capping a scripted loop of cold batches.
-class _SessionContextsRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
+class _TeamBucketRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    """One bucket per project regardless of auth method, for endpoints whose cost has to be capped
+    project-wide rather than per credential.
+
+    The parent idents personal-API-key requests by key hash, so each key a user mints would
+    otherwise get its own full budget of whatever the endpoint spends. Same reasoning as
+    ProjectSecretApiKeyTeamRateThrottle's team-wide bucket.
+    """
+
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
-        # One bucket per project regardless of auth method. The parent idents personal-API-key
-        # requests by key hash, so each minted key would get its own budget of this expensive
-        # compute — the sum must be capped project-wide instead, the same reasoning as
-        # ProjectSecretApiKeyTeamRateThrottle's team-wide bucket.
         team_id = self.safely_get_team_id_from_view(view)
         if team_id is not None:
             ident = team_id
@@ -504,12 +500,35 @@ class _SessionContextsRateThrottleBase(PersonalApiKeyOrUserRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class SessionContextsBurstRateThrottle(_SessionContextsRateThrottleBase):
+# The heatmap page pre-flight makes one outbound fetch of a caller-supplied page per uncached probe,
+# holding a web worker for as long as that page takes to answer, so its budget is about worker
+# occupancy rather than about protecting our own datastores. A legitimate caller needs one probe per
+# heatmap view or per capture-method switch in the wizard, and settled verdicts are cached, so these
+# rates clear a team's worth of concurrent viewers while capping a scripted loop of cold probes.
+class HeatmapPreflightBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "heatmap_preflight_burst"
+    rate = "30/minute"
+
+
+class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "heatmap_preflight_sustained"
+    rate = "300/hour"
+
+
+# The batch session-context endpoint computes experiment context for up to 20 recordings per
+# call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
+# — and its primary caller is the session-authenticated replay/experiment UI, which the
+# ClickHouse*RateThrottle pair deliberately does not cover. PersonalApiKeyOrUserRateThrottle
+# applies regardless of auth method. The UI fires at most one prefetch per user action (page
+# load, filter change — debounced client-side — or recording open), and repeats hit the
+# server-side cache, so these rates clear a whole project's worth of concurrent viewers while
+# capping a scripted loop of cold batches.
+class SessionContextsBurstRateThrottle(_TeamBucketRateThrottle):
     scope = "session_contexts_burst"
     rate = "60/minute"
 
 
-class SessionContextsSustainedRateThrottle(_SessionContextsRateThrottleBase):
+class SessionContextsSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "session_contexts_sustained"
     rate = "600/hour"
 

@@ -1313,7 +1313,82 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "New Task")
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
+        self.assertEqual(data["repositories"], ["posthog/posthog"])
         self.assertEqual(data["runtime"], Task.Runtime.ACP)
+
+    @patch("products.tasks.backend.facade.api._find_idling_warm_run")
+    def test_create_task_with_multiple_repositories(self, mock_find_warm_run):
+        mock_find_warm_run.return_value = None
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            repository_cache=[
+                {"id": 1, "name": "posthog", "full_name": "posthog/posthog"},
+                {"id": 2, "name": "code", "full_name": "posthog/code"},
+            ],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Cross-repo task",
+                "description": "Update both services",
+                "github_integration": integration.id,
+                "repositories": ["PostHog/PostHog", "PostHog/Code"],
+                "branch": "main",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        task = Task.objects.get(id=response.json()["id"])
+        self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
+        self.assertEqual(task.create_run().state["repositories"], task.repositories)
+        mock_find_warm_run.assert_not_called()
+
+        update = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/",
+            {"repository": "posthog/posthog"},
+            format="json",
+        )
+        self.assertEqual(update.status_code, status.HTTP_200_OK)
+        task.refresh_from_db()
+        self.assertEqual(task.repository, "posthog/posthog")
+        self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
+
+    def test_create_task_rejects_repository_outside_integration(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="123",
+            repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Invalid task",
+                "github_integration": integration.id,
+                "repositories": ["posthog/code"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "Invalid legacy task",
+                "github_integration": integration.id,
+                "repository": "posthog/code",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_task_with_pi_runtime(self):
         response = self.client.post(
@@ -3943,6 +4018,7 @@ class TestTaskRepositoriesAction(BaseTaskAPITest):
             description="",
             origin_product=Task.OriginProduct.USER_CREATED,
             repository="posthog/posthog",
+            repositories=["posthog/posthog", "posthog/code"],
         )
         # Duplicate of an existing repo should be collapsed.
         Task.objects.create(
@@ -3966,7 +4042,7 @@ class TestTaskRepositoriesAction(BaseTaskAPITest):
 
         self.assertEqual(
             response.json(),
-            {"repositories": ["posthog/posthog", "posthog/posthog-js"]},
+            {"repositories": ["posthog/code", "posthog/posthog", "posthog/posthog-js"]},
         )
 
     def test_excludes_soft_deleted_tasks(self):
@@ -5333,12 +5409,35 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
+        assert isinstance(run.output, dict)
         self.assertEqual(
             run.output,
             {
                 "head_branch": "posthog-code/update-readme",
                 "pr_url": "https://github.com/org/repo/pull/2",
+                "pr_urls": ["https://github.com/org/repo/pull/2"],
             },
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
+            {
+                "output": {
+                    "pr_url": "https://github.com/org/repo/pull/2",
+                    "pr_urls": [
+                        "https://github.com/org/repo/pull/2",
+                        "https://github.com/org/other/pull/3",
+                    ],
+                }
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run.refresh_from_db()
+        self.assertEqual(
+            run.output["pr_urls"],
+            ["https://github.com/org/repo/pull/2", "https://github.com/org/other/pull/3"],
         )
 
     def test_partial_update_does_not_restore_stale_state(self):
