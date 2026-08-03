@@ -1,0 +1,36 @@
+name: Set up ANTLR C++ runtime
+description: >-
+    Restore or build the static ANTLR C++ runtime that compiling hogql-parser from
+    source requires, and install it system-wide. Cheap (cache restore) when warm.
+
+runs:
+    using: composite
+    steps:
+        - name: Restore ANTLR static runtime
+          id: antlr-cache
+          uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ~/.antlr4-static
+              # Content-addressed on the installer script, which pins the ANTLR
+              # version and md5, so one canonical key serves every ref.
+              key: antlr4-static-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/install-antlr4-cpp-runtime') }}
+
+        - name: Build ANTLR static runtime
+          if: steps.antlr-cache.outputs.cache-hit != 'true'
+          shell: bash
+          run: ANTLR_INSTALL_PREFIX="$HOME/.antlr4-static" bin/install-antlr4-cpp-runtime
+
+        - name: Save ANTLR static runtime
+          if: github.ref == 'refs/heads/master' && steps.antlr-cache.outputs.cache-hit != 'true'
+          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+          with:
+              path: ~/.antlr4-static
+              key: antlr4-static-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/install-antlr4-cpp-runtime') }}
+
+        - name: Install ANTLR static runtime system-wide
+          shell: bash
+          # hogql-parser's setup.py searches /usr/include and /usr/lib (see
+          # common/hogql_parser/setup.py), so the staged artifacts move there.
+          run: |
+              sudo cp -r "$HOME/.antlr4-static/include/antlr4-runtime" /usr/include/
+              sudo cp "$HOME/.antlr4-static/lib/libantlr4-runtime.a" /usr/lib/

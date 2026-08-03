@@ -92,7 +92,9 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # process-manager resolution (phrocs), and the Go/Rust procs and rust/bin migrators
 # need their toolchains.
 apt-get update
-apt-get install -y --no-install-recommends brotli make
+# build-essential/cmake/uuid-dev serve the ANTLR runtime build below and the
+# hogql-parser source builds that task-time `uv sync` may run.
+apt-get install -y --no-install-recommends brotli make build-essential cmake curl unzip uuid-dev
 rm -rf /var/lib/apt/lists/*
 
 case "$(uname -m)" in
@@ -165,6 +167,9 @@ log "warming go module cache (livestream)"
 # Mirrors the cargo fetch above: GOMODCACHE defaults to /root/go/pkg/mod, outside the
 # checkout, so a task-time bin/start-go-service skips the cold module download.
 (cd livestream && go mod download)
+
+log "installing static ANTLR C++ runtime (hogql-parser source builds)"
+"$REPO_DIR/bin/install-antlr4-cpp-runtime"
 
 log "warming python environment (uv sync)"
 # The checkout's .venv is discarded with the checkout; the uv cache persists in the

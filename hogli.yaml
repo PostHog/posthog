@@ -1198,6 +1198,9 @@ environment:
     start:desktop:
         bin_script: start-desktop
         description: 'Install the nested products/desktop workspace and run its dev stack (Electron app plus package watchers via turbo); used by the desktop intent on hogli start'
+    install:antlr4:cpp:runtime:
+        bin_script: install-antlr4-cpp-runtime
+        description: Build and install the static ANTLR C++ runtime that hogql-parser source builds link against
         hidden: true
     verify:ai:ingestion:stack:
         bin_script: verify-ai-ingestion-stack

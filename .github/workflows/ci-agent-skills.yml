@@ -105,6 +105,9 @@ jobs:
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
+
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
@@ -231,6 +234,9 @@ jobs:
                   enable-cache: true
                   cache-dependency-glob: uv.lock
                   save-cache: false
+
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
 
             - name: Install python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev

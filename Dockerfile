@@ -154,6 +154,10 @@ ENV UV_PROJECT_ENVIRONMENT=/python-runtime
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "build-essential" \
+    "cmake" \
+    "curl" \
+    "unzip" \
+    "uuid-dev" \
     "git" \
     "libpq-dev" \
     "libxmlsec1=1.2.37-2" \
@@ -163,6 +167,10 @@ RUN apt-get update && \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/*
+
+# Static ANTLR C++ runtime, required to compile hogql-parser from the checkout
+COPY bin/install-antlr4-cpp-runtime bin/install-antlr4-cpp-runtime
+RUN bin/install-antlr4-cpp-runtime
 
 # Install Python dependencies using cache mount for faster rebuilds
 # Cache ID includes libxmlsec1 version to bust cache when system library changes

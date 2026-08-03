@@ -82,6 +82,9 @@ jobs:
                   enable-cache: true
                   cache-dependency-glob: uv.lock
 
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
+
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 

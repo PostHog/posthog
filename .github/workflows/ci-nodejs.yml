@@ -368,6 +368,9 @@ jobs:
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
+
             - name: Install python dependencies
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
@@ -642,6 +645,9 @@ jobs:
                   sudo rm -f /etc/apt/sources.list.d/*twingate*
                   sudo apt-get update
                   sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
 
             - name: Install python dependencies
               run: |

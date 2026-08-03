@@ -109,6 +109,9 @@ jobs:
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
+
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 

@@ -632,6 +632,9 @@ jobs:
                   pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile
                   bin/turbo --filter=@posthog/plugin-transpiler build
 
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
+
             - name: Install Python dependencies
               shell: bash
               run: |

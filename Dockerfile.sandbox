@@ -39,9 +39,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     tmux \
     unzip \
+    uuid-dev \
     vim \
     zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Static ANTLR C++ runtime, required to compile hogql-parser from the checkout
+COPY bin/install-antlr4-cpp-runtime /tmp/install-antlr4-cpp-runtime
+RUN /tmp/install-antlr4-cpp-runtime && rm /tmp/install-antlr4-cpp-runtime
 
 # Personal image layers run install snippets as the sandbox user.
 # NOPASSWD sudo is available as an escape hatch for recipes that need
