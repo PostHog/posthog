@@ -60,6 +60,25 @@ from products.tasks.backend.facade.run_config import (
 logger = logging.getLogger(__name__)
 
 
+def _is_pi_task_run_request(context: dict[str, Any]) -> bool:
+    view = context.get("view")
+    request = context.get("request")
+    team = context.get("team")
+    task_id = getattr(view, "kwargs", {}).get("parent_lookup_task_id")
+    user_id = getattr(getattr(request, "user", None), "id", None)
+
+    if task_id is None or team is None:
+        return False
+
+    task_runtime = tasks_facade.task_runtime(
+        task_id,
+        team.id,
+        user_id,
+        for_control=True,
+    )
+    return task_runtime == tasks_facade.TaskRuntime.PI
+
+
 def _capture_rejected_reasoning_effort(
     context: dict[str, Any],
     *,
@@ -2181,6 +2200,11 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
         if not attrs.get("pending_user_message") and not pending_user_artifact_ids:
             attrs.pop("pending_user_message", None)
 
+        if _is_pi_task_run_request(self.context):
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
+
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(
             attrs.get(field) is not None
@@ -2363,6 +2387,11 @@ class TaskRunBootstrapCreateRequestSerializer(
                         f"Invalid choice '{initial_permission_mode}' for runtime_adapter "
                         f"'{runtime_adapter}'. Supported values: {allowed_values}."
                     )
+
+        if _is_pi_task_run_request(self.context):
+            if errors:
+                raise serializers.ValidationError(errors)
+            return attrs
 
         runtime_fields = ("runtime_adapter", "model")
         has_runtime_selection = any(
