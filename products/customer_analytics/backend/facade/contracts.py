@@ -80,6 +80,7 @@ class AccountProperties:
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
 
 @dataclass(frozen=True)
