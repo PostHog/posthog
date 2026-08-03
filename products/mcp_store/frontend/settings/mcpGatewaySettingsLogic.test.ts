@@ -185,8 +185,10 @@ describe('mcpGatewaySettingsLogic', () => {
         expect(router.values.hashParams).toEqual({ panel: 'open' })
     })
 
-    it('refreshes gateway data on focus and visibility, then removes both listeners on unmount', async () => {
+    it('refreshes gateway data once per return to the tab, then removes the listeners on unmount', async () => {
         await mountSettings(true)
+        jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
         const initialRequestCounts = [
             mockConfigList.mock.calls.length,
             mockServersList.mock.calls.length,
@@ -195,9 +197,20 @@ describe('mcpGatewaySettingsLogic', () => {
             mockRulesList.mock.calls.length,
         ]
 
+        // Returning to the tab fires both events back-to-back, so only one refresh should go out
         window.dispatchEvent(new Event('focus'))
+        document.dispatchEvent(new Event('visibilitychange'))
         await expectLogic(gatewayLogic!).toFinishAllListeners()
-        jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+
+        expect([
+            mockConfigList.mock.calls.length,
+            mockServersList.mock.calls.length,
+            mockTemplatesList.mock.calls.length,
+            mockServiceAccountsList.mock.calls.length,
+            mockRulesList.mock.calls.length,
+        ]).toEqual(initialRequestCounts.map((count) => count + 1))
+
+        nowSpy.mockReturnValue(1_005_000)
         document.dispatchEvent(new Event('visibilitychange'))
         await expectLogic(gatewayLogic!).toFinishAllListeners()
 
@@ -211,6 +224,7 @@ describe('mcpGatewaySettingsLogic', () => {
 
         settingsLogic?.unmount()
         settingsLogic = undefined
+        nowSpy.mockReturnValue(1_010_000)
         window.dispatchEvent(new Event('focus'))
         document.dispatchEvent(new Event('visibilitychange'))
 

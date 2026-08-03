@@ -11,6 +11,9 @@ import { TeamMCPGatewayConfigApi } from '../generated/api.schemas'
 
 export type GatewaySettingsDetailView = 'agent' | 'member' | 'server'
 
+// Returning to the tab fires both 'focus' and 'visibilitychange', so throttle to one refresh per return
+const GATEWAY_REFRESH_THROTTLE_MS = 1000
+
 function isGatewayTab(tab: string | null): tab is GatewayTab {
     return tab !== null && ADMIN_TABS.includes(tab as GatewayTab)
 }
@@ -374,22 +377,27 @@ export const mcpGatewaySettingsLogic = kea<mcpGatewaySettingsLogicType>([
         if (values.config === null && !values.configLoading) {
             actions.loadConfig()
         }
-        cache.disposables.add(() => {
-            const refresh = (): void => actions.refreshGatewayData()
-            window.addEventListener('focus', refresh)
-            return () => window.removeEventListener('focus', refresh)
-        }, 'gatewayFocusRefresh')
         cache.disposables.add(
             () => {
+                let lastRefreshedAt = 0
                 const refreshWhenVisible = (): void => {
-                    if (document.visibilityState === 'visible') {
-                        actions.refreshGatewayData()
+                    if (
+                        document.visibilityState !== 'visible' ||
+                        Date.now() - lastRefreshedAt < GATEWAY_REFRESH_THROTTLE_MS
+                    ) {
+                        return
                     }
+                    lastRefreshedAt = Date.now()
+                    actions.refreshGatewayData()
                 }
+                window.addEventListener('focus', refreshWhenVisible)
                 document.addEventListener('visibilitychange', refreshWhenVisible)
-                return () => document.removeEventListener('visibilitychange', refreshWhenVisible)
+                return () => {
+                    window.removeEventListener('focus', refreshWhenVisible)
+                    document.removeEventListener('visibilitychange', refreshWhenVisible)
+                }
             },
-            'gatewayVisibilityRefresh',
+            'gatewayReturnRefresh',
             { pauseOnPageHidden: false }
         )
     }),
