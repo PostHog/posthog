@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 from posthog.schema import (
     CachedLogsQueryResponse,
     FilterLogicalOperator,
-    HogQLFilters,
     IntervalType,
     LogPropertyFilter,
     LogPropertyFilterType,
@@ -34,7 +33,11 @@ from posthog.models.person.util import get_person_by_pk_or_uuid
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 
 from products.logs.backend.column_expressions import canonical_key, column_to_expr
-from products.logs.backend.models import DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS, TeamLogsConfig
+from products.logs.backend.models import (
+    DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS,
+    DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS,
+    TeamLogsConfig,
+)
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -488,26 +491,48 @@ class LogsFilterBuilder:
             # treats an empty value list as always-true, which would return every log.
             return ast.Constant(value=False)
         config = TeamLogsConfig.objects.filter(team=self.team).first()
-        attribute_keys = (
+        configured_keys = (
             config.logs_distinct_id_attribute_keys if config else None
         ) or DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEYS
-        # Force the __str map: attributes_map_str holds every attribute value (stringified),
-        # while attributes_map_float only exists for numeric values — all-numeric distinct ids
-        # must not route there via the usual value-type detection.
-        key_exprs = [
-            property_to_expr(
-                LogPropertyFilter(
-                    key=f"{attribute_key}__str",
-                    operator=PropertyOperator.EXACT,
-                    type=LogPropertyFilterType.LOG_ATTRIBUTE,
-                    value=list(distinct_ids),
-                ),
-                team=self.team,
+        # Also scope on the built-in convention keys the logs UI renders as clickable person
+        # links (isDistinctIdKey in products/logs/frontend/utils.tsx), so a log the UI shows as
+        # belonging to a person appears on their Logs tab even when the team hasn't configured
+        # that key. Deduped, configured keys first.
+        attribute_keys = list(dict.fromkeys([*configured_keys, *DISTINCT_ID_ATTRIBUTE_KEY_CONVENTIONS]))
+        distinct_id_values = list(distinct_ids)
+        key_exprs: list[ast.Expr] = []
+        for attribute_key in attribute_keys:
+            # Log attribute: force the __str map. attributes_map_str holds every attribute value
+            # (stringified), while attributes_map_float only exists for numeric values — all-numeric
+            # distinct ids must not route there via the usual value-type detection.
+            key_exprs.append(
+                property_to_expr(
+                    LogPropertyFilter(
+                        key=f"{attribute_key}__str",
+                        operator=PropertyOperator.EXACT,
+                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                        value=distinct_id_values,
+                    ),
+                    team=self.team,
+                )
             )
-            for attribute_key in attribute_keys
-        ]
-        # A log links to the person when any configured attribute key holds one of their
-        # distinct ids — mirrors the OR the person tab previously pinned client-side.
+            # Resource attribute: the logs UI links these keys under resource_attributes too
+            # (LogAttributes.tsx renders the person link regardless of attribute vs
+            # resource_attribute), so scope on both. resource_attributes is a plain string map on
+            # the row — no typed __str/__float split — so match the key directly.
+            key_exprs.append(
+                property_to_expr(
+                    LogPropertyFilter(
+                        key=attribute_key,
+                        operator=PropertyOperator.EXACT,
+                        type=LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE,
+                        value=distinct_id_values,
+                    ),
+                    team=self.team,
+                )
+            )
+        # A log links to the person when any of these attribute keys — in either the log
+        # attributes or the resource attributes — holds one of their distinct ids.
         return key_exprs[0] if len(key_exprs) == 1 else ast.Or(exprs=key_exprs)
 
     def resource_filter(self, *, existing_filters):
@@ -668,7 +693,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
-            filters=HogQLFilters(dateRange=self.query.dateRange),
+            filters=self.query_date_range.to_hogql_filters(),
             settings=self.settings,
         )
         results = []

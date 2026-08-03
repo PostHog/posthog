@@ -1,10 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconSparkles, IconWarning } from '@posthog/icons'
+import { IconRefresh, IconSearch, IconSparkles, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 import {
     Badge,
     Button,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
     Progress,
     Skeleton,
     Spinner,
@@ -20,8 +24,14 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 import type { MCPIntentClusterApi, MCPIntentClusterToolEntryApi } from '../generated/api.schemas'
+import { ClusteringCoverageBanner } from './ClusteringCoverageBanner'
 import { ClusterJourneySankey } from './ClusterJourneySankey'
-import { ClusterSortKey, mcpClusteringLogic } from './mcpClusteringLogic'
+import { DiscoveryScatter } from './DiscoveryScatter'
+import { EntropyBadge } from './EntropyBadge'
+import { ClusterSortKey, ClusteringViewMode, mcpClusteringLogic } from './mcpClusteringLogic'
+import { ToolIntentDetail } from './ToolIntentDetail'
+import { ToolOverlapTable } from './ToolOverlapTable'
+import { ToolPivotTable } from './ToolPivotTable'
 
 const SORT_LABELS: Record<ClusterSortKey, string> = {
     calls: 'Calls',
@@ -30,34 +40,9 @@ const SORT_LABELS: Record<ClusterSortKey, string> = {
     concentration: 'Top-tool %',
 }
 
-function EntropyBadge({ entropy }: { entropy: number }): JSX.Element {
-    if (entropy < 0.3) {
-        return (
-            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — one tool dominates this cluster's calls.`}>
-                <span>
-                    <Badge variant="success">Concentrated · {entropy.toFixed(2)}</Badge>
-                </span>
-            </Tooltip>
-        )
-    }
-    if (entropy < 0.6) {
-        return (
-            <Tooltip title={`Routing entropy ${entropy.toFixed(2)} — calls split between a few tools.`}>
-                <span>
-                    <Badge variant="warning">Mixed · {entropy.toFixed(2)}</Badge>
-                </span>
-            </Tooltip>
-        )
-    }
-    return (
-        <Tooltip
-            title={`Routing entropy ${entropy.toFixed(2)} — calls spread across many tools. Either a real multi-step workflow or the agent is improvising; the aggregate alone can't tell.`}
-        >
-            <span>
-                <Badge variant="destructive">Spread · {entropy.toFixed(2)}</Badge>
-            </span>
-        </Tooltip>
-    )
+const VIEW_LABELS: Record<ClusteringViewMode, string> = {
+    intents: 'By intent',
+    tools: 'By tool',
 }
 
 function HeatmapCell({
@@ -174,22 +159,64 @@ function Scorecards(): JSX.Element {
     )
 }
 
+function ViewToggle(): JSX.Element {
+    const { viewMode } = useValues(mcpClusteringLogic)
+    const { setViewMode } = useActions(mcpClusteringLogic)
+    return (
+        <div className="flex items-center gap-2">
+            {(Object.keys(VIEW_LABELS) as ClusteringViewMode[]).map((key) => (
+                <Button
+                    key={key}
+                    size="sm"
+                    variant={viewMode === key ? 'default' : 'outline'}
+                    onClick={() => setViewMode(key)}
+                    data-attr={`mcp-analytics-clustering-view-${key}`}
+                >
+                    {VIEW_LABELS[key]}
+                </Button>
+            ))}
+        </div>
+    )
+}
+
+function ToolSearchInput(): JSX.Element {
+    const { toolSearch } = useValues(mcpClusteringLogic)
+    const { setToolSearch } = useActions(mcpClusteringLogic)
+    return (
+        <InputGroup className="w-[220px]">
+            <InputGroupAddon align="inline-start">
+                <InputGroupText>
+                    <IconSearch />
+                </InputGroupText>
+            </InputGroupAddon>
+            <InputGroupInput
+                placeholder="Filter by tool name"
+                value={toolSearch}
+                onChange={(e) => setToolSearch(e.target.value)}
+            />
+        </InputGroup>
+    )
+}
+
 function SortHeader(): JSX.Element {
     const { sortKey } = useValues(mcpClusteringLogic)
     const { setSortKey } = useActions(mcpClusteringLogic)
     return (
-        <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs text-muted">Sort clusters by</span>
-            {(Object.keys(SORT_LABELS) as ClusterSortKey[]).map((key) => (
-                <Button
-                    key={key}
-                    size="sm"
-                    variant={sortKey === key ? 'default' : 'outline'}
-                    onClick={() => setSortKey(key)}
-                >
-                    {SORT_LABELS[key]}
-                </Button>
-            ))}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-muted">Sort clusters by</span>
+                {(Object.keys(SORT_LABELS) as ClusterSortKey[]).map((key) => (
+                    <Button
+                        key={key}
+                        size="sm"
+                        variant={sortKey === key ? 'default' : 'outline'}
+                        onClick={() => setSortKey(key)}
+                    >
+                        {SORT_LABELS[key]}
+                    </Button>
+                ))}
+            </div>
+            <ToolSearchInput />
         </div>
     )
 }
@@ -198,11 +225,14 @@ function Heatmap(): JSX.Element {
     const { visibleClusters, hiddenClusterCount, toolColumns, totalToolCount, selectedClusterId } =
         useValues(mcpClusteringLogic)
     const { selectCluster, showAllClusters } = useActions(mcpClusteringLogic)
+    const { toolSearch } = useValues(mcpClusteringLogic)
 
     if (toolColumns.length === 0) {
         return (
             <div className="bg-surface-primary border rounded p-4 text-center text-muted text-sm">
-                No tool calls observed in any cluster yet.
+                {toolSearch.trim()
+                    ? `No clusters call a tool matching "${toolSearch.trim()}". Clear the search to see all clusters.`
+                    : 'No tool calls observed in any cluster yet.'}
             </div>
         )
     }
@@ -562,8 +592,54 @@ function ComputingSkeleton(): JSX.Element {
     )
 }
 
+function ToolsViewEmptyState(): JSX.Element {
+    const { recompute } = useActions(mcpClusteringLogic)
+    const { snapshotLoading } = useValues(mcpClusteringLogic)
+    return (
+        <div className="bg-surface-primary border rounded p-8 flex flex-col items-center text-center gap-3 max-w-2xl mx-auto">
+            <IconSparkles className="text-4xl text-accent" />
+            <h3 className="text-lg font-semibold">No tool-level data in this snapshot</h3>
+            <p className="text-sm text-muted max-w-md">
+                This snapshot was computed before tool-level analytics existed. Recompute to see which intents each tool
+                serves, how often agents discover it, and which tools compete for the same intents.
+            </p>
+            <Button variant="default" onClick={recompute} disabled={snapshotLoading}>
+                {snapshotLoading ? <Spinner /> : <IconRefresh />}
+                Recompute clusters
+            </Button>
+        </div>
+    )
+}
+
+function ToolsView(): JSX.Element {
+    const { hasToolPivot, selectedTool, clusters } = useValues(mcpClusteringLogic)
+
+    if (!hasToolPivot) {
+        return <ToolsViewEmptyState />
+    }
+
+    return (
+        <div className="flex flex-col gap-4">
+            <div className="flex items-center justify-end">
+                <ToolSearchInput />
+            </div>
+            <ToolPivotTable />
+            {selectedTool ? (
+                <ToolIntentDetail tool={selectedTool} clusters={clusters} />
+            ) : (
+                <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
+                    Click a tool row above to see the intents it serves and who it competes with.
+                </div>
+            )}
+            <DiscoveryScatter />
+            <ToolOverlapTable />
+        </div>
+    )
+}
+
 export function MCPAnalyticsClustering(): JSX.Element {
-    const { snapshot, selectedCluster, hasSnapshot, isComputing, snapshotLoading } = useValues(mcpClusteringLogic)
+    const { snapshot, selectedCluster, hasSnapshot, isComputing, snapshotLoading, viewMode } =
+        useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
 
     if (snapshot.status === 'error') {
@@ -592,15 +668,25 @@ export function MCPAnalyticsClustering(): JSX.Element {
     return (
         <div className="flex flex-col gap-4" data-quill>
             <StatusRow />
-            <Scorecards />
-            <SortHeader />
-            <Heatmap />
-            {selectedCluster ? (
-                <ClusterDetail cluster={selectedCluster} />
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+                <ViewToggle />
+                <ClusteringCoverageBanner />
+            </div>
+            {viewMode === 'tools' ? (
+                <ToolsView />
             ) : (
-                <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
-                    Click a cluster row above to see its sample intents and tool breakdown.
-                </div>
+                <>
+                    <Scorecards />
+                    <SortHeader />
+                    <Heatmap />
+                    {selectedCluster ? (
+                        <ClusterDetail cluster={selectedCluster} />
+                    ) : (
+                        <div className="bg-surface-primary border rounded p-6 text-center text-muted text-sm">
+                            Click a cluster row above to see its sample intents and tool breakdown.
+                        </div>
+                    )}
+                </>
             )}
         </div>
     )
