@@ -72,6 +72,11 @@ class TestEnrichmentPromptConfigFormCleanOutputFields(SimpleTestCase):
 
 
 class _GrowthAdminTestCase(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Migration 0006 seeds an ai_pilled config, and these tests assert over the whole table.
+        EnrichmentPromptConfig.objects.all().delete()
+
     def _config(self, **overrides: Any) -> EnrichmentPromptConfig:
         params: dict[str, Any] = {
             "name": "ai_pilled",
@@ -155,7 +160,7 @@ class TestEnrichmentPromptConfigAdminSaveModel(_GrowthAdminTestCase):
             output_fields=_VALID_OUTPUT_FIELDS,
         )
 
-        self.admin.save_model(self._request(), obj, form=None, change=False)
+        self.admin.save_model(self._request(), obj, form=EnrichmentPromptConfigForm(), change=False)
 
         assert obj.created_by_id == self.user.id
 
@@ -163,7 +168,7 @@ class TestEnrichmentPromptConfigAdminSaveModel(_GrowthAdminTestCase):
         other_user = self._create_user("other-config-owner@example.com")
         obj = self._config(created_by=other_user)
 
-        self.admin.save_model(self._request(), obj, form=None, change=True)
+        self.admin.save_model(self._request(), obj, form=EnrichmentPromptConfigForm(), change=True)
 
         assert obj.created_by_id == other_user.id
 
@@ -196,13 +201,17 @@ class TestEnrichmentLabelResultAdminSearch(_GrowthAdminTestCase):
 
 
 class TestEnrichmentLabelResultAdminFilters(_GrowthAdminTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.admin = EnrichmentLabelResultAdmin(EnrichmentLabelResult, AdminSite())
+
     def test_label_name_choices_come_from_prompt_configs_not_results(self) -> None:
         # No EnrichmentLabelResult rows exist at all: a filter sourced from a SELECT DISTINCT
         # over that table would offer no choices even though a label is configured.
         self._config(name="ai_pilled")
         request = RequestFactory().get("/admin/growth/enrichmentlabelresult/")
 
-        choices = EnrichmentLabelNameFilter(request, {}, EnrichmentLabelResult, None).lookup_choices
+        choices = EnrichmentLabelNameFilter(request, {}, EnrichmentLabelResult, self.admin).lookup_choices
 
         assert choices == [("ai_pilled", "ai_pilled")]
 
@@ -210,7 +219,7 @@ class TestEnrichmentLabelResultAdminFilters(_GrowthAdminTestCase):
         self._config(version="ai-pilled-clay-v1")
         request = RequestFactory().get("/admin/growth/enrichmentlabelresult/")
 
-        choices = EnrichmentPromptVersionFilter(request, {}, EnrichmentLabelResult, None).lookup_choices
+        choices = EnrichmentPromptVersionFilter(request, {}, EnrichmentLabelResult, self.admin).lookup_choices
 
         assert choices == [("ai-pilled-clay-v1", "ai-pilled-clay-v1")]
 
@@ -220,7 +229,7 @@ class TestEnrichmentLabelResultAdminFilters(_GrowthAdminTestCase):
         self._result(self._config(name="other_label", version="v1-other"), fetch)
         request = RequestFactory().get("/admin/growth/enrichmentlabelresult/", {"label_name": "ai_pilled"})
 
-        queryset = EnrichmentLabelNameFilter(request, request.GET.copy(), EnrichmentLabelResult, None).queryset(
+        queryset = EnrichmentLabelNameFilter(request, request.GET.copy(), EnrichmentLabelResult, self.admin).queryset(
             request, EnrichmentLabelResult.objects.all()
         )
 
