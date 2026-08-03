@@ -24,7 +24,8 @@ export function MetricsExemplarMarkers({ exemplars }: { exemplars: MetricsExempl
     }
 
     const bucketTimes = labels.map((label) => dayjs(label).valueOf())
-    const color = getColorVar('primary')
+    // `link`, not a data color: a dot navigates to a trace, and it must not read as a fourth series.
+    const color = getColorVar('link')
     const baseline = dimensions.plotTop + dimensions.plotHeight
 
     return (
