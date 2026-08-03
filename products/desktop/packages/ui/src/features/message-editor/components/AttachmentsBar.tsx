@@ -26,7 +26,12 @@ function useFrozenGif(src: string | null | undefined, enabled: boolean) {
   useEffect(() => {
     if (!enabled || !src) return;
     const img = new Image();
+    let cancelled = false;
     img.onload = () => {
+      // A decode that lands after the src changed would paint the previous
+      // GIF's frame onto the canvas the new one is about to use, and the
+      // handler holds the decoded image alive until it fires.
+      if (cancelled) return;
       const canvas = canvasRef.current;
       if (!canvas) return;
       const size = 64;
@@ -40,6 +45,10 @@ function useFrozenGif(src: string | null | undefined, enabled: boolean) {
       ctx.drawImage(img, sx, sy, min, min, 0, 0, size, size);
     };
     img.src = src;
+    return () => {
+      cancelled = true;
+      img.onload = null;
+    };
   }, [src, enabled]);
 
   return canvasRef;
