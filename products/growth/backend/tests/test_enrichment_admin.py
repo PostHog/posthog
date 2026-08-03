@@ -15,6 +15,7 @@ from products.growth.backend.admin import (
     EnrichmentPromptConfigForm,
     EnrichmentPromptVersionFilter,
 )
+from products.growth.backend.enrichment.labels import MAX_INPUT_COLUMNS
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 _VALID_OUTPUT_FIELDS = [
@@ -29,6 +30,7 @@ class TestEnrichmentPromptConfigFormCleanInputFields(SimpleTestCase):
             ("not_a_list", "name"),
             ("contains_non_string", ["name", 5]),
             ("contains_empty_string", ["name", ""]),
+            ("more_than_reach_the_prompt", [f"field_{i}" for i in range(MAX_INPUT_COLUMNS + 1)]),
         ]
     )
     def test_rejects_malformed_input_fields(self, _name: str, bad_value: Any) -> None:
@@ -55,6 +57,9 @@ class TestEnrichmentPromptConfigFormCleanOutputFields(SimpleTestCase):
             ("unknown_type", [{"key": "ai_pilled", "type": "object"}]),
             ("reserved_key_meta", [{"key": "meta", "type": "string"}]),
             ("reserved_key_inputs", [{"key": "inputs", "type": "string"}]),
+            ("only_min", [{"key": "score", "type": "number", "min": 0}]),
+            ("range_on_a_string", [{"key": "score", "type": "string", "min": 0, "max": 1}]),
+            ("min_above_max", [{"key": "score", "type": "number", "min": 10, "max": 1}]),
         ]
     )
     def test_rejects_malformed_output_fields(self, _name: str, bad_value: Any) -> None:
@@ -69,6 +74,13 @@ class TestEnrichmentPromptConfigFormCleanOutputFields(SimpleTestCase):
         form.cleaned_data = {"output_fields": _VALID_OUTPUT_FIELDS}
 
         assert form.clean_output_fields() == _VALID_OUTPUT_FIELDS
+
+    def test_accepts_an_explicit_numeric_range(self) -> None:
+        ranged = [{"key": "score", "type": "number", "min": 0, "max": 100}]
+        form = EnrichmentPromptConfigForm()
+        form.cleaned_data = {"output_fields": ranged}
+
+        assert form.clean_output_fields() == ranged
 
 
 class _GrowthAdminTestCase(BaseTest):

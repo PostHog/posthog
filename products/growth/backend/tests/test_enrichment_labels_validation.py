@@ -9,12 +9,16 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.growth.backend.enrichment.labels import (
+    MAX_INPUT_COLUMNS,
     MAX_INPUT_DEPTH,
+    MAX_INPUT_LIST_ITEMS,
     MAX_INPUT_TOTAL_CHARS,
     MAX_INPUT_VALUE_CHARS,
+    MAX_OUTPUT_TOKENS,
     OutputParseError,
     PromptConfigError,
     bound_inputs,
+    bounding_report,
     classify_payload,
     is_unknown_output,
     signup_domain_for_organization,
@@ -256,7 +260,7 @@ class TestCallAndParseGatewayEdgeCases(SimpleTestCase):
         response.choices[0].finish_reason = "length"
         client.chat.completions.create.return_value = response
 
-        with self.assertRaisesMessage(OutputParseError, "truncated at max_tokens"):
+        with self.assertRaisesMessage(OutputParseError, "truncated at max_completion_tokens"):
             classify_payload(config, {"company": "Acme"}, None, client)
 
         assert client.chat.completions.create.call_count == 1
@@ -275,3 +279,123 @@ class TestCallAndParseGatewayEdgeCases(SimpleTestCase):
         output = classify_payload(config, {"company": "Acme"}, None, client)
 
         assert output["meta"]["finish_reason"] == "stop"
+
+
+def _config(**overrides: Any) -> EnrichmentPromptConfig:
+    params: dict[str, Any] = {
+        "name": "test_label",
+        "version": "v1",
+        "prompt_text": "... Email: {email}",
+        "model": "gpt-5-mini",
+        "input_fields": ["name"],
+        "output_fields": [{"key": "flag", "type": "boolean"}],
+    }
+    params.update(overrides)
+    return EnrichmentPromptConfig(**params)
+
+
+def _client_returning(payload: dict[str, Any]) -> MagicMock:
+    client = MagicMock()
+    response = MagicMock()
+    response.choices[0].message.content = json.dumps(payload)
+    response.choices[0].finish_reason = "stop"
+    client.chat.completions.create.return_value = response
+    return client
+
+
+class TestOutputTokenCapParameter(SimpleTestCase):
+    def test_the_cap_is_sent_as_max_completion_tokens(self) -> None:
+        # The OpenAI API rejects max_tokens for gpt-5 and o-series models. It reaches them today
+        # only because the gateway's litellm rewrites it, and config.model is operator-editable so
+        # the family isn't knowable here.
+        client = _client_returning({"flag": True})
+
+        classify_payload(_config(), {"name": "Acme"}, "acme.com", client)
+
+        kwargs = client.chat.completions.create.call_args.kwargs
+        assert kwargs["max_completion_tokens"] == MAX_OUTPUT_TOKENS
+        assert "max_tokens" not in kwargs
+
+
+class TestDeclaredOutputFieldRange(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("only_min", [{"key": "score", "type": "number", "min": 0}]),
+            ("only_max", [{"key": "score", "type": "number", "max": 100}]),
+            ("range_on_a_string", [{"key": "score", "type": "string", "min": 0, "max": 1}]),
+            ("non_numeric_bound", [{"key": "score", "type": "number", "min": "low", "max": "high"}]),
+            ("min_above_max", [{"key": "score", "type": "number", "min": 10, "max": 1}]),
+        ]
+    )
+    def test_rejects_a_malformed_range(self, _name: str, output_fields: list[dict]) -> None:
+        with self.assertRaises(PromptConfigError):
+            validate_output_fields(_config(output_fields=output_fields))
+
+    def test_a_declared_range_replaces_the_key_name_convention(self) -> None:
+        # Without this, any field named "confidence" is hard-bounded to 0-1 and a config whose
+        # prompt asks for 0-100 fails every row with no signal until the run comes back empty.
+        config = _config(output_fields=[{"key": "confidence", "type": "number", "min": 0, "max": 100}])
+
+        output = classify_payload(config, {"name": "Acme"}, "acme.com", _client_returning({"confidence": 75}))
+
+        assert output["confidence"] == 75
+
+    def test_a_confidence_field_without_a_declared_range_keeps_the_0_1_default(self) -> None:
+        config = _config(output_fields=[{"key": "confidence", "type": "number"}])
+
+        with self.assertRaises(OutputParseError):
+            classify_payload(config, {"name": "Acme"}, "acme.com", _client_returning({"confidence": 75}))
+
+    def test_the_declared_range_is_stated_in_the_prompt(self) -> None:
+        config = _config(output_fields=[{"key": "score", "type": "number", "min": 0, "max": 100}])
+        client = _client_returning({"score": 42})
+
+        classify_payload(config, {"name": "Acme"}, "acme.com", client)
+
+        messages = client.chat.completions.create.call_args.kwargs["messages"]
+        assert "between 0.0 and 100.0" in json.dumps(messages)
+
+
+class TestTooManyInputFieldsIsRejected(SimpleTestCase):
+    def test_more_input_fields_than_reach_the_prompt_is_a_config_error(self) -> None:
+        # bound_inputs keeps only the first MAX_INPUT_COLUMNS, and drops the tail from both the
+        # prompt and the stored record with nothing in either to say so.
+        config = _config(input_fields=[f"field_{i}" for i in range(MAX_INPUT_COLUMNS + 1)])
+        client = MagicMock()
+
+        with self.assertRaises(PromptConfigError):
+            classify_payload(config, {"name": "Acme"}, "acme.com", client)
+
+        client.chat.completions.create.assert_not_called()
+
+
+class TestBoundingReport(SimpleTestCase):
+    def test_a_dropped_column_is_named(self) -> None:
+        original = {f"f{i}": "x" for i in range(MAX_INPUT_COLUMNS + 2)}
+
+        report = bounding_report(original, bound_inputs(original))
+
+        assert report["dropped"] == [f"f{MAX_INPUT_COLUMNS}", f"f{MAX_INPUT_COLUMNS + 1}"]
+
+    def test_a_shortened_list_is_named(self) -> None:
+        original = {"tags": ["t"] * (MAX_INPUT_LIST_ITEMS + 10), "name": "Acme"}
+
+        report = bounding_report(original, bound_inputs(original))
+
+        assert report["truncated"] == ["tags"]
+        assert "dropped" not in report
+
+    def test_untouched_inputs_produce_no_marker(self) -> None:
+        original = {"name": "Acme", "tags": ["ai", "devtools"]}
+
+        assert bounding_report(original, bound_inputs(original)) == {}
+
+    def test_the_marker_reaches_the_stored_output(self) -> None:
+        # inputs is the durable record of what the model saw; a stored list of exactly
+        # MAX_INPUT_LIST_ITEMS is otherwise indistinguishable from a truncated one.
+        config = _config(input_fields=["tags"])
+        payload = {"tags": ["t"] * (MAX_INPUT_LIST_ITEMS + 10)}
+
+        output = classify_payload(config, payload, "acme.com", _client_returning({"flag": True}))
+
+        assert output["meta"]["bounded"] == {"truncated": ["tags"]}

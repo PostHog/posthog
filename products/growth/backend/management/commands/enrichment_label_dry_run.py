@@ -18,6 +18,7 @@ from products.growth.backend.enrichment.labels import (
     get_active_config,
     recent_latest_fetches_qs,
     signup_domain_for_organization,
+    validate_input_fields,
     validate_output_fields,
     verdict_field_key,
 )
@@ -75,6 +76,7 @@ class Command(BaseCommand):
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
         try:
+            validate_input_fields(config)
             validate_output_fields(config)
         except PromptConfigError as e:
             raise CommandError(str(e)) from e

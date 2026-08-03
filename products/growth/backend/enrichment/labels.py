@@ -43,8 +43,10 @@ MAX_INPUT_TOTAL_CHARS = 60000
 # Past this nesting level, _bounded/to_domain stop recursing: deeply nested provider JSON would
 # otherwise risk RecursionError inside the worker, which tenacity would then retry at full cost.
 MAX_INPUT_DEPTH = 6
-# A verdict is a handful of short keys; anything longer is a model that has started narrating.
-MAX_OUTPUT_TOKENS = 2000
+# A verdict is a handful of short keys, but on a reasoning model this budget also covers the
+# reasoning tokens, which are invisible in the reply and can consume it entirely. It's a cap and
+# not a reservation, so the headroom is free.
+MAX_OUTPUT_TOKENS = 4000
 
 _TRUNCATED_AT_MAX_DEPTH = "…(truncated: exceeded max input nesting depth)"
 
@@ -123,6 +125,9 @@ def extract_input_fields(payload: dict[str, Any], input_fields: list[str]) -> di
 def _output_instruction(config: EnrichmentPromptConfig) -> str:
     fields_desc = ", ".join(
         f'"{field["key"]}" ({field["type"]}'
+        # Stated rather than left implicit: a value outside the range is rejected, and asking for
+        # it without saying so is how a config that wants 0-100 fails every row.
+        + (f", between {rng[0]} and {rng[1]}" if (rng := field_range(field)) else "")
         + (f", meaning: {field['description']}" if field.get("description") else "")
         + ")"
         for field in config.output_fields
@@ -166,6 +171,27 @@ def bound_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     while bounded and len(json.dumps(bounded)) > MAX_INPUT_TOTAL_CHARS:
         bounded.popitem()
     return bounded
+
+
+def bounding_report(original: dict[str, Any], bounded: dict[str, Any]) -> dict[str, list[str]]:
+    """Which columns bound_inputs altered, for meta.bounded.
+
+    Only strings carry a visible "…" once truncated; a dropped column and a shortened list leave
+    no trace at all, so a stored tagsV2 of exactly MAX_INPUT_LIST_ITEMS reads identically to a
+    truncated one. inputs is the durable record of what the model saw, so anyone re-scoring a
+    verdict needs to know the record is partial.
+
+    Compares the two dicts rather than instrumenting the recursion: dropped keys are an exact set
+    difference, and a surviving column that serializes shorter was capped somewhere inside it.
+    """
+    dropped = [key for key in original if key not in bounded]
+    truncated = [key for key, value in bounded.items() if len(json.dumps(value)) != len(json.dumps(original[key]))]
+    report: dict[str, list[str]] = {}
+    if dropped:
+        report["dropped"] = dropped
+    if truncated:
+        report["truncated"] = truncated
+    return report
 
 
 def build_messages(
@@ -225,9 +251,27 @@ _OUTPUT_FIELD_COERCERS: dict[str, Callable[[Any], Any]] = {
     "string": _coerce_str,
 }
 
-# Keys whose value is a 0-1 confidence by convention, range-checked so a model answering 7.5
-# doesn't get stored as if it meant something.
+# Default range for these keys when a field declares no explicit min/max, so configs written
+# before ranges were expressible keep their old behavior.
 _UNIT_INTERVAL_KEYS = frozenset({"confidence"})
+
+
+def field_range(field: dict[str, Any]) -> tuple[float, float] | None:
+    """The declared numeric range for an output field, or the legacy key-name default."""
+    if field.get("min") is not None and field.get("max") is not None:
+        return float(field["min"]), float(field["max"])
+    return (0.0, 1.0) if field.get("key") in _UNIT_INTERVAL_KEYS else None
+
+
+def validate_input_fields(config: EnrichmentPromptConfig) -> None:
+    """More input_fields than bound_inputs will carry means the tail is dropped from both the
+    prompt and the stored record, with nothing in either to say so. Refusing the config is the
+    only point where that's still fixable."""
+    if len(config.input_fields) > MAX_INPUT_COLUMNS:
+        raise PromptConfigError(
+            f"enrichment config declares {len(config.input_fields)} input fields, "
+            f"more than the {MAX_INPUT_COLUMNS} that reach the prompt"
+        )
 
 
 def validate_output_fields(config: EnrichmentPromptConfig) -> None:
@@ -247,6 +291,17 @@ def validate_output_fields(config: EnrichmentPromptConfig) -> None:
             )
         if field_type not in _OUTPUT_FIELD_COERCERS:
             raise PromptConfigError(f"enrichment output field {key!r} has unknown type {field_type!r}")
+        if (field.get("min") is None) != (field.get("max") is None):
+            raise PromptConfigError(f"enrichment output field {key!r} declares only one of 'min' and 'max'")
+        if field.get("min") is not None:
+            if field_type != "number":
+                raise PromptConfigError(f"enrichment output field {key!r} has a range but is not a number")
+            try:
+                low, high = float(field["min"]), float(field["max"])
+            except (TypeError, ValueError) as e:
+                raise PromptConfigError(f"enrichment output field {key!r} has a non-numeric range") from e
+            if low > high:
+                raise PromptConfigError(f"enrichment output field {key!r} has min {low} above max {high}")
 
 
 def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -> dict[str, Any]:
@@ -264,11 +319,12 @@ def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -
         coercer = _OUTPUT_FIELD_COERCERS.get(field.get("type"))
         if coercer is None:
             raise OutputParseError(f"LLM response key {key!r} has unrecognized output type {field.get('type')!r}")
+        allowed = field_range(field)
         try:
             value = coercer(data[key])
             # Bare message: the except clause below owns the "LLM response key ..." prefix.
-            if key in _UNIT_INTERVAL_KEYS and not 0 <= value <= 1:
-                raise OutputParseError(f"{value} is outside the 0-1 range")
+            if allowed is not None and not allowed[0] <= value <= allowed[1]:
+                raise OutputParseError(f"{value} is outside the {allowed[0]}-{allowed[1]} range")
         except OutputParseError as e:
             raise OutputParseError(f"LLM response key {key!r}: {e}") from e
         except (TypeError, ValueError) as e:
@@ -293,7 +349,10 @@ def _call_and_parse(
         model=config.model,
         messages=cast(list[ChatCompletionMessageParam], messages),
         response_format={"type": "json_object"},
-        max_tokens=MAX_OUTPUT_TOKENS,
+        # Not max_tokens: the OpenAI API rejects it for gpt-5 and o-series models, and config.model
+        # is an operator-editable row so the family isn't known here. The gateway's litellm
+        # normalizes this one for every route it serves, including Anthropic's native max_tokens.
+        max_completion_tokens=MAX_OUTPUT_TOKENS,
         timeout=60,
     )
     # Content filtering and some upstream routes reply with an empty choices list; indexing it
@@ -303,7 +362,7 @@ def _call_and_parse(
         raise OutputParseError("LLM response had no choices (likely content filtering)")
     choice = response.choices[0]
     if choice.finish_reason == "length":
-        raise OutputParseError("response truncated at max_tokens")
+        raise OutputParseError("response truncated at max_completion_tokens")
     # Shared with the other products that talk to the gateway: response_format isn't reliably
     # honored on the Anthropic route, so the reply can arrive fenced or wrapped in prose.
     data = extract_json_object(choice.message.content or "")
@@ -359,6 +418,7 @@ def is_unknown_output(output: dict[str, Any]) -> bool:
 def classify_payload(
     config: EnrichmentPromptConfig, payload: dict[str, Any] | None, signup_domain: str | None, client: OpenAI
 ) -> dict[str, Any]:
+    validate_input_fields(config)
     validate_output_fields(config)
     # Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's
     # evidence of absence, not a thin signal to guess from, so skip the LLM entirely.
@@ -367,13 +427,17 @@ def classify_payload(
 
     # Checked after resolving, not before: a payload that's present but has none of the configured
     # paths would otherwise bill a call to ask the model about "Company data: {}".
-    inputs = bound_inputs(extract_input_fields(payload, config.input_fields))
+    extracted = extract_input_fields(payload, config.input_fields)
+    inputs = bound_inputs(extracted)
     if not inputs:
         return _unknown_output(config, signup_domain, "archived payload has none of the configured input fields")
 
     messages = build_messages(config, inputs, signup_domain)
     output, meta = _call_and_parse(config, messages, client)
     output["inputs"] = {"signup_domain": signup_domain, "fields": inputs}
+    bounded = bounding_report(extracted, inputs)
+    if bounded:
+        meta["bounded"] = bounded
     if meta:
         output["meta"] = meta
     return output

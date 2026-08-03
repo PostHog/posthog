@@ -17,7 +17,7 @@ from posthog.admin.inline_registry import register_admin_inline
 from posthog.models.organization import Organization
 from posthog.schema_enums import ProductKey
 
-from products.growth.backend.enrichment.labels import RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
+from products.growth.backend.enrichment.labels import MAX_INPUT_COLUMNS, RESERVED_OUTPUT_FIELD_KEYS, UNKNOWN
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, ProductPushCampaign
 from products.growth.backend.product_push.selection import select_next_product
 from products.growth.backend.product_push.service import cancel_campaigns, get_eligible_organization_queryset
@@ -372,6 +372,10 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
         input_fields = self.cleaned_data.get("input_fields")
         if not isinstance(input_fields, list) or not all(isinstance(field, str) and field for field in input_fields):
             raise ValidationError("input_fields must be a list of non-empty strings.")
+        if len(input_fields) > MAX_INPUT_COLUMNS:
+            raise ValidationError(
+                f"input_fields has {len(input_fields)} entries; only the first {MAX_INPUT_COLUMNS} reach the prompt."
+            )
         return input_fields
 
     def clean_output_fields(self) -> list[dict[str, Any]]:
@@ -394,6 +398,17 @@ class EnrichmentPromptConfigForm(forms.ModelForm):
                     f"output_fields entry {key!r} has type {field_type!r}; must be one of "
                     f"{sorted(ALLOWED_OUTPUT_FIELD_TYPES)}."
                 )
+            if (entry.get("min") is None) != (entry.get("max") is None):
+                raise ValidationError(f"output_fields entry {key!r} must declare both 'min' and 'max', or neither.")
+            if entry.get("min") is not None:
+                if field_type != "number":
+                    raise ValidationError(f"output_fields entry {key!r} has a range but is not a number.")
+                try:
+                    low, high = float(entry["min"]), float(entry["max"])
+                except (TypeError, ValueError):
+                    raise ValidationError(f"output_fields entry {key!r} has a non-numeric 'min' or 'max'.")
+                if low > high:
+                    raise ValidationError(f"output_fields entry {key!r} has 'min' {low} above 'max' {high}.")
         return output_fields
 
 
