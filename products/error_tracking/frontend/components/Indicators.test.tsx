@@ -13,4 +13,10 @@ describe('StatusIndicator', () => {
 
         expect(await screen.findByText('Ongoing issue')).toBeInTheDocument()
     })
+
+    it('renders a fallback instead of crashing for a status outside the enum', () => {
+        render(<StatusIndicator status={'open' as 'active'} withTooltip />)
+
+        expect(screen.getByText('Unknown')).toBeInTheDocument()
+    })
 })

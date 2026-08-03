@@ -38,6 +38,24 @@ const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
 
+// Exhaustive over the query's status union, so removing a status from the schema fails typechecking here.
+const VALID_STATUSES: Record<NonNullable<ErrorTrackingQueryStatus>, true> = {
+    all: true,
+    active: true,
+    archived: true,
+    pending_release: true,
+    resolved: true,
+    suppressed: true,
+}
+
+// Like isValidOrderBy: a persisted (localStorage), URL-provided, or tool-provided status can hold
+// a value outside the current enum (a status name from an older version, or free text produced by
+// an AI tool). Passing it through breaks the query and crashes the status filter render, so
+// anything unrecognized falls back to the default.
+export function isValidStatus(status: unknown): status is NonNullable<ErrorTrackingQueryStatus> {
+    return typeof status === 'string' && Object.hasOwn(VALID_STATUSES, status)
+}
+
 export interface IssueQueryOptionsLogicProps {
     logicKey: string
 }
@@ -116,7 +134,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             DEFAULT_STATUS as ErrorTrackingQueryStatus,
             { persist: true },
             {
-                setStatus: (_, { status }) => status,
+                setStatus: (_, { status }) => (isValidStatus(status) ? status : DEFAULT_STATUS),
             },
         ],
     }),
@@ -170,7 +188,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 }
             }
             if (params.status && !equal(params.status, values.status)) {
-                actions.setStatus(params.status)
+                if (isValidStatus(params.status)) {
+                    actions.setStatus(params.status)
+                }
             }
             if (params.assignee && !equal(params.assignee, values.assignee)) {
                 actions.setAssignee(params.assignee)
@@ -185,10 +205,13 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
     }),
 
     afterMount(({ actions, values }) => {
-        // The persisted orderBy is loaded straight into state (bypassing the reducer), so an
-        // invalid stored value would otherwise reach the query and break the page. Reset it.
+        // Persisted orderBy/status are loaded straight into state (bypassing the reducers), so an
+        // invalid stored value would otherwise reach the query and break the page. Reset them.
         if (!isValidOrderBy(values.orderBy)) {
             actions.setOrderBy(DEFAULT_ORDER_BY)
+        }
+        if (!isValidStatus(values.status)) {
+            actions.setStatus(DEFAULT_STATUS)
         }
     }),
 ])
