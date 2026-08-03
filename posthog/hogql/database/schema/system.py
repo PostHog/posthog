@@ -2023,42 +2023,10 @@ tasks: PostgresTable = PostgresTable(
         "channel_id": StringDatabaseField(
             name="channel_id",
             nullable=True,
-            description="Channel the task was kicked off in; joins to canvases.channel_id.",
+            description="Channel the task was kicked off in.",
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the task was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the task was last updated."),
-    },
-)
-
-canvases: PostgresTable = PostgresTable(
-    name="canvases",
-    postgres_table_name="posthog_canvas",
-    access_scope="canvas",
-    predicates=[parse_expr("deleted != true")],
-    description="Canvases (agent-built sandboxed apps filed into channels); one row per live canvas.",
-    fields={
-        "id": StringDatabaseField(name="id", description="Canvas UUID."),
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "channel_id": StringDatabaseField(name="channel_id", description="Channel the canvas belongs to."),
-        "name": StringDatabaseField(name="name", description="Display name of the canvas."),
-        "template_id": StringDatabaseField(name="template_id", description="Canvas template, e.g. 'freeform'."),
-        "_is_home": BooleanDatabaseField(name="is_home", hidden=True),
-        "is_home": ExpressionField(
-            name="is_home",
-            expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_home"])]),
-            description="1 for the channel's home board, 0 otherwise.",
-        ),
-        "pinned_at": DateTimeDatabaseField(
-            name="pinned_at", nullable=True, description="When the canvas was pinned to its channel; NULL if unpinned."
-        ),
-        "generation_task_id": StringDatabaseField(
-            name="generation_task_id", nullable=True, description="Task currently generating this canvas, if any."
-        ),
-        "created_by_id": IntegerDatabaseField(
-            name="created_by_id", nullable=True, description="User who created the canvas."
-        ),
-        "created_at": DateTimeDatabaseField(name="created_at", description="When the canvas was created."),
-        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the canvas was last updated."),
     },
 )
 
@@ -2266,7 +2234,6 @@ class SystemTables(TableNode):
             name="business_knowledge_documents", table=business_knowledge_documents
         ),
         "business_knowledge_sources": TableNode(name="business_knowledge_sources", table=business_knowledge_sources),
-        "canvases": TableNode(name="canvases", table=canvases),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "custom_property_definitions": TableNode(name="custom_property_definitions", table=custom_property_definitions),
