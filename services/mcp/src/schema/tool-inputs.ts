@@ -804,3 +804,41 @@ export const EmailTemplateDesignPatchSchema = z.object({
                 'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
         ),
 })
+
+export const WorkflowActionEmailPatchSchema = z
+    .object({
+        id: z.string().describe('The workflow (HogFlow) id.'),
+        action_id: z.string().describe('Id of the function_email step whose email to edit.'),
+        operations: z
+            .array(EmailDesignPatchOperationSchema)
+            .min(1)
+            .optional()
+            .describe(
+                "Ordered edits applied atomically to the step's email design - the same operations as " +
+                    'workflows-patch-email-template. The result is re-rendered to HTML server-side, so the sent ' +
+                    'email always matches the patched design. Reference blocks by id (read them via workflows-get).'
+            ),
+        email_patch: z
+            .record(z.string(), z.unknown())
+            .optional()
+            .describe(
+                "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, " +
+                    'preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is ' +
+                    'always re-rendered from it.'
+            ),
+        base_updated_at: z
+            .string()
+            .optional()
+            .describe(
+                'Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow ' +
+                    'is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.'
+            ),
+    })
+    .superRefine((data, ctx) => {
+        if (!data.operations?.length && !data.email_patch) {
+            ctx.addIssue({
+                code: 'custom',
+                message: 'Provide operations and/or email_patch.',
+            })
+        }
+    })

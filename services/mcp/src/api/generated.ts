@@ -51882,6 +51882,15 @@ export namespace Schemas {
       readonly action_redirects?: PatchedHogFlowActionRedirects;
     }
 
+    export interface PatchedHogFlowActionEmailUpdate {
+      /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+      base_updated_at?: string;
+      /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
+      operations?: DesignOperation[];
+      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it. */
+      email_patch?: unknown;
+    }
+
     export interface PatchedHogFlowGraphUpdate {
       /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
       base_updated_at?: string;
