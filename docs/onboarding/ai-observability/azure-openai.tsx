@@ -191,7 +191,7 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 file: 'Python',
                                 code: dedent`
                                     # Capture each tool call as a span nested under the generation above
-                                    for call in response.choices[0].message.tool_calls:
+                                    for call in response.choices[0].message.tool_calls or []:
                                         start = time.time()
                                         result = get_weather(**json.loads(call.function.arguments))
 
@@ -215,7 +215,7 @@ export const getAzureOpenAISteps = (ctx: OnboardingComponentsContext): StepDefin
                                 file: 'Node',
                                 code: dedent`
                                     // Capture each tool call as a span nested under the generation above
-                                    for (const call of response.choices[0].message.tool_calls) {
+                                    for (const call of response.choices[0].message.tool_calls ?? []) {
                                       const start = Date.now()
                                       const result = await getWeather(JSON.parse(call.function.arguments))
 

@@ -84,8 +84,7 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                             async def main():
                                 options = ClaudeAgentOptions(
                                     max_turns=5,
-                                    allowed_tools=["Read", "Glob", "Grep", "Bash"],
-                                    permission_mode="bypassPermissions",
+                                    allowed_tools=["Read", "Glob", "Grep"],
                                     cwd="/path/to/your/project",
                                 )
 
