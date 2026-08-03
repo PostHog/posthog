@@ -5,8 +5,10 @@
 # self-contained module that needs no ANTLR shared library at runtime.
 set -euo pipefail
 
-version="${ANTLR_CPP_RUNTIME_VERSION:-4.13.1}"
-expected_md5="${ANTLR_CPP_RUNTIME_MD5:-c875c148991aacd043f733827644a76f}"
+# Pinned inline, not env-overridable: CI caches the built runtime keyed on this
+# script's hash, so the pin and the cache key can never disagree.
+version="4.13.1"
+expected_md5="c875c148991aacd043f733827644a76f"
 # Override to install into a user-writable staging dir (the CI composite caches
 # that dir and copies into /usr afterwards); the default suits Docker root builds.
 prefix="${ANTLR_INSTALL_PREFIX:-/usr}"

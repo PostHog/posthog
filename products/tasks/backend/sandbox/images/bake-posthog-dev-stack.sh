@@ -92,7 +92,7 @@ log "installing dev toolchain (brotli, phrocs, go, rust)"
 # process-manager resolution (phrocs), and the Go/Rust procs and rust/bin migrators
 # need their toolchains.
 apt-get update
-# build-essential/cmake/uuid-dev serve the ANTLR runtime build below and the
+# Everything beyond brotli/make serves the ANTLR runtime install below and the
 # hogql-parser source builds that task-time `uv sync` may run.
 apt-get install -y --no-install-recommends brotli make build-essential cmake curl unzip uuid-dev
 rm -rf /var/lib/apt/lists/*

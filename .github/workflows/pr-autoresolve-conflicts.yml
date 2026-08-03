@@ -282,7 +282,6 @@ jobs:
             - name: Set up ANTLR C++ runtime
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               uses: ./.github/actions/setup-antlr-runtime
-
             - name: Install Python dependencies
               if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev

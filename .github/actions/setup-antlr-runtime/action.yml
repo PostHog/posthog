@@ -12,7 +12,7 @@ runs:
           with:
               path: ~/.antlr4-static
               # Content-addressed on the installer script, which pins the ANTLR
-              # version and md5, so one canonical key serves every ref.
+              # version and md5, so every ref shares one key.
               key: antlr4-static-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/install-antlr4-cpp-runtime') }}
 
         - name: Build ANTLR static runtime
@@ -25,7 +25,7 @@ runs:
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ~/.antlr4-static
-              key: antlr4-static-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bin/install-antlr4-cpp-runtime') }}
+              key: ${{ steps.antlr-cache.outputs.cache-primary-key }}
 
         - name: Install ANTLR static runtime system-wide
           shell: bash

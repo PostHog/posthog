@@ -1426,9 +1426,9 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
-            # Before the master checkout (ref: master, clean: false) removes this
-            # composite and its installer script from the workspace; the /usr install
-            # it performs survives the checkout.
+            # Must run before the master checkout below removes this composite and
+            # its installer script from the workspace; the /usr install it performs
+            # survives the checkout.
             - name: Set up ANTLR C++ runtime
               uses: ./.github/actions/setup-antlr-runtime
 

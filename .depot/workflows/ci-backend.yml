@@ -877,7 +877,6 @@ jobs:
               uses: ./.depot/actions/setup-sqlx-cli
             - name: Set up ANTLR C++ runtime
               uses: ./.github/actions/setup-antlr-runtime
-
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Add service hostnames to /etc/hosts
@@ -980,7 +979,6 @@ jobs:
                   version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Set up ANTLR C++ runtime
               uses: ./.github/actions/setup-antlr-runtime
-
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Bootstrap scaffold product
@@ -1046,7 +1044,6 @@ jobs:
                   version: '0.11.28'
             - name: Set up ANTLR C++ runtime
               uses: ./.github/actions/setup-antlr-runtime
-
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Validate changed product.yaml owners
@@ -1131,9 +1128,9 @@ jobs:
                   components: cargo
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
-            # Before the master checkout (ref: master, clean: false) removes this
-            # composite and its installer script from the workspace; the /usr install
-            # it performs survives the checkout.
+            # Must run before the master checkout below removes this composite and
+            # its installer script from the workspace; the /usr install it performs
+            # survives the checkout.
             - name: Set up ANTLR C++ runtime
               uses: ./.github/actions/setup-antlr-runtime
             # First running migrations from master, to simulate the real-world scenario
@@ -1142,7 +1139,6 @@ jobs:
               with:
                   ref: master
                   clean: false
-
             - name: Install python dependencies for master
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
@@ -1730,7 +1726,6 @@ jobs:
                   version: 1.0
             - name: Set up ANTLR C++ runtime
               uses: ./.github/actions/setup-antlr-runtime
-
             - name: Install Python dependencies
               shell: bash
               run: |
