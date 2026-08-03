@@ -132,7 +132,7 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         return False
 
     try:
-        return feature_enabled_or_false(
+        flag_enabled = feature_enabled_or_false(
             DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
             str(team.uuid),
             groups={
@@ -150,6 +150,26 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
         await logger.awarning("Failed to evaluate DuckLake data imports registration feature flag", error=str(error))
         capture_exception(error)
         return False
+
+    if not flag_enabled:
+        return False
+
+    # The flag alone is not sufficient: registration resolves the team's schema through
+    # the duckgres control plane, which only knows orgs with a provisioned server, so a
+    # flag-enabled team in an unprovisioned org would fail the prepare activity with a
+    # spurious "control plane unreachable" error. Dev mode has no DuckgresServer rows
+    # (connections come from env vars), so the check applies only to real deployments.
+    if is_dev_mode():
+        return True
+
+    server = await database_sync_to_async(get_duckgres_server_by_team_org)(inputs.team_id)
+    if server is None:
+        await logger.ainfo(
+            "No DuckgresServer provisioned for team's organization; skipping DuckLake data imports registration"
+        )
+        return False
+
+    return True
 
 
 @activity.defn
@@ -525,7 +545,7 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
         if not should_register:
-            logger.info("DuckLake data imports registration workflow disabled by feature flag")
+            logger.info("DuckLake data imports registration gated off (flag disabled or no DuckgresServer)")
             return
 
         schema_id = str(inputs.schema_id)
