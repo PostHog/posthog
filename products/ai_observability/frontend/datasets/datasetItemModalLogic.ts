@@ -4,40 +4,38 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from '~/lib/api'
-import { DatasetItem } from '~/types'
+import { ApiError } from 'lib/api-error'
 
-import { EMPTY_JSON, coerceJsonToObject, isStringJsonObject, prettifyJson } from './utils'
+import { CodeEnumApi } from '../generated/api.schemas'
+import type { DatasetItemCreateApi, DatasetItemReadApi } from '../generated/api.schemas'
+import { datasetsApi } from './datasetsApi'
+import {
+    EMPTY_JSON,
+    isStringJsonObject,
+    isStringJsonValue,
+    parseJsonObject,
+    parseJsonValue,
+    prettifyJson,
+} from './utils'
 
-export type TraceMetadata = Required<Pick<DatasetItem, 'ref_trace_id' | 'ref_source_id' | 'ref_timestamp'>>
+export type DatasetItemModalValue = DatasetItemReadApi | Partial<DatasetItemCreateApi>
 
 export interface DatasetItemModalLogicProps {
     datasetId: string
-    partialDatasetItem?: Partial<DatasetItem> | null
-    traceMetadata?: TraceMetadata
-    /**
-     * @param refetchDatasetItems - Whether the action was taken.
-     */
+    partialDatasetItem?: DatasetItemModalValue | null
     closeModal: (refetchDatasetItems?: boolean) => void
     isModalOpen: boolean
 }
 
-export enum DatasetTab {
-    Items = 'items',
-    Metadata = 'metadata',
-}
-
 export interface DatasetItemFormValues {
     input: string | null
-    output: string | null
+    expectedOutput: string | null
     metadata: string | null
 }
 
-export const DATASET_ITEMS_PER_PAGE = 50
-
 const FORM_DEFAULT_VALUE: DatasetItemFormValues = {
     input: EMPTY_JSON,
-    output: EMPTY_JSON,
+    expectedOutput: '',
     metadata: EMPTY_JSON,
 }
 
@@ -121,7 +119,10 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
 
     props({ datasetId: '', partialDatasetItem: null, closeModal: () => {} } as DatasetItemModalLogicProps),
 
-    key(({ datasetId, partialDatasetItem }) => `dataset-item-${datasetId}-${partialDatasetItem?.id || 'new'}`),
+    key(
+        ({ datasetId, partialDatasetItem }) =>
+            `dataset-item-${datasetId}-${isStoredDatasetItem(partialDatasetItem) ? partialDatasetItem.id : 'new'}`
+    ),
 
     actions({
         setShouldCloseModal: (shouldCloseModal: boolean) => ({ shouldCloseModal }),
@@ -148,21 +149,27 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
         datasetItemForm: {
             defaults: FORM_DEFAULT_VALUE as DatasetItemFormValues,
 
-            errors: ({ input, output, metadata }) => ({
-                input: !isStringJsonObject(input) ? 'Input must contain a valid JSON object' : undefined,
-                output: !isStringJsonObject(output) ? 'Output must contain a valid JSON object' : undefined,
+            errors: ({ input, expectedOutput, metadata }) => ({
+                input: !isStringJsonValue(input, false) ? 'Input must contain a non-null JSON value' : undefined,
+                expectedOutput: !isStringJsonValue(expectedOutput)
+                    ? 'Expected output must contain a valid JSON value or be empty'
+                    : undefined,
                 metadata: !isStringJsonObject(metadata) ? 'Metadata must contain a valid JSON object' : undefined,
             }),
 
             submit: async (formValues) => {
                 try {
-                    if (!props.partialDatasetItem?.id) {
-                        await api.datasetItems.create({
-                            ...props.partialDatasetItem,
+                    if (!isStoredDatasetItem(props.partialDatasetItem)) {
+                        await datasetsApi.createItem({
                             dataset: props.datasetId,
-                            input: coerceJsonToObject(formValues.input),
-                            output: coerceJsonToObject(formValues.output),
-                            metadata: coerceJsonToObject(formValues.metadata),
+                            external_id: props.partialDatasetItem?.external_id,
+                            input: parseJsonValue(formValues.input) ?? {},
+                            expected_output: parseJsonValue(formValues.expectedOutput),
+                            source_output: props.partialDatasetItem?.source_output,
+                            metadata: parseJsonObject(formValues.metadata),
+                            source_trace_id: props.partialDatasetItem?.source_trace_id,
+                            source_event_id: props.partialDatasetItem?.source_event_id,
+                            source_timestamp: props.partialDatasetItem?.source_timestamp,
                         })
                         lemonToast.success('Dataset item created successfully')
                         if (values.shouldCloseModal) {
@@ -174,19 +181,35 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                         }
                         actions.setShouldCloseModal(true)
                     } else {
-                        const updatedItem = await api.datasetItems.update(props.partialDatasetItem.id, {
-                            ...props.partialDatasetItem,
-                            input: coerceJsonToObject(formValues.input),
-                            output: coerceJsonToObject(formValues.output),
-                            metadata: coerceJsonToObject(formValues.metadata),
+                        const updatedItem = await datasetsApi.updateItem(props.partialDatasetItem.id, {
+                            base_version: props.partialDatasetItem.version,
+                            input: parseJsonValue(formValues.input) ?? {},
+                            expected_output: parseJsonValue(formValues.expectedOutput),
+                            metadata: parseJsonObject(formValues.metadata),
                         })
                         lemonToast.success('Dataset item updated successfully')
                         props.closeModal(true)
                         actions.setDatasetItemFormValues(getDatasetItemFormDefaults(updatedItem))
                     }
                 } catch (error) {
-                    console.error(error)
-                    lemonToast.error('Failed to save a dataset item.')
+                    if (error instanceof ApiError && error.code === CodeEnumApi.StaleVersion) {
+                        lemonToast.error(
+                            error.detail || 'This dataset item changed after it was loaded. Reload it and try again.',
+                            {
+                                button: {
+                                    label: 'Reload item',
+                                    action: () => props.closeModal(true),
+                                },
+                            }
+                        )
+                        return
+                    }
+
+                    lemonToast.error(
+                        error instanceof ApiError && error.detail
+                            ? error.detail
+                            : "Couldn't save dataset item. Try again."
+                    )
                 }
             },
         },
@@ -211,10 +234,14 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
     }),
 ])
 
-export function getDatasetItemFormDefaults(partialDatasetItem: Partial<DatasetItem>): DatasetItemFormValues {
+export function isStoredDatasetItem(item?: DatasetItemModalValue | null): item is DatasetItemReadApi {
+    return !!item && 'id' in item
+}
+
+function getDatasetItemFormDefaults(partialDatasetItem: DatasetItemModalValue): DatasetItemFormValues {
     return {
         input: prettifyJson(partialDatasetItem.input) || EMPTY_JSON,
-        output: prettifyJson(partialDatasetItem.output) || EMPTY_JSON,
+        expectedOutput: prettifyJson(partialDatasetItem.expected_output) || '',
         metadata: prettifyJson(partialDatasetItem.metadata) || EMPTY_JSON,
     }
 }
