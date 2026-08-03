@@ -263,91 +263,91 @@ export function ActionSelector({
                 {question}
               </Text>
             )}
+
+            <Box mt="3">
+              <Flex direction="column" gap="1" px="2">
+                {allOptions.map((option, index) => {
+                  if (isSubmitOption(option.id) || isCancelOption(option.id)) {
+                    return null;
+                  }
+                  const isSelected = selectedIndex === index;
+                  const isHovered = hoveredIndex === index;
+                  const isChecked = checkedOptions.has(option.id);
+
+                  return (
+                    <OptionRow
+                      key={option.id}
+                      option={option}
+                      index={index}
+                      isSelected={isSelected}
+                      isHovered={isHovered}
+                      isChecked={isChecked}
+                      showCheckbox={showSubmitButton}
+                      multiSelect={multiSelect}
+                      customInput={customInput}
+                      customInputPlaceholder={customInputPlaceholder}
+                      isEditing={showInlineEdit && isSelected}
+                      submitLabel={getSubmitLabel()}
+                      onCustomInputChange={setCustomInput}
+                      onNavigateUp={handleNavigateUp}
+                      onNavigateDown={handleNavigateDown}
+                      onEscape={handleEscape}
+                      onInlineSubmit={handleInlineSubmit}
+                      onClick={() => handleClick(index)}
+                      onMouseEnter={() => setHoveredIndex(index)}
+                      onMouseLeave={() => setHoveredIndex(null)}
+                    />
+                  );
+                })}
+              </Flex>
+
+              <Flex direction="row" gap="2" mt="2">
+                {allOptions.map((option, index) => {
+                  if (!isSubmitOption(option.id) && !isCancelOption(option.id)) {
+                    return null;
+                  }
+                  const isSelected = selectedIndex === index;
+
+                  const isHovered = hoveredIndex === index;
+                  const isDisabled =
+                    isSubmitOption(option.id) &&
+                    showSubmitButton &&
+                    !canSubmitOrAdvance;
+                  return (
+                    <OptionRow
+                      key={option.id}
+                      option={option}
+                      index={index}
+                      isSelected={isSelected}
+                      isHovered={isHovered}
+                      isChecked={false}
+                      showCheckbox={false}
+                      multiSelect={multiSelect}
+                      customInput=""
+                      customInputPlaceholder=""
+                      isEditing={false}
+                      submitLabel={getSubmitLabel()}
+                      disabled={isDisabled}
+                      onCustomInputChange={setCustomInput}
+                      onNavigateUp={handleNavigateUp}
+                      onNavigateDown={handleNavigateDown}
+                      onEscape={handleEscape}
+                      onInlineSubmit={handleInlineSubmit}
+                      onClick={() => handleClick(index)}
+                      onMouseEnter={() => setHoveredIndex(index)}
+                      onMouseLeave={() => setHoveredIndex(null)}
+                    />
+                  );
+                })}
+              </Flex>
+
+              <Text color="gray" mt="2" as="p" className="text-[13px]">
+                Enter to select · Tab/Arrow keys to navigate
+                {onCancel ? " · Esc to cancel" : ""}
+              </Text>
+            </Box>
           </Box>
         )}
-
-        <Box>
-          <Flex direction="column" gap="1" px="2">
-            {allOptions.map((option, index) => {
-              if (isSubmitOption(option.id) || isCancelOption(option.id)) {
-                return null;
-              }
-              const isSelected = selectedIndex === index;
-              const isHovered = hoveredIndex === index;
-              const isChecked = checkedOptions.has(option.id);
-
-              return (
-                <OptionRow
-                  key={option.id}
-                  option={option}
-                  index={index}
-                  isSelected={isSelected}
-                  isHovered={isHovered}
-                  isChecked={isChecked}
-                  showCheckbox={showSubmitButton}
-                  multiSelect={multiSelect}
-                  customInput={customInput}
-                  customInputPlaceholder={customInputPlaceholder}
-                  isEditing={showInlineEdit && isSelected}
-                  submitLabel={getSubmitLabel()}
-                  onCustomInputChange={setCustomInput}
-                  onNavigateUp={handleNavigateUp}
-                  onNavigateDown={handleNavigateDown}
-                  onEscape={handleEscape}
-                  onInlineSubmit={handleInlineSubmit}
-                  onClick={() => handleClick(index)}
-                  onMouseEnter={() => setHoveredIndex(index)}
-                  onMouseLeave={() => setHoveredIndex(null)}
-                />
-              );
-            })}
-          </Flex>
-
-          <Flex direction="row" gap="2" mt="2">
-            {allOptions.map((option, index) => {
-              if (!isSubmitOption(option.id) && !isCancelOption(option.id)) {
-                return null;
-              }
-              const isSelected = selectedIndex === index;
-
-              const isHovered = hoveredIndex === index;
-              const isDisabled =
-                isSubmitOption(option.id) &&
-                showSubmitButton &&
-                !canSubmitOrAdvance;
-              return (
-                <OptionRow
-                  key={option.id}
-                  option={option}
-                  index={index}
-                  isSelected={isSelected}
-                  isHovered={isHovered}
-                  isChecked={false}
-                  showCheckbox={false}
-                  multiSelect={multiSelect}
-                  customInput=""
-                  customInputPlaceholder=""
-                  isEditing={false}
-                  submitLabel={getSubmitLabel()}
-                  disabled={isDisabled}
-                  onCustomInputChange={setCustomInput}
-                  onNavigateUp={handleNavigateUp}
-                  onNavigateDown={handleNavigateDown}
-                  onEscape={handleEscape}
-                  onInlineSubmit={handleInlineSubmit}
-                  onClick={() => handleClick(index)}
-                  onMouseEnter={() => setHoveredIndex(index)}
-                  onMouseLeave={() => setHoveredIndex(null)}
-                />
-              );
-            })}
-          </Flex>
-
-          <Text color="gray" mt="2" as="p" className="text-[13px]">
-            Enter to select · Tab/Arrow keys to navigate
-            {onCancel ? " · Esc to cancel" : ""}
-          </Text>
-        </Box>
       </Flex>
     </Box>
   );
