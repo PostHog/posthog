@@ -41,12 +41,15 @@ describe('issueQueryOptionsLogic', () => {
         expect(logic.values.status).toBe('resolved')
     })
 
-    it('falls back to the default when the URL has an invalid status, overriding the persisted one', () => {
-        localStorage.setItem(PERSISTED_STATUS_KEY, JSON.stringify('resolved'))
-        const logic = mountLogic()
-        router.actions.push('/error_tracking', { status: 'open' })
-        expect(logic.values.status).toBe('active')
-    })
+    it.each([['open'], [''], [null]])(
+        'falls back to the default when the URL has invalid status %p, overriding the persisted one',
+        (param) => {
+            localStorage.setItem(PERSISTED_STATUS_KEY, JSON.stringify('resolved'))
+            const logic = mountLogic()
+            router.actions.push('/error_tracking', { status: param })
+            expect(logic.values.status).toBe('active')
+        }
+    )
 
     it('resets an invalid persisted status on mount', () => {
         localStorage.setItem(PERSISTED_STATUS_KEY, JSON.stringify('open'))

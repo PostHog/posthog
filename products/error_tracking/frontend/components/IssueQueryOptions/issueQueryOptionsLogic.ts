@@ -187,7 +187,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                     actions.setOrderBy(params.orderBy)
                 }
             }
-            if (params.status && !equal(params.status, values.status)) {
+            // Presence check rather than truthiness, since kea-router decodes `?status=` as ''
+            // and bare `?status` as null, which must also reset instead of being ignored.
+            if ('status' in params && !equal(params.status, values.status)) {
                 // Fall back to the default (which also lets actionToUrl scrub the param) so a
                 // stale link doesn't silently keep querying the previously persisted status.
                 actions.setStatus(isValidStatus(params.status) ? params.status : DEFAULT_STATUS)
