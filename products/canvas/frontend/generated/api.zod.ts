@@ -23,7 +23,11 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasesCreateBodyNameMax).describe('Display name for the canvas.'),
         channel_id: zod.uuid().describe('Id of the channel the canvas belongs to.'),
-        template_id: zod.string().max(canvasesCreateBodyTemplateIdMax).default(canvasesCreateBodyTemplateIdDefault),
+        template_id: zod
+            .string()
+            .max(canvasesCreateBodyTemplateIdMax)
+            .default(canvasesCreateBodyTemplateIdDefault)
+            .describe('Canvas template identifier.'),
         is_home: zod
             .boolean()
             .default(canvasesCreateBodyIsHomeDefault)
@@ -38,10 +42,13 @@ export const canvasesPartialUpdateBodyNameMax = 400
 
 export const CanvasesPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional(),
-        context: zod.string().optional(),
-        pinned: zod.boolean().optional(),
-        generation_task_id: zod.uuid().nullish(),
+        name: zod.string().max(canvasesPartialUpdateBodyNameMax).optional().describe('Updated display name.'),
+        context: zod.string().optional().describe('Updated author context markdown.'),
+        pinned: zod.boolean().optional().describe('Whether the canvas is pinned in its channel.'),
+        generation_task_id: zod
+            .uuid()
+            .nullish()
+            .describe('Task currently generating this canvas, or null to clear it.'),
     })
     .describe('Writable canvas fields: metadata only — source changes go through publish\/edit.')
 
@@ -238,6 +245,10 @@ export const CanvasesPublishCreateBody = /* @__PURE__ */ zod
 export const CanvasesRevertCreateBody = /* @__PURE__ */ zod
     .object({
         version_id: zod.uuid().describe('Id of the source version to make the head again.'),
+        expected_current_version_id: zod
+            .uuid()
+            .nullable()
+            .describe('Current source version observed before requesting the revert.'),
     })
     .describe("Payload for reverting the canvas's head to an existing source version.")
 

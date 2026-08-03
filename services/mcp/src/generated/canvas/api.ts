@@ -23,6 +23,8 @@ export const CanvasesListParams = /* @__PURE__ */ zod.object({
 })
 
 export const CanvasesListQueryParams = /* @__PURE__ */ zod.object({
+    channel: zod.string().optional().describe('Only return canvases in this channel.'),
+    is_home: zod.boolean().optional().describe('Filter by channel-home status.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
@@ -49,7 +51,11 @@ export const CanvasesCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(canvasesCreateBodyNameMax).describe('Display name for the canvas.'),
         channel_id: zod.string().describe('Id of the channel the canvas belongs to.'),
-        template_id: zod.string().max(canvasesCreateBodyTemplateIdMax).default(canvasesCreateBodyTemplateIdDefault),
+        template_id: zod
+            .string()
+            .max(canvasesCreateBodyTemplateIdMax)
+            .default(canvasesCreateBodyTemplateIdDefault)
+            .describe('Canvas template identifier.'),
         is_home: zod
             .boolean()
             .default(canvasesCreateBodyIsHomeDefault)

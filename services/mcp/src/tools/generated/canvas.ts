@@ -99,7 +99,7 @@ const canvasEditCreate = (): ToolBase<typeof CanvasEditCreateSchema, Schemas.Can
 })
 
 const CanvasListSchema = CanvasesListQueryParams.extend({
-    channel: z.string().uuid().optional().describe('Only return canvases in this channel (channel id).'),
+    channel: CanvasesListQueryParams.shape['channel'].describe('Only return canvases in this channel (channel id).'),
 })
 
 const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvasList> => ({
@@ -111,9 +111,10 @@ const canvasList = (): ToolBase<typeof CanvasListSchema, Schemas.PaginatedCanvas
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/canvases/`,
             query: {
+                channel: params.channel,
+                is_home: params.is_home,
                 limit: params.limit,
                 offset: params.offset,
-                channel: params.channel,
             },
         })
         return result

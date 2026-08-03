@@ -1381,20 +1381,6 @@
             "readOnlyHint": true
         }
     },
-    "channel-instructions-update": {
-        "description": "Publish a new version of a channel's CONTEXT.md instructions. Pass the COMPLETE new markdown in `content` and the version you read as `base_version` — a stale base is rejected with 409 so concurrent edits are never overwritten. Edit in place: carry forward everything still true rather than rewriting from scratch.",
-        "category": "Tasks",
-        "feature": "tasks",
-        "summary": "Update channel instructions",
-        "title": "Update channel instructions",
-        "required_scopes": ["task:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "channel-list": {
         "description": "List the project's channels (public channels plus the requester's personal #me channel). Use this to resolve a channel id from its name before creating or listing canvases or reading instructions.",
         "category": "Tasks",

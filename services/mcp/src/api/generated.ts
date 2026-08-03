@@ -13473,7 +13473,10 @@ export namespace Schemas {
       name: string;
       /** Id of the channel the canvas belongs to. */
       channel_id: string;
-      /** @maxLength 64 */
+      /**
+         * Canvas template identifier.
+         * @maxLength 64
+         */
       template_id?: string;
       /** Create the canvas as the channel's home board (at most one per channel). */
       is_home?: boolean;
@@ -13500,6 +13503,11 @@ export namespace Schemas {
     export interface CanvasRevert {
       /** Id of the source version to make the head again. */
       version_id: string;
+      /**
+         * Current source version observed before requesting the revert.
+         * @nullable
+         */
+      expected_current_version_id: string | null;
     }
 
     /**
@@ -50454,29 +50462,20 @@ export namespace Schemas {
      * Writable canvas fields: metadata only — source changes go through publish/edit.
      */
     export interface PatchedCanvasUpdate {
-      /** @maxLength 400 */
-      name?: string;
-      context?: string;
-      pinned?: boolean;
-      /** @nullable */
-      generation_task_id?: string | null;
-    }
-
-    /**
-     * Request body for publishing a new instructions version.
-     */
-    export interface PatchedChannelInstructionsWrite {
       /**
-         * The complete markdown instructions (CONTEXT.md) for the channel.
-         * @maxLength 100000
+         * Updated display name.
+         * @maxLength 400
          */
-      content?: string;
+      name?: string;
+      /** Updated author context markdown. */
+      context?: string;
+      /** Whether the canvas is pinned in its channel. */
+      pinned?: boolean;
       /**
-         * Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.
-         * @minimum 0
+         * Task currently generating this canvas, or null to clear it.
          * @nullable
          */
-      base_version?: number | null;
+      generation_task_id?: string | null;
     }
 
     /**
@@ -77612,6 +77611,14 @@ export namespace Schemas {
     };
 
     export type CanvasesListParams = {
+    /**
+     * Only return canvases in this channel.
+     */
+    channel?: string;
+    /**
+     * Filter by channel-home status.
+     */
+    is_home?: boolean;
     /**
      * Number of results to return per page.
      */

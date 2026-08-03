@@ -44,23 +44,6 @@ tools:
         param_overrides:
             id:
                 description: ID of the channel whose instructions to read.
-    channel-instructions-update:
-        operation: task_channels_instructions_partial_update
-        enabled: true
-        scopes:
-            - task:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Update channel instructions
-        description: >
-            Publish a new version of a channel's CONTEXT.md instructions. Pass the COMPLETE new markdown in `content`
-            and the version you read as `base_version` — a stale base is rejected with 409 so concurrent edits are never
-            overwritten. Edit in place: carry forward everything still true rather than rewriting from scratch.
-        param_overrides:
-            id:
-                description: ID of the channel whose instructions to update.
     channel-list:
         operation: task_channels_list
         enabled: true

@@ -803,40 +803,6 @@ export const TaskChannelsInstructionsRetrieveParams = /* @__PURE__ */ zod.object
 })
 
 /**
- * Publish a new version of the channel's CONTEXT.md instructions. Pass base_version (the version you read) so a concurrent edit is rejected with 409 instead of overwritten.
- * @summary Publish channel instructions
- */
-export const TaskChannelsInstructionsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const taskChannelsInstructionsPartialUpdateBodyContentMax = 100000
-
-export const taskChannelsInstructionsPartialUpdateBodyBaseVersionMin = 0
-
-export const TaskChannelsInstructionsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        content: zod
-            .string()
-            .max(taskChannelsInstructionsPartialUpdateBodyContentMax)
-            .optional()
-            .describe('The complete markdown instructions (CONTEXT.md) for the channel.'),
-        base_version: zod
-            .number()
-            .min(taskChannelsInstructionsPartialUpdateBodyBaseVersionMin)
-            .nullish()
-            .describe(
-                'Optimistic-concurrency guard: the version the edit is based on (0 for a channel with no instructions yet). A stale base is rejected with 409; omit to publish unguarded.'
-            ),
-    })
-    .describe('Request body for publishing a new instructions version.')
-
-/**
  * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
  * @summary List tasks
  */
