@@ -11,6 +11,7 @@ import {
     createXScale,
     createYScale,
     niceLogDomain,
+    sanitizeFixedDomain,
     yTickCountForHeight,
 } from './scales'
 import type { StackedBand } from './scales'
@@ -245,6 +246,21 @@ describe('hog-charts scales', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
             const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: [0, 200] })
             expect(scale.domain()).toEqual([0, 200])
+        })
+
+        // A non-finite or collapsed fixed domain maps every value (and axis tick) to NaN, so the
+        // chart paints nothing while x-only tooltips keep working. The domain must stay well-formed.
+        it.each([
+            { name: 'NaN bounds', valueDomain: [NaN, NaN] as [number, number] },
+            { name: 'a NaN max (e.g. Math.max of empty data)', valueDomain: [0, NaN] as [number, number] },
+            { name: 'an infinite max', valueDomain: [0, Infinity] as [number, number] },
+            { name: 'collapsed bounds', valueDomain: [50, 50] as [number, number] },
+        ])('keeps a finite, non-degenerate domain for $name', ({ valueDomain }) => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const [min, max] = createYScale(series, dimensions, { valueDomain }).domain()
+            expect(isFinite(min)).toBe(true)
+            expect(isFinite(max)).toBe(true)
+            expect(min).toBeLessThan(max)
         })
     })
 
@@ -664,8 +680,26 @@ describe('hog-charts scales', () => {
             { plotHeight: 400, expected: 8 },
             { plotHeight: 550, expected: 11 },
             { plotHeight: 1600, expected: 11 },
+            // A non-finite/non-positive height must floor to the minimum: `ticks(NaN)` returns [],
+            // which would strip every tick off the axis.
+            { plotHeight: NaN, expected: 2 },
+            { plotHeight: -Infinity, expected: 2 },
+            { plotHeight: -10, expected: 2 },
         ])('plotHeight $plotHeight → $expected ticks', ({ plotHeight, expected }) => {
             expect(yTickCountForHeight(plotHeight)).toBe(expected)
+        })
+    })
+
+    describe('sanitizeFixedDomain', () => {
+        it.each([
+            { name: 'NaN bounds fall back to [0, 1]', input: [NaN, NaN], expected: [0, 1] },
+            { name: 'a NaN bound falls back to [0, 1]', input: [0, NaN], expected: [0, 1] },
+            { name: 'an infinite bound falls back to [0, 1]', input: [0, Infinity], expected: [0, 1] },
+            { name: 'collapsed bounds get a unit span', input: [5, 5], expected: [5, 6] },
+            { name: 'an inverted order is normalized', input: [40, 0], expected: [0, 40] },
+            { name: 'a well-formed domain is preserved', input: [0, 40], expected: [0, 40] },
+        ])('$name', ({ input, expected }) => {
+            expect(sanitizeFixedDomain(input as [number, number])).toEqual(expected)
         })
     })
 

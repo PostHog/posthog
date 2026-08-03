@@ -5,7 +5,6 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Optional
-from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import transaction
@@ -28,6 +27,7 @@ from products.tasks.backend.constants import (
     filter_user_sandbox_env_vars,
 )
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
 # logic/services (non-temporal callers import run_actor directly).
@@ -513,12 +513,19 @@ def get_user_mcp_server_configs(
     include_personal: bool = True,
     interaction_origin: str | None = None,
     allowed_installation_ids: list[str] | None = None,
+    origin_product: str | None = None,
+    task_agent_key: str | None = None,
 ) -> list[McpServerConfig]:
     """Fetch MCP Store installations for sandbox use and return configs.
 
-    Always includes shared (team-wide) installations. When
-    ``include_personal`` is True and a ``user_id`` is provided, the user's
-    personal installations are included too.
+    Unmapped tasks include shared team installations. Built-in agent tasks only
+    include shared installations granted to that agent and never include a
+    member's personal installations. A mapped origin without its persisted
+    agent marker gets no Store installations. Built-in agent handling is
+    gated per team on the ``mcp-gateway`` rollout flag; teams without it
+    resolve mapped origins like unmapped tasks. For unmapped tasks,
+    ``include_personal`` includes the user's personal installations when a
+    ``user_id`` is provided.
 
     ``allowed_installation_ids`` restricts the mounted connectors to a snapshotted allowlist (a
     loop run's selected ``mcp_installation_ids``): ``None`` leaves the set unfiltered (current
@@ -538,6 +545,8 @@ def get_user_mcp_server_configs(
         team_id,
         user_id=user_id,
         include_personal=include_personal,
+        task_origin=origin_product,
+        task_agent_key=task_agent_key,
     )
     if allowed_installation_ids is not None:
         allowed = {str(i) for i in allowed_installation_ids}
@@ -547,15 +556,16 @@ def get_user_mcp_server_configs(
 
     configs: list[McpServerConfig] = []
     for installation in installations:
+        headers = [
+            {"name": "Authorization", "value": f"Bearer {installation.proxy_token or token}"},
+            {"name": "x-posthog-mcp-consumer", "value": consumer},
+        ]
         configs.append(
             McpServerConfig(
                 type="http",
                 name=installation.name,
                 url=f"{api_base}{installation.proxy_path}",
-                headers=[
-                    {"name": "Authorization", "value": f"Bearer {token}"},
-                    {"name": "x-posthog-mcp-consumer", "value": consumer},
-                ],
+                headers=headers,
             )
         )
 
@@ -695,7 +705,7 @@ def get_sandbox_ph_mcp_configs(
     - app.dev.posthog.dev → https://mcp.dev.posthog.dev/mcp
     - Other hosts → empty list (MCP not available)
     """
-    url = _resolve_mcp_url()
+    url = _resolve_mcp_url(sandbox_mcp_url=settings.SANDBOX_MCP_URL, site_url=settings.SITE_URL)
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
@@ -709,31 +719,6 @@ def get_sandbox_ph_mcp_configs(
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
-
-
-def _resolve_mcp_url() -> str | None:
-    if settings.SANDBOX_MCP_URL:
-        return settings.SANDBOX_MCP_URL
-
-    site_url = settings.SITE_URL
-    if not site_url:
-        return None
-
-    hostname = urlparse(site_url).hostname or ""
-    if hostname in ("app.posthog.com", "us.posthog.com"):
-        return "https://mcp.posthog.com/mcp"
-    if hostname == "eu.posthog.com":
-        return "https://mcp-eu.posthog.com/mcp"
-    if hostname == "app.dev.posthog.dev":
-        return "https://mcp.dev.posthog.dev/mcp"
-
-    # Local dev: point to the local wrangler dev MCP server via
-    # host.docker.internal, since the sandbox runs in Docker.
-    # On Linux without Docker Desktop, set SANDBOX_MCP_URL instead.
-    if hostname in ("localhost", "127.0.0.1"):
-        return "http://host.docker.internal:8787/mcp"
-
-    return None
 
 
 def get_github_token(github_integration_id: int) -> Optional[str]:

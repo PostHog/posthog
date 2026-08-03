@@ -64,10 +64,6 @@ from posthog.temporal.dlq_replay import (
     ACTIVITIES as DLQ_REPLAY_ACTIVITIES,
     WORKFLOWS as DLQ_REPLAY_WORKFLOWS,
 )
-from posthog.temporal.ducklake import (
-    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
-    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
-)
 from posthog.temporal.event_screenshots import (
     ACTIVITIES as EVENT_SCREENSHOTS_ACTIVITIES,
     WORKFLOWS as EVENT_SCREENSHOTS_WORKFLOWS,
@@ -217,6 +213,10 @@ from products.logs.backend.facade.temporal import (
 from products.logs.backend.temporal.retention_entitlements import (
     ACTIVITIES as LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES,
     WORKFLOWS as LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS,
+)
+from products.managed_warehouse.backend.facade.temporal import (
+    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
+    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
