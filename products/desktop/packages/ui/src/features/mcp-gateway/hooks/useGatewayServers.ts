@@ -15,6 +15,7 @@ import {
 import { reauthorizeWithOAuth } from "@posthog/core/mcp-servers/installFlow";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { gatewayKeys } from "@posthog/ui/features/mcp-gateway/hooks/gatewayKeys";
+import { useGatewayConfig } from "@posthog/ui/features/mcp-gateway/hooks/useGatewayConfig";
 import {
   createOAuthCallback,
   mcpKeys,
@@ -57,6 +58,22 @@ export function useGatewayServers() {
   const recommendedTemplates = useMemo(
     () => recommendedCatalogTemplates(servers ?? [], templates ?? []),
     [servers, templates],
+  );
+
+  // A recommended server connects from a card with no sharing controls, so the
+  // grants ride along with the install: every agent gets it, and anyone who
+  // wants a narrower set trims it on the server page afterwards.
+  const { canManageAgentAccess } = useGatewayConfig();
+  const { data: serviceAccounts } = useAuthenticatedQuery(
+    gatewayKeys.accounts,
+    (client) => client.getMcpServiceAccounts(),
+  );
+  const defaultAgentIds = useMemo(
+    () =>
+      canManageAgentAccess
+        ? (serviceAccounts ?? []).map((account) => account.id)
+        : [],
+    [canManageAgentAccess, serviceAccounts],
   );
 
   const invalidateServers = useCallback(() => {
@@ -195,6 +212,7 @@ export function useGatewayServers() {
           description: vars.template.description ?? "",
         },
         vars.credentials,
+        { agentIds: defaultAgentIds },
       ),
     {
       onSuccess: (data, vars) => {

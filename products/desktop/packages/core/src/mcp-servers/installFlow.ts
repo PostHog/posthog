@@ -13,6 +13,7 @@ export interface InstallFlowClient {
   installMcpTemplate(options: {
     template_id: string;
     api_key?: string;
+    agent_ids?: string[];
     install_source?: "posthog" | "posthog-code";
     posthog_code_callback_url?: string;
   }): Promise<InstallResult>;
@@ -24,6 +25,7 @@ export interface InstallFlowClient {
     api_key?: string;
     client_id?: string;
     client_secret?: string;
+    agent_ids?: string[];
     install_source?: "posthog" | "posthog-code";
     posthog_code_callback_url?: string;
   }): Promise<InstallResult>;
@@ -55,7 +57,7 @@ function hasRedirect(data: InstallResult): data is OAuthRedirect {
 export async function installTemplateWithOAuth(
   client: InstallFlowClient,
   oauth: IOAuthCallback,
-  vars: { template_id: string; api_key?: string },
+  vars: { template_id: string; api_key?: string; agent_ids?: string[] },
 ): Promise<OAuthCallbackResult> {
   const { callbackUrl } = await oauth.getCallbackUrl();
   const data = await client.installMcpTemplate({
@@ -80,6 +82,7 @@ export async function installCustomWithOAuth(
     api_key?: string;
     client_id?: string;
     client_secret?: string;
+    agent_ids?: string[];
   },
 ): Promise<OAuthCallbackResult> {
   const { callbackUrl } = await oauth.getCallbackUrl();

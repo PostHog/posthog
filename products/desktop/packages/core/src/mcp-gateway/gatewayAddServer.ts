@@ -14,7 +14,8 @@ export interface GatewayAddServerValues {
   clientSecret: string;
   /** Team sharing options are admin-only; agentIds follows the team setting. */
   teamEnabled: boolean;
-  agentIds: string[];
+  /** Null means every agent — the list only exists once someone narrows it. */
+  agentIds: string[] | null;
 }
 
 export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
@@ -26,8 +27,20 @@ export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
   clientId: "",
   clientSecret: "",
   teamEnabled: true,
-  agentIds: [],
+  agentIds: null,
 };
+
+/**
+ * The agents a new server is shared with. Sharing starts on for every agent, so
+ * a server works everywhere the moment it's added; the list narrows only once
+ * someone switches an agent off.
+ */
+export function resolveSharedAgentIds(
+  selected: string[] | null,
+  availableAgentIds: string[],
+): string[] {
+  return selected ?? availableAgentIds;
+}
 
 export function canSubmitGatewayServer(
   values: Pick<GatewayAddServerValues, "name" | "url">,
@@ -53,8 +66,16 @@ export interface GatewayInstallRequest extends McpGatewayInstallSharingOptions {
  */
 export function buildGatewayInstallRequest(
   values: GatewayAddServerValues,
-  options: { isAdmin: boolean; canManageAgentAccess: boolean },
+  options: {
+    isAdmin: boolean;
+    canManageAgentAccess: boolean;
+    availableAgentIds: string[];
+  },
 ): GatewayInstallRequest {
+  const agentIds = resolveSharedAgentIds(
+    values.agentIds,
+    options.availableAgentIds,
+  );
   return {
     name: values.name.trim(),
     url: values.url.trim(),
@@ -70,8 +91,8 @@ export function buildGatewayInstallRequest(
       ? { client_secret: values.clientSecret.trim() }
       : {}),
     ...(options.isAdmin ? { team_enabled: values.teamEnabled } : {}),
-    ...(options.canManageAgentAccess && values.agentIds.length
-      ? { agent_ids: values.agentIds }
+    ...(options.canManageAgentAccess && agentIds.length
+      ? { agent_ids: agentIds }
       : {}),
   };
 }

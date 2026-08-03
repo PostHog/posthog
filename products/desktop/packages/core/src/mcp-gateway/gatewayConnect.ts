@@ -73,6 +73,15 @@ export interface GatewayConnectTarget {
   description: string;
 }
 
+export interface GatewayConnectOptions {
+  /**
+   * Agents to share the server with as it's created. Only meaningful when the
+   * connect materializes the row, and only accepted when team settings let the
+   * caller manage agent access.
+   */
+  agentIds?: string[];
+}
+
 /**
  * Connect the caller's own credential to a gateway server, or to a catalog
  * template with no row yet — the backend materializes the row. Honors the
@@ -84,15 +93,18 @@ export async function connectGatewayServer(
   oauth: IOAuthCallback,
   target: GatewayConnectTarget,
   credentials: GatewayConnectCredentials = GATEWAY_CONNECT_DEFAULTS,
+  options: GatewayConnectOptions = {},
 ): Promise<OAuthCallbackResult> {
   const apiKey =
     credentials.authType === "api_key" && credentials.apiKey
       ? credentials.apiKey
       : undefined;
+  const agentIds = options.agentIds?.length ? options.agentIds : undefined;
   if (target.template_id) {
     return installTemplateWithOAuth(client, oauth, {
       template_id: target.template_id,
       api_key: apiKey,
+      agent_ids: agentIds,
     });
   }
   return installCustomWithOAuth(client, oauth, {
@@ -101,6 +113,7 @@ export async function connectGatewayServer(
     description: target.description,
     auth_type: credentials.authType,
     api_key: apiKey,
+    agent_ids: agentIds,
     client_id:
       credentials.authType === "oauth" && credentials.clientId.trim()
         ? credentials.clientId.trim()

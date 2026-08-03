@@ -49,4 +49,20 @@ describe("GatewayAddServer", () => {
       screen.queryByText("Allow personal connections"),
     ).not.toBeInTheDocument();
   });
+
+  it("shares with every agent by default", () => {
+    render(
+      <Theme>
+        <GatewayAddServer
+          isAdmin={false}
+          canManageAgentAccess
+          accounts={[account]}
+          onNavigate={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    // Members get no team toggle, so the agent's is the only switch on screen.
+    expect(screen.getByRole("switch")).toBeChecked();
+  });
 });

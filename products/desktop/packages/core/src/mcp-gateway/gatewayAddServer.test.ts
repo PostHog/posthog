@@ -31,7 +31,7 @@ describe("buildGatewayInstallRequest", () => {
   it("builds an oauth install with admin team options", () => {
     const request = buildGatewayInstallRequest(
       values({ description: "  Wiki tools  ", agentIds: ["svc-1"] }),
-      { isAdmin: true, canManageAgentAccess: true },
+      { isAdmin: true, canManageAgentAccess: true, availableAgentIds: [] },
     );
     expect(request).toEqual({
       name: "Internal Wiki",
@@ -46,7 +46,7 @@ describe("buildGatewayInstallRequest", () => {
   it("includes the key on api-key installs", () => {
     const request = buildGatewayInstallRequest(
       values({ authType: "api_key", apiKey: "sk-123" }),
-      { isAdmin: true, canManageAgentAccess: true },
+      { isAdmin: true, canManageAgentAccess: true, availableAgentIds: [] },
     );
     expect(request.auth_type).toBe("api_key");
     expect(request.api_key).toBe("sk-123");
@@ -56,11 +56,12 @@ describe("buildGatewayInstallRequest", () => {
     const bare = buildGatewayInstallRequest(values(), {
       isAdmin: true,
       canManageAgentAccess: true,
+      availableAgentIds: [],
     });
     expect(bare.client_id).toBeUndefined();
     const withCreds = buildGatewayInstallRequest(
       values({ clientId: " id ", clientSecret: "secret" }),
-      { isAdmin: true, canManageAgentAccess: true },
+      { isAdmin: true, canManageAgentAccess: true, availableAgentIds: [] },
     );
     expect(withCreds.client_id).toBe("id");
     expect(withCreds.client_secret).toBe("secret");
@@ -69,16 +70,31 @@ describe("buildGatewayInstallRequest", () => {
   it("lets permitted members share with agents without team enablement", () => {
     const request = buildGatewayInstallRequest(
       values({ agentIds: ["svc-1"] }),
-      { isAdmin: false, canManageAgentAccess: true },
+      { isAdmin: false, canManageAgentAccess: true, availableAgentIds: [] },
     );
     expect(request.team_enabled).toBeUndefined();
     expect(request.agent_ids).toEqual(["svc-1"]);
   });
 
+  it("shares with every agent until the selection is narrowed", () => {
+    const shared = buildGatewayInstallRequest(values(), {
+      isAdmin: true,
+      canManageAgentAccess: true,
+      availableAgentIds: ["svc-1", "svc-2"],
+    });
+    expect(shared.agent_ids).toEqual(["svc-1", "svc-2"]);
+    const narrowed = buildGatewayInstallRequest(values({ agentIds: [] }), {
+      isAdmin: true,
+      canManageAgentAccess: true,
+      availableAgentIds: ["svc-1", "svc-2"],
+    });
+    expect(narrowed.agent_ids).toBeUndefined();
+  });
+
   it("omits agent grants when team settings make them admin-only", () => {
     const request = buildGatewayInstallRequest(
       values({ agentIds: ["svc-1"] }),
-      { isAdmin: false, canManageAgentAccess: false },
+      { isAdmin: false, canManageAgentAccess: false, availableAgentIds: [] },
     );
     expect(request.agent_ids).toBeUndefined();
   });

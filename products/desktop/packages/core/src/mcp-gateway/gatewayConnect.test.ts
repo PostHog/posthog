@@ -159,6 +159,16 @@ describe("connectGatewayServer", () => {
     });
   });
 
+  it("shares the server it materializes with the given agents", async () => {
+    const { client, oauth } = fakes();
+    await connectGatewayServer(client, oauth, template, credentials(), {
+      agentIds: ["svc-1", "svc-2"],
+    });
+    expect(client.installMcpTemplate).toHaveBeenCalledWith(
+      expect.objectContaining({ agent_ids: ["svc-1", "svc-2"] }),
+    );
+  });
+
   it("connects a custom server with the chosen api_key mechanism", async () => {
     const { client, oauth } = fakes();
     const result = await connectGatewayServer(

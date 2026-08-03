@@ -5,6 +5,7 @@ import {
   canSubmitGatewayServer,
   GATEWAY_ADD_SERVER_DEFAULTS,
   type GatewayAddServerValues,
+  resolveSharedAgentIds,
 } from "@posthog/core/mcp-gateway/gatewayAddServer";
 import { isValidMcpUrl } from "@posthog/core/mcp-servers/customServerForm";
 import { RobotAvatar } from "@posthog/ui/features/mcp-gateway/components/parts/avatars";
@@ -53,12 +54,19 @@ export function GatewayAddServer({
   const urlInvalid = values.url.trim() !== "" && !isValidMcpUrl(values.url);
   const canSave = canSubmitGatewayServer(values);
 
+  const availableAgentIds = accounts.map((account) => account.id);
+  const sharedAgentIds = resolveSharedAgentIds(
+    values.agentIds,
+    availableAgentIds,
+  );
+
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canSave || registerPending) return;
     const request = buildGatewayInstallRequest(values, {
       isAdmin,
       canManageAgentAccess,
+      availableAgentIds,
     });
     register(
       { request },
@@ -259,7 +267,7 @@ export function GatewayAddServer({
                   </Text>
                   <div className="overflow-hidden rounded border border-gray-5 bg-gray-2">
                     {accounts.map((account) => {
-                      const on = values.agentIds.includes(account.id);
+                      const on = sharedAgentIds.includes(account.id);
                       return (
                         <Flex
                           key={account.id}
@@ -287,8 +295,8 @@ export function GatewayAddServer({
                               set(
                                 "agentIds",
                                 checked
-                                  ? [...values.agentIds, account.id]
-                                  : values.agentIds.filter(
+                                  ? [...sharedAgentIds, account.id]
+                                  : sharedAgentIds.filter(
                                       (id) => id !== account.id,
                                     ),
                               )
