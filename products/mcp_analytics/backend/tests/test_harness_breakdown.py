@@ -2,6 +2,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
@@ -14,6 +15,8 @@ from posthog.schema import (
     MCPHarnessBreakdownQuery,
     PropertyOperator,
 )
+
+from posthog.hogql.parser import parse_expr
 
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -28,6 +31,31 @@ def test_harness_labels_tuple_matches_multiif_branches() -> None:
     sql = mcp_harness.harness_label_sql("h")
     emitted = set(re.findall(r"'([^']+)',\s*$", sql, re.MULTILINE)) | {"Other"}
     assert emitted == set(mcp_harness.HARNESS_LABELS)
+
+
+@pytest.mark.parametrize(
+    "name,sql",
+    [
+        ("token", mcp_harness.HARNESS_TOKEN_SQL),
+        ("label", mcp_harness.harness_label_sql("h")),
+        ("label_or_token", mcp_harness.harness_label_or_token_sql("h")),
+    ],
+)
+def test_harness_expressions_are_parseable_hogql(name: str, sql: str) -> None:
+    # These are assembled as f-strings and only ever reach the parser inside a query
+    # runner, so a syntax slip (an inline comment the grammar rejects, an unbalanced
+    # paren) would otherwise surface as a broken dashboard rather than a failing test.
+    parse_expr(sql)
+
+
+def test_label_or_token_keeps_the_bounded_label_set_reachable() -> None:
+    # The verbatim fallback must only replace the "Other" arm — if it shadowed a real
+    # branch, recognized clients would start rendering as raw tokens.
+    bounded = mcp_harness.harness_label_sql("h")
+    verbatim = mcp_harness.harness_label_or_token_sql("h")
+    assert verbatim.count("'Claude Code',") == bounded.count("'Claude Code',")
+    assert "'Other'" not in verbatim
+    assert mcp_harness.UNIDENTIFIED_HARNESS_LABEL in verbatim
 
 
 class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
