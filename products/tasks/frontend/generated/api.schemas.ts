@@ -3710,6 +3710,37 @@ export interface SlackThreadContextResponseApi {
     runs: SlackThreadContextRunApi[]
 }
 
+/**
+ * * `pr_merged` - pr_merged
+ */
+export type WakeOnEnumApi = (typeof WakeOnEnumApi)[keyof typeof WakeOnEnumApi]
+
+export const WakeOnEnumApi = {
+    PrMerged: 'pr_merged',
+} as const
+
+export interface TaskSpawnRequestApi {
+    /** Cloud run that is spawning this child task. */
+    parent_run_id: string
+    /**
+     * Title for the child task.
+     * @maxLength 255
+     */
+    title: string
+    /** Prompt passed verbatim to the child task. */
+    description: string
+    /**
+     * Optional target repository in organization/repository format.
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    runtime_adapter?: RuntimeAdapterEnumApi
+    model?: string
+    reasoning_effort?: ReasoningEffortEnumApi
+    wake_on?: WakeOnEnumApi[]
+}
+
 export interface TaskSummariesRequestApi {
     /**
      * Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.

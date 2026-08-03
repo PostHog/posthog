@@ -72838,6 +72838,38 @@ export namespace Schemas {
       content_sha256: string;
     }
 
+    /**
+     * * `pr_merged` - pr_merged
+     */
+    export type WakeOnEnum = typeof WakeOnEnum[keyof typeof WakeOnEnum];
+
+
+    export const WakeOnEnum = {
+      PrMerged: 'pr_merged',
+    } as const;
+
+    export interface TaskSpawnRequest {
+      /** Cloud run that is spawning this child task. */
+      parent_run_id: string;
+      /**
+         * Title for the child task.
+         * @maxLength 255
+         */
+      title: string;
+      /** Prompt passed verbatim to the child task. */
+      description: string;
+      /**
+         * Optional target repository in organization/repository format.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      runtime_adapter?: RuntimeAdapterEnum;
+      model?: string;
+      reasoning_effort?: ReasoningEffortEnum;
+      wake_on?: WakeOnEnum[];
+    }
+
     export interface TaskStagedArtifactFinalizeUpload {
       /** Stable identifier returned by the staged prepare upload endpoint */
       id: string;

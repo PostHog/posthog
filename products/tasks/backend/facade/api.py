@@ -4125,6 +4125,12 @@ def compute_repository_readiness(team_id: int, *, repository: str, window_days: 
     return _compute(team=team, repository=repository, window_days=window_days, refresh=refresh)
 
 
+def tasks_orchestration_enabled(*, distinct_id: str, organization_id: str) -> bool:
+    from products.tasks.backend.feature_flags import is_tasks_orchestration_enabled
+
+    return is_tasks_orchestration_enabled(distinct_id=distinct_id, organization_id=organization_id)
+
+
 def create_task(
     team_id: int,
     user_id: int | None,
