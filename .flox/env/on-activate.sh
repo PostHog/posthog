@@ -346,12 +346,14 @@ fi
 # needs the ANTLR C++ runtime. Warn up front with the fix instead of letting the
 # sync die mid-build on a C++ include error.
 if [[ "$_UV_SKIP" -ne 1 ]]; then
-  if [[ "$(uname)" == "Darwin" ]]; then
-    if [[ ! -d /opt/homebrew/include/antlr4-runtime && ! -d /usr/local/include/antlr4-runtime ]]; then
-      echo "warning: ANTLR C++ runtime not found; 'uv sync' cannot build hogql-parser. Fix: brew install antlr4-cpp-runtime"
-    fi
+  _ANTLR_FIX=""
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    [[ -d /opt/homebrew/include/antlr4-runtime || -d /usr/local/include/antlr4-runtime ]] || _ANTLR_FIX="brew install antlr4-cpp-runtime"
   elif [[ ! -d /usr/include/antlr4-runtime ]]; then
-    echo "warning: ANTLR C++ runtime not found; 'uv sync' cannot build hogql-parser. Fix: sudo $FLOX_ENV_PROJECT/bin/install-antlr4-cpp-runtime"
+    _ANTLR_FIX="sudo $FLOX_ENV_PROJECT/bin/install-antlr4-cpp-runtime"
+  fi
+  if [[ -n "$_ANTLR_FIX" ]]; then
+    echo "warning: ANTLR C++ runtime not found; 'uv sync' cannot build hogql-parser. Fix: $_ANTLR_FIX"
   fi
 fi
 
