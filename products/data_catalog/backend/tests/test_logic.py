@@ -122,6 +122,16 @@ class TestValidateMetricDefinition(BaseTest):
                 "with monthly as (select count() as c from events) select c from monthly join persons on 1 = 1",
                 ["events", "persons"],
             ),
+            (
+                "cte_shadowing_real_table",
+                "with events as (select uuid from events) select uuid from events",
+                ["events"],
+            ),
+            (
+                "join_constraint_subquery",
+                "select count() from persons join groups on persons.id in (select person_id from events)",
+                ["events", "groups", "persons"],
+            ),
         ]
     )
     def test_valid_hogql_extracts_referenced_tables(self, _name: str, query: str, expected: list[str]) -> None:
