@@ -190,7 +190,15 @@ export function TaskActionsMenu({ taskId, isCloud }: TaskActionsMenuProps) {
           <CreatePrDialog
             open={modals.createPrOpen}
             onOpenChange={(open) => {
-              if (!open) gitActions.closeCreatePr();
+              if (!open) {
+                gitActions.closeCreatePr();
+                // Show a toast so the user knows the PR was not created
+                // (dismissing the dialog by clicking outside / pressing Escape
+                // only saves the draft — it does not trigger creation).
+                toast.info("Create PR cancelled", {
+                  description: "Draft saved.",
+                });
+              }
             }}
             currentBranch={modals.createPrBaseBranch}
             diffStats={gitState.diffStats}
