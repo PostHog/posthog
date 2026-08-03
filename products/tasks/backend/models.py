@@ -2340,7 +2340,7 @@ class TaskRunPortForward(TeamScopedRootMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="port_forwards")
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
