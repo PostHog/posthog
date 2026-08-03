@@ -16,6 +16,8 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import FOLLOWUP_SO
 
 
 class TestNotifyParentOfChildEvent(TestCase):
+    team: Team
+
     @classmethod
     def setUpTestData(cls) -> None:
         organization = Organization.objects.create(name="Orchestration test")
