@@ -5580,8 +5580,9 @@ def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) 
     """A channel the requester may read: any live public channel on the team, or their
     own personal channel. ``None`` when it's missing or someone else's personal channel."""
     return (
-        Channel.objects.select_related("created_by")
-        .filter(visible_channels_q(user_id), id=channel_id, team_id=team_id, deleted=False)
+        _team_channels(team_id)
+        .select_related("created_by")
+        .filter(visible_channels_q(user_id), id=channel_id, deleted=False)
         .first()
     )
 
