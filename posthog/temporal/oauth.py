@@ -6,7 +6,13 @@ from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS, resolve_ceiling
+from posthog.scopes import (
+    API_SCOPE_OBJECTS,
+    INTERNAL_API_SCOPE_OBJECTS,
+    MCP_BUILT_IN_AGENT_SCOPE,
+    OAUTH_HIDDEN_SCOPE_OBJECTS,
+    resolve_ceiling,
+)
 from posthog.utils import get_instance_region
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -50,7 +56,6 @@ INTERNAL_SCOPES: list[str] = [
     # can't route around the posthog_code free-tier model gate through those.
     "internal_run:read",
 ]
-
 
 # Writes for the Signals scout harness — sandbox-only because the scope object is in
 # `INTERNAL_API_SCOPE_OBJECTS` and so cannot be minted via the personal API key UI or
@@ -231,9 +236,15 @@ def create_oauth_access_token_for_user(
     *,
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
+    include_mcp_builtin_agent_scope: bool = False,
     application: SandboxOAuthApplication = "array",
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    if include_mcp_builtin_agent_scope:
+        # Provenance marker: the MCP Store uses it to deny the human/member
+        # surface and route the agent through its explicit gateway grants. It
+        # does not narrow the token's other scopes.
+        resolved.append(MCP_BUILT_IN_AGENT_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
 

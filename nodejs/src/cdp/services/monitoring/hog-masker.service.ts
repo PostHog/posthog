@@ -9,7 +9,7 @@ import {
     HogFunctionMasking,
 } from '../../types'
 import { execHog } from '../../utils/hog-exec'
-import { mirrorCall } from '../../utils/mirror-call'
+import { mirrorCallWithPrimary } from '../../utils/mirror-call'
 
 export const BASE_REDIS_KEY = process.env.NODE_ENV == 'test' ? '@posthog-test/hog-masker' : '@posthog/hog-masker'
 const REDIS_KEY_TOKENS = `${BASE_REDIS_KEY}/mask`
@@ -154,12 +154,11 @@ export class HogMaskerService {
             })
         }
 
-        const [result] = await Promise.all([
-            this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline),
-            mirrorCall('hog-masker.filterByMasking', () =>
-                this.redisMirror?.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline)
-            ),
-        ])
+        const result = await mirrorCallWithPrimary(
+            'hog-masker.filterByMasking',
+            () => this.redis.usePipeline({ name: 'masker', failOpen: true }, buildPipeline),
+            () => this.redisMirror?.usePipeline({ name: 'masker-mirror', failOpen: true }, buildPipeline)
+        )
 
         Object.values(masks).forEach((masker, index) => {
             const newValue: number | null = result ? result[index * 2][1] : null
