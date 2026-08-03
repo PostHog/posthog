@@ -651,7 +651,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
     def _day_of_week_filter_expr(self, timestamp_field: ast.Expr) -> ast.Expr | None:
         # Applies to every funnel viz type: events on excluded days don't exist for the funnel,
         # so a step performed on an excluded day doesn't count towards the sequence, while the
-        # conversion window itself still spans excluded days.
+        # conversion window itself still spans excluded days. This holds regardless of
+        # skip_entity_filter, so strict order and exclusion steps can't see excluded-day events
+        # either — see test_days_of_week_hides_intervening_events_from_strict_order.
         return self._date_range().day_of_week_filter_expr(timestamp_field)
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
