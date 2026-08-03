@@ -65,6 +65,7 @@ const deepLinkStubRouter = router({
   getPendingOpenTarget: publicProcedure.query(() => null),
   getPendingCanvasLink: publicProcedure.query(() => null),
   getPendingChannelLink: publicProcedure.query(() => null),
+  getPendingLoopLink: publicProcedure.query(() => null),
   onOpenTask: neverEmit,
   onOpenReport: neverEmit,
   onOpenScout: neverEmit,
@@ -73,6 +74,7 @@ const deepLinkStubRouter = router({
   onOpenTarget: neverEmit,
   onOpenCanvas: neverEmit,
   onOpenChannel: neverEmit,
+  onOpenLoop: neverEmit,
 });
 
 // Slack/GitHub connect. Desktop opens the PostHog integration authorize URL in
