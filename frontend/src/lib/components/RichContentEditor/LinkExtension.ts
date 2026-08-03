@@ -22,6 +22,8 @@ const IDENTIFIER_CHAR_RE = /[\w$]/
 
 /** Whether an autolink candidate looks like a URL rather than a dotted property path. */
 function shouldAutoLink(candidate: string): boolean {
+    // An explicit scheme means the author meant a URL. TipTap runs its own `isAllowedUri` protocol
+    // check before this, so `javascript:` and friends never get here.
     if (SCHEME_RE.test(candidate)) {
         return true
     }
