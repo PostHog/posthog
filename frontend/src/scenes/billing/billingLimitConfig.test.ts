@@ -1,6 +1,11 @@
 import { BillingProductV2Type, BillingType, StartupProgramLabel } from '~/types'
 
-import { BillingLimitConfig, getBillingLimitConfig, STARTUP_PROGRAM_BILLING_LIMIT_MAX } from './billingLimitConfig'
+import {
+    BillingLimitConfig,
+    getBillingLimitConfig,
+    MAX_BILLING_LIMIT,
+    STARTUP_PROGRAM_BILLING_LIMIT_MAX,
+} from './billingLimitConfig'
 
 describe('getBillingLimitConfig', () => {
     const getConfig = (
@@ -30,7 +35,7 @@ describe('getBillingLimitConfig', () => {
         'does not cap %s without startup program enrollment',
         (productType) => {
             const config = getConfig(productType, null)
-            expect(config.max).toBe(50000)
+            expect(config.max).toBe(MAX_BILLING_LIMIT)
             expect(config.removalDisabledReason).toBeNull()
             expect(config.help).toBeNull()
         }

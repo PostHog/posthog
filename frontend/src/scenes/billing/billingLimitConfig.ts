@@ -1,6 +1,6 @@
 import { BillingProductV2AddonType, BillingProductV2Type, BillingType } from '~/types'
 
-const MAX_BILLING_LIMIT: number = 50000
+export const MAX_BILLING_LIMIT: number = 50000
 
 export const POSTHOG_CODE_USAGE_PRODUCT_KEY = 'posthog_code_usage'
 export const REPLAY_VISION_PRODUCT_KEY = 'replay_vision'
@@ -32,8 +32,8 @@ const DEFAULT_BILLING_LIMIT_CONFIG: BillingLimitConfig = {
 type BillingLimitConfigResolver = (context: BillingLimitConfigContext) => Partial<BillingLimitConfig> | null
 
 // Mirrors the caps the billing service enforces for startup-program customers, so the form
-// rejects out-of-range limits before the API does. Product names are hardcoded short labels:
-// the billing API names are too verbose for copy (e.g. "PostHog Code (usage-based)").
+// rejects out-of-range limits before the API does. The billing API product names are too
+// verbose for copy (e.g. "PostHog Code (usage-based)").
 const startupProgramCapResolver = (productName: string): BillingLimitConfigResolver => {
     return ({ billing, customLimitUsd, billingLimitNextPeriod }) => {
         if (!billing?.startup_program_label) {
