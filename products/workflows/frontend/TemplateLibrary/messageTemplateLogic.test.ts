@@ -6,6 +6,15 @@ import { initKeaTests } from '~/test/init'
 
 import { messageTemplateLogic } from './messageTemplateLogic'
 
+jest.mock('lib/lemon-ui/LemonToast', () => ({
+    lemonToast: {
+        success: jest.fn(),
+        error: jest.fn(),
+    },
+}))
+
+const mockToast = require('lib/lemon-ui/LemonToast').lemonToast
+
 describe('messageTemplateLogic', () => {
     let logic: ReturnType<typeof messageTemplateLogic.build>
 
@@ -55,6 +64,35 @@ describe('messageTemplateLogic', () => {
             router.actions.push('/workflows/library')
 
             expect(confirmSpy).toHaveBeenCalledTimes(expectedCalls)
+        })
+    })
+
+    describe('submit validation feedback', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            {
+                missing: 'name',
+                prefill: { key: 'content.email.subject', value: 'Welcome' },
+                toast: 'Name is required',
+            },
+            {
+                missing: 'subject',
+                prefill: { key: 'name', value: 'Welcome email' },
+                toast: 'Subject is required',
+            },
+        ])('toasts when the $missing is missing', async ({ prefill, toast }) => {
+            logic = messageTemplateLogic({ id: 'new' })
+            logic.mount()
+
+            logic.actions.setTemplateValue(prefill.key, prefill.value)
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            }).toDispatchActions(['submitTemplateFailure'])
+
+            expect(mockToast.error).toHaveBeenCalledWith(toast)
         })
     })
 

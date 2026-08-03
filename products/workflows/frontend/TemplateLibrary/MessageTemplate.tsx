@@ -37,8 +37,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         deleteTemplate,
         setTemplatePickerOpen,
     } = useActions(logic)
-    const { template, originalTemplate, isTemplateSubmitting, templateChanged, messageLoading, templatePickerOpen } =
-        useValues(logic)
+    const {
+        template,
+        originalTemplate,
+        isTemplateSubmitting,
+        templateChanged,
+        messageLoading,
+        templateLoading,
+        templatePickerOpen,
+    } = useValues(logic)
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
 
@@ -59,7 +66,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     resourceType={{ type: 'template' }}
                     canEdit
                     descriptionAlwaysVisible
-                    isLoading={messageLoading}
+                    isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
                     actions={
@@ -81,7 +88,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 form="template"
                                 onClick={submitTemplate}
                                 loading={isTemplateSubmitting}
-                                disabledReason={templateChanged ? undefined : 'No changes to save'}
+                                disabledReason={
+                                    !templateChanged
+                                        ? 'No changes to save'
+                                        : !template.name
+                                          ? 'Name is required'
+                                          : undefined
+                                }
                                 size="small"
                             >
                                 {props.id === 'new' ? 'Create' : 'Save'}
@@ -132,7 +145,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
 
                 <div className="flex flex-col flex-1 gap-2 min-h-0 relative">
-                    {messageLoading ? (
+                    {messageLoading || templateLoading ? (
                         <Spinner className="text-lg" />
                     ) : (
                         <EmailTemplater

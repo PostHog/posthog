@@ -95,7 +95,7 @@ function DestinationEmailTemplaterForm({
     mode: EmailEditorMode
     fieldsHidden?: boolean
 }): JSX.Element {
-    const { logicProps, mergeTags, activeContentTab } = useValues(emailTemplaterLogic)
+    const { logicProps, mergeTags, activeContentTab, emailTemplate } = useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady } = useActions(emailTemplaterLogic)
 
     return (
@@ -190,7 +190,10 @@ function DestinationEmailTemplaterForm({
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    <EmailPreviewOverlayButtons hasContent={!!value} />
+                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
+                                    <EmailPreviewOverlayButtons
+                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                                    />
                                 </div>
 
                                 <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
@@ -351,7 +354,7 @@ function NativeEmailTemplaterForm({
     mode: EmailEditorMode
     fieldsHidden?: boolean
 }): JSX.Element {
-    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields } =
+    const { unlayerEditorProjectId, logicProps, templates, mergeTags, activeContentTab, visibleFields, emailTemplate } =
         useValues(emailTemplaterLogic)
     const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField, revealAdvancedField } =
         useActions(emailTemplaterLogic)
@@ -565,7 +568,10 @@ function NativeEmailTemplaterForm({
                                     )}
                                 >
                                     <div className="absolute inset-0 opacity-50 bg-surface-primary" />
-                                    <EmailPreviewOverlayButtons hasContent={!!value} />
+                                    {/* A plain-text-only email has no html, so content is judged on every shape */}
+                                    <EmailPreviewOverlayButtons
+                                        hasContent={!!value || !!emailTemplate.text || !!emailTemplate.design}
+                                    />
                                 </div>
 
                                 <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
