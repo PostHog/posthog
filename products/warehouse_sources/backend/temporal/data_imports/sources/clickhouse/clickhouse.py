@@ -4,7 +4,7 @@ import re
 import ssl
 import math
 import time
-import functools
+import threading
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -225,7 +225,15 @@ class _NoRedirectPoolManager(PoolManager):
         return super().urlopen(method, url, redirect=False, **kw)
 
 
-@functools.cache
+# Bounds the manager cache below. `server_hostname` is user-controlled (the source's
+# configured host), so an unbounded cache would let repeated credential validations with
+# distinct hostnames retain a manager each for the life of the worker. Far above the number
+# of distinct tunneled HTTPS hostnames a worker legitimately serves concurrently.
+_POOL_MANAGER_CACHE_MAX = 32
+_pool_managers: collections.OrderedDict[tuple[bool, str | None], Any] = collections.OrderedDict()
+_pool_managers_lock = threading.Lock()
+
+
 def _no_env_proxy_pool_manager(verify: bool, server_hostname: str | None = None) -> Any:
     """A shared urllib3 pool manager that never consults HTTP(S)_PROXY env vars.
 
@@ -233,9 +241,7 @@ def _no_env_proxy_pool_manager(verify: bool, server_hostname: str | None = None)
     pool manager, so handing it one is the sanctioned per-code-path opt-out
     from the egress proxy (see posthog/security/outbound_proxy.py for the
     requests/httpx equivalents). Cached because clients don't own an injected
-    manager (`close()` leaves it alive), so per-call managers would leak; the
-    cache is bounded by the set of distinct tunneled HTTPS hostnames a worker
-    sees, which is small.
+    manager (`close()` leaves it alive), so per-call managers would leak.
 
     `server_hostname` keeps TLS verification honest through an SSH tunnel: we dial the
     tunnel's loopback bind, but SNI and hostname validation must run against the database's
@@ -243,18 +249,36 @@ def _no_env_proxy_pool_manager(verify: bool, server_hostname: str | None = None)
     with `server_host_name` when it builds its own manager — a branch it skips entirely
     when handed a `pool_mgr`.
 
+    LRU-bounded: eviction closes the manager's pools and removes it from the library's
+    process-global registry, the two places that would otherwise retain it forever. An
+    evicted manager still held by a live client keeps working — urllib3 rebuilds pools on
+    demand — it just stops being shared or expiry-swept.
+
     Built from clickhouse-connect's own options factory so the TCP keepalive tuning and
     certificate handling match a direct connection, then recorded where the library tracks
     its own managers so connection expiry and interpreter-exit cleanup cover this one too.
     """
-    options = httputil.get_pool_manager_options(verify=verify)
-    if server_hostname:
-        if verify:
-            options["assert_hostname"] = server_hostname
-        options["server_hostname"] = server_hostname
-    manager = _NoRedirectPoolManager(**options)
-    httputil.all_managers[manager] = int(time.time())
-    return manager
+    key = (verify, server_hostname)
+    with _pool_managers_lock:
+        manager = _pool_managers.get(key)
+        if manager is not None:
+            _pool_managers.move_to_end(key)
+            return manager
+
+        options = httputil.get_pool_manager_options(verify=verify)
+        if server_hostname:
+            if verify:
+                options["assert_hostname"] = server_hostname
+            options["server_hostname"] = server_hostname
+        manager = _NoRedirectPoolManager(**options)
+        httputil.all_managers[manager] = int(time.time())
+        _pool_managers[key] = manager
+
+        while len(_pool_managers) > _POOL_MANAGER_CACHE_MAX:
+            _, evicted = _pool_managers.popitem(last=False)
+            httputil.all_managers.pop(evicted, None)
+            evicted.clear()
+        return manager
 
 
 def _get_client(

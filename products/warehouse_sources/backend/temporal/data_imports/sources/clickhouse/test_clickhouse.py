@@ -1469,6 +1469,21 @@ class TestBypassEnvProxy:
         assert mock_get_client.call_count == 1
         assert mock_get_client.call_args.kwargs["pool_mgr"] is expected_pool_mgr_factory()
 
+    def test_eviction_releases_the_manager_everywhere_it_is_retained(self):
+        # The cache key contains the user-controlled hostname, so it must be bounded — and a
+        # bounded cache only helps if eviction also drops the manager from clickhouse-connect's
+        # process-global registry, the other place that would retain it for the worker's life.
+        from clickhouse_connect.driver.httputil import all_managers
+
+        with patch.object(ch_module, "_POOL_MANAGER_CACHE_MAX", 2):
+            first = ch_module._no_env_proxy_pool_manager(True, "evict-me.example")
+            assert first in all_managers
+            for n in range(2):
+                ch_module._no_env_proxy_pool_manager(True, f"filler-{n}.example")
+
+        assert first not in all_managers
+        assert ch_module._no_env_proxy_pool_manager(True, "evict-me.example") is not first
+
 
 class TestInternalHostTeamAllowlist:
     @pytest.mark.parametrize(
