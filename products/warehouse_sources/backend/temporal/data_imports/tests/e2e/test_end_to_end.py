@@ -3404,7 +3404,7 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
     the Redis idempotency flag is missing.
 
     This exercises the writer-side idempotency gap: if the writer crashes between
-    `write_to_deltalake` committing and `mark_batch_as_processed` running, Kafka redelivery
+    `DeltaWriter.write` committing and `mark_batch_as_processed` running, Kafka redelivery
     would otherwise re-write the same batch and produce duplicate rows. The delta-history
     fallback closes that gap.
     """
