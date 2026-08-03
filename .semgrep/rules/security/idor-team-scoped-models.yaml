@@ -111,6 +111,8 @@ rules:
                               |DataModelingJob
                               |Dataset
                               |DatasetItem
+                              |DatasetItemVersion
+                              |DatasetRevision
                               |DataWarehouseCredential
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
@@ -446,6 +448,8 @@ rules:
                         |DataModelingJob
                         |Dataset
                         |DatasetItem
+                        |DatasetItemVersion
+                        |DatasetRevision
                         |DataWarehouseCredential
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
