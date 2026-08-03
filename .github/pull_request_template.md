@@ -85,7 +85,7 @@
   - If you have to include long supporting content (test output, logs), collapse it in `<details>` blocks.
   - Use fenced `diff` code blocks for config before/after.
   - Line-range permalinks to code in this repo render as embedded snippets: prefer them over pasting existing code.
-- Write with a crisp, direct Silicon Valley communication style. Use concise language that gets straight to the point. Sentences that are easy on the reader, paragraphs that are each about one thing. Prioritize clarity and brevity over elaborate explanations. Avoid corporate jargon, buzzwords, and unnecessary embellishments. Communicate as if you're explaining a complex concept to a smart colleague over coffee, keeping the tone light but substantive. No em-dashes, only en-dashes if needed. Spare use of inline code. Limited use of the colon and semicolon.
+- Style: run `/writing-pr-descriptions` before writing the body. One fact per bullet, sentences under 25 words, active voice, simple tenses, no jargon and no idioms. Name the same thing the same way every time. This applies to prose only: leave tables, diagrams, code blocks and links alone. No em-dashes, only en-dashes if needed. Spare use of inline code. Limited use of the colon and semicolon.
 - Write from a first person perspective of the author of a human-driven PR. Although if something was done by an agent (i.e. you), make that clear with something like "I (or, actually Claude/Codex/etc.) did blah".
 - For titles, headings, or bolded parts use "Sentence case" rather than "Title Case" (i.e. only capitalize the first word of the title/heading/bold text).
 -->

@@ -2,7 +2,7 @@
 
 Two of our own merged PRs, rewritten in ASD-STE100, next to what actually shipped.
 The point is to see the difference and judge whether it reads better.
-This is not a proposal to enforce anything, and nothing here changes `AGENTS.md` or the PR template.
+This is the reasoning behind `/writing-pr-descriptions`, which ships in the same change. Nothing here is enforced by a check.
 
 ## The standard, in short
 
@@ -219,18 +219,16 @@ Neither is licensed, and both already exist as machine-readable rule sets.
 So the bullet-per-fact shape is not an STE invention. Every mainstream PR guide asks for it, in the words "use bullet points, not a wall of text".
 STE is the strictest way to get there, and the only one that also forbids the vocabulary.
 
-## If we want agents to write this way
+## What shipped with this document
 
-Guidance, not a check. The repo already has both mechanisms:
+Guidance, not a check. Three files, using the mechanism this repo already used to fix verbose agent-written code comments:
 
-- A skill, loaded by the agent that writes the description. The ten rules and a worked before/after belong there, because a skill loads only when relevant and can be long enough to teach a style.
-- A short pointer in `AGENTS.md` under "PR descriptions", naming the skill so an authoring agent knows to load it.
+- `.agents/skills/writing-pr-descriptions/SKILL.md`: eight rules, how they apply per template section, a worked before/after, and what the style costs.
+- `.github/pull_request_template.md`: the authoring rules now point at the skill. This replaced the paragraph asking for "a crisp, direct Silicon Valley communication style" and a tone that is "light but substantive". STE has no tone, so the two could not both stay. An agent follows whichever it read last.
+- `AGENTS.md`: the skill is listed under "Always invoke", and the PR descriptions section names it.
 
-Neither is written yet.
-The one instruction that matters more than any of the ten: apply this to prose only, and leave the tables, diagrams and links alone.
-
-`.github/pull_request_template.md` currently asks for "a crisp, direct Silicon Valley communication style" and a tone that is "light but substantive".
-STE has no tone. If both instructions are live an agent follows whichever it read last, so this would replace that paragraph rather than sit next to it.
+The rule that matters more than the other eight: apply this to prose only, and leave the tables, diagrams and links alone.
+The dictionary is not part of it. Vocabulary stays a judgment call, because the word list cannot be redistributed and a hand-maintained subset would drift.
 
 ## Reproducing the figures
 
