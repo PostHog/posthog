@@ -38,21 +38,22 @@ const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
 
-// Exhaustive over the query's status union, so removing a status from the schema fails typechecking here.
-const VALID_STATUSES: Record<NonNullable<ErrorTrackingQueryStatus>, true> = {
+// The statuses the filter accepts: the query's status union minus archived/pending_release,
+// which are deprecated (writes rejected, legacy rows backfilled to resolved) and not offered by
+// the picker. Exhaustive over the rest, so removing a status from the schema fails typechecking.
+type FilterableStatus = Exclude<NonNullable<ErrorTrackingQueryStatus>, 'archived' | 'pending_release'>
+const VALID_STATUSES: Record<FilterableStatus, true> = {
     all: true,
     active: true,
-    archived: true,
-    pending_release: true,
     resolved: true,
     suppressed: true,
 }
 
 // Like isValidOrderBy: a persisted (localStorage), URL-provided, or tool-provided status can hold
-// a value outside the current enum (a status name from an older version, or free text produced by
-// an AI tool). Passing it through breaks the query and crashes the status filter render, so
-// anything unrecognized falls back to the default.
-export function isValidStatus(status: unknown): status is NonNullable<ErrorTrackingQueryStatus> {
+// a value outside the accepted set (a deprecated or renamed status, or free text produced by an
+// AI tool). Passing it through breaks the query or crashes the status filter render, so anything
+// unrecognized falls back to the default.
+export function isValidStatus(status: unknown): status is FilterableStatus {
     return typeof status === 'string' && Object.hasOwn(VALID_STATUSES, status)
 }
 

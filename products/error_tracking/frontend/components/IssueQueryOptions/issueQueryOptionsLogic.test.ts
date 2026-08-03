@@ -20,20 +20,20 @@ describe('issueQueryOptionsLogic', () => {
         return logic
     }
 
-    it.each(['open', 'new', 'pending'])('falls back to the default status when setStatus receives %p', (status) => {
-        const logic = mountLogic()
-        logic.actions.setStatus(status as 'active')
-        expect(logic.values.status).toBe('active')
-    })
-
-    it.each(['all', 'resolved', 'suppressed', 'pending_release', 'archived'] as const)(
-        'applies the valid status %p',
+    it.each(['open', 'new', 'pending', 'pending_release', 'archived'])(
+        'falls back to the default status when setStatus receives %p',
         (status) => {
             const logic = mountLogic()
-            logic.actions.setStatus(status)
-            expect(logic.values.status).toBe(status)
+            logic.actions.setStatus(status as 'active')
+            expect(logic.values.status).toBe('active')
         }
     )
+
+    it.each(['all', 'resolved', 'suppressed'] as const)('applies the valid status %p', (status) => {
+        const logic = mountLogic()
+        logic.actions.setStatus(status)
+        expect(logic.values.status).toBe(status)
+    })
 
     it('applies a valid status from the URL', () => {
         const logic = mountLogic()
