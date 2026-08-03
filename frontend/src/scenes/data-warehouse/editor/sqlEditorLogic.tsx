@@ -43,6 +43,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { delay } from 'lib/utils/async'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
@@ -2651,10 +2652,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 cache.timeouts = cache.timeouts || []
                 cache.timeouts.push(timeoutId)
 
-                // A builder save consumes the whole tab session — reset the editor to a blank
-                // query before redirecting, so returning to the SQL editor doesn't resurrect a
-                // stale, unlinked copy of the insight that was just saved
-                if (isBuilderInsight) {
+                // A builder save consumes the whole tab session — the editor must not keep a
+                // stale, unlinked copy of the insight that was just saved. Leaving for a
+                // dashboard, reset to a blank query; staying, rebind the tab to the saved
+                // insight (via open_insight below)
+                if (isBuilderInsight && dashboardId) {
                     actions.createTab()
                     actions.setSourceQuery({
                         kind: NodeKind.DataVisualizationNode,
@@ -2677,6 +2679,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                     actions.setDashboardId(null)
                     router.actions.push(urls.dashboard(dashboardId, insight.short_id))
+                } else if (isBuilderInsight) {
+                    // The insight view can't edit a builder insight, so stay in the editor and
+                    // reopen through open_insight — the one path that hydrates the builder tab
+                    lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
+                    router.actions.push(urls.sqlEditor({ insightShortId: insight.short_id }))
                 } else {
                     lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
                     router.actions.push(urls.insightView(insight.short_id))
@@ -3387,6 +3394,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     trackedActionToUrl(({ values }) => ({
         syncUrlWithQuery: () => {
             if (values.isEmbeddedMode) {
+                return
+            }
+            // Reaches here debounced (setQueryInput waits 500ms), so a save/redirect can have
+            // navigated away in the meantime — never steal the URL back to the editor
+            if (removeProjectIdIfPresent(router.values.location.pathname) !== urls.sqlEditor()) {
                 return
             }
             return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
