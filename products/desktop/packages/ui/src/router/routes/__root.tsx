@@ -158,6 +158,9 @@ function RootLayout() {
   );
 
   const posthogWebFeedbackSeen = usePostHogWebFeedbackStore((s) => s.hasSeen);
+  const posthogWebFeedbackHydrated = usePostHogWebFeedbackStore(
+    (s) => s.hasHydrated,
+  );
   const markPostHogWebFeedbackSeen = usePostHogWebFeedbackStore(
     (s) => s.markSeen,
   );
@@ -175,7 +178,9 @@ function RootLayout() {
 
   const handleOpenPostHogWeb = () => {
     track(ANALYTICS_EVENTS.POSTHOG_WEB_OPENED);
-    if (posthogWebFeedbackSeen && posthogWebUrl) {
+    // Only skip the intercept once the persisted flag has hydrated, so a stale
+    // pre-hydration default can't wrongly re-show it.
+    if (posthogWebFeedbackHydrated && posthogWebFeedbackSeen && posthogWebUrl) {
       void openUrlInBrowser(posthogWebUrl);
       return;
     }
