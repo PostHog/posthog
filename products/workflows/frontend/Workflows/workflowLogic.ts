@@ -3190,7 +3190,12 @@ export const workflowLogic = kea<workflowLogicType>([
                                     }
                                 }
                             } else if (action.config.type === 'batch') {
-                                if (!action.config.filters.properties?.length) {
+                                // Accounts audiences may legitimately target every account — the
+                                // blast-radius preview and confirm token guard the send instead.
+                                if (
+                                    action.config.filters.audience_type !== 'accounts' &&
+                                    !action.config.filters.properties?.length
+                                ) {
                                     result.valid = false
                                     result.errors = {
                                         filters: 'At least one property filter is required for batch workflows',
