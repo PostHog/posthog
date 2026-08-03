@@ -831,6 +831,98 @@ CREATE TABLE IF NOT EXISTS {catalog}.posthog.{table} (
 )
 """
 
+# --- Streamed persons schema (millpond/viaduck path) ---------------------------
+# The batch persons export is denormalized: one row per distinct_id with person
+# properties stamped on. Streaming replication (viaduck full_cdc out of the
+# shared millpond-landed changelogs) cannot produce that shape - it replicates
+# row-level changes keyed by (team_id, id) / (team_id, distinct_id) - so a
+# streamed duckling carries two raw current-state tables plus a view that
+# reproduces the batch shape for readers. Raw tables hold the LATEST version
+# per key (viaduck upserts by key) including is_deleted=1 tombstones, which the
+# source changelogs only ever emit as upserts; the view filters them.
+# See posthog/dags/PERSONS_STREAMING_MIGRATION.md for the full cutover runbook.
+
+# Same columns as the shared persons changelog (the clickhouse_person Kafka
+# record), keyed by (team_id, id). is_deleted is a real column here - unlike
+# the batch table, which filters it at export time.
+PERSONS_STREAMING_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.{table} (
+    team_id BIGINT,
+    id VARCHAR,
+    properties VARCHAR,
+    created_at TIMESTAMPTZ,
+    is_identified BOOLEAN,
+    is_deleted BOOLEAN,
+    version UBIGINT,
+    _timestamp TIMESTAMPTZ,
+    _inserted_at TIMESTAMPTZ
+)
+"""
+
+# Keyed by (team_id, distinct_id). Mirrors the person_distinct_id2 changelog.
+PERSONS_DISTINCT_IDS_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS {catalog}.posthog.{table} (
+    team_id BIGINT,
+    distinct_id VARCHAR,
+    person_id VARCHAR,
+    is_deleted BOOLEAN,
+    version BIGINT,
+    _timestamp TIMESTAMPTZ,
+    _inserted_at TIMESTAMPTZ
+)
+"""
+
+# Reader-compatible projection of the two raw tables: exactly the batch
+# persons table's columns (EXPECTED_DUCKLAKE_PERSONS_COLUMNS), latest state
+# only, tombstones filtered.
+PERSONS_DENORMALIZED_VIEW_DDL = """
+CREATE OR REPLACE VIEW {catalog}.posthog.{view} AS
+SELECT
+    p.team_id AS team_id,
+    pd.distinct_id AS distinct_id,
+    p.id AS id,
+    p.properties AS properties,
+    p.created_at AS created_at,
+    p.is_identified AS is_identified,
+    pd.version AS person_distinct_id_version,
+    p.version AS person_version,
+    p._timestamp AS _timestamp,
+    p._inserted_at AS _inserted_at
+FROM {catalog}.posthog.{persons_table} AS p
+INNER JOIN {catalog}.posthog.{distinct_ids_table} AS pd
+    ON p.id = pd.person_id AND p.team_id = pd.team_id
+WHERE p.is_deleted = FALSE AND pd.is_deleted = FALSE
+"""
+
+
+def persons_distinct_ids_table_name(persons_table: str) -> str:
+    """Derive a team's distinct-ids table from its persons table name.
+
+    Must stay rule-for-rule identical to the duckgres control plane's
+    derivation (distinctIDsTableName in controlplane/provisioning/discovery.go),
+    which serves this name to viaduck as persons_distinct_ids_table: a
+    `persons` prefix is replaced with `persons_distinct_ids` so a suffixed
+    team keeps its suffix (persons_ab12 -> persons_distinct_ids_ab12); any
+    other name gets `_distinct_ids` appended. If the two rules drift, viaduck
+    writes one table while this view joins another.
+    """
+    if persons_table.startswith("persons"):
+        return "persons_distinct_ids" + persons_table[len("persons") :]
+    return persons_table + "_distinct_ids"
+
+
+def persons_streaming_table_names(persons_table: str) -> tuple[str, str]:
+    """The (raw persons, distinct-ids) table names a streamed team's duckling uses.
+
+    The batch persons table keeps the canonical name until cutover, so the raw
+    streaming tables get `_raw` appended (persons_ab12 -> persons_ab12_raw).
+    At cutover the control-plane persons_table_name override is repointed to
+    the raw name, discovery then serves it (and the distinct-ids derivation
+    below) to viaduck, and the canonical name becomes the denormalized view.
+    """
+    raw = f"{persons_table}_raw"
+    return raw, persons_distinct_ids_table_name(raw)
+
 
 class DucklingBackfillConfig(Config):
     """Config for duckling events backfill job."""
@@ -852,6 +944,11 @@ class DucklingBackfillConfig(Config):
     # Huge team-days produce many right-sized files; tiny ones stay a single file.
     target_rows_per_file: int = TARGET_ROWS_PER_FILE
     max_s3_file_fanout: int = MAX_S3_FILE_FANOUT
+    # Persons streaming migration (posthog/dags/PERSONS_STREAMING_MIGRATION.md):
+    # create the raw streamed tables + denormalized view alongside the batch
+    # export. Persons-only; ignored by the events asset.
+    create_persons_streaming_schema: bool = False
+    persons_streaming_view_name: str | None = None  # defaults to <persons_table>_streaming
 
 
 def _events_row_group_buffer_fanout_limit(config: DucklingBackfillConfig) -> int:
@@ -1193,6 +1290,61 @@ def ensure_persons_table_exists(
         bucket=target.bucket,
     )
     return True
+
+
+def ensure_persons_streaming_schema(
+    context: AssetExecutionContext,
+    target: DucklingTarget,
+    conn: psycopg.Connection[Any],
+    view_name: str,
+) -> None:
+    """Create the streamed-persons tables and reader view in the duckling catalog.
+
+    Prepares a duckling for viaduck-driven persons replication (see
+    posthog/dags/PERSONS_STREAMING_MIGRATION.md): the raw persons table
+    (is_deleted tombstones included), the distinct-ids table, and the
+    denormalized view reproducing the batch persons table's shape. The raw
+    tables take `_raw` names so the batch table keeps the canonical name
+    until cutover; `view_name` is explicit because the view's final name
+    (the canonical persons table name) is only free after the batch table
+    is dropped - run once pre-cutover with a scratch name to validate
+    against the batch table, then again at cutover with the canonical one.
+
+    Idempotent: safe to re-run and safe under concurrent partition runs.
+    """
+    alias = DUCKLAKE_ALIAS
+    persons_table, distinct_ids_table = persons_streaming_table_names(target.persons_table)
+    _validate_identifier(view_name)
+
+    context.log.info(f"Creating streamed persons tables ({persons_table}, {distinct_ids_table}) if missing...")
+    conn.execute(f"CREATE SCHEMA IF NOT EXISTS {alias}.posthog")
+    conn.execute(PERSONS_STREAMING_TABLE_DDL.format(catalog=alias, table=persons_table))
+    conn.execute(PERSONS_DISTINCT_IDS_TABLE_DDL.format(catalog=alias, table=distinct_ids_table))
+
+    # The streamed tables are written continuously by viaduck, not re-exported
+    # per day, so they partition on _inserted_at like the millpond-landed
+    # source tables do.
+    for table in (persons_table, distinct_ids_table):
+        _set_table_partitioning(conn, alias, table, "year(_inserted_at), month(_inserted_at)", context, target.team_id)
+
+    context.log.info(f"Creating denormalized persons view {view_name}...")
+    conn.execute(
+        PERSONS_DENORMALIZED_VIEW_DDL.format(
+            catalog=alias,
+            view=view_name,
+            persons_table=persons_table,
+            distinct_ids_table=distinct_ids_table,
+        )
+    )
+
+    logger.info(
+        "duckling_persons_streaming_schema_created",
+        team_id=target.team_id,
+        bucket=target.bucket,
+        persons_table=persons_table,
+        distinct_ids_table=distinct_ids_table,
+        view=view_name,
+    )
 
 
 def validate_duckling_schema(
@@ -2717,6 +2869,14 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
             if not config.skip_schema_validation:
                 context.log.info("Validating duckling persons schema compatibility...")
                 session.run("validate persons schema", lambda c: validate_duckling_persons_schema(context, target, c))
+
+            if config.create_persons_streaming_schema:
+                view_name = config.persons_streaming_view_name or f"{target.persons_table}_streaming"
+                context.log.info(f"Creating streamed persons schema (view {view_name}) in duckling catalog...")
+                session.run(
+                    "ensure persons streaming schema",
+                    lambda c: ensure_persons_streaming_schema(context, target, c, view_name),
+                )
 
         merged_settings = DEFAULT_CLICKHOUSE_SETTINGS.copy()
         merged_settings.update(settings_with_log_comment(context))

@@ -2,6 +2,8 @@
 
 This document describes the Dagster jobs and sensors for backfilling ClickHouse data to customer-specific "ducklings" - isolated DuckLake instances with their own RDS catalog and S3 bucket.
 
+For the persons migration from this batch system to streaming replication (millpond + viaduck), see [PERSONS_STREAMING_MIGRATION.md](PERSONS_STREAMING_MIGRATION.md).
+
 ## Architecture
 
 ```text

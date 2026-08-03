@@ -22,6 +22,9 @@ from posthog.dags.events_backfill_to_duckling import (
     MAX_S3_FILE_FANOUT,
     PERSONS_COLUMNS,
     PERSONS_CONCURRENCY_TAG,
+    PERSONS_DENORMALIZED_VIEW_DDL,
+    PERSONS_DISTINCT_IDS_TABLE_DDL,
+    PERSONS_STREAMING_TABLE_DDL,
     PERSONS_TABLE_DDL,
     TARGET_ROWS_PER_FILE,
     DucklingBackfillConfig,
@@ -56,6 +59,8 @@ from posthog.dags.events_backfill_to_duckling import (
     is_full_export_partition,
     parse_partition_key,
     parse_partition_key_dates,
+    persons_distinct_ids_table_name,
+    persons_streaming_table_names,
     register_files_with_duckling,
     register_persons_files_with_duckling,
     table_exists,
@@ -366,6 +371,61 @@ class TestPersonsDDL:
 
         result = conn.execute("DESCRIBE memory.posthog.persons_beta").fetchall()
         assert {row[0] for row in result} == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
+        conn.close()
+
+
+class TestPersonsStreamingSchema:
+    # The derivation must stay rule-for-rule identical to the duckgres control
+    # plane's distinctIDsTableName: drift means viaduck writes one table while
+    # the denormalized view joins another.
+    @parameterized.expand(
+        [
+            ("default", "persons", "persons_distinct_ids"),
+            ("suffixed", "persons_ab12", "persons_distinct_ids_ab12"),
+            ("non_prefixed_override", "customers", "customers_distinct_ids"),
+        ]
+    )
+    def test_distinct_ids_table_name_derivation(self, _label, persons_table, expected):
+        assert persons_distinct_ids_table_name(persons_table) == expected
+
+    def test_streaming_table_names_keep_batch_name_free(self):
+        raw, distinct_ids = persons_streaming_table_names("persons_ab12")
+        assert (raw, distinct_ids) == ("persons_ab12_raw", "persons_distinct_ids_ab12_raw")
+
+    def test_view_reproduces_batch_shape_and_filters_tombstones(self):
+        conn = duckdb.connect()
+        conn.execute("CREATE SCHEMA IF NOT EXISTS memory.posthog")
+        raw, distinct_ids = persons_streaming_table_names("persons")
+        conn.execute(PERSONS_STREAMING_TABLE_DDL.format(catalog="memory", table=raw))
+        conn.execute(PERSONS_DISTINCT_IDS_TABLE_DDL.format(catalog="memory", table=distinct_ids))
+        conn.execute(
+            PERSONS_DENORMALIZED_VIEW_DDL.format(
+                catalog="memory",
+                view="persons_streaming",
+                persons_table=raw,
+                distinct_ids_table=distinct_ids,
+            )
+        )
+
+        conn.execute(
+            f"INSERT INTO memory.posthog.{raw} VALUES "
+            "(2, 'person-live', '{}', now(), true, false, 3, now(), now()),"
+            "(2, 'person-gone', '{}', now(), true, true, 4, now(), now())"
+        )
+        conn.execute(
+            f"INSERT INTO memory.posthog.{distinct_ids} VALUES "
+            "(2, 'did-live', 'person-live', false, 1, now(), now()),"
+            "(2, 'did-gone', 'person-gone', false, 1, now(), now()),"
+            "(2, 'did-detached', 'person-live', true, 2, now(), now())"
+        )
+
+        columns = {row[0] for row in conn.execute("DESCRIBE memory.posthog.persons_streaming").fetchall()}
+        assert columns == EXPECTED_DUCKLAKE_PERSONS_COLUMNS
+
+        rows = conn.execute("SELECT distinct_id, id FROM memory.posthog.persons_streaming").fetchall()
+        # The deleted person and the deleted mapping are filtered; the live
+        # person's remaining mapping still projects.
+        assert rows == [("did-live", "person-live")]
         conn.close()
 
 
