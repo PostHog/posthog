@@ -56,9 +56,10 @@ def _queue_wake(parent_run: TaskRun, child_run: TaskRun, event: ChildEvent, mess
 
 def notify_parent_of_child_event(child_run: TaskRun | str, event: ChildEvent) -> None:
     if isinstance(child_run, str):
-        child_run = TaskRun.objects.select_related("task").filter(id=child_run).first()
-        if child_run is None:
+        resolved_child_run = TaskRun.objects.select_related("task").filter(id=child_run).first()
+        if resolved_child_run is None:
             return
+        child_run = resolved_child_run
 
     state = child_run.state if isinstance(child_run.state, dict) else {}
     parent_task_id = state.get("parent_task_id")
