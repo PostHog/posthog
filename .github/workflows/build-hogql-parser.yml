@@ -1,106 +1,62 @@
 name: Release hogql-parser
 
+# The monorepo builds hogql-parser from source as a uv workspace member, so this
+# release only serves consumers outside the repository. It runs after merge:
+# every published wheel is built from sources that landed on master.
+
 on:
-    pull_request:
+    push:
+        branches:
+            - master
         paths:
             - common/hogql_parser/**
             - .github/workflows/build-hogql-parser.yml
 
 permissions:
     contents: read
-    pull-requests: write
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: true
+    # Per-SHA so a later master push never cancels an in-flight publish.
+    group: ${{ github.workflow }}-${{ github.sha }}
 
 jobs:
     check-version:
-        name: Check version legitimacy
+        name: Check if the version needs publishing
         runs-on: ubuntu-22.04
         timeout-minutes: 5
+        # The foss mirror carries this workflow but has no PyPI publish environment.
+        if: github.repository == 'PostHog/posthog'
         outputs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
-            version-release-needed: ${{ steps.version.outputs.version-release-needed }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
-                  filter: blob:none
 
-            - name: Check if common/hogql_parser/ or the workflow has changed
-              id: changed-files
-              uses: step-security/changed-files@2e07db73e5ccdb319b9a6c7766bd46d39d304bad # v47.0.5
-              with:
-                  files_yaml: |
-                      parser:
-                      - common/hogql_parser/**
-                      workflow:
-                      - .github/workflows/build-hogql-parser.yml
-
-            - name: Check if version was bumped
-              shell: bash
+            - name: Check PyPI for the version
               id: version
-              env:
-                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-                  PARSER_CHANGED: ${{ steps.changed-files.outputs.parser_any_changed }}
-                  WORKFLOW_CHANGED: ${{ steps.changed-files.outputs.workflow_any_changed }}
-                  IS_FORK: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              shell: bash
               run: |
-                  # The uv workspace flip removes the registry pin; on flipped branches
-                  # this pre-merge publish flow is fully disabled (a post-merge release
-                  # workflow supersedes it) so the bot can never re-pin the package.
-                  if ! grep -q 'hogql-parser==' pyproject.toml; then
-                    echo "hogql-parser is a workspace member; pre-merge publishing is disabled."
-                    echo "version-release-needed=false" >> $GITHUB_OUTPUT
+                  # sed, not tomllib: the runner's system python3 is 3.10, which lacks it.
+                  version=$(sed -n 's/^version = "\(.*\)"$/\1/p' common/hogql_parser/pyproject.toml | head -1)
+                  if [[ -z "$version" ]]; then
+                    echo "::error::Could not read the version from common/hogql_parser/pyproject.toml"
+                    exit 1
+                  fi
+                  # 200 = already published; anything else falls through to publish,
+                  # where skip-existing keeps a re-run of a published version green.
+                  http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$version/json")
+                  if [[ "$http_code" == '200' ]]; then
+                    echo "hogql-parser $version is already on PyPI; nothing to publish."
                     echo "parser-release-needed=false" >> $GITHUB_OUTPUT
-                    exit 0
+                  else
+                    echo "parser-release-needed=true" >> $GITHUB_OUTPUT
                   fi
-                  parser_release_needed='false'
-                  if [[ "$PARSER_CHANGED" == 'true' ]]; then
-                    local=$(cd common/hogql_parser && python setup.py --version)
-                    # 200 = version already on PyPI, 404 = needs release.
-                    http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser/$local/json")
-                    if [[ "$http_code" == '404' ]]; then
-                      parser_release_needed='true'
-                      # Version was bumped — mark any reminder from an earlier push resolved.
-                      if [ -f .github/scripts/post-reminder-section.mjs ]; then
-                        GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-py --clear "version bumped to $local"
-                      fi
-                    elif [[ "$http_code" == '200' ]]; then
-                      message_body="It looks like the code of \`hogql-parser\` changed in this PR, but its version stayed the same at $local. 👀"
-                      message_body+=$'\n'"Make sure to resolve this in \`common/hogql_parser/setup.py\` before merging!"
-                      if [[ "$IS_FORK" == 'true' ]]; then
-                        message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
-                      fi
-                      if [ -f .github/scripts/post-reminder-section.mjs ]; then
-                        BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-py warn "version bump needed"
-                      else
-                        echo "Skipping hogql-parser-py section — script not present on this checkout"
-                      fi
-                    else
-                      echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser $local; assuming not yet published."
-                      parser_release_needed='true'
-                    fi
-                  fi
-                  # A genuinely new version (the 404/unknown cases above) — not a workflow-only
-                  # exercise — is what must move the pyproject/uv.lock pin. Emit it now, before
-                  # the workflow-only override below raises parser-release-needed on its own.
-                  echo "version-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
-                  # Exercise the release pipeline on workflow-only edits; skip-existing makes publish a no-op.
-                  if [[ "$WORKFLOW_CHANGED" == 'true' ]]; then
-                    parser_release_needed='true'
-                  fi
-                  echo "parser-release-needed=$parser_release_needed" >> $GITHUB_OUTPUT
 
     build-wheels:
         name: Build wheels on ${{ matrix.os }}
         needs: check-version
         runs-on: ${{ matrix.os }}
         timeout-minutes: 30
-        if: needs.check-version.outputs.parser-release-needed == 'true' &&
-            github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+        if: needs.check-version.outputs.parser-release-needed == 'true'
         strategy:
             matrix:
                 os: [ubuntu-22.04, ubuntu-22.04-arm, macos-14, macos-15-intel]
@@ -153,7 +109,7 @@ jobs:
 
     publish:
         name: Publish on PyPI
-        needs: [check-version, build-wheels]
+        needs: build-wheels
         environment: pypi-hogql-parser
         permissions:
             id-token: write
@@ -188,98 +144,3 @@ jobs:
               uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
               with:
                   skip-existing: true
-
-            # Use GitHub app token so Actions run after commiting changes
-            - name: Get app token
-              id: app-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
-
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.pull_request.head.ref }}
-                  token: ${{ steps.app-token.outputs.token }}
-
-            - name: Set up Python
-              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: 3.13.13
-
-            - name: Install uv
-              id: setup-uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
-
-            - name: Set up ANTLR C++ runtime
-              uses: ./.github/actions/setup-antlr-runtime
-
-            - name: Update hogql-parser in requirements
-              shell: bash
-              env:
-                  RETRIES: 20
-              run: |
-                  # Same workspace-member guard as check-version: never rewrite the
-                  # manifest of a branch that has no registry pin.
-                  if ! grep -q 'hogql-parser==' pyproject.toml; then
-                    echo "hogql-parser is a workspace member; no pin to update."
-                    exit 0
-                  fi
-                  # setuptools isn't installed by default after actions/setup-python, but
-                  # `python setup.py --version` needs it. Mirrors the sdist step above.
-                  pip install setuptools==80.9.0
-                  VERSION=$(cd common/hogql_parser && python setup.py --version)
-                  # `--refresh-package` bypasses the restored uv index cache, which
-                  # otherwise won't have the version we just published. Retry anyway
-                  # in case PyPI propagation lags the publish step.
-                  for i in $(seq 1 "$RETRIES"); do
-                      if uv add --refresh-package hogql-parser "hogql-parser==$VERSION"; then
-                          break
-                      fi
-                      if [[ $i -eq $RETRIES ]]; then
-                        echo "Failed to update hogql-parser in requirements"
-                        exit 1
-                      fi
-                      sleep 0.5
-                  done
-
-            - name: Check for pin changes
-              id: check-pin
-              shell: bash
-              run: |
-                  if git diff --quiet pyproject.toml uv.lock; then
-                    echo "changed=false" >> $GITHUB_OUTPUT
-                  else
-                    echo "changed=true" >> $GITHUB_OUTPUT
-                  fi
-
-            - name: Commit pin
-              if: steps.check-pin.outputs.changed == 'true'
-              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
-              with:
-                  commit_message: 'Use new hogql-parser version'
-                  repo: ${{ github.repository }}
-                  branch: ${{ github.event.pull_request.head.ref }}
-                  file_pattern: 'pyproject.toml uv.lock'
-              env:
-                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-
-            - name: Fail if pin update produced no commit
-              # Only a real version release must move the pin. Workflow-only edits
-              # exercise the pipeline as a skip-existing no-op and legitimately leave
-              # the pin untouched, so the guard must not fire for them.
-              if: needs.check-version.outputs.version-release-needed == 'true'
-              shell: bash
-              env:
-                  CHANGED: ${{ steps.check-pin.outputs.changed }}
-              run: |
-                  if [[ "$CHANGED" != "true" ]]; then
-                    echo "::error::hogql-parser wheel was published to PyPI but pyproject.toml pin was not updated."
-                    echo "Check the 'Update hogql-parser in requirements' step above for why uv add did not produce a diff."
-                    exit 1
-                  fi

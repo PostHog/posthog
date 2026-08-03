@@ -580,14 +580,6 @@ jobs:
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Determine if hogql-parser has changed compared to master
-              shell: bash
-              id: hogql-parser-diff
-              run: |
-                  git fetch --no-tags --prune --depth=1 origin master
-                  changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
-                  echo "changed=$changed" >> $GITHUB_OUTPUT
-
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               shell: bash
@@ -639,38 +631,6 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-
-            - name: Install the working version of hogql-parser
-              if: needs.changes.outputs.shouldRun == 'true' && steps.hogql-parser-diff.outputs.changed == 'true'
-              shell: bash
-              # This is not cached currently, as it's important to build the current HEAD version of hogql-parser if it has
-              # changed (requirements.txt has the already-published version)
-              run: |
-                  # No-op once the branch has flipped hogql-parser to a uv workspace
-                  # member: uv sync already built it from these sources.
-                  if ! grep -q 'hogql-parser==' pyproject.toml; then
-                      echo "hogql-parser is a workspace member; skipping the wheel-override build."
-                      exit 0
-                  fi
-                  sudo apt-get install unzip cmake curl uuid pkg-config
-                  curl --fail --location https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip || curl --fail --location https://raw.githubusercontent.com/antlr/website-antlr4/gh-pages/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip
-                  # Check that the downloaded archive is the expected runtime - a security measure
-                  anltr_known_md5sum="c875c148991aacd043f733827644a76f"
-                  antlr_found_ms5sum="$(md5sum antlr4-source.zip | cut -d' ' -f1)"
-                  if [[ "$anltr_known_md5sum" != "$antlr_found_ms5sum" ]]; then
-                      echo "Unexpected MD5 sum of antlr4-source.zip!"
-                      echo "Known: $anltr_known_md5sum"
-                      echo "Found: $antlr_found_ms5sum"
-                      exit 64
-                  fi
-                  unzip antlr4-source.zip -d antlr4-source && cd antlr4-source
-                  cmake .
-                  DESTDIR=out make install
-                  sudo cp -r out/usr/local/include/antlr4-runtime /usr/include/
-                  sudo cp out/usr/local/lib/libantlr4-runtime.so* /usr/lib/
-                  sudo ldconfig
-                  cd ..
-                  pip install ./common/hogql_parser
 
             - name: Set up needed files
               shell: bash
