@@ -244,7 +244,7 @@ class PostgresPrinter(BasePrinter):
             return value
         # Temporal and UUID values have to be bound for the same reason. ``SQLValueEscaper`` only
         # models the `hogql` and `clickhouse` dialects, so the escape path renders them as
-        # `toDate(...)`, `toDateTime(...)`, and `toUUID(...)` — none of which exist in any engine
+        # `toDate(...)`, `toDateTime(...)`, and `toUUID(...)`, which do not exist in any engine
         # below this printer. Binding lets each driver emit its own literal, and matches how the
         # function translations already handle an explicit `toDate(...)` call.
         if isinstance(node.value, (UUID, UUIDT)):
