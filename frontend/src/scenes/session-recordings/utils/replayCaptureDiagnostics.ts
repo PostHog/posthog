@@ -8,6 +8,7 @@ export type DiagnosisVerdict =
     | 'sampled_out'
     | 'buffering_empty'
     | 'recorder_error'
+    | 'no_data'
     | 'unknown'
 
 export interface SuggestedAction {
@@ -86,6 +87,24 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     const properties = eventProperties ?? {}
     const rawSignals = pickSignals(properties)
 
+    const troubleshootingAction: SuggestedAction = {
+        label: 'Read troubleshooting docs',
+        to: TROUBLESHOOTING_URL,
+    }
+
+    if (!hasReplayDiagnosticSignals(properties)) {
+        return {
+            verdict: 'no_data',
+            headline: 'No diagnostic data for this session',
+            reasons: [
+                'This event has none of the recording diagnostic properties PostHog looks for.',
+                'It may predate this instrumentation, or the SDK never sent them for this session.',
+            ],
+            rawSignals,
+            suggestedActions: [troubleshootingAction],
+        }
+    }
+
     const hasRecording = properties['$has_recording']
     const recordingStatus = properties['$recording_status']
     const startReason = properties['$session_recording_start_reason']
@@ -100,10 +119,6 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     const settingsAction: SuggestedAction = {
         label: 'Open replay settings',
         to: urls.settings('project-replay'),
-    }
-    const troubleshootingAction: SuggestedAction = {
-        label: 'Read troubleshooting docs',
-        to: TROUBLESHOOTING_URL,
     }
 
     if (hasRecording === true) {
@@ -222,12 +237,12 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
 
     return {
         verdict: 'unknown',
-        headline: 'Unable to determine why this recording is missing',
+        headline: 'Diagnostic signals did not match a known capture-failure pattern',
         reasons: [
-            'The diagnostic properties on this event do not match any known capture-failure pattern.',
+            'This event has recording diagnostic properties, but they do not match any known capture-failure pattern.',
             'Check the raw signals below and the troubleshooting docs for more guidance.',
         ],
         rawSignals,
-        suggestedActions: [settingsAction, troubleshootingAction],
+        suggestedActions: [troubleshootingAction],
     }
 }

@@ -125,19 +125,24 @@ describe('diagnoseReplayCapture', () => {
             expected: 'captured',
         },
         {
-            name: 'empty properties object → unknown',
+            name: 'empty properties object → no_data',
             properties: {},
-            expected: 'unknown',
+            expected: 'no_data',
         },
         {
-            name: 'null properties → unknown',
+            name: 'null properties → no_data',
             properties: null as any,
-            expected: 'unknown',
+            expected: 'no_data',
         },
         {
-            name: 'undefined properties → unknown',
+            name: 'undefined properties → no_data',
             properties: undefined as any,
-            expected: 'unknown',
+            expected: 'no_data',
+        },
+        {
+            name: 'properties present but none are recording diagnostic signals → no_data',
+            properties: { $browser: 'Chrome', some_custom_prop: 1 },
+            expected: 'no_data',
         },
         {
             name: 'ad_blocked takes priority over disabled when both present',
@@ -258,6 +263,20 @@ describe('diagnoseReplayCapture', () => {
 
     it('does not include settings action for captured verdict', () => {
         const result = diagnoseReplayCapture({ $has_recording: true })
+        const labels = result.suggestedActions.map((a) => a.label)
+        expect(labels).not.toContain('Open replay settings')
+        expect(labels).toContain('Read troubleshooting docs')
+    })
+
+    it('does not include settings action for no_data verdict', () => {
+        const result = diagnoseReplayCapture({})
+        const labels = result.suggestedActions.map((a) => a.label)
+        expect(labels).not.toContain('Open replay settings')
+        expect(labels).toContain('Read troubleshooting docs')
+    })
+
+    it('does not include settings action for unknown verdict', () => {
+        const result = diagnoseReplayCapture({ $recording_status: 'paused' })
         const labels = result.suggestedActions.map((a) => a.label)
         expect(labels).not.toContain('Open replay settings')
         expect(labels).toContain('Read troubleshooting docs')

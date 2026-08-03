@@ -1,4 +1,6 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useEffect } from 'react'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { LemonBanner, LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
@@ -103,10 +105,16 @@ const BANNER_TYPE_BY_VERDICT: Record<DiagnosisVerdict, LemonBannerProps['type']>
     sampled_out: 'info',
     buffering_empty: 'info',
     recorder_error: 'warning',
+    no_data: 'info',
     unknown: 'info',
 }
 
 function DiagnosisContent({ diagnosis }: { diagnosis: ReplayCaptureDiagnosis }): JSX.Element {
+    useEffect(() => {
+        posthog.capture('replay capture diagnostics verdict rendered', { verdict: diagnosis.verdict })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [diagnosis.verdict])
+
     return (
         <LemonBanner type={BANNER_TYPE_BY_VERDICT[diagnosis.verdict]} className="text-left">
             <div className="deprecated-space-y-2">

@@ -1,4 +1,5 @@
 import { TZLabel } from 'lib/components/TZLabel'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { dayjs } from 'lib/dayjs'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
@@ -36,7 +37,19 @@ const renderSessionId: QueryContextColumnComponent = ({ value, record, query }) 
         isLive = isSessionLive(endTimestamp)
     }
 
-    return <SessionDisplay sessionId={sessionId} isLive={isLive} noPopover />
+    return (
+        <div className="flex items-center gap-2">
+            <SessionDisplay sessionId={sessionId} isLive={isLive} noPopover />
+            <ViewRecordingButton
+                iconOnly
+                sessionId={sessionId}
+                checkRecordingExists
+                size="xsmall"
+                type="secondary"
+                data-attr="sessions-explorer-inline-recording-button"
+            />
+        </div>
+    )
 }
 
 export function getSessionsColumns(): QueryContext['columns'] {
