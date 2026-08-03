@@ -38,7 +38,7 @@ use rdkafka::error::{KafkaError, RDKafkaErrorCode};
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use tokio::sync::{oneshot, Notify};
 use tokio::task::spawn_blocking;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tracing::{debug, error, warn};
 
 use personhog_proto::personhog::types::v1::Person;
@@ -448,6 +448,80 @@ impl FencedChangelogProducers {
     /// survives; only a future owner's init advances it.
     pub fn release(&self, partition: u32) {
         self.partitions.remove(&partition);
+    }
+
+    /// Settle the partition's open window before its owner gives it up.
+    ///
+    /// A request cancelled mid-produce takes its handler — and the
+    /// drain's in-flight count — with it, leaving the record it enqueued
+    /// in a window nobody is waiting on. Left alone, that window's fate
+    /// falls to whichever acts first: this pod's own committer, or the
+    /// successor's `init_transactions` aborting it at the broker.
+    ///
+    /// Waiting here makes the drain the boundary it claims to be. By the
+    /// time it is acked, every record this pod put in the partition is
+    /// either committed — below the cutoff the successor is about to
+    /// read — or definitively gone. The successor's abort becomes the
+    /// backstop it should be rather than the mechanism the guarantee
+    /// rests on, and a cancelled client's changes land instead of being
+    /// discarded by a race.
+    ///
+    /// Errors when the window's fate is genuinely unknown, which the
+    /// caller must not paper over: acking a drain that could not settle
+    /// hands the partition to an owner that may be missing a record.
+    pub async fn settle(&self, partition: u32) -> Result<(), String> {
+        let Some(fence) = self.installed(partition) else {
+            return Ok(());
+        };
+        // The window's own committer does the work; this waits it out.
+        // Bounded, because a committer that never answers has to fail the
+        // drain rather than hold the handoff open indefinitely.
+        let budget = fence.commit_timeout * 2;
+        let waited = timeout(budget, async {
+            loop {
+                // Register before inspecting, or a close landing between
+                // the two is lost and this waits for a wakeup already
+                // spent.
+                let closed = fence.window_closed.notified();
+                tokio::pin!(closed);
+                closed.as_mut().enable();
+                {
+                    let gate = fence.gate.lock().unwrap();
+                    if !gate.open && !gate.committing && gate.in_flight == 0 {
+                        return;
+                    }
+                }
+                closed.await;
+            }
+        })
+        .await;
+
+        if waited.is_err() {
+            counter!(
+                "personhog_leader_fence_settle_total",
+                "outcome" => "timeout"
+            )
+            .increment(1);
+            return Err(format!(
+                "partition {partition} still had an unsettled changelog window after {budget:?}"
+            ));
+        }
+        // A window whose outcome stayed unknown condemns its producer on
+        // the way out, which is exactly the case the drain must not ack:
+        // a definite abort or a commit both leave the records settled,
+        // and only doubt does not.
+        if !fence.is_usable() {
+            counter!(
+                "personhog_leader_fence_settle_total",
+                "outcome" => "indeterminate"
+            )
+            .increment(1);
+            return Err(format!(
+                "partition {partition} ended its changelog window with an unknown outcome"
+            ));
+        }
+        counter!("personhog_leader_fence_settle_total", "outcome" => "settled").increment(1);
+        Ok(())
     }
 
     /// Put the partition's producer into the state a failed abort or an

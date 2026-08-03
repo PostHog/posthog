@@ -494,3 +494,60 @@ async fn a_committer_that_never_reports_condemns_its_producer() {
         }
     }
 }
+
+/// Settling before the drained ack lands a cancelled write instead of
+/// leaving it to the successor to abort.
+///
+/// `a_successors_init_aborts_the_predecessors_open_window` shows the
+/// safety net: an abandoned record can never become visible once the
+/// successor owns the partition. This shows the boundary the drain is
+/// supposed to be — the record is committed *before* the handoff
+/// advances, so the successor reads it as ordinary history rather than
+/// racing the predecessor's committer for it.
+///
+/// The window is far longer than the reads below take. A shorter one
+/// closes on its own while the consumer is starting up, and then the
+/// test passes whether or not the settle does anything.
+#[tokio::test]
+async fn settling_commits_an_abandoned_record_before_the_handoff_advances() {
+    let topic = format!("fence_settle_{}", uuid::Uuid::new_v4().simple());
+
+    let first = Arc::new(fenced_producers_with_window(
+        &topic,
+        Duration::from_secs(15),
+    ));
+    first.acquire(0).await.expect("first owner acquires");
+    {
+        let p = Arc::clone(&first);
+        let mut inflight = Box::pin(async move { p.produce(0, &test_person(1)).await });
+        tokio::time::timeout(Duration::from_millis(200), &mut inflight)
+            .await
+            .ok();
+    }
+
+    // Nothing is readable yet: the record sits in an open window.
+    assert_eq!(
+        read_committed_count(&topic).await,
+        0,
+        "the record must still be uncommitted, or this proves nothing"
+    );
+
+    first.settle(0).await.expect("the window must settle");
+
+    assert_eq!(
+        read_committed_count(&topic).await,
+        1,
+        "a settled drain must leave the abandoned record committed, not waiting on a \
+         successor to decide its fate"
+    );
+
+    // And it settled before the successor existed, which is what makes
+    // the ack a boundary rather than the start of a race.
+    let second = fenced_producers(&topic);
+    second.acquire(0).await.expect("successor acquires");
+    assert_eq!(
+        read_committed_count(&topic).await,
+        1,
+        "the successor's init must find nothing left to abort"
+    );
+}

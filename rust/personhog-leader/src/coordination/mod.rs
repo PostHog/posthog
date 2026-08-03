@@ -126,16 +126,25 @@ impl HandoffHandler for LeaderHandoffHandler {
         self.inflight
             .wait_until_empty(partition, DRAIN_POLL_INTERVAL)
             .await;
-        // A request cancelled mid-produce takes its handler — and this
-        // count — with it, leaving the record it enqueued in a window
-        // this drain does not wait for. That record cannot outlive the
-        // handoff: the new owner acquires the partition's transactional
-        // id before reading the changelog, which makes the abandoned
-        // window uncommittable, so the record is either already below
-        // the new owner's cutoff or never visible at all. Pinned by
-        // `a_successors_init_aborts_the_predecessors_open_window` —
-        // without that guarantee this drain would have to wait out every
-        // open window.
+        // A request cancelled mid-produce takes its handler — and the
+        // count above — with it, leaving the record it enqueued in a
+        // window nobody is waiting on. Settling that window here is what
+        // makes this drain a boundary: every record this pod put in the
+        // partition is committed, and below the cutoff the successor is
+        // about to read, before the ack that lets the successor read at
+        // all.
+        //
+        // The successor's `init_transactions` still aborts anything left
+        // over — pinned by
+        // `a_successors_init_aborts_the_predecessors_open_window` — but
+        // as a backstop for the cases this cannot settle rather than as
+        // the mechanism the guarantee rests on.
+        if let Some(fenced) = &self.fenced {
+            fenced
+                .settle(partition)
+                .await
+                .map_err(Error::invalid_state)?;
+        }
         info!(partition, "inflight drained; writes fenced");
         Ok(())
     }
