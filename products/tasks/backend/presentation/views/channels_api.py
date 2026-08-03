@@ -190,6 +190,15 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Channel not found")
         return Response(ChannelInstructionsSerializer(published).data)
 
+    @extend_schema(
+        request=ChannelInstructionsWriteSerializer,
+        responses={200: ChannelInstructionsSerializer},
+        summary="Publish channel instructions",
+        description=(
+            "Publish a new version of the channel's CONTEXT.md instructions. Pass base_version "
+            "(the version you read) so a concurrent edit is rejected with 409 instead of overwritten."
+        ),
+    )
     @instructions.mapping.patch
     def patch_instructions(self, request, pk=None, **kwargs):
         return self.publish_instructions(request, pk, **kwargs)
