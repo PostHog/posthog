@@ -111,6 +111,7 @@ describe('LazyLoader', () => {
             // Ingest tokens become cache keys verbatim, so a token of `__proto__` must miss rather
             // than resolve up the prototype chain and let a write land on a shared builtin.
             loader.mockResolvedValue({})
+            const builtinFields = new Set(Object.getOwnPropertyNames(Object.prototype))
 
             try {
                 expect(await lazyLoader.get('__proto__')).toBeNull()
@@ -121,8 +122,12 @@ describe('LazyLoader', () => {
                 expect(await lazyLoader.get('__proto__')).toBeNull()
                 expect(loader).toHaveBeenCalledTimes(1)
             } finally {
-                for (const field of ['value', 'lastUsed', 'cacheUntil', 'backgroundRefreshAfter']) {
-                    delete (Object.prototype as Record<string, unknown>)[field]
+                // On regression the assertions above fail; strip whatever leaked so the rest of the
+                // file isn't debugging a mutated builtin instead of the real failure.
+                for (const field of Object.getOwnPropertyNames(Object.prototype)) {
+                    if (!builtinFields.has(field)) {
+                        delete (Object.prototype as Record<string, unknown>)[field]
+                    }
                 }
             }
         })
@@ -364,13 +369,16 @@ describe('LazyLoader', () => {
             loader.mockResolvedValue({})
             expect(await lazyLoader.get('key1')).toBeNull()
             loader.mockClear()
+            loadSpy.mockClear()
 
             // Still inside refreshNullAgeMs, so the null is served from cache. The background
             // deadline from when key1 held a real value is long past, so one left behind on the
             // entry would reload the key on every lookup until the null expires.
             jest.spyOn(Date, 'now').mockReturnValue(start + 1000 * 60 * 3)
             expect(await lazyLoader.get('key1')).toBeNull()
-            await delay(10)
+            // loadSpy, not loader: a background refresh calls load() synchronously during the get,
+            // so this observes a scheduled reload without waiting out the buffer for it to surface.
+            expect(loadSpy).toHaveBeenCalledTimes(0)
             expect(loader).toHaveBeenCalledTimes(0)
         })
     })
