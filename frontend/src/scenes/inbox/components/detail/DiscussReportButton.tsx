@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -18,7 +18,7 @@ import { SignalReport } from '../../types'
  * including resolved and archived ones.
  */
 export function DiscussReportButton({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
-    const { isDiscussing } = useValues(inboxTaskKickoffLogic)
+    const { isDiscussing, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { discussReport } = useActions(inboxTaskKickoffLogic)
     const [isOpen, setIsOpen] = useState(false)
     const [question, setQuestion] = useState('')
@@ -26,6 +26,12 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     const submit = (): void => {
         const trimmed = question.trim()
         if (!trimmed) {
+            return
+        }
+        // Enter submits straight from the textarea, so it never sees the button's `disabledReason`.
+        // Say why and leave the popover as it is, rather than clearing the draft into a rejected action.
+        if (aiConsentDisabledReason) {
+            lemonToast.error(aiConsentDisabledReason)
             return
         }
         captureInboxReportAction({ report, actionType: 'discuss', surface: 'detail_pane' })
@@ -56,7 +62,9 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                             size="small"
                             onClick={submit}
                             loading={isDiscussing}
-                            disabledReason={question.trim() ? undefined : 'Enter a question first'}
+                            disabledReason={
+                                aiConsentDisabledReason ?? (question.trim() ? undefined : 'Enter a question first')
+                            }
                         >
                             Discuss
                         </LemonButton>

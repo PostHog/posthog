@@ -13,6 +13,7 @@ from llm_gateway.modal import (
     is_modal_model_configured,
 )
 from llm_gateway.products.config import get_product_config
+from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 
 # Cloudflare Workers AI models are served via the `@cf/` path (CLOUDFLARE_ALLOWED_MODELS), not
@@ -120,6 +121,8 @@ class ModelRegistryService:
         all_litellm_models = ModelCostService.get_instance().get_all_models()
         models = []
         for model_id, cost_data in all_litellm_models.items():
+            if model_id in COST_ALIASES:
+                continue
             provider = cost_data.get("litellm_provider", "")
             if provider not in configured_providers:
                 continue

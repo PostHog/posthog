@@ -133,9 +133,14 @@ pub async fn run_traffic(
                         let mut written = HashMap::new();
                         written.insert(key, serde_json::Value::String(value));
                         match resp.person {
-                            Some(person) => {
+                            Some(person) if resp.updated => {
                                 state.record_write(person_id, person.version, written).await
                             }
+                            // A no-change ack (an at-least-once replay whose
+                            // first application landed) echoes the current
+                            // version, owned by some other write — assert
+                            // the keys, claim no version.
+                            Some(_) => state.record_write_no_change(person_id, written).await,
                             None => state.record_ack_anomaly(person_id, written).await,
                         }
                     }

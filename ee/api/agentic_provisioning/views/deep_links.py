@@ -57,7 +57,7 @@ class DeepLinksView(BearerResourceAPIView):
     def post(self, request: Request) -> Response:
         access_token = cast(OAuthAccessToken, request.auth)
 
-        if not access_token.application.provisioning_can_issue_deep_links:
+        if not access_token.application.provisioning.can_issue_deep_links:
             capture_provisioning_event("deep_link_created", "not_enabled", partner=access_token.application)
             raise ProvisioningError(
                 "deep_links_not_enabled",

@@ -12,7 +12,9 @@
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install
 #   and setup-sqlx-cli are byte-equivalent mirrors of the canonical composites)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
-# - Stripped side effects: artifact uploads, CI report section posters, snapshot
+# - Stripped side effects: artifact uploads, CI report section posters (canonical
+#   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
+#   the shadow strips them entirely, so that gating has nothing to mirror), snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry (including the
 #   capture-test-selection job — select-tests still emits its telemetry outputs to
 #   stay apples-to-apples, they just have no consumer here),
@@ -97,10 +99,11 @@ on:
         # Draft PRs run the snob-selected Django subset (≤3 shards); turbo-tests
         # still skip drafts. Ready PRs run the full matrices — the merge gate —
         # and ready_for_review re-triggers them when a PR leaves draft. Add the
-        # `run-ci-backend` label (labeled/unlabeled re-trigger) to force the full
-        # matrices on a draft; the `no-ci` label silences the workflow on a draft
-        # entirely. Mirrors canonical.
-        types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+        # `run-ci-backend` label to force the full matrices on a draft; the
+        # `no-ci` label silences the workflow on a draft entirely. No
+        # labeled/unlabeled triggers, so a label takes effect from the next push
+        # or from ready_for_review. Mirrors canonical.
+        types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
     # pushes never cancel each other (check-migrations always completes).
@@ -255,6 +258,9 @@ jobs:
                         # (skills/, scripts/). Catch any .py change so the
                         # backend job triggers when only those files move.
                         - 'products/**/*.py'
+                        # products/desktop is the imported desktop app; it has its own
+                        # desktop-* CI and must not drag this suite onto its PRs
+                        - '!products/desktop/**'
                         # Each product's package.json declares the per-product
                         # backend:test script that turbo-discover reads to
                         # compose the Product matrix. Without this entry,
@@ -513,6 +519,8 @@ jobs:
                       MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
+            # Shadow trial: canonical threads a setup-action app token into
+            # pnpm-install; mint stripped here (secret not available on Depot).
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
@@ -552,6 +560,7 @@ jobs:
     # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
     # a selector full-run signal), the draft skips the heavy matrices entirely —
     # the pre-selection draft behavior — and defers to the ready full run.
+    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
     #
     # Depot shadow note: canonical uploads /tmp/selection.json for its
     # test-selection-verdict job. The depot shadow strips that job (and all
@@ -713,7 +722,8 @@ jobs:
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix — turbo-tests handles them (warehouse_sources runs its own temporal suite there).
+                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
+                  # their own temporal suites there.
                   core=()
                   poe=()
                   temporal=()
@@ -815,6 +825,9 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure \
                     </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+            # Shadow trial: canonical threads a setup-action app token into both
+            # pnpm-install and setup-python; mint stripped here (secret not
+            # available on Depot), so setup-python keeps the bot PAT.
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
@@ -2089,17 +2102,10 @@ jobs:
                     local label="$1"
                     local result="$2"
 
-                    if [[ "$result" == "success" || "$result" == "skipped" ]]; then
-                      return
+                    if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+                      echo "::error::$label did not succeed (result: '$result')."
+                      exit 1
                     fi
-
-                    if [[ "$result" == "cancelled" ]]; then
-                      echo "::error::$label was cancelled or timed out."
-                    else
-                      echo "::error::$label failed with result '$result'."
-                    fi
-
-                    exit 1
                   }
 
                   # Upstream jobs whose failure would otherwise only cascade into django

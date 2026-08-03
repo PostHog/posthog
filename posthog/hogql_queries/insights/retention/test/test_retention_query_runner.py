@@ -86,16 +86,6 @@ def _create_events(team, user_and_timestamps, event="$pageview"):
 
 
 class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixin, APIBaseTest):
-    retention_base_query_variant_comparison_excluded_tests = {
-        "test_month_interval_with_person_on_events_v2",
-        "test_week_interval",
-        "test_retention_event_action",
-        "test_retention_with_user_properties_via_action",
-        "test_timezones",
-        "test_retention_aggregation_sum",
-        "test_retention_aggregation_different_events_ignores_start_event_property_value",
-    }
-
     def teardown_method(self, method) -> None:
         if getattr(self, "cleanUpDataWarehouse", None):
             self.cleanUpDataWarehouse()
@@ -144,6 +134,24 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
             )
             return runner.calculate().model_dump()["results"]
+
+        return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
+
+    def run_events_query(self, interval, query, person_id=None):
+        if not query.get("retentionFilter"):
+            query["retentionFilter"] = {}
+
+        def calculate(query_for_variant):
+            runner = RetentionQueryRunner(team=self.team, query=query_for_variant)
+            events_query = runner.to_events_query(interval=interval, person_id=person_id)
+            response = execute_hogql_query(
+                query_type="RetentionEventsQuery",
+                query=events_query,
+                team=self.team,
+            )
+            # to_events_query orders by timestamp only, so rows with equal timestamps can
+            # come back in either order; sort fully so the variant comparison doesn't flake
+            return sorted(response.results)
 
         return self.calculate_with_retention_base_query_variant_comparison(query, calculate)
 
@@ -3449,10 +3457,9 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         """Test events query for first time ever retention"""
         self._create_first_time_ever_retention_events()
 
-        # Create RetentionQueryRunner instance
-        query = RetentionQuery(
-            dateRange={"date_from": _date(0), "date_to": _date(7)},
-            retentionFilter={
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(7)},
+            "retentionFilter": {
                 "period": "Day",
                 "totalIntervals": 7,
                 "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
@@ -3463,22 +3470,14 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 },
                 "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
             },
-        )
-
-        runner = RetentionQueryRunner(query=query, team=self.team)
+        }
 
         # Test events query for interval 1 (day 1)
-        events_query = runner.to_events_query(interval=1)
-        events_result = execute_hogql_query(
-            query_type="RetentionEventsQuery",
-            query=events_query,
-            team=self.team,
-        )
+        events = self.run_events_query(interval=1, query=query)
 
         # Should include both start and return events for people who had their first event ever on day 1
         # and performed the target action (signup)
         # Person2: first event ever was signup on day 1, returns with pageviews on day 2,4
-        events = events_result.results
         self.assertGreater(len(events), 0)
 
         # Based on the to_events_query method, event_type should be in index 5
@@ -5070,29 +5069,16 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
 
         # Set up the query
-        query = RetentionQuery(
-            dateRange={"date_to": _date(6, hour=6)},
-            retentionFilter={
+        query = {
+            "dateRange": {"date_to": _date(6, hour=6)},
+            "retentionFilter": {
                 "totalIntervals": 7,
                 "period": "Day",
             },
-        )
+        }
 
-        # Create the query runner
-        runner = RetentionQueryRunner(team=self.team, query=query)
-
-        # Get events query for interval 0 (day 0) and person1
-        events_query = runner.to_events_query(interval=0, person_id=person1.uuid)
-
-        # Execute the query
-        response = execute_hogql_query(
-            query_type="RetentionEventsQuery",
-            query=events_query,
-            team=self.team,
-        )
-
-        # Get the results
-        results = response.results
+        # Get events for interval 0 (day 0) and person1
+        results = self.run_events_query(interval=0, query=query, person_id=person1.uuid)
 
         # Verify we get both start and return events
         self.assertTrue(len(results) > 0, "Expected events to be returned")
@@ -5131,13 +5117,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             )
 
         # Test with a different interval - interval 1 should only return person2
-        events_query_day1 = runner.to_events_query(interval=1, person_id=person2.uuid)
-        response_day1 = execute_hogql_query(
-            query_type="RetentionEventsQuery",
-            query=events_query_day1,
-            team=self.team,
-        )
-        results_day1 = response_day1.results
+        results_day1 = self.run_events_query(interval=1, query=query, person_id=person2.uuid)
 
         # Verify we have events for person2 on day 1
         self.assertTrue(len(results_day1) > 0, "Expected events for day 1")
@@ -6028,8 +6008,10 @@ class TestClickhouseRetentionGroupAggregation(
     retention_base_query_variant_comparison_excluded_tests = {
         "test_groups_aggregating",
         "test_groups_aggregating_person_on_events",
+        # Asserts sync_execute was called exactly once, but the comparison runs the query once per
+        # variant, so the call count can never match. The test checks the max_execution_time setting
+        # on the emitted SQL rather than query results, so it proves nothing about variant parity.
         "test_limit_is_context_aware",
-        "test_retention_24h_window_calculation",
     }
 
     def run_query(self, query, *, limit_context: Optional[LimitContext] = None):

@@ -10,6 +10,8 @@ from pydantic import BaseModel, ConfigDict
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
+from products.customer_analytics.backend.models.account_channel_summary import SlackSummaryCadence
+
 
 class AccountAssignment(BaseModel):
     id: int
@@ -32,6 +34,7 @@ class AccountProperties(BaseModel):
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
     @classmethod
     def from_input(cls, data: "dict | AccountProperties") -> "AccountProperties":
@@ -46,6 +49,8 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
     external_id = models.CharField(max_length=400, null=True, blank=True)
     name = models.CharField(max_length=400)
     _properties = JSONField(default=dict, db_column="properties")
+    # NULL = periodic Slack channel summaries off for this account.
+    slack_summary_cadence = models.CharField(max_length=10, choices=SlackSummaryCadence.choices, null=True, blank=True)
 
     class Meta:
         constraints = [

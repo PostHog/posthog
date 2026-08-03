@@ -166,6 +166,29 @@ class TestBackfillFinalizer(BaseTest):
         self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)
         self.assertIsNone(cohorts[0].last_backfill_events_at)
 
+    def test_observed_person_run_is_untouched(self) -> None:
+        run = CohortBackfillRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            backfill_kind=CohortBackfillKind.PERSON_PROPERTY,
+            trigger_kind=CohortBackfillTrigger.TEAM_ENABLEMENT,
+            scope=CohortBackfillScope.TEAM,
+            status=CohortBackfillRunStatus.RECONCILING,
+            reconcile_observed_at=timezone.now(),
+            timezone="UTC",
+        )
+        cohort, participation = self._make_participation(run, "completed")
+
+        result = finalize_backfill_runs()
+
+        run.refresh_from_db()
+        cohort.refresh_from_db()
+        participation.refresh_from_db()
+        self.assertEqual(result.runs_scanned, 0)
+        self.assertEqual(run.status, CohortBackfillRunStatus.RECONCILING)
+        self.assertIsNone(cohort.last_backfill_events_at)
+        self.assertIsNone(cohort.last_backfill_person_properties_at)
+        self.assertIsNone(participation.stamped_at)
+
     def test_second_fire_is_a_noop(self) -> None:
         run, _cohorts = self._make_run(["completed", "completed"])
 

@@ -77,6 +77,22 @@ class ClickHouseConnectionError(Exception):
     pass
 
 
+# clickhouse-connect probes the server with `SELECT version(), timezone()` while
+# constructing the client and unpacks the reply into exactly two tab-separated
+# values (BaseClient._init_common_settings). A host that answers 2xx with a body
+# that isn't a ClickHouse response — a proxy/load-balancer landing page, or a
+# different service listening on the host/port — splits into a different shape, so
+# the driver raises a bare `ValueError` ("too many values to unpack") before we ever
+# run a query. The endpoint isn't serving the ClickHouse HTTP interface, so a retry
+# replays the identical failure; we surface it as a connection error rather than
+# leaking the cryptic ValueError.
+NOT_A_CLICKHOUSE_HTTP_RESPONSE = (
+    "The host answered but did not return a valid ClickHouse response, so it isn't serving the "
+    "ClickHouse HTTP interface on that host/port. Check the host, port, and HTTPS setting "
+    "(and any tunnel or proxy in front of it)."
+)
+
+
 def _quote_identifier(identifier: str) -> str:
     """Quote a ClickHouse identifier with backticks.
 
@@ -256,6 +272,11 @@ def _get_client(
                 time.sleep(wait)
                 continue
             raise ClickHouseConnectionError(message) from e
+        except ValueError as e:
+            # The construction-time server probe got a response it couldn't parse as a
+            # ClickHouse handshake (see NOT_A_CLICKHOUSE_HTTP_RESPONSE). Deterministic, so
+            # never retryable — don't spend the transient-retry budget on it.
+            raise ClickHouseConnectionError(NOT_A_CLICKHOUSE_HTTP_RESPONSE) from e
 
         # Apply tuning settings after connect, not at construction, so a readonly
         # source profile that rejects one degrades to the server default instead

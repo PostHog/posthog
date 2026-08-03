@@ -43,6 +43,7 @@ import type {
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
+    PatchedHogFlowActionEmailUpdateApi,
     PatchedHogFlowApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
@@ -327,6 +328,25 @@ export const hogFlowsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getHogFlowsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getHogFlowsActionsEmailPartialUpdateUrl = (projectId: string, id: string, actionId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/actions/${actionId}/email/`
+}
+
+export const hogFlowsActionsEmailPartialUpdate = async (
+    projectId: string,
+    id: string,
+    actionId: string,
+    patchedHogFlowActionEmailUpdateApi?: PatchedHogFlowActionEmailUpdateApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsActionsEmailPartialUpdateUrl(projectId, id, actionId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowActionEmailUpdateApi),
     })
 }
 
@@ -878,9 +898,10 @@ export const getHogFlowsReputationRetrieveUrl = (projectId: string, params?: Hog
 }
 
 /**
- * Email deliverability reputation for this project: the latest project-wide snapshot and the
- * latest recent snapshot per workflow (worst first, capped). Written daily by the Node
- * evaluator; everything is null/empty until the first run.
+ * Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
+ * the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+ * capped), together with the authoritative AWS SES tenant verdict — sending status and open
+ * reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
  */
 export const hogFlowsReputationRetrieve = async (
     projectId: string,

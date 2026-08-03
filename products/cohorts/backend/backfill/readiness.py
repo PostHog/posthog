@@ -9,7 +9,11 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillScope,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.cohorts.backend.models.leaf_shape import extract_behavioral_leaf_shape_hash, extract_leaf_shape_hash
+from products.cohorts.backend.models.leaf_shape import (
+    extract_behavioral_leaf_shape_hash,
+    extract_leaf_shape_hash,
+    extract_person_leaf_shape_hash,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -38,6 +42,18 @@ def ensure_filters_shape_hash(cohort: Cohort) -> str:
         else:
             cohort.refresh_from_db(fields=["behavioral_filters_shape_hash"])
 
+    if cohort.__dict__.get("person_filters_shape_hash") is None:
+        person_shape_hash = extract_person_leaf_shape_hash(cohort.filters)
+        updated = Cohort.objects.filter(
+            id=cohort.id,
+            team_id=cohort.team_id,
+            person_filters_shape_hash__isnull=True,
+        ).update(person_filters_shape_hash=person_shape_hash)
+        if updated:
+            cohort.person_filters_shape_hash = person_shape_hash
+        else:
+            cohort.refresh_from_db(fields=["person_filters_shape_hash"])
+
     return cohort.filters_shape_hash or ""
 
 
@@ -45,7 +61,7 @@ def stamp_events_readiness(run: CohortBackfillRun, cohort_id: int) -> bool:
     """CAS-stamp event readiness for one pinned cohort.
 
     Keys on the behavioral shape hash, not the full one: edit-time invalidation only nulls
-    ``last_backfill_events_at`` when the behavioral leaves change (see ``_maintain_behavioral_shape``).
+    ``last_backfill_events_at`` when the behavioral leaves change (see ``_maintain_filter_shape_hashes``).
     A person-property or cohort-reference edit mid-backfill shifts the full hash without touching
     events readiness, so keying on the full hash would wrongly supersede a still-valid events backfill.
 

@@ -44,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     _SSH_HANDSHAKE_EOF_ERROR,
+    XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
@@ -404,6 +405,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "PostHog can't build its sync query. Choose an incremental field for the table in its "
                 "sync settings, or switch it to full table replication, then re-enable the sync."
             ),
+            # `xmin` was picked as a plain incremental/append field instead of through the dedicated
+            # xmin replication sync type — `_build_query`/`_build_count_query` raise this before
+            # emitting SQL Postgres would reject (`xid >= integer` has no operator). The stored config
+            # is fixed until the customer changes it, so every retry re-hits the same wall.
+            XMIN_AS_INCREMENTAL_FIELD_ERROR: (
+                "This table's incremental field is set to Postgres's internal 'xmin' system column, "
+                "which only works with the dedicated xmin replication sync type. Switch this schema to "
+                "xmin replication, or choose a different incremental field, then re-enable the sync."
+            ),
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
             # It denotes an established SSL connection being dropped on connect or mid-stream (idle
@@ -671,6 +681,21 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation's own definition calls date_trunc()/extract() with a unit
+            # PostgreSQL doesn't support for the interval type (SQLSTATE 0A000) — e.g.
+            # `date_trunc('week', some_interval_column)`, since week truncation is only defined
+            # for timestamp/timestamptz, not interval. We only ever run `SELECT ... FROM
+            # <relation>`; the expression lives in the customer's own generated column or view
+            # definition, so it's deterministic against the schema and retrying re-evaluates the
+            # same relation into the same wall.
+            "not supported for type interval": (
+                "A table or view you're syncing has a computed column or definition that calls "
+                "date_trunc() or extract() with a unit PostgreSQL doesn't support for interval "
+                'values (PostgreSQL reported "not supported for type interval") — for example '
+                "truncating to a week on an interval column, which is only supported on "
+                "timestamps. Update that column's definition to use a supported unit, or remove "
+                "it from the sync, then re-enable the sync."
+            ),
             # A selected relation's own definition writes to the database while we read it — a view or
             # trigger that calls a function which runs REFRESH MATERIALIZED VIEW (or INSERT/UPDATE/DELETE).
             # We read inside a read-only transaction and never write to the source, so Postgres rejects

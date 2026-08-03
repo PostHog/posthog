@@ -10,7 +10,13 @@ from django.utils import timezone
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
@@ -25,6 +31,7 @@ from posthog.models.integration import Integration
 from posthog.models.user import User
 
 from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
+from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
@@ -384,7 +391,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         self._validate_schedule(attrs)
         self._validate_unique_name(attrs)
-        self._validate_unique_digest(attrs)
+        self._validate_digest(attrs)
         self._validate_alert(attrs)
         self._validate_scanner_access(attrs)
         return attrs
@@ -495,23 +502,55 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if duplicates.exists():
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
 
-    def _validate_unique_digest(self, attrs: dict[str, Any]) -> None:
-        # Surface the one-digest-per-scanner constraint as a 400 instead of letting the DB raise 500.
+    def _validate_digest(self, attrs: dict[str, Any]) -> None:
+        # The overview card renders the featured digest as a synthesized summary, so an alert can't
+        # occupy that slot. Promoting to the featured slot is otherwise always allowed — create()/update()
+        # atomically demote the scanner's current digest, so the one-per-scanner index never trips.
         if not attrs.get("is_scanner_digest"):
             return
-        scanner = attrs.get("scanner") or getattr(self.instance, "scanner", None)
-        if scanner is None:
+        mode = attrs.get("mode", getattr(self.instance, "mode", ActionMode.GROUP_SUMMARY))
+        if mode == ActionMode.ALERT:
+            raise serializers.ValidationError({"is_scanner_digest": "Only summaries can be the featured digest."})
+
+    def _demote_existing_digest(self, scanner: ReplayScanner) -> None:
+        # Clear any current featured digest on this scanner before promoting another, so the partial
+        # unique index (vision_action_unique_scanner_digest) sees at most one flagged row. Runs in the
+        # caller's transaction (perform_create/perform_update wrap save() in transaction.atomic).
+        team = self.context["get_team"]()
+        demote = VisionAction.objects.for_team(team.id).filter(scanner=scanner, is_scanner_digest=True)
+        if self.instance is not None:
+            demote = demote.exclude(pk=self.instance.pk)
+        # This bulk update is a write to the current digest. A direct PATCH to it would run
+        # _validate_scanner_access; authorize the same way here so promoting can't be a back door to
+        # modifying a digest whose selection reads from a scanner the requesting user can't access.
+        self._authorize_demotions(demote)
+        demote.update(is_scanner_digest=False)
+
+    def _authorize_demotions(self, actions: QuerySet[VisionAction]) -> None:
+        request = self.context.get("request")
+        if request is None or not getattr(request.user, "is_authenticated", False):
+            return
+        # The bound scanner is the promotion target (already editor-checked upstream); the exposure is
+        # each demoted digest's selection.scanner_ids, which _validate_scanner_access guards on a direct
+        # write. Gather every scanner these actions read from and require read access to all of them.
+        requested: set[str] = set()
+        for demoted in actions:
+            requested.add(str(demoted.scanner_id))
+            requested.update(str(s) for s in (demoted.selection or {}).get("scanner_ids") or [])
+        if not requested:
             return
         team = self.context["get_team"]()
-        duplicates = VisionAction.objects.for_team(team.id).filter(scanner=scanner, is_scanner_digest=True)
-        if self.instance is not None:
-            duplicates = duplicates.exclude(pk=self.instance.pk)
-        if duplicates.exists():
-            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a daily digest."})
+        readable = set(readable_scanner_ids(request.user, team, list(requested)))
+        if requested - readable:
+            raise serializers.ValidationError(
+                {"is_scanner_digest": "You don't have access to a scanner the current digest reads from."}
+            )
 
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
         user = cast(User, self.context["request"].user)
+        if validated_data.get("is_scanner_digest"):
+            self._demote_existing_digest(validated_data["scanner"])
         try:
             # for_team()'s filter doesn't propagate into create(), so team is still passed explicitly.
             return VisionAction.objects.for_team(team.id).create(team=team, created_by=user, **validated_data)
@@ -519,6 +558,8 @@ class VisionActionSerializer(serializers.ModelSerializer):
             self._reraise_unique_violation(e)
 
     def update(self, instance: VisionAction, validated_data: dict[str, Any]) -> VisionAction:
+        if validated_data.get("is_scanner_digest"):
+            self._demote_existing_digest(validated_data.get("scanner", instance.scanner))
         try:
             return super().update(instance, validated_data)
         except IntegrityError as e:
@@ -692,7 +733,15 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         archive_delivery(instance, team=self.team)
         super().perform_destroy(instance)
 
-    @extend_schema(request=None, responses={202: RunActionResponseSerializer})
+    @extend_schema(
+        request=None,
+        responses={
+            202: RunActionResponseSerializer,
+            503: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The summary run couldn't be started."
+            ),
+        },
+    )
     @action(
         detail=True,
         methods=["post"],
