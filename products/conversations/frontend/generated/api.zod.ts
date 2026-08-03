@@ -445,12 +445,6 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).\n\n\* `any` - any\n\* `all` - all"
                 ),
-            tagsAll: zod
-                .array(zod.string())
-                .optional()
-                .describe(
-                    'Tag names the ticket must all carry (AND). Applied on top of tags\/tagsMatch, so both an any-of and an all-of constraint can be active at once.'
-                ),
             tagsExclude: zod
                 .array(zod.string())
                 .optional()
@@ -586,12 +580,6 @@ export const ConversationsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     "'any' returns tickets with at least one of tags (OR); 'all' requires every tag (AND).\n\n\* `any` - any\n\* `all` - all"
-                ),
-            tagsAll: zod
-                .array(zod.string())
-                .optional()
-                .describe(
-                    'Tag names the ticket must all carry (AND). Applied on top of tags\/tagsMatch, so both an any-of and an all-of constraint can be active at once.'
                 ),
             tagsExclude: zod
                 .array(zod.string())

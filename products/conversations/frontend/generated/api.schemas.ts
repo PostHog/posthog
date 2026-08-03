@@ -1187,8 +1187,6 @@ export interface TicketViewFiltersApi {
      * * `any` - any
      * * `all` - all */
     tagsMatch?: TicketTagsMatchEnumApi
-    /** Tag names the ticket must all carry (AND). Applied on top of tags/tagsMatch, so both an any-of and an all-of constraint can be active at once. */
-    tagsAll?: string[]
     /** Tickets carrying any of these tags are excluded. */
     tagsExclude?: string[]
     /**
