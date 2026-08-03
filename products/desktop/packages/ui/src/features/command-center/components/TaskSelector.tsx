@@ -23,6 +23,7 @@ interface TaskSelectorProps {
   children: ReactNode;
 }
 
+// Combobox sets a trigger-derived minWidth inline, so a utility class cannot override it.
 const CONTENT_STYLE = { minWidth: "240px" };
 
 export function TaskSelector({
