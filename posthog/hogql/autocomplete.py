@@ -17,7 +17,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.base import AST, CTE, ConstantType
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import HOGQL_CHARACTERS_TO_BE_WRAPPED, Database
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -37,6 +37,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
+from posthog.hogql.escape_sql import escape_hogql_identifier_for_display
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
@@ -371,7 +372,7 @@ def append_table_field_to_response(
         keys=keys,
         suggestions=suggestions,
         details=details,
-        insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
+        insert_text=escape_hogql_identifier_for_display,
     )
 
     append_function_suggestions(suggestions=suggestions, language=language, context=context)

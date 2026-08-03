@@ -140,6 +140,7 @@ from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVita
 from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params
 from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
+from posthog.hogql.escape_sql import escape_hogql_identifier_for_display
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -2341,9 +2342,6 @@ def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> 
     return None
 
 
-HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
-
-
 def _not_deleted_q():
     # Built lazily so the Django ORM stays off this module's import path.
     from django.db.models import Q  # noqa: PLC0415
@@ -2591,10 +2589,7 @@ def serialize_fields(
             # We redefine fields on some sourced tables, causing the "hogql" and "clickhouse" field names to be intentionally out of sync
             schema_valid = True
 
-        if any(n in field_key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED):
-            hogql_value = f"`{field_key}`"
-        else:
-            hogql_value = str(field_key)
+        hogql_value = escape_hogql_identifier_for_display(str(field_key))
 
         if isinstance(field, FieldOrTable):
             if field.hidden:

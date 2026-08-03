@@ -341,6 +341,29 @@ def parser_test_factory(backend: HogQLParserBackend):
 
         @parameterized.expand(
             [
+                ("cyrillic_property_name", "select properties.Когорты from events", "U+041A"),
+                ("cjk_property_name", "select properties.属性 from events", "U+5C5E"),
+            ]
+        )
+        def test_non_ascii_identifier_hints_at_backticks(self, _name: str, query: str, code_point: str):
+            # A bare non-ASCII identifier (e.g. typed by hand, or inserted by an
+            # autocomplete suggestion that forgot to escape it) is the common real-world
+            # case, so the error should say how to fix it, not just name the character.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)) as caught:
+                self._select(query)
+            message = str(caught.exception)
+            self.assertIn(code_point, message)
+            self.assertIn("backtick", message)
+
+        def test_unexpected_symbol_does_not_hint_at_backticks(self):
+            # `!` isn't a letter, so wrapping it in backticks wouldn't fix anything —
+            # the hint should only fire for identifier-shaped (alphabetic) characters.
+            with self.assertRaises((ExposedHogQLError, SyntaxError)) as caught:
+                self._program("let x := !y")
+            self.assertNotIn("backtick", str(caught.exception))
+
+        @parameterized.expand(
+            [
                 ("not_equals", "a != b"),
                 ("not_regex", "a !~ b"),
                 ("concat", "a || b"),

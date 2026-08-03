@@ -52,6 +52,17 @@ def escape_hogql_identifier(identifier: str | int) -> str:
     return "`{}`".format("".join(backquote_escape_chars_map.get(c, c) for c in identifier))
 
 
+def escape_hogql_identifier_for_display(identifier: str) -> str:
+    """Like `escape_hogql_identifier`, but for suggestion/insert-text contexts where the
+    identifier is only ever displayed or spliced into an editor, never executed. Falls back to
+    the bare identifier instead of raising on characters `escape_hogql_identifier` rejects (e.g. `%`).
+    """
+    try:
+        return escape_hogql_identifier(identifier)
+    except QueryError:
+        return identifier
+
+
 # Copied from dlt/common/data_writers/escape.py
 POSTGRES_SIMPLE_IDENTIFIER_REGEX = re.compile(r"^[a-z_][a-z0-9_$]*$")
 

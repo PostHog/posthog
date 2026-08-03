@@ -711,11 +711,24 @@ impl<'a> Lexer<'a> {
                 // `UNEXPECTED_CHARACTER` token. Decode the whole UTF-8
                 // scalar (not just the lead byte) and name it by code
                 // point: the only actionable signal when the character
-                // is invisible (a zero-width space / joiner).
+                // is invisible (a zero-width space / joiner). When the
+                // character is a letter (the common case: a non-ASCII
+                // identifier like a Cyrillic or CJK property name typed
+                // bare), hint at the fix — HogQL identifiers only allow
+                // an ASCII lead character, so a non-ASCII name always
+                // needs backticks.
                 let ch = self.peek_char().map(|(c, _)| c).unwrap_or(other as char);
+                let hint = if ch.is_alphabetic() {
+                    " — non-ASCII identifiers must be wrapped in backticks, e.g. properties.`my_prop`"
+                } else {
+                    ""
+                };
                 return Err(self.err(
                     start,
-                    format!("unexpected character {:?} (U+{:04X})", ch, ch as u32),
+                    format!(
+                        "unexpected character {:?} (U+{:04X}){}",
+                        ch, ch as u32, hint
+                    ),
                 ));
             }
         };
