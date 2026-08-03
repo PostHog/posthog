@@ -1968,17 +1968,18 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "When `status` last changed. For `pending_pause` this is when the warning was issued "
-            "(the pause lands about a week later unless the scout surfaces something); for the "
-            "paused statuses it is when the scout was paused. Null if the status never changed."
+            "(an `ignored` warning pauses about a week later unless someone acts on the scout's "
+            "reports; a `no_output` warning only flags the scout); for the paused statuses it is "
+            "when the scout was paused. Null if the status never changed."
         ),
     )
     auto_pause_exempt = serializers.BooleanField(
         read_only=True,
         help_text=(
-            "Whether this scout is exempt from the inactivity pause. Set it on watchdog scouts whose "
-            "value is staying quiet, so silence is never read as waste. Also set automatically when "
-            "someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a "
-            "person twice."
+            "Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` "
+            "pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is "
+            "staying quiet. Also set automatically when someone re-enables a scout the inactivity "
+            "sweep paused, so the sweep never overrules a person twice."
         ),
     )
 
@@ -2123,8 +2124,8 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     auto_pause_exempt = serializers.BooleanField(
         required=False,
         help_text=(
-            "Exempt this scout from the inactivity pause. Set it on watchdog scouts whose value is "
-            "staying quiet, so silence is never read as waste."
+            "Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the "
+            "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
 
