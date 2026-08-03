@@ -180,11 +180,19 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     connect = MagicMock(return_value=conn)
     monkeypatch.setattr(registration_module.psycopg, "connect", connect)
     monkeypatch.setattr(registration_module, "setup_duckgres_session", MagicMock())
+    heartbeat_state = {"active": False}
     heartbeater = MagicMock()
-    heartbeater.__enter__ = MagicMock(return_value=heartbeater)
-    heartbeater.__exit__ = MagicMock(return_value=False)
+    heartbeater.__enter__ = MagicMock(side_effect=lambda: heartbeat_state.update(active=True))
+    heartbeater.__exit__ = MagicMock(side_effect=lambda *args: heartbeat_state.update(active=False))
     monkeypatch.setattr(registration_module, "HeartbeaterSync", MagicMock(return_value=heartbeater))
     workload_metrics = _mock_activity_workload_metrics(monkeypatch)
+
+    def assert_heartbeat_active(_value: float) -> None:
+        assert heartbeat_state["active"] is True
+
+    workload_metrics.files.record.side_effect = assert_heartbeat_active
+    workload_metrics.rows.record.side_effect = assert_heartbeat_active
+    workload_metrics.bytes.record.side_effect = assert_heartbeat_active
 
     inputs = _activity_inputs()
     applied = copy_and_register_ducklake_data_imports_activity(inputs)
