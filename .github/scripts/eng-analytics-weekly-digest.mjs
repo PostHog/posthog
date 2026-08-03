@@ -10,9 +10,11 @@
 //
 //   GHA cron ──> GET /api/projects/:id/engineering_analytics/repo_overview/ ──> Slack
 //
-// One native-table message (Block Kit `table`), five rows, each with its WoW delta:
+// One native-table message (Block Kit `table`), six rows, each with its WoW delta:
 //   - CI minutes: billable (self-hosted) compute minutes across the whole bill,
 //     master and scheduled runs included.
+//   - └ merge queue: the slice of CI minutes spent on merge-queue batch branches
+//     (trunk-merge/**) — broken out so queue-settings changes get their own delta.
 //   - min / merged PR: the same bill divided by the week's merged-PR count (bots
 //     included — the merge population that triggered the spend).
 //   - est. Depot $: the product's tier-laddered estimate of that spend.
@@ -162,6 +164,7 @@ function tableRows(overview) {
     // Null-propagating so `add`'s missing-value guard stays the only degradation path.
     const perPr = (minutes, merges) => (minutes != null && merges ? minutes / merges : null)
     add('CI minutes', overview.billable_minutes, overview.billable_minutes_prev, fmtMinutes)
+    add('└ merge queue', overview.merge_queue_billable_minutes, overview.merge_queue_billable_minutes_prev, fmtMinutes)
     add(
         'min / merged PR',
         perPr(overview.billable_minutes, overview.merged_pr_count),
