@@ -55,8 +55,8 @@ clickhouse_person_distinct_id ───┘    from the duckgres control plane)
                                              ▼
                               shared changelog DuckLake (megaduck)
                                              │
-               viaduck full_cdc, 2 pipelines (table_field selects the
-               discovery field), route by team_id
+               viaduck full_cdc, 2 pipelines, route by team_id
+               (static destinations during migration; discovery later)
                                              │
                                              ▼
                 per-duckling persons_<suffix>_raw + persons_distinct_ids_<suffix>_raw
@@ -69,9 +69,10 @@ initial load.
 
 ## Per-team cutover
 
-Prerequisites: the millpond persons pipelines and the viaduck persons
-pipelines are deployed (charts values), and the duckgres control plane serves
-`persons_distinct_ids_table` in the discovery payload.
+Prerequisites: the millpond persons consumers are already running (they land
+the `person` / `person_distinct_id` changelogs on megaduck), and the viaduck
+persons pipelines are deployed (charts `viaduck-persons` /
+`viaduck-persons-distinct-ids` ApplicationSets).
 
 1. **Prep the duckling schema.** Run any `duckling_persons_backfill_job`
    partition for the team with:
@@ -88,12 +89,20 @@ pipelines are deployed (charts values), and the duckgres control plane serves
    validation view at the scratch name. The batch table keeps the canonical
    name, so nothing reader-visible changes.
 
-2. **Point viaduck at the team.** Repoint the team's control-plane
-   `persons_table_name` override from `persons_ab12` to `persons_ab12_raw`.
-   Discovery then serves the raw names (`persons_ab12_raw` and, by
-   derivation, `persons_distinct_ids_ab12_raw`) to the viaduck persons
-   pipelines. New destinations initialize at the source head: only changes
-   from this moment onward stream.
+2. **Point viaduck at the team.** Add a static destination for the team to
+   BOTH persons pipelines' env values in charts (an entry shape example is in
+   `argocd/viaduck/values/managed-warehouse-prod-us-persons.yaml`): the
+   persons pipeline writes `posthog.persons_ab12_raw`, the distinct-ids
+   pipeline writes `posthog.persons_distinct_ids_ab12_raw`. New destinations
+   initialize at the source head: only changes from this moment onward
+   stream.
+
+   Do NOT repoint the team's control-plane `persons_table_name` override to
+   the raw name as the cutover mechanism: the batch backfill resolves its
+   write target from the same override, so repointing redirects the batch
+   export into viaduck's table. (Discovery-based destination sourcing is a
+   post-fleet-migration step for the persons pipelines; see the charts PR
+   description for why it stays off during migration.)
 
 3. **Final batch top-up.** Run the team's daily partition once more so the
    batch table holds everything up to the streaming cutover point. Expect a
@@ -151,7 +160,7 @@ can stay (viaduck keeps them current, harmless) or be dropped.
 | Repo | Piece | Status |
 |---|---|---|
 | posthog (this repo) | Streamed schema DDL + prep config flag + this runbook | this PR |
-| duckgres | `persons_distinct_ids_table` in the discovery payload | PR linked in this PR's description |
-| viaduck | `discovery.table_field` to select the persons table fields | branch prepared; needs push access |
-| millpond | nothing: the persons pipelines are env-var config only | charts values |
-| charts | millpond pipelines for the two person topics; viaduck persons pipelines with `table_field` and full_cdc keys | not yet written |
+| duckgres | `persons_distinct_ids_table` in the discovery payload | PostHog/duckgres#1026 |
+| viaduck | `discovery.table_field` to select the persons table fields | PostHog/viaduck#67 |
+| millpond | nothing: the `person` / `person-distinct-id` consumers already run in prod and land the changelogs on megaduck | done |
+| charts | viaduck persons pipeline ApplicationSets + values (disabled), `table_field` chart support | PostHog/charts#13846 |
