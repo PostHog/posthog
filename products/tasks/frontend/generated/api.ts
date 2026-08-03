@@ -38,7 +38,7 @@ import type {
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
-    PatchedChannelWriteApi,
+    PatchedChannelUpdateApi,
     PatchedLoopWriteApi,
     PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
@@ -934,14 +934,14 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
 export const taskChannelsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedChannelWriteApi?: PatchedChannelWriteApi,
+    patchedChannelUpdateApi?: PatchedChannelUpdateApi,
     options?: RequestInit
 ): Promise<ChannelDTOApi> => {
     return apiMutator<ChannelDTOApi>(getTaskChannelsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedChannelWriteApi),
+        body: JSON.stringify(patchedChannelUpdateApi),
     })
 }
 
