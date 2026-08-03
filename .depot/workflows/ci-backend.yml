@@ -65,8 +65,12 @@
 #   strips artifact uploads (above), so it keeps floating restores; no depot bump needed
 #   for changes confined to that pinning.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
-#   test matrices are skipped on master (canonical runs them). PRs and dispatches
-#   run the full graph — that is where the apples-to-apples comparison happens
+#   test matrices are skipped on master. Canonical now skips them too on queue-merged
+#   pushes (QUEUE_MERGED_PUSH: actor trunk-io[bot], MASTER_FULL_MATRICES kill switch),
+#   so the two agree on the normal push path; the shadow keeps its simpler
+#   skip-all-pushes form, a delta only for break-glass direct pushes and
+#   kill-switch mode. PRs and dispatches run the full graph — that is where the
+#   apples-to-apples comparison happens
 # - check-migrations timeout widened to 60m because it also runs the folded OpenAPI generation
 
 # This workflow runs all of our backend django tests.

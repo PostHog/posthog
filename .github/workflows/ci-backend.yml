@@ -41,13 +41,13 @@ env:
     # between the merge-base (PR) and HEAD (push) key computations below.
     # ci-e2e-playwright.yml, ci-dagster.yml, and ci-mcp.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v1
-    # Only the Trunk merge queue can push to master (branch ruleset), and it merges a
-    # commit only after the full matrices passed on its trunk-merge/** branch — so
-    # queue pushes skip the heavy matrices and keep just the master-only work
-    # (schema cache seeding + from-scratch migrations in check-migrations). Timing
-    # data collection moves to the trunk-merge runs. Any other pusher (break-glass
-    # direct push) still gets the full matrices. Kill switch: set the
-    # MASTER_FULL_MATRICES repo variable to 'true' to restore full runs on every push.
+    # The Trunk merge queue is the only pusher master's ruleset allows, and it merges
+    # only after the full matrices passed on the trunk-merge/** branch — so queue
+    # pushes skip the heavy matrices. Master keeps check-migrations (schema cache
+    # seeding + from-scratch migrations); timing data now comes from trunk-merge runs.
+    # Break-glass direct pushes get full matrices. Re-runs keep github.actor, so a
+    # queue push re-run stays slim; use workflow_dispatch for a full run. Kill switch:
+    # set repo variable MASTER_FULL_MATRICES to exactly 'true'.
     QUEUE_MERGED_PUSH: ${{ github.event_name == 'push' && github.actor == 'trunk-io[bot]' && vars.MASTER_FULL_MATRICES != 'true' }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -135,7 +135,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name != 'push' # No path filtering on push — outputs default to true (queue pushes empty the matrices separately)
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -744,7 +744,9 @@ jobs:
                   # The new-events-schema variants double the matrix, so they only run on
                   # PRs opted in via the test-new-events-schema label and on manual dispatch.
                   # Master skips them for CI cost until the schema nears prod testing;
-                  # re-enable master + PR coverage together when that starts.
+                  # re-enable master + PR coverage together when that starts. Note master-only
+                  # variants conflict with QUEUE_MERGED_PUSH (queue pushes run no matrices) —
+                  # any re-enabled variant must run on trunk-merge branches too.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') || github.event_name == 'workflow_dispatch' }}
               run: |
                   if [[ "$QUEUE_MERGED_PUSH" == "true" ]]; then
@@ -979,8 +981,8 @@ jobs:
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
                   # --junitxml: written relative to each product's dir (turbo's cwd), so every
                   # product in the group gets its own products/<name>/junit-product.xml.
-                  # On master and trunk-merge runs (the full-matrix runs now that queue
-                  # pushes skip the matrices), also collect timing data for pytest-split sharding.
+                  # On master and trunk-merge runs, also collect timing data for
+                  # pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
@@ -2218,7 +2220,9 @@ jobs:
                   # The new-events-schema variants double the matrix, so they only run on
                   # PRs opted in via the test-new-events-schema label and on manual dispatch.
                   # Master skips them for CI cost until the schema nears prod testing;
-                  # re-enable master + PR coverage together when that starts.
+                  # re-enable master + PR coverage together when that starts. Note master-only
+                  # variants conflict with QUEUE_MERGED_PUSH (queue pushes run no matrices) —
+                  # any re-enabled variant must run on trunk-merge branches too.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') || github.event_name == 'workflow_dispatch' }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
@@ -2498,7 +2502,7 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
-        # 45 for slow Temporal shards on master; keep <= deploy gate wait (container-images-cd.yml)
+        # 45 for slow Temporal shards on full runs (trunk-merge branches, break-glass master pushes); keep <= deploy gate wait (container-images-cd.yml)
         timeout-minutes: 45
 
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
@@ -3370,7 +3374,7 @@ jobs:
             # on green runs (the common case) to avoid pulling ~50 artifacts for nothing.
             # continue-on-error so a flaky fetch can't fail this required gate.
             - name: Download shard JUnit results
-              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success') && !(needs.django.result == 'skipped' && needs.turbo-tests.result == 'skipped')
               continue-on-error: true
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -3379,7 +3383,7 @@ jobs:
             # Re-run attempts upload under suffixed names, so superseded attempts must be dropped
             # here or the rollup below lists attempt-1 failures the re-run already recovered.
             - name: Keep only each shard's latest attempt
-              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success')
+              if: always() && (needs.django.result != 'success' || needs.turbo-tests.result != 'success') && !(needs.django.result == 'skipped' && needs.turbo-tests.result == 'skipped')
               continue-on-error: true
               run: |
                   cd /tmp/junit-gate 2>/dev/null || exit 0

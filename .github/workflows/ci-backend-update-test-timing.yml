@@ -88,26 +88,34 @@ jobs:
 
                   # Calculate date 14 days ago in ISO 8601 format
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
-                  # Newest first: runs that ran tests (>5 min) and uploaded a full set of timing
-                  # artifacts (>=38), up to N. Scan a wider candidate window since most runs skip.
-                  # Full-matrix runs live on trunk-merge/** branches (queue-merged master pushes
-                  # skip the heavy matrices); master stays a fallback for break-glass direct pushes.
-                  candidates=$({
+                  # Newest first, up to N donors. Full-matrix donors live on trunk-merge/**
+                  # branches (queue-merged master pushes skip the matrices), so the master arm
+                  # keeps only break-glass non-bot pushes. The runs API can't filter by branch
+                  # prefix — the trunk-merge arm fetches a few pages client-side, so its reach
+                  # is those pages, not the 14-day cutoff.
+                  run_ids=$({
                       gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
-                          --jq '.workflow_runs[] | select(
+                          --jq '.workflow_runs[] | select(.actor.login != "trunk-io[bot]") | select(
                               (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
                           ) | "\(.run_started_at) \(.id)"'
-                      gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&event=pull_request&per_page=100&created=>=$cutoff_date" \
-                          --jq '.workflow_runs[] | select(.head_repository.full_name == "PostHog/posthog") | select(.head_branch | startswith("trunk-merge/")) | select(
-                              (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
-                          ) | "\(.run_started_at) \(.id)"'
-                  } | sort -r | awk '{print $2}')
-                  run_ids=$(echo "$candidates" | head -25 | \
+                      for page in 1 2 3; do
+                          gh api "repos/${{ github.repository }}/actions/workflows/ci-backend.yml/runs?status=success&event=pull_request&per_page=100&page=$page&created=>=$cutoff_date" \
+                              --jq '.workflow_runs[] | select(.head_repository.full_name == "PostHog/posthog") | select((.head_branch // "") | startswith("trunk-merge/")) | select(
+                                  (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
+                              ) | "\(.run_started_at) \(.id)"'
+                      done
+                  } | sort -r | awk 'NF {print $2}' | head -25 | \
                       while read id; do
-                          count=$(gh api "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
-                              --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
-                          echo "Run $id has $count timing artifacts" >&2
-                          if [ "$count" -ge "38" ]; then
+                          # Count Core+Temporal timing artifacts across all pages: donor runs
+                          # carry per-shard coverage/junit artifacts that push timing entries
+                          # off page one, and the Products slice is affected-only on
+                          # trunk-merge runs. The Django matrix is always full on a successful
+                          # trunk-merge run, so its artifact set is the completeness signal.
+                          count=$(gh api --paginate "repos/${{ github.repository }}/actions/runs/$id/artifacts?per_page=100" \
+                              --jq '[.artifacts[] | select(.name | test("^timing_data-(Core|Temporal)-")) | select(.expired == false)] | length' 2>/dev/null \
+                              | awk '{s+=$1} END {print s+0}')
+                          echo "Run $id has $count Core/Temporal timing artifacts" >&2
+                          if [ "$count" -ge "15" ]; then
                               echo "$id"
                               found=$((found + 1))
                               [ "$found" -ge "$N" ] && break

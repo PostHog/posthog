@@ -37,14 +37,28 @@ jobs:
                   REPO: ${{ github.repository }}
               run: |
                   cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
-                  primary=$(gh api "repos/$REPO/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
-                      --jq '.workflow_runs[] | select(
-                          (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
-                      ) | .id' | head -25 | \
+                  # Donor runs live on trunk-merge/** branches (queue-merged master pushes skip
+                  # the heavy matrices); the master arm keeps only break-glass direct pushes.
+                  # Count Core+Temporal timing artifacts across all pages — donor runs carry
+                  # per-shard coverage/junit artifacts that push timing entries off page one,
+                  # and the Products slice is affected-only on trunk-merge runs.
+                  primary=$({
+                      gh api "repos/$REPO/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                          --jq '.workflow_runs[] | select(.actor.login != "trunk-io[bot]") | select(
+                              (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
+                          ) | "\(.run_started_at) \(.id)"'
+                      for page in 1 2 3; do
+                          gh api "repos/$REPO/actions/workflows/ci-backend.yml/runs?status=success&event=pull_request&per_page=100&page=$page&created=>=$cutoff_date" \
+                              --jq '.workflow_runs[] | select(.head_repository.full_name == "PostHog/posthog") | select((.head_branch // "") | startswith("trunk-merge/")) | select(
+                                  (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
+                              ) | "\(.run_started_at) \(.id)"'
+                      done
+                  } | sort -r | awk 'NF {print $2}' | head -25 | \
                       while read -r id; do
-                          count=$(gh api "repos/$REPO/actions/runs/$id/artifacts?per_page=100" \
-                              --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
-                          if [ "$count" -ge "38" ]; then echo "$id"; break; fi
+                          count=$(gh api --paginate "repos/$REPO/actions/runs/$id/artifacts?per_page=100" \
+                              --jq '[.artifacts[] | select(.name | test("^timing_data-(Core|Temporal)-")) | select(.expired == false)] | length' 2>/dev/null \
+                              | awk '{s+=$1} END {print s+0}')
+                          if [ "$count" -ge "15" ]; then echo "$id"; break; fi
                       done)
                   if [ -z "$primary" ]; then
                       echo "::error::No suitable Backend CI run found with timing artifacts"
