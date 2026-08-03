@@ -93,7 +93,15 @@ def _send_org_digest(inputs: SendOrgDigestInputs, attempt: int) -> SendOrgDigest
     daily_rows_by_team: dict[int, list] = {}
     if any(setting_key not in (m.user.partial_notification_settings or {}) for m in memberships):
         for tid in team_ids_with_exceptions:
-            daily_rows_by_team[tid] = weekly_digest.query_daily_rows(all_org_teams[tid])
+            try:
+                daily_rows_by_team[tid] = weekly_digest.query_daily_rows(all_org_teams[tid])
+            except Exception:
+                # Auto-selection is best-effort. A project with an invalid filter (for example, one
+                # referencing a deleted cohort) must not prevent healthy projects in the org from
+                # being ranked or delivered. If a recipient already subscribes to this project,
+                # Pass 2 retries its build through the normal failed-team path below.
+                logger.exception("et_weekly_digest.autoselect_team_failed", team_id=tid, org_id=org_id)
+                continue
             summary = weekly_digest.get_exception_summary_for_team(all_org_teams[tid], daily_rows_by_team[tid])
             if summary and summary["exception_count"] > 0:
                 autoselect_counts[tid] = summary

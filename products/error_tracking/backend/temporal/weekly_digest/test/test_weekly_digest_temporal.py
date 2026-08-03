@@ -24,6 +24,7 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.messaging import MessagingRecord
 from posthog.models.utils import uuid7
 
+from products.error_tracking.backend import weekly_digest
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
@@ -48,6 +49,7 @@ from ee.models.rbac.access_control import AccessControl
 
 _WEBHOOK_POST = "products.error_tracking.backend.weekly_digest.requests.post"
 _BUILD_TEAM_DIGEST_DATA = "products.error_tracking.backend.weekly_digest.build_team_digest_data"
+_QUERY_DAILY_ROWS = "products.error_tracking.backend.weekly_digest.query_daily_rows"
 _IS_CLOUD = "products.error_tracking.backend.temporal.weekly_digest.activities.is_cloud"
 
 
@@ -229,6 +231,37 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
             "error_tracking_weekly_digest_project_enabled", {}
         )
         assert project_enabled == {str(team_b.pk): True}
+
+    def test_auto_select_skips_project_with_invalid_filter(self):
+        _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
+        team_b = self._create_second_team_with_exception()
+        flush_persons_and_events()
+
+        self.user.role_at_organization = "engineering"
+        self.user.save()
+
+        original_query_daily_rows = weekly_digest.query_daily_rows
+
+        def query_or_fail(team):
+            if team.pk == self.team.pk:
+                raise Exception("Could not find cohort with ID 103523")
+            return original_query_daily_rows(team)
+
+        with (
+            patch(_QUERY_DAILY_ROWS, side_effect=query_or_fail),
+            patch(_WEBHOOK_POST) as mock_post,
+        ):
+            result = self._run()
+
+        self.user.refresh_from_db()
+        project_enabled = (self.user.partial_notification_settings or {}).get(
+            "error_tracking_weekly_digest_project_enabled", {}
+        )
+        assert project_enabled == {str(team_b.pk): True}
+        assert [section["team_name"] for section in mock_post.call_args.kwargs["json"]["digest"]["project_sections"]] == [
+            team_b.name
+        ]
+        assert result == SendOrgDigestResult(sent=1, teams_built=1)
 
     def test_auto_select_skips_the_busiest_project_the_user_cannot_access(self):
         # self.team is the busiest but private to a plain member. Enrolling them onto it would leave every
