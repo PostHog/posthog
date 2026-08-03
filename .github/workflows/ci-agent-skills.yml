@@ -276,6 +276,13 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
+            - name: Mint release GitHub token
+              id: release-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+
             - name: Determine next version
               id: version
               run: |
@@ -287,7 +294,7 @@ jobs:
 
             - name: Create versioned release
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   gh release create "$RELEASE_TAG" \
@@ -299,7 +306,7 @@ jobs:
 
             - name: Update latest release
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   if gh release view agent-skills-latest &>/dev/null; then
