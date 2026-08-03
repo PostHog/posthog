@@ -54,6 +54,16 @@ from products.experiments.backend.hogql_queries.funnel_step_builder import Funne
 from products.experiments.backend.hogql_queries.metric_source import MetricSourceInfo
 
 
+def resolve_exposure_config_for_builder(
+    exposure_config: ExperimentEventExposureConfig | ActionsNode,
+    team: Team,
+    start_date: Optional[datetime],
+) -> ExperimentEventExposureConfig | ActionsNode:
+    if isinstance(exposure_config, ExperimentEventExposureConfig) and exposure_config.event == DEFAULT_EXPOSURE_EVENT:
+        return exposure_config.model_copy(update={"event": resolve_default_exposure_event(team, start_date)})
+    return exposure_config
+
+
 def get_exposure_config_params_for_builder(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
     team: Team,
@@ -61,15 +71,18 @@ def get_exposure_config_params_for_builder(
 ) -> tuple[ExperimentEventExposureConfig | ActionsNode, MultipleVariantHandling, bool]:
     """Returns exposure-related parameters required by the query builder."""
     criteria = normalize_to_exposure_criteria(exposure_criteria)
-    default_event = resolve_default_exposure_event(team, start_date)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     if criteria is None:
-        exposure_config = ExperimentEventExposureConfig(event=default_event, properties=[])
+        exposure_config = ExperimentEventExposureConfig(
+            event=resolve_default_exposure_event(team, start_date), properties=[]
+        )
         filter_test_accounts = True
         multiple_variant_handling = MultipleVariantHandling.EXCLUDE
     else:
         if criteria.exposure_config is None:
-            exposure_config = ExperimentEventExposureConfig(event=default_event, properties=[])
+            exposure_config = ExperimentEventExposureConfig(
+                event=resolve_default_exposure_event(team, start_date), properties=[]
+            )
         elif (
             isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
             and criteria.exposure_config.event == DEFAULT_EXPOSURE_EVENT
@@ -77,7 +90,7 @@ def get_exposure_config_params_for_builder(
             # A config naming $feature_flag_called explicitly is the default exposure, not a
             # custom one (same convention as get_exposure_event_and_property), so it follows
             # the same event resolution while keeping its property filters.
-            exposure_config = criteria.exposure_config.model_copy(update={"event": default_event})
+            exposure_config = resolve_exposure_config_for_builder(criteria.exposure_config, team, start_date)
         else:
             exposure_config = criteria.exposure_config
         filter_test_accounts = bool(criteria.filterTestAccounts) if criteria.filterTestAccounts is not None else True

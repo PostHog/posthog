@@ -1,8 +1,30 @@
 import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 
-import { getExposureEventAndProperty } from './exposureContract'
+import { getExposureEventAndProperty, isDefaultExposureConfig } from './exposureContract'
 
 describe('exposureContract', () => {
+    it.each([
+        [
+            'stored default config',
+            {
+                kind: NodeKind.ExperimentEventExposureConfig,
+                event: '$feature_flag_called',
+                properties: [],
+            },
+            true,
+        ],
+        [
+            'custom event config',
+            { kind: NodeKind.ExperimentEventExposureConfig, event: 'checkout_started', properties: [] },
+            false,
+        ],
+        ['action config', { kind: NodeKind.ActionsNode, id: 42 }, false],
+    ])('identifies %s for exposure labels', (_name, exposureConfig, expected) => {
+        expect(
+            isDefaultExposureConfig(exposureConfig as NonNullable<ExperimentExposureCriteria['exposure_config']>)
+        ).toBe(expected)
+    })
+
     // Guards the three-way branch that mirrors the backend `get_exposure_event_and_property`:
     // action configs must yield `event: null` (actions match multiple events) so callers never
     // filter action-based exposures down to a single event name.

@@ -110,20 +110,28 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            # (name, new_event_enabled_for_team, start/end offsets from cutoff in days, expected exposures)
-            ("fully_before_cutoff", True, -14, -7, {"control": 2, "test": 1}),
-            ("start_before_end_after_cutoff", True, -7, 7, {"control": 2, "test": 1}),
-            ("fully_after_cutoff", True, 7, 14, {"control": 1, "test": 2}),
-            ("fully_after_cutoff_flag_disabled", False, 7, 14, {"control": 2, "test": 1}),
+            # (name, flag enabled, experiment start/end offsets, query start offset, expected exposures)
+            ("fully_before_cutoff", True, -14, -7, -14, {"control": 2, "test": 1}),
+            ("start_before_end_after_cutoff", True, -7, 7, -7, {"control": 2, "test": 1}),
+            ("fully_after_cutoff", True, 7, 14, 7, {"control": 1, "test": 2}),
+            ("fully_after_cutoff_flag_disabled", False, 7, 14, 7, {"control": 2, "test": 1}),
+            ("query_window_starts_after_cutoff", True, -7, 14, 7, {"control": 2, "test": 1}),
         ]
     )
     @freeze_time(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=30))
     def test_exposure_event_selected_relative_to_cutoff(
-        self, _name, new_event_enabled, start_offset_days, end_offset_days, expected_exposures
+        self,
+        _name,
+        new_event_enabled,
+        start_offset_days,
+        end_offset_days,
+        query_start_offset_days,
+        expected_exposures,
     ):
         cutoff = EXPERIMENT_EXPOSURE_EVENT_CUTOFF.replace(tzinfo=None)
         start_date = cutoff + timedelta(days=start_offset_days)
         end_date = cutoff + timedelta(days=end_offset_days)
+        query_start_date = cutoff + timedelta(days=query_start_offset_days)
         experiment = self.create_experiment(
             name="cutoff-experiment",
             feature_flag=self.feature_flag,
@@ -144,7 +152,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 },
             }
 
-        legacy_ts = start_date + timedelta(days=1)
+        legacy_ts = query_start_date + timedelta(days=1)
         new_ts = end_date - timedelta(days=1)
         # Both events are seeded inside every experiment window, with disjoint user sets and
         # asymmetric counts, so total_exposures reveals which event the query counted:
@@ -169,7 +177,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             experiment_name=experiment.name,
             feature_flag=model_to_dict(self.feature_flag),
             holdout=None,
-            start_date=experiment.start_date.isoformat(),
+            start_date=query_start_date.isoformat(),
             end_date=experiment.end_date.isoformat(),
             exposure_criteria=experiment.exposure_criteria,
         )

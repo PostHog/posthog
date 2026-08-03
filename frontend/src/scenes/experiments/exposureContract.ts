@@ -44,6 +44,10 @@ function isEventConfig(config: ExperimentExposureConfig): config is ExperimentEv
     return config.kind === NodeKind.ExperimentEventExposureConfig || 'event' in config
 }
 
+export function isDefaultExposureConfig(config: ExperimentExposureConfig): boolean {
+    return isEventConfig(config) && config.event === EXPOSURE_DEFAULT_EVENT
+}
+
 /**
  * Determines which event and variant property carry the exposure for an experiment.
  *
@@ -69,7 +73,7 @@ export function getExposureEventAndProperty({
     const exposureConfig = exposureCriteria?.exposure_config
 
     // No config, or the default `$feature_flag_called` event: variant lives on `$feature_flag_response`.
-    if (!exposureConfig || (isEventConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+    if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
         return { event: resolvedExposureEvent, variantProperty: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY }
     }
 

@@ -54,6 +54,7 @@ from products.experiments.backend.hogql_queries.error_handling import experiment
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
+    resolve_exposure_config_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentPrecomputationContext
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -848,7 +849,9 @@ class ExperimentQueryRunner(QueryRunner):
 
         exposure_config: ExperimentEventExposureConfig | ActionsNode
         if self.actors_query.exposureConfig is not None:
-            exposure_config = self.actors_query.exposureConfig
+            exposure_config = resolve_exposure_config_for_builder(
+                self.actors_query.exposureConfig, self.team, self.experiment.start_date
+            )
         else:
             # Same resolution as the main experiment query, so the actor list matches the counts.
             exposure_config, _, _ = get_exposure_config_params_for_builder(

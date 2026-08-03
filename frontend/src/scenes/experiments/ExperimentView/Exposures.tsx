@@ -18,6 +18,7 @@ import {
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
+import { isDefaultExposureConfig } from '../exposureContract'
 import { useChartColors } from '../MetricsView/shared/colors'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
@@ -225,7 +226,7 @@ function getExposureCriteriaLabel(
     defaultEvent: string
 ): string {
     const exposureConfig = exposureCriteria?.exposure_config
-    if (!exposureConfig) {
+    if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
         return `Default (${defaultEvent})`
     }
 

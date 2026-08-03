@@ -41,7 +41,7 @@ import {
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
-import { EXPOSURE_DEFAULT_EVENT } from './exposureContract'
+import { EXPOSURE_DEFAULT_EVENT, isDefaultExposureConfig } from './exposureContract'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -58,7 +58,7 @@ export function getExposureCriteriaLabel(
     defaultEvent: string = EXPOSURE_DEFAULT_EVENT
 ): string {
     const exposureConfig = exposureCriteria?.exposure_config
-    if (!exposureConfig) {
+    if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
         return defaultEvent
     }
 
