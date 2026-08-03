@@ -2641,15 +2641,161 @@ class TestOAuthAPI(APIBaseTest):
         body = {**self.base_authorization_post_body, "scope": scope}
         return self.client.post("/oauth/authorize/", body)
 
-    def test_authorize_rejects_scope_outside_app_ceiling(self):
-        # GET rejects with a redirect carrying error=invalid_scope; the
-        # validator short-circuits before any template render.
+    @parameterized.expand(
+        [
+            ("single_scope_outside_ceiling", "experiment:write"),
+            ("only_oidc_would_survive", "openid%20experiment:write"),
+        ]
+    )
+    def test_authorize_rejects_when_no_resource_scope_survives(self, _name, requested_scope):
+        # Narrowing away every requested resource scope would mint a token with no
+        # resource access (a connector that connects but can do nothing), so this
+        # stays a loud invalid_scope: GET rejects with a redirect carrying the
+        # error, short-circuiting before any template render.
         self._set_ceiling("experiment:read")
-        response = self.client.get(f"{self.base_authorization_url}&scope=experiment:write")
+        response = self.client.get(f"{self.base_authorization_url}&scope={requested_scope}")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         location = response.get("Location")
         assert location
         self.assertIn("error=invalid_scope", location)
+
+    @parameterized.expand(
+        [
+            (
+                "scope_added_after_registration",
+                ["experiment:read", "dashboard:read"],
+                "experiment:read dashboard:read customer_analytics:read",
+                {"experiment:read", "dashboard:read"},
+            ),
+            (
+                "scope_retired_from_catalog",
+                [],
+                "experiment:read retired_scope:read",
+                {"experiment:read"},
+            ),
+            (
+                "oidc_scopes_survive_narrowing",
+                ["experiment:read"],
+                "openid email experiment:read customer_analytics:read",
+                {"openid", "email", "experiment:read"},
+            ),
+        ]
+    )
+    def test_authorize_narrows_explicit_scopes_to_ceiling(self, _name, ceiling, requested, expected):
+        # An app's ceiling is a snapshot of the scope catalog (registration-time for
+        # DCR/CIMD clients), so a request carrying scopes added to or retired from
+        # posthog/scopes.py since then must narrow to the grantable subset instead
+        # of failing the whole authorization with invalid_scope.
+        self._set_ceiling(*ceiling)
+        response = self._authorize_post(requested)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertNotIn("error=invalid_scope", redirect_to)
+        grant = OAuthGrant.objects.get(code=parse_qs(urlparse(redirect_to).query)["code"][0])
+        self.assertEqual(set(grant.scope.split()), expected)
+
+    def test_token_response_carries_narrowed_scope(self):
+        # Clients learn their actual grant from the token response `scope` field
+        # (RFC 6749 section 3.3), so it must echo the narrowed set, not the request.
+        self._set_ceiling("experiment:read", "dashboard:read")
+        response = self._authorize_post("experiment:read dashboard:read customer_analytics:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        code = parse_qs(urlparse(response.json()["redirect_to"]).query)["code"][0]
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(set(token_response.json()["scope"].split()), {"experiment:read", "dashboard:read"})
+
+    def test_authorize_explicit_narrowing_captures_event(self):
+        # Narrowed connectors keep working with a reduced grant, so without this
+        # event the stale-ceiling fleet degrades invisibly; the properties must
+        # pin exactly which scopes were dropped.
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")):
+            with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+                response = self.client.get(
+                    f"{self.base_authorization_url}&scope=experiment:read%20customer_analytics:read"
+                )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        narrowed = [
+            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_scopes_narrowed"
+        ]
+        self.assertEqual(len(narrowed), 1)
+        props = narrowed[0].kwargs["properties"]
+        self.assertEqual(props["client_name"], self.confidential_application.name)
+        self.assertEqual(props["requested_scopes"], "experiment:read customer_analytics:read")
+        self.assertEqual(props["dropped_scopes"], ["customer_analytics:read"])
+        self.assertEqual(props["granted_scope_count"], 1)
+        rejected = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_rejected"]
+        self.assertEqual(rejected, [])
+
+    def test_authorize_fully_grantable_request_captures_no_narrowing_event(self):
+        self._set_ceiling("experiment:read")
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")):
+            with patch("posthog.api.oauth.views.posthoganalytics.capture") as mock_capture:
+                response = self.client.get(f"{self.base_authorization_url}&scope=experiment:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        narrowed = [
+            c for c in mock_capture.call_args_list if c.kwargs.get("event") == "oauth_authorization_scopes_narrowed"
+        ]
+        self.assertEqual(narrowed, [])
+
+    def test_existing_dcr_client_authorizes_after_scope_catalog_drift(self):
+        # The connector-bricking regression: a DCR client registers, the catalog in
+        # posthog/scopes.py later gains a scope (customer_analytics:read stands in
+        # for it, since any known scope outside the stored ceiling behaves
+        # identically) and loses one (retired_scope:read), while the client keeps
+        # requesting the list it believes it registered. Authorization must succeed
+        # with the registration-time subset.
+        register_response = self.client.post(
+            "/oauth/register/",
+            {
+                "client_name": "Drifted DCR Client",
+                "redirect_uris": ["https://example.com/callback"],
+                "scope": "experiment:read dashboard:read",
+            },
+            format="json",
+        )
+        self.assertEqual(register_response.status_code, status.HTTP_201_CREATED)
+        body = {
+            **self.base_authorization_post_body,
+            "client_id": register_response.json()["client_id"],
+            "scope": "experiment:read dashboard:read customer_analytics:read retired_scope:read",
+        }
+        response = self.client.post("/oauth/authorize/", body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertNotIn("error=invalid_scope", redirect_to)
+        grant = OAuthGrant.objects.get(code=parse_qs(urlparse(redirect_to).query)["code"][0])
+        self.assertEqual(set(grant.scope.split()), {"experiment:read", "dashboard:read"})
+
+    def test_existing_cimd_client_authorizes_after_scope_catalog_drift(self):
+        # Same drift regression through the CIMD path: a CIMD ceiling only moves
+        # when the partner edits their hosted metadata document, so PostHog-side
+        # catalog changes must narrow rather than dead-end the connector.
+        app = OAuthApplication.objects.create(
+            name="Drifted CIMD Client",
+            client_id="cimd-client-id-drift",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            user=self.user,
+            algorithm="RS256",
+            is_cimd_client=True,
+            cimd_metadata_url="https://example.com/oauth-client-metadata.json",
+            scopes=["experiment:read", "dashboard:read"],
+        )
+        body = {
+            **self.base_authorization_post_body,
+            "client_id": app.client_id,
+            "scope": "experiment:read dashboard:read customer_analytics:read",
+        }
+        response = self.client.post("/oauth/authorize/", body)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        redirect_to = response.json()["redirect_to"]
+        self.assertNotIn("error=invalid_scope", redirect_to)
+        grant = OAuthGrant.objects.get(code=parse_qs(urlparse(redirect_to).query)["code"][0])
+        self.assertEqual(set(grant.scope.split()), {"experiment:read", "dashboard:read"})
 
     def test_authorize_accepts_full_grant_of_app_ceiling(self):
         # Without optional_scopes every ceiling scope is required, so a grant that
@@ -2863,14 +3009,8 @@ class TestOAuthAPI(APIBaseTest):
                 ["experiment:write"],
             ),
             ("empty_ceiling_rejects_privileged", [], "llm_gateway:read", "llm_gateway:read", ["llm_gateway:read"]),
-            # mixed grantable + out-of-ceiling scope: requested records the full set, rejected pins to just the offender
-            (
-                "mixed_scope_isolates_offender",
-                ["experiment:read"],
-                "experiment:read%20experiment:write",
-                "experiment:read experiment:write",
-                ["experiment:write"],
-            ),
+            # a mixed grantable + out-of-ceiling request no longer rejects: it narrows, and
+            # test_authorize_explicit_narrowing_captures_event pins the dropped offender
         ]
     )
     def test_authorize_rejection_captures_invalid_scope_event(

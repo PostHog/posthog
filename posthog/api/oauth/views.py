@@ -68,7 +68,6 @@ from posthog.scopes import (
     narrow_scopes_to_ceiling,
     resolve_ceiling,
     scopes_outside_ceiling,
-    scopes_within_ceiling,
 )
 from posthog.security.url_validation import has_authority_bypass_chars
 from posthog.user_permissions import UserPermissions
@@ -453,16 +452,27 @@ class OAuthValidator(OAuth2Validator):
 
         The ceiling is `scopes` plus `optional_scopes` (`ceiling_scopes`), so an app
         using the required/optional split can request its optional scopes too.
-        Delegates the ceiling resolution to `scopes_within_ceiling` so `/authorize`
-        and the hand-rolled provisioning mint paths share one implementation. Two
-        `/authorize`-specific mutations of `request.scopes` live here:
-        - the client omitting `scope=`, so oauthlib doesn't fall back to just
-          `["openid"]` from `DEFAULT_SCOPES`.
-        - a `*` request against a *seeded* (non-empty) ceiling, narrowed down to the
-          resolved ceiling rather than rejected. This keeps legacy first-party
+        Ceiling resolution delegates to `scopes_outside_ceiling`, whose rules mirror
+        `scopes_within_ceiling` (still used by the hand-rolled provisioning mint
+        paths) exactly, so the two surfaces never drift. Requests are narrowed to
+        the ceiling instead of rejected wholesale: a self-registered (DCR/CIMD)
+        app's ceiling is a snapshot of the scope catalog at registration time, so a
+        client requesting the live catalog would otherwise hard-fail with
+        `invalid_scope` every time a scope is added to or retired from
+        `posthog/scopes.py`. The mutations of `request.scopes` here:
+        - the client omitting `scope=` is granted the resolved ceiling, so oauthlib
+          doesn't fall back to just `["openid"]` from `DEFAULT_SCOPES`.
+        - a `*` request against a *seeded* (non-empty) ceiling is narrowed down to
+          the resolved ceiling rather than rejected. This keeps legacy first-party
           clients still sending `*` signing in once a ceiling is seeded, granting
-          strictly less than the empty-ceiling `*` grandfathering below. The token
-          response carries the actual (narrowed) `scope`, so this stays spec-valid.
+          strictly less than the empty-ceiling `*` grandfathering below.
+        - an explicit request keeps only the scopes inside the ceiling. When no
+          resource scope would survive the narrowing, the request still fails with
+          `invalid_scope`: an OIDC-only or empty grant would present as a working
+          connector with zero resource access, so that case stays loud and the
+          client re-registers instead.
+        The token response carries the actual (narrowed) `scope`, which keeps every
+        mutation spec-valid (RFC 6749 section 3.3).
 
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
         Desktop CLI) but never on the provisioning paths — see the flag.
@@ -478,7 +488,16 @@ class OAuthValidator(OAuth2Validator):
             # lists it — mirrors the guard in `scopes_within_ceiling`/`scopes_outside_ceiling`.
             request.scopes = sorted((ceiling - {"*"}) | (requested & ALWAYS_ALLOWED_SCOPES))
             return True
-        return scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+        outside_ceiling = set(scopes_outside_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True))
+        if not outside_ceiling:
+            return True
+        granted = requested - outside_ceiling
+        if not granted - ALWAYS_ALLOWED_SCOPES:
+            # Narrowing to an OIDC-only (or empty) grant would mint a token with no
+            # resource access; keep this failure loud so the client re-registers.
+            return False
+        request.scopes = sorted(granted)
+        return True
 
     def get_original_scopes(self, refresh_token, request, *args, **kwargs):
         """Cap refreshed scopes at the application's current ceiling.
@@ -1000,6 +1019,28 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     "is_verified": application.is_verified,
                     "is_first_party": application.is_first_party,
                     "narrowed_scope_count": len(scopes),
+                    **(get_region_info() or {}),
+                },
+            )
+
+        # `validate_scopes` drops explicit out-of-ceiling scopes instead of rejecting the
+        # authorization, so a client riding a stale registration ceiling now connects with a
+        # reduced grant. Track what was dropped, otherwise those clients degrade invisibly.
+        # A pure `*` request is excluded because the wildcard event above already covers it.
+        dropped_scopes = sorted(set((request.query_params.get("scope") or "").split()) - set(scopes) - {"*"})
+        if dropped_scopes:
+            posthoganalytics.capture(
+                distinct_id=str(request.user.distinct_id),
+                event="oauth_authorization_scopes_narrowed",
+                properties={
+                    "client_name": application.name,
+                    "app_id": str(application.pk),
+                    "registration_type": registration_type,
+                    "is_verified": application.is_verified,
+                    "is_first_party": application.is_first_party,
+                    "requested_scopes": request.query_params.get("scope") or "",
+                    "dropped_scopes": dropped_scopes,
+                    "granted_scope_count": len(scopes),
                     **(get_region_info() or {}),
                 },
             )
