@@ -1537,6 +1537,68 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('anchors a wait whose condition is still false, so a later person update can wake it', async () => {
+            // The shape the affected production runs actually take, and the one the test above does not
+            // cover: the person exists by the time the anchor is filled, but does not satisfy the condition
+            // yet. So the fill wakes the wait, the re-check fails, and it re-parks — this time WITH an
+            // anchor. The property is then set, and that person update has to be able to find the job.
+            // Without the anchor there is no key for the person stream to match on and only the polling
+            // re-check would ever advance it.
+            await createWaitUntilWorkflow({
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([])
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            const beforeFill = await cyclotronPool.query(
+                `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+            )
+            expect(beforeFill.rows[0].person_id).toBeNull()
+
+            // First mapping arrives. The person exists now but has no `plan`, so the condition is false.
+            const personWithoutPlan = { ...survivorPersonRow(), properties: { email: 'test@posthog.com' } }
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([personWithoutPlan])
+            await matcher.processMoveBatch(
+                matcher._parsePersonDistinctIdBatch([distinctIdMoveMessage({ version: 0 }) as any])
+            )
+
+            // It re-parked rather than advancing, and it now carries the anchor.
+            await waitForExpect(async () => {
+                const afterFill = await cyclotronPool.query(
+                    `SELECT person_id FROM cyclotron_jobs WHERE ${statusColumn} = 'available'`
+                )
+                expect(afterFill.rows).toHaveLength(1)
+                expect(afterFill.rows[0].person_id).toBe('new-uuid')
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            // Now the property is set. This is a person mutation with no analytics event, so it can only be
+            // matched on person_id — the anchor written above is what makes it findable.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'new-uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ email: 'test@posthog.com', plan: 'enterprise' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 3,
+                    })
+                ),
+            }
+            mockPersonRepo.fetchPersonsByPersonIds.mockResolvedValue([survivorPersonRow()])
+            await matcher.processBatch(await matcher._parsePersonBatch([personMessage as any]))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
         it('wakes a parked wait from a cdp_internal_events signal with no analytics event', async () => {
             // CDP-generated signals (e.g. $insight_alert_firing) arrive on cdp_internal_events and never
             // hit the analytics events topic. The matcher parses them via _parseInternalEventsBatch and
