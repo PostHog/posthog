@@ -38,6 +38,9 @@ interface VariantFunnelMeta {
     counts: number[]
 }
 
+/** Step label at index 0 — the frontend-only step that precedes the backend's step numbering. */
+const EXPOSURE_STEP_LABEL = 'Experiment exposure'
+
 export interface ExperimentFunnelChartProps {
     result: NewExperimentQueryResponse
     experiment: Experiment
@@ -138,6 +141,7 @@ function StepFooterCell({
     previousCount: number | null
 }): JSX.Element {
     const droppedOff = previousCount != null ? Math.max(previousCount - count, 0) : 0
+    const droppedOffRate = previousCount ? 1 - funnelConversionRate(count, previousCount) : 0
     return (
         <div className="flex flex-col gap-1 px-1 py-2 text-xs">
             <div className="flex items-center gap-1.5 font-medium">
@@ -163,9 +167,7 @@ function StepFooterCell({
                         <IconTrendingFlatDown className="text-danger shrink-0" />
                         <span>
                             {pluralize(droppedOff, 'user')}{' '}
-                            <span className="text-secondary">
-                                ({percentage(1 - funnelConversionRate(count, previousCount), 2)})
-                            </span>
+                            <span className="text-secondary">({percentage(droppedOffRate, 2)})</span>
                         </span>
                     </div>
                 </Tooltip>
@@ -193,7 +195,7 @@ export function ExperimentFunnelChart({
     const steps = useMemo(() => {
         const isUnordered = metric.funnel_order_type === StepOrderValue.UNORDERED
         return [
-            'Experiment exposure',
+            EXPOSURE_STEP_LABEL,
             ...Array.from({ length: numMetricSteps }, (_, i) =>
                 isUnordered ? `Completed ${i + 1} ${i === 0 ? 'step' : 'steps'}` : getStepName(metric.series[i], i + 1)
             ),
@@ -228,10 +230,7 @@ export function ExperimentFunnelChart({
     const stepTotals = useMemo(
         () =>
             steps.map((_, stepIndex) =>
-                series.reduce(
-                    (sum, s) => sum + (hiddenKeys.includes(s.key) ? 0 : (s.meta?.counts[stepIndex] ?? 0)),
-                    0
-                )
+                series.reduce((sum, s) => sum + (hiddenKeys.includes(s.key) ? 0 : (s.meta?.counts[stepIndex] ?? 0)), 0)
             ),
         [steps, series, hiddenKeys]
     )
