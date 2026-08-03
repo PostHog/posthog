@@ -79,6 +79,9 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_VALKEY_READER_HOST: string
     CDP_VALKEY_READER_PORT: number
     CDP_VALKEY_DUAL_ENABLED: boolean
+    // WARNING: Enable only after the dual-write soak has exceeded the safe key TTLs and parity is healthy.
+    // Moves only short-lived/replaceable CDP state (rate limits, duplicate observations, APNS JWTs) to Valkey.
+    CDP_VALKEY_SAFE_PRIMARY_ENABLED: boolean
     // AWS ElastiCache Valkey Serverless requires TLS; toggle off only for local non-TLS test setups.
     CDP_VALKEY_TLS: boolean
 
@@ -243,6 +246,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_READER_HOST: '',
         CDP_VALKEY_READER_PORT: 6379,
         CDP_VALKEY_DUAL_ENABLED: false,
+        CDP_VALKEY_SAFE_PRIMARY_ENABLED: false,
         CDP_VALKEY_TLS: false,
 
         SES_RATE_LIMITER_VALKEY_HOST: '',

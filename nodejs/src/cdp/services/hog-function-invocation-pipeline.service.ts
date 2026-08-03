@@ -5,7 +5,7 @@ import { captureException } from '~/common/utils/posthog'
 import { RedisV2 } from '../../common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '../../common/services/keyed-rate-limiter.service'
 import { QuotaLimiting } from '../../common/services/quota-limiting.service'
-import { CdpValkeyShadowPools } from '../cdp-services'
+import { CdpValkeyShadowPools, routeSafeCdpRedis } from '../cdp-services'
 import { counterHogFunctionStateOnEvent, counterRateLimited } from '../consumers/metrics'
 import { shouldBlockInvocationDueToQuota } from '../consumers/quota-limiting-helper'
 import {
@@ -26,6 +26,7 @@ export interface HogFunctionInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
     CDP_RATE_LIMITER_REFILL_RATE: number
     CDP_RATE_LIMITER_TTL: number
+    CDP_VALKEY_SAFE_PRIMARY_ENABLED: boolean
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
 }
 
@@ -66,10 +67,13 @@ export class HogFunctionInvocationPipeline {
             refillRate: config.CDP_RATE_LIMITER_REFILL_RATE,
             ttlSeconds: config.CDP_RATE_LIMITER_TTL,
         }
-        this.hogRateLimiter = new KeyedRateLimiterService(rateLimiterConfig, deps.redis)
-        this.hogRateLimiterMirror = deps.valkeyShadow
-            ? new KeyedRateLimiterService(rateLimiterConfig, deps.valkeyShadow.writer)
-            : null
+        const { primary, mirror } = routeSafeCdpRedis(
+            config.CDP_VALKEY_SAFE_PRIMARY_ENABLED,
+            deps.redis,
+            deps.valkeyShadow
+        )
+        this.hogRateLimiter = new KeyedRateLimiterService(rateLimiterConfig, primary)
+        this.hogRateLimiterMirror = mirror ? new KeyedRateLimiterService(rateLimiterConfig, mirror) : null
     }
 
     @instrumented('cdpConsumer.handleEachBatch.queueMatchingFunctions')
