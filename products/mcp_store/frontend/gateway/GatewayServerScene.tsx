@@ -33,6 +33,12 @@ import { GatewayServersLoadError } from './GatewayServersHome'
 import { POLICY_OPTIONS, PolicySummary } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
 
+const TOOL_POLICY_BACKGROUND_CLASSES: Record<MCPToolApprovalStateEnumApi, string> = {
+    approved: 'bg-success-highlight',
+    needs_approval: 'bg-warning-highlight',
+    do_not_use: 'bg-danger-highlight',
+}
+
 export const scene: SceneExport<(typeof gatewayServerLogic)['props']> = {
     component: GatewayServerRouteScene,
     paramsToProps: ({ params: { id } }) => ({ id }),
@@ -471,10 +477,11 @@ function ToolPolicyRow({ policy }: { policy: ResolvedToolPolicyApi }): JSX.Eleme
         )
 
     return (
-        <div className="flex items-start gap-2">
+        <div className={`flex items-start gap-2 transition-colors ${TOOL_POLICY_BACKGROUND_CLASSES[displayedState]}`}>
             <div className="min-w-0 flex-1">
                 <LemonCollapse
                     embedded
+                    className="[&_.LemonCollapsePanel__header]:!bg-transparent"
                     panels={[
                         {
                             key: policy.tool_name,
