@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, kea, path, reducers, useActions, useValues } from 'kea'
 
-import { IconCheck, IconChevronRight, IconX } from '@posthog/icons'
+import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
@@ -340,11 +340,9 @@ function GatewayServerAccessRow({
             ) : (
                 <LemonButton
                     type="tertiary"
-                    fullWidth
-                    className="min-w-0 justify-start"
+                    className="min-w-0 flex-1 justify-start"
                     to={onOpenServer ? undefined : urls.mcpGatewayServer(server.id)}
                     onClick={onOpenServer ? () => onOpenServer(server.id) : undefined}
-                    sideIcon={<IconChevronRight />}
                 >
                     <div className="flex min-w-0 items-center gap-3">
                         <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={28} />
