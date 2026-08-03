@@ -74,6 +74,7 @@ class TestGitHubPRWebhook(TestCase):
             task=cls.task,
             team=cls.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/123"]},
             output={"pr_url": "https://github.com/posthog/posthog/pull/123"},
         )
 
@@ -236,7 +237,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=status,
-            state=state,
+            state={**state, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url, **extra_output},
         )
 
@@ -260,14 +261,14 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
         terminal_run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.FAILED,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
         payload = {
@@ -297,7 +298,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -343,7 +344,7 @@ class TestGitHubPRWebhook(TestCase):
             team=self.team,
             status=status,
             environment=environment,
-            state=state,
+            state={**state, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -371,7 +372,7 @@ class TestGitHubPRWebhook(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"wizard_config": {}},
+            state={"wizard_config": {}, "verified_pr_urls": [pr_url]},
             output={"pr_url": pr_url},
         )
 
@@ -454,6 +455,7 @@ class TestGitHubPRWebhook(TestCase):
         run.refresh_from_db()
         assert run.output is not None
         self.assertEqual(run.output["pr_url"], pr_url)
+        self.assertEqual(run.state["verified_pr_urls"], [pr_url])
 
     @patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
@@ -733,6 +735,7 @@ class TestGitHubPRWebhookResolvesSignalReports(TestCase):
             task=self.task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/posthog/posthog/pull/42"]},
             output={"pr_url": "https://github.com/posthog/posthog/pull/42"},
         )
         self.report = SignalReport.objects.create(
@@ -1211,6 +1214,7 @@ class TestGitHubWebhookFanout(TestCase):
             task=cls.task,
             team=cls.team,
             status=TaskRun.Status.COMPLETED,
+            state={"verified_pr_urls": ["https://github.com/myorg/myrepo/pull/99"]},
             output={"pr_url": "https://github.com/myorg/myrepo/pull/99"},
         )
         cls.integration = Integration.objects.create(
