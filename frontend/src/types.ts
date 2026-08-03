@@ -4960,6 +4960,9 @@ export interface Experiment {
     /** Desktop task opened to remove the experiment's flag code, when requested on end/ship. */
     flag_cleanup_task_id?: string | null
     user_access_level: AccessControlLevel
+    /** Optimistic-concurrency token, bumped by the server on every update. Send the last-read
+     * value with updates so concurrent edits are detected (409) or merged instead of clobbered. */
+    version?: number | null
 }
 
 export interface ExperimentVelocityStats {
