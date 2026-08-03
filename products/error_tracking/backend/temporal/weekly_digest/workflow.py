@@ -135,7 +135,7 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
         """
         window = asyncio.Semaphore(inputs.max_concurrent_pages)
 
-        async def run_page(org_ids: list[str]) -> WeeklyDigestResult:
+        async def run_page(org_ids: list[str], page_number: int) -> WeeklyDigestResult:
             async with window:
                 return await workflow.execute_child_workflow(
                     ErrorTrackingWeeklyDigestPageWorkflow.run,
@@ -145,6 +145,7 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
                         max_concurrent=inputs.max_concurrent,
                         max_attempts=inputs.max_attempts,
                     ),
+                    id=f"{workflow.info().workflow_id}-page-{page_number}",
                 )
 
         # inputs.cursor is normally None; it resumes a run continued-as-new from the
@@ -162,7 +163,7 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
             if not page:
                 break
             pages.append(page)
-            page_tasks.append(asyncio.create_task(run_page(page)))
+            page_tasks.append(asyncio.create_task(run_page(page, page_number=len(pages))))
             if len(page) < inputs.page_size:
                 break
             cursor = page[-1]
