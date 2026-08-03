@@ -2287,6 +2287,18 @@ def update_task_run(
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         handle_loop_run_terminal(run)
+        from products.tasks.backend.facade.tasks import (
+            notify_parent_of_child_event_task,  # noqa: PLC0415 — keeps Celery off the facade import path
+        )
+        from products.tasks.backend.logic.services.loop_runs import (
+            LOOP_TERMINAL_NOTIFICATION_GRACE_SECONDS,  # noqa: PLC0415 — shared terminal-write grace
+        )
+
+        transaction.on_commit(
+            lambda: notify_parent_of_child_event_task.apply_async(
+                args=[str(run.id), "terminal"], countdown=LOOP_TERMINAL_NOTIFICATION_GRACE_SECONDS
+            )
+        )
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
         if new_status == TaskRun.Status.FAILED:

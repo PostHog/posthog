@@ -14,7 +14,11 @@ from products.tasks.backend.temporal.constants import (
     SEND_STEER_SIGNAL,
     STEERING_PROTOCOL_VERSION,
 )
-from products.tasks.backend.temporal.execute_sandbox.workflow import PARENT_ATTACHED_SIGNAL, ChildCompletionPayload
+from products.tasks.backend.temporal.execute_sandbox.workflow import (
+    FOLLOWUP_SOURCE_CHILD,
+    PARENT_ATTACHED_SIGNAL,
+    ChildCompletionPayload,
+)
 from products.tasks.backend.temporal.process_task.activities.get_pr_context import GetPrContextOutput, get_pr_context
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.task_management import workflow as task_management_workflow_module
@@ -116,6 +120,21 @@ class TestExternalSignalHandlers:
         await workflow.send_followup_message("hello")
         assert workflow._pending_external_followups == [
             PendingExternalFollowup(message="hello", artifact_ids=[], source="user")
+        ]
+
+    async def test_send_followup_message_passes_child_source_through(self):
+        workflow = TaskManagementWorkflow()
+        await workflow.send_followup_message(
+            "child finished",
+            message_context={"followup_source": FOLLOWUP_SOURCE_CHILD, "request_id": "request-1"},
+        )
+        assert workflow._pending_external_followups == [
+            PendingExternalFollowup(
+                message="child finished",
+                artifact_ids=[],
+                source=FOLLOWUP_SOURCE_CHILD,
+                context={"request_id": "request-1"},
+            )
         ]
 
     async def test_send_steer_message_preserves_steer_intent(self):

@@ -125,6 +125,13 @@ OUTBOUND_RETRY_BACKOFF = timedelta(seconds=10)
 # the terminal flush before the child records the undelivered signals and exits.
 MAX_FINAL_OUTBOUND_FLUSH_ATTEMPTS = 5
 
+CHILD_EVENT_MESSAGE_TEMPLATE = """\
+Child task #{task_number} ({title}) reported {event}.
+Status: {status}{error_line}{pr_line}
+
+Decide the next step: spawn the next child task, report to the user, or finish.
+""".strip()
+
 DEFAULT_CI_MESSAGE = f"""\
 You are re-entering this run to address CI feedback on the pull request you opened.
 

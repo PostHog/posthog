@@ -101,6 +101,19 @@ def _terminalize_unstarted_task_run(run_id: str, error_message: str) -> bool:
         handle_loop_run_terminal(task_run)
     except Exception:
         logger.warning("task_processing_start_failure_loop_bookkeeping_failed", extra={"run_id": run_id}, exc_info=True)
+
+    from products.tasks.backend.facade.tasks import (
+        notify_parent_of_child_event_task,  # noqa: PLC0415 — keeps Celery off the Temporal client import path
+    )
+    from products.tasks.backend.logic.services.loop_runs import (
+        LOOP_TERMINAL_NOTIFICATION_GRACE_SECONDS,  # noqa: PLC0415 — shared terminal-write grace
+    )
+
+    transaction.on_commit(
+        lambda: notify_parent_of_child_event_task.apply_async(
+            args=[str(task_run.id), "terminal"], countdown=LOOP_TERMINAL_NOTIFICATION_GRACE_SECONDS
+        )
+    )
     return True
 
 
@@ -563,6 +576,7 @@ def signal_task_followup_message(
     context: dict[str, Any] | None = None,
     *,
     steer: bool = False,
+    source: str | None = None,
 ) -> None:
     """Legacy positional signal args stay frozen for worker deploy compatibility."""
     client = sync_connect()
@@ -585,7 +599,10 @@ def signal_task_followup_message(
             else:
                 if isinstance(protocol_version, int) and protocol_version >= STEERING_PROTOCOL_VERSION:
                     signal_name = SEND_STEER_SIGNAL
-        signal_args = [message, artifact_ids, message_id, actor_user_id, context]
+        message_context = dict(context or {})
+        if source is not None:
+            message_context["followup_source"] = source
+        signal_args = [message, artifact_ids, message_id, actor_user_id, message_context or None]
         await handle.signal(signal_name, args=signal_args)
 
     asyncio.run(signal())
