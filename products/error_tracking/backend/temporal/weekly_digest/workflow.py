@@ -151,6 +151,13 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
         if inputs is None:
             inputs = WeeklyDigestInputs()
 
+        # Checked before discovery so a bad value can't orphan a staged list. Zero would
+        # raise ZeroDivisionError from the page arithmetic below, which Temporal retries as
+        # a workflow task forever instead of failing; a negative value yields an empty page
+        # range and reports a successful run that sent nothing.
+        if inputs.page_size < 1:
+            raise ApplicationError(f"page_size must be at least 1, got {inputs.page_size}", non_retryable=True)
+
         info = workflow.info()
         # run_id-scoped so a re-run of the same workflow id can never read a stale list.
         storage_key = f"{DIGEST_ORGS_STORAGE_PREFIX}/{info.workflow_id}/{info.run_id}/orgs.json"

@@ -440,6 +440,7 @@ def _storage_stubs(
     cleanup_keys: list[str] | None = None,
     load_calls: list[LoadPageOrgsInputs] | None = None,
     fail_page: int | None = None,
+    fail_cleanup: bool = False,
 ):
     # In-memory stand-in for object storage, keyed by storage_key rather than closing over
     # the org list, so a page reading a key discovery never wrote — or reading one cleanup
@@ -465,6 +466,8 @@ def _storage_stubs(
 
     @activity.defn(name="cleanup_digest_orgs_activity")
     async def _cleanup(inputs: CleanupDigestOrgsInputs) -> None:
+        if fail_cleanup:
+            raise ApplicationError("object storage unavailable for cleanup", non_retryable=True)
         store.pop(inputs.storage_key, None)
         if cleanup_keys is not None:
             cleanup_keys.append(inputs.storage_key)
@@ -646,3 +649,35 @@ class TestErrorTrackingWeeklyDigestWorkflow:
         assert "10/25 orgs" in str(cause)
         # The other pages still drain: only page 1's orgs go unsent.
         assert Counter(sent_orgs) == Counter(org_ids[10:])
+
+    @pytest.mark.asyncio
+    async def test_cleanup_failure_does_not_fail_an_otherwise_successful_run(self):
+        # Cleanup runs after every digest has already gone out, so a storage hiccup there
+        # must stay best-effort: failing the run would page someone over a leftover object.
+        org_ids = sorted(f"org-{i}" for i in range(5))
+
+        @activity.defn(name="send_org_digest_activity")
+        async def _send(inputs: SendOrgDigestInputs) -> SendOrgDigestResult:
+            return SendOrgDigestResult(sent=1, teams_built=1)
+
+        result = await self._execute(
+            WeeklyDigestInputs(page_size=10), [*_storage_stubs(org_ids, fail_cleanup=True), _send]
+        )
+
+        assert result == WeeklyDigestResult(orgs=5, orgs_failed=0, sent=5)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("page_size", [0, -5])
+    async def test_non_positive_page_size_fails_the_run(self, page_size):
+        # 0 used to raise ZeroDivisionError from the page arithmetic, which Temporal retries
+        # as a workflow task forever rather than failing; a negative value produced an empty
+        # page range and reported a successful run that sent nothing.
+        @activity.defn(name="send_org_digest_activity")
+        async def _send(inputs: SendOrgDigestInputs) -> SendOrgDigestResult:
+            raise AssertionError("should not fan out for an invalid page_size")
+
+        with pytest.raises(Exception) as exc_info:
+            await self._execute(WeeklyDigestInputs(page_size=page_size), [*_storage_stubs(["org-a"]), _send])
+
+        cause = exc_info.value.__cause__
+        assert cause is not None and "page_size" in str(cause)
