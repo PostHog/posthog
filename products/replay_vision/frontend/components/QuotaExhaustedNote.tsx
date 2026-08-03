@@ -20,14 +20,14 @@ export function QuotaExhaustedNote({ onFreePlan }: Props): JSX.Element {
             {onFreePlan ? 'Free credits used up.' : 'Spend limit reached.'}{' '}
             {onFreePlan ? (
                 <>
-                    <Link className="text-danger" to={billing}>
+                    <Link className="text-danger underline" to={billing}>
                         Add billing
                     </Link>{' '}
                     to keep scanning.
                 </>
             ) : (
                 <>
-                    <Link className="text-danger" to={billing}>
+                    <Link className="text-danger underline" to={billing}>
                         Raise your billing limit
                     </Link>{' '}
                     to resume scanning.
