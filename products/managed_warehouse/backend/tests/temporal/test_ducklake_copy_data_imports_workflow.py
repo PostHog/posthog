@@ -1165,6 +1165,72 @@ async def test_workflow_records_successful_post_gate_metrics(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_workflow_skips_source_job_state_for_pre_patch_history(monkeypatch):
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    schema_finished_at = started_at + dt.timedelta(minutes=4)
+    workflow_finished_at = started_at + dt.timedelta(minutes=5)
+    verification_result = ducklake_module.DuckLakeCopyDataImportsVerificationResult(name="row_count", passed=True)
+    execute_activity = AsyncMock(
+        side_effect=[
+            True,
+            [_workflow_model()],
+            DeltaTableSnapshotWorkload(file_count=3, row_count=30, byte_count=300),
+            [verification_result],
+        ]
+    )
+    metrics = _mock_copy_workflow_metrics(monkeypatch)
+    patched = MagicMock(return_value=False)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(ducklake_module.workflow, "patched", patched)
+    monkeypatch.setattr(
+        ducklake_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, schema_finished_at, workflow_finished_at]),
+    )
+
+    await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    patched.assert_called_once_with(ducklake_module._SOURCE_JOB_STATE_PATCH_ID)
+    assert _recorded_source_job_statuses(execute_activity) == []
+    metrics.finished_getter.assert_called_once_with(team_id=1, status="completed")
+
+
+@pytest.mark.asyncio
+async def test_workflow_retries_completed_state_without_recording_failure(monkeypatch):
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    schema_finished_at = started_at + dt.timedelta(minutes=4)
+    workflow_finished_at = started_at + dt.timedelta(minutes=5)
+    verification_result = ducklake_module.DuckLakeCopyDataImportsVerificationResult(name="row_count", passed=True)
+    execute_activity = AsyncMock(
+        side_effect=[
+            True,
+            None,
+            [_workflow_model()],
+            DeltaTableSnapshotWorkload(file_count=3, row_count=30, byte_count=300),
+            [verification_result],
+            RuntimeError("completion write failed"),
+            None,
+        ]
+    )
+    metrics = _mock_copy_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(
+        ducklake_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, schema_finished_at, workflow_finished_at]),
+    )
+
+    await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    assert _recorded_source_job_statuses(execute_activity) == [
+        ducklake_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        ducklake_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+        ducklake_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+    ]
+    metrics.finished_getter.assert_called_once_with(team_id=1, status="completed")
+
+
+@pytest.mark.asyncio
 async def test_workflow_records_failed_post_gate_metrics(monkeypatch):
     started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
     failed_at = started_at + dt.timedelta(seconds=5)
@@ -1216,6 +1282,7 @@ async def test_workflow_records_skipped_status_when_no_models_are_resolved(monke
 
 def _mock_copy_workflow_metrics(monkeypatch):
     metrics = MagicMock()
+    monkeypatch.setattr(ducklake_module.workflow, "patched", MagicMock(return_value=True))
     for name in ("started", "finished", "duration", "last_success", "files", "rows", "bytes", "verification"):
         getter = MagicMock(return_value=getattr(metrics, name))
         setattr(metrics, f"{name}_getter", getter)

@@ -314,6 +314,69 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_workflow_skips_source_job_state_for_pre_patch_history(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    finished_at = started_at + dt.timedelta(minutes=7)
+    execute_activity = AsyncMock(side_effect=[True, _activity_inputs().metadata, True])
+    metrics = _mock_workflow_metrics(monkeypatch)
+    patched = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "patched", patched)
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, finished_at]),
+    )
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    patched.assert_called_once_with(registration_module._SOURCE_JOB_STATE_PATCH_ID)
+    assert _recorded_source_job_statuses(execute_activity) == []
+    metrics.finished_getter.assert_called_once_with(
+        team_id=1,
+        schema_id=str(_workflow_inputs().schema_id),
+        status="completed",
+    )
+
+
+@pytest.mark.asyncio
+async def test_workflow_retries_completed_state_without_recording_failure(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    completed_at = started_at + dt.timedelta(minutes=6)
+    finished_at = started_at + dt.timedelta(minutes=7)
+    execute_activity = AsyncMock(
+        side_effect=[
+            True,
+            None,
+            _activity_inputs().metadata,
+            True,
+            RuntimeError("completion write failed"),
+            None,
+        ]
+    )
+    metrics = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, completed_at, finished_at]),
+    )
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    assert _recorded_source_job_statuses(execute_activity) == [
+        registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        registration_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+        registration_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+    ]
+    metrics.finished_getter.assert_called_once_with(
+        team_id=1,
+        schema_id=str(_workflow_inputs().schema_id),
+        status="completed",
+    )
+
+
+@pytest.mark.asyncio
 async def test_workflow_records_end_to_end_duration_on_post_gate_failure(monkeypatch):
     started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
     failed_at = started_at + dt.timedelta(seconds=5)
@@ -370,6 +433,7 @@ async def test_workflow_records_stale_prepared_generation(monkeypatch):
 
 def _mock_workflow_metrics(monkeypatch):
     metrics = MagicMock()
+    monkeypatch.setattr(registration_module.workflow, "patched", MagicMock(return_value=True))
     metrics.duration_getter = MagicMock(return_value=metrics.duration)
     metrics.finished_getter = MagicMock(return_value=metrics.finished)
     metrics.started_getter = MagicMock(return_value=metrics.started)

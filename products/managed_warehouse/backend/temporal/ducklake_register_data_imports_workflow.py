@@ -64,6 +64,7 @@ LOGGER = get_logger(__name__)
 DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG = "ducklake-data-imports-registration-workflow"
 DATA_IMPORTS_GENERATIONS_PREFIX = "_imports"
 DUCKLAKE_REGISTER_STAGE_DURATION_METRIC = "ducklake_register_data_imports_stage_duration"
+_SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 
 
 def _register_source_job_update(
@@ -115,6 +116,29 @@ async def _record_register_source_job_state(
         start_to_close_timeout=dt.timedelta(seconds=30),
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
+
+
+async def _record_register_terminal_source_job_state(
+    *,
+    inputs: DuckLakeRegisterDataImportsInputs,
+    status: ManagedWarehouseSourceJobStatus,
+    started_at: dt.datetime,
+    finished_at: dt.datetime,
+) -> None:
+    try:
+        await _record_register_source_job_state(
+            inputs=inputs,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
+    except Exception:
+        await _record_register_source_job_state(
+            inputs=inputs,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+        )
 
 
 def _stage_timer(*, stage: str, team_id: int, schema_id: str) -> ExecutionTimeRecorder:
@@ -587,15 +611,17 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             logger.info("DuckLake data imports registration workflow disabled by feature flag")
             return
 
+        track_source_job_state = workflow.patched(_SOURCE_JOB_STATE_PATCH_ID)
         schema_id = str(inputs.schema_id)
         get_ducklake_register_data_imports_started_metric(team_id=inputs.team_id, schema_id=schema_id).add(1)
         status = "failed"
         try:
-            await _record_register_source_job_state(
-                inputs=inputs,
-                status=ManagedWarehouseSourceJobStatus.RUNNING,
-                started_at=workflow_started_at,
-            )
+            if track_source_job_state:
+                await _record_register_source_job_state(
+                    inputs=inputs,
+                    status=ManagedWarehouseSourceJobStatus.RUNNING,
+                    started_at=workflow_started_at,
+                )
             metadata = await workflow.execute_activity(
                 prepare_ducklake_data_imports_registration_activity,
                 inputs,
@@ -604,12 +630,13 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             )
             if metadata is None:
                 status = "stale"
-                await _record_register_source_job_state(
-                    inputs=inputs,
-                    status=ManagedWarehouseSourceJobStatus.STALE,
-                    started_at=workflow_started_at,
-                    finished_at=workflow.now(),
-                )
+                if track_source_job_state:
+                    await _record_register_terminal_source_job_state(
+                        inputs=inputs,
+                        status=ManagedWarehouseSourceJobStatus.STALE,
+                        started_at=workflow_started_at,
+                        finished_at=workflow.now(),
+                    )
                 logger.info("Prepared Parquet generation is stale; nothing to register")
                 return
 
@@ -627,30 +654,33 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
             )
             if not copy_applied:
                 status = "stale"
-                await _record_register_source_job_state(
-                    inputs=inputs,
-                    status=ManagedWarehouseSourceJobStatus.STALE,
-                    started_at=workflow_started_at,
-                    finished_at=workflow.now(),
-                )
+                if track_source_job_state:
+                    await _record_register_terminal_source_job_state(
+                        inputs=inputs,
+                        status=ManagedWarehouseSourceJobStatus.STALE,
+                        started_at=workflow_started_at,
+                        finished_at=workflow.now(),
+                    )
                 logger.info("Prepared Parquet generation became stale; registration skipped")
                 return
 
-            await _record_register_source_job_state(
-                inputs=inputs,
-                status=ManagedWarehouseSourceJobStatus.COMPLETED,
-                started_at=workflow_started_at,
-                finished_at=workflow.now(),
-            )
             status = "completed"
+            if track_source_job_state:
+                await _record_register_terminal_source_job_state(
+                    inputs=inputs,
+                    status=ManagedWarehouseSourceJobStatus.COMPLETED,
+                    started_at=workflow_started_at,
+                    finished_at=workflow.now(),
+                )
         except Exception as error:
-            await _record_register_source_job_state(
-                inputs=inputs,
-                status=ManagedWarehouseSourceJobStatus.FAILED,
-                started_at=workflow_started_at,
-                finished_at=workflow.now(),
-                latest_error=str(error),
-            )
+            if track_source_job_state and status == "failed":
+                await _record_register_source_job_state(
+                    inputs=inputs,
+                    status=ManagedWarehouseSourceJobStatus.FAILED,
+                    started_at=workflow_started_at,
+                    finished_at=workflow.now(),
+                    latest_error=str(error),
+                )
             raise
         finally:
             finished_at = workflow.now()
