@@ -55,7 +55,7 @@ describe('gatewayAddServer', () => {
             description: 'Company knowledge',
             auth_type: 'oauth',
             client_id: 'client-id',
-            client_secret: '  client-secret  ',
+            client_secret: 'client-secret',
             team_enabled: true,
             agent_ids: ['agent-1'],
         })

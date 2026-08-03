@@ -52,9 +52,11 @@ export function buildGatewayInstallRequest(
         url: values.url.trim(),
         description: values.description.trim(),
         auth_type: values.authType,
-        ...(values.authType === 'api_key' && values.apiKey ? { api_key: values.apiKey } : {}),
+        ...(values.authType === 'api_key' && values.apiKey.trim() ? { api_key: values.apiKey.trim() } : {}),
         ...(values.authType === 'oauth' && values.clientId.trim() ? { client_id: values.clientId.trim() } : {}),
-        ...(values.authType === 'oauth' && values.clientSecret.trim() ? { client_secret: values.clientSecret } : {}),
+        ...(values.authType === 'oauth' && values.clientSecret.trim()
+            ? { client_secret: values.clientSecret.trim() }
+            : {}),
         ...(options.isAdmin ? { team_enabled: values.teamEnabled } : {}),
         ...(options.canManageAgentAccess && values.agentIds.length ? { agent_ids: values.agentIds } : {}),
     }
