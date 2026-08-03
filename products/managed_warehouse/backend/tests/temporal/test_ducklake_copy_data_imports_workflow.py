@@ -3,7 +3,7 @@ import datetime as dt
 from collections.abc import Sequence
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from django.conf import settings
 from django.test import override_settings
@@ -21,7 +21,7 @@ from products.managed_warehouse.backend.logic.verification import (
     DuckLakeCopyVerificationQuery,
 )
 from products.managed_warehouse.backend.models import DuckgresServer
-from products.managed_warehouse.backend.storage import compute_staging_uri
+from products.managed_warehouse.backend.storage import DeltaTableSnapshotWorkload, StagedDeltaTable, compute_staging_uri
 from products.managed_warehouse.backend.temporal import ducklake_copy_data_imports_workflow as ducklake_module
 from products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
@@ -522,8 +522,13 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
         "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
         mock_attach_catalog,
     )
+    workload = DeltaTableSnapshotWorkload(file_count=2, row_count=20, byte_count=200)
     monkeypatch.setattr(
-        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.stage_delta_table",
+        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.get_delta_table_snapshot_workload",
+        MagicMock(return_value=workload),
+    )
+    monkeypatch.setattr(
+        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.stage_delta_table_with_workload",
         MagicMock(side_effect=AssertionError("stage_delta_table should not be used in dev mode")),
     )
     monkeypatch.setattr(
@@ -547,8 +552,9 @@ def test_copy_data_imports_to_ducklake_activity_via_duckdb(monkeypatch):
     # in tests that don't need the database; override it here to prove the call still fires
     # outside tests, i.e. in the real long-lived worker thread.
     with override_settings(TEST=False):
-        copy_data_imports_to_ducklake_activity(inputs)
+        result = copy_data_imports_to_ducklake_activity(inputs)
 
+    assert result == workload
     mock_close_old_connections.assert_called_once()
     mock_configure_connection.assert_called_once_with(mock_conn)
     mock_ensure_bucket.assert_called_once_with(config={"DUCKLAKE_BUCKET": "ducklake-dev"}, team_id=1)
@@ -587,9 +593,15 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
         "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.get_duckgres_server_for_organization",
         MagicMock(return_value=_create_mock_server()),
     )
-    mock_stage = MagicMock()
+    workload = DeltaTableSnapshotWorkload(file_count=3, row_count=30, byte_count=300)
+    mock_stage = MagicMock(
+        return_value=StagedDeltaTable(
+            staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
+            workload=workload,
+        )
+    )
     monkeypatch.setattr(
-        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.stage_delta_table",
+        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.stage_delta_table_with_workload",
         mock_stage,
     )
     monkeypatch.setattr(
@@ -613,8 +625,9 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
-    copy_data_imports_to_ducklake_activity(inputs)
+    result = copy_data_imports_to_ducklake_activity(inputs)
 
+    assert result == workload
     mock_stage.assert_called_once_with(
         source_uri="s3://bucket/team_1/customers",
         catalog_bucket="test-bucket",
@@ -1091,6 +1104,128 @@ def test_ducklake_copy_data_imports_workflow_parse_inputs():
     assert inputs.schema_ids[0] == schema_id
 
 
+@pytest.mark.asyncio
+async def test_workflow_does_not_record_metrics_when_gate_is_disabled(monkeypatch):
+    execute_activity = AsyncMock(return_value=False)
+    metrics = _mock_copy_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+
+    await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    metrics.started_getter.assert_not_called()
+    metrics.finished_getter.assert_not_called()
+    metrics.duration_getter.assert_not_called()
+    metrics.last_success_getter.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_successful_post_gate_metrics(monkeypatch):
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    schema_finished_at = started_at + dt.timedelta(minutes=4)
+    workflow_finished_at = started_at + dt.timedelta(minutes=5, seconds=12)
+    workload = DeltaTableSnapshotWorkload(file_count=3, row_count=30, byte_count=300)
+    verification_result = ducklake_module.DuckLakeCopyDataImportsVerificationResult(name="row_count", passed=True)
+    execute_activity = AsyncMock(side_effect=[True, [_workflow_model()], workload, [verification_result]])
+    metrics = _mock_copy_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(
+        ducklake_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, schema_finished_at, workflow_finished_at]),
+    )
+
+    await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    metrics.started_getter.assert_called_once_with(team_id=1)
+    metrics.started.add.assert_called_once_with(1)
+    metrics.finished_getter.assert_called_once_with(team_id=1, status="completed")
+    metrics.finished.add.assert_called_once_with(1)
+    metrics.duration_getter.assert_called_once_with(team_id=1, status="completed")
+    metrics.duration.record.assert_called_once_with(312.0)
+    metrics.last_success_getter.assert_called_once_with(team_id=1, schema_id="schema-123")
+    metrics.last_success.set.assert_called_once_with(schema_finished_at.timestamp())
+    metrics.files_getter.assert_called_once_with(team_id=1, schema_id="schema-123")
+    metrics.files.record.assert_called_once_with(3.0)
+    metrics.rows_getter.assert_called_once_with(team_id=1, schema_id="schema-123")
+    metrics.rows.record.assert_called_once_with(30.0)
+    metrics.bytes_getter.assert_called_once_with(team_id=1, schema_id="schema-123")
+    metrics.bytes.record.assert_called_once_with(300.0)
+    metrics.verification_getter.assert_called_once_with(
+        team_id=1,
+        schema_id="schema-123",
+        check_name="row_count",
+        status="passed",
+    )
+    metrics.verification.add.assert_called_once_with(1)
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_failed_post_gate_metrics(monkeypatch):
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    failed_at = started_at + dt.timedelta(seconds=5)
+    execute_activity = AsyncMock(side_effect=[True, RuntimeError("prepare failed")])
+    metrics = _mock_copy_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(ducklake_module.workflow, "now", MagicMock(side_effect=[started_at, failed_at]))
+
+    with pytest.raises(RuntimeError, match="prepare failed"):
+        await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    metrics.started_getter.assert_called_once_with(team_id=1)
+    metrics.finished_getter.assert_called_once_with(team_id=1, status="failed")
+    metrics.finished.add.assert_called_once_with(1)
+    metrics.duration_getter.assert_called_once_with(team_id=1, status="failed")
+    metrics.duration.record.assert_called_once_with(5.0)
+    metrics.last_success_getter.assert_not_called()
+    metrics.files_getter.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_skipped_status_when_no_models_are_resolved(monkeypatch):
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    finished_at = started_at + dt.timedelta(seconds=2)
+    execute_activity = AsyncMock(side_effect=[True, []])
+    metrics = _mock_copy_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(ducklake_module.workflow, "now", MagicMock(side_effect=[started_at, finished_at]))
+
+    await DuckLakeCopyDataImportsWorkflow().run(_workflow_inputs())
+
+    metrics.finished_getter.assert_called_once_with(team_id=1, status="skipped")
+    metrics.duration_getter.assert_called_once_with(team_id=1, status="skipped")
+    metrics.duration.record.assert_called_once_with(2.0)
+    metrics.last_success_getter.assert_not_called()
+
+
+def _mock_copy_workflow_metrics(monkeypatch):
+    metrics = MagicMock()
+    for name in ("started", "finished", "duration", "last_success", "files", "rows", "bytes", "verification"):
+        getter = MagicMock(return_value=getattr(metrics, name))
+        setattr(metrics, f"{name}_getter", getter)
+        monkeypatch.setattr(ducklake_module, f"get_ducklake_copy_data_imports_{name}_metric", getter)
+    return metrics
+
+
+def _workflow_inputs() -> DataImportsDuckLakeCopyInputs:
+    return DataImportsDuckLakeCopyInputs(
+        team_id=1,
+        job_id="job-123",
+        schema_ids=[uuid.UUID("019ef5df-e4c7-0000-b543-8ef7f13b5f15")],
+    )
+
+
+def _workflow_model() -> DuckLakeCopyDataImportsMetadata:
+    return DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="posthog_data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+    )
+
+
 def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypatch):
     from temporalio.exceptions import ApplicationError
 
@@ -1444,20 +1579,24 @@ def test_stage_waits_out_delta_rebuild_window(monkeypatch, absent_error):
     monkeypatch.setattr(ducklake_module, "time", clock)
     attempts = {"count": 0}
 
+    workload = DeltaTableSnapshotWorkload(file_count=1, row_count=10, byte_count=100)
+
     def stage(**kwargs):
         attempts["count"] += 1
         if attempts["count"] <= 2:
             raise absent_error
+        return StagedDeltaTable(staging_uri="s3://catalog/staged", workload=workload)
 
-    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+    monkeypatch.setattr(ducklake_module, "stage_delta_table_with_workload", stage)
 
-    ducklake_module._stage_delta_table_waiting_for_rebuild(
+    result = ducklake_module._stage_delta_table_waiting_for_rebuild(
         source_uri="s3://bucket/folder/table",
         catalog_bucket="catalog",
         organization_id="org",
         logger=MagicMock(),
     )
 
+    assert result == workload
     assert attempts["count"] == 3
     assert clock.sleeps == [ducklake_module.DELTA_REBUILD_POLL_SECONDS] * 2
 
@@ -1471,7 +1610,7 @@ def test_stage_raises_immediately_on_non_absent_errors(monkeypatch):
         attempts["count"] += 1
         raise deltalake.exceptions.DeltaError("Generic error: something else broke")
 
-    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+    monkeypatch.setattr(ducklake_module, "stage_delta_table_with_workload", stage)
 
     with pytest.raises(deltalake.exceptions.DeltaError):
         ducklake_module._stage_delta_table_waiting_for_rebuild(
@@ -1492,7 +1631,7 @@ def test_stage_gives_up_after_rebuild_wait_budget(monkeypatch):
     def stage(**kwargs):
         raise deltalake.exceptions.DeltaError("Generic delta kernel error: No files in log segment")
 
-    monkeypatch.setattr(ducklake_module, "stage_delta_table", stage)
+    monkeypatch.setattr(ducklake_module, "stage_delta_table_with_workload", stage)
 
     with pytest.raises(deltalake.exceptions.DeltaError):
         ducklake_module._stage_delta_table_waiting_for_rebuild(

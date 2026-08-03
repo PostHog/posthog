@@ -748,7 +748,7 @@ def normalize_cimd_url(url: str) -> str:
 
     The output is a persisted format, not just a comparison helper: it is stored in
     `CIMDVerificationToken.cimd_url`, and migration
-    `1284_backfill_cimd_verification_token_url` keeps a frozen copy of this function's
+    `1285_backfill_cimd_verification_token_url` keeps a frozen copy of this function's
     logic. Changing this function's output for any input silently unverifies every
     stored binding of that shape with no test failure elsewhere — see the golden-value
     table in `TestNormalizeCimdUrl` (posthog/models/test/test_oauth.py) before editing.
