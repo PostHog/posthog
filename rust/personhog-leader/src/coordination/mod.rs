@@ -229,6 +229,13 @@ impl HandoffHandler for LeaderHandoffHandler {
                 .acquire(partition)
                 .await
                 .map_err(Error::invalid_state)?;
+            // Mark it the same way warming does. A convergence torn down
+            // between here and the point `apply` records the resume
+            // retries with the partition still listed as fenced, and
+            // without this mark that retry would acquire again — this
+            // time bumping the epoch out from under the writes the line
+            // below is about to admit.
+            self.freshly_fenced.insert(partition);
             info!(partition, "changelog fence re-acquired on resume");
         }
         self.inflight.unfence(partition);
@@ -306,6 +313,28 @@ mod tests {
 
         handler.release_partition(42).await.unwrap();
         assert!(!handler.owns_partition(42));
+    }
+
+    /// The incoming owner derives versions from the changelog, which is
+    /// the authority these floors stand in for. Carrying one across a
+    /// release would constrain a partition this pod no longer serves.
+    #[tokio::test]
+    async fn releasing_a_partition_forgets_the_versions_it_emitted() {
+        let handler = handler();
+        handler.cache.create_partition(3);
+        let key = crate::cache::PersonCacheKey {
+            team_id: 1,
+            person_id: 7,
+        };
+        handler.emitted_versions.raise_for_test(3, key.clone(), 900);
+
+        handler.release_partition(3).await.unwrap();
+
+        assert_eq!(
+            handler.emitted_versions.floor_for(3, &key, 5),
+            5,
+            "a departed owner's floor must not survive the release"
+        );
     }
 
     #[tokio::test]
