@@ -2638,6 +2638,7 @@ export class PostHogAPIClient {
           Task,
           | "title"
           | "repository"
+          | "repositories"
           | "json_schema"
           | "origin_product"
           | "runtime"
@@ -2699,6 +2700,8 @@ export class PostHogAPIClient {
       description: task.description ?? "",
       title: task.title,
       repository: task.repository,
+      repositories:
+        task.repositories ?? (task.repository ? [task.repository] : []),
       json_schema: task.json_schema,
       origin_product: task.origin_product,
       github_integration: task.github_integration,
@@ -2737,6 +2740,29 @@ export class PostHogAPIClient {
     });
     if (!response.ok) {
       throw new Error(`Failed to resolve task channel: ${response.statusText}`);
+    }
+    return (await response.json()) as TaskChannel;
+  }
+
+  async updateTaskChannel(
+    channelId: string,
+    updates: {
+      github_integration: number | null;
+      repositories: string[];
+    },
+  ): Promise<TaskChannel> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/task_channels/${channelId}/`;
+    const response = await this.api.fetcher.fetch({
+      method: "patch",
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      overrides: { body: JSON.stringify(updates) },
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to update space repositories: ${response.statusText}`,
+      );
     }
     return (await response.json()) as TaskChannel;
   }

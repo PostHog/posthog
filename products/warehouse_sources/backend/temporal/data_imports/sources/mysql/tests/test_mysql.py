@@ -34,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_metadata_query_reset,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
+    _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
     _is_transient_vitess_reparent,
     _release_streaming_cursor,
@@ -1191,6 +1192,27 @@ class TestIsTransientVitessDialTimeout:
         assert not _is_transient_vitess_dial_timeout(ValueError("dial tcp 10.0.0.1: connection timed out"))
 
 
+class TestIsTransientTooManyConnections:
+    def test_matches_too_many_connections(self):
+        assert _is_transient_too_many_connections(pymysql.err.OperationalError(1040, "Too many connections"))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_codes(self, code, message):
+        assert not _is_transient_too_many_connections(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_too_many_connections(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_too_many_connections(pymysql.err.InternalError(1040, "Too many connections"))
+
+
 class TestConnectTransientRetry:
     @pytest.mark.parametrize(
         "fail_count,expected_sleeps",
@@ -1332,6 +1354,21 @@ class TestConnectTransientRetry:
                 ),
                 conn,
             ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_too_many_connections_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[pymysql.err.OperationalError(1040, "Too many connections"), conn],
         )
 
         with MySQLImplementation().connect(_make_config()) as yielded:
@@ -1864,6 +1901,21 @@ class TestMySQLSourceNonRetryableErrors:
         [
             # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
             # matches `str(error)`, which has no class-name prefix).
+            str(pymysql.err.OperationalError(1049, "Unknown database 'wealth_insights'")),
+            # Temporal-wrapped / refresh-schemas form that prepends the exception class name.
+            "OperationalError: (1049, \"Unknown database 'wealth_insights'\")",
+        ],
+    )
+    def test_unknown_database_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Unknown-database error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
             str(
                 pymysql.err.OperationalError(
                     1356, "View 'defaultdb.wealth_view' references invalid table(s) or column(s)"
@@ -2032,6 +2084,34 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient thread-exhaustion error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (1040, 'Too many connections')",
+            "Too many connections",
+        ],
+    )
+    def test_too_many_connections_stays_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"Too-many-connections error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (1040, 'Too many connections')",
+            "Too many connections",
+        ],
+    )
+    def test_too_many_connections_is_classified_retryable(self, source, error_msg):
+        # Already retried in-process at connect time (`_is_transient_too_many_connections`); once
+        # exhausted it re-raises for Temporal to retry the whole activity. Without this
+        # classification `_handle_import_error` logs it at `exception` on every occurrence,
+        # flooding error tracking with a self-recovering capacity condition.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Too-many-connections error should be classified retryable: {error_msg}"
 
 
 class TestMySQLSourceValidateCredentials:
