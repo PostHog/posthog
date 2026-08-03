@@ -256,8 +256,8 @@ tools:
             `period_start`/`period_end` of the current calendar-month window. Check `remaining`/`exhausted` before
             creating a scanner or scanning sessions on demand: over budget, a scanner's scheduled sweeps silently skip
             their observations until the next period, `vision-scanners-scan-session` is rejected outright with a 402,
-            and `vision-scanners-scan-ad-hoc` reports its sessions as `skipped_quota`. Pair with `vision-scanners-estimate-create` to size a new scanner against the remaining
-            budget.
+            and `vision-scanners-scan-ad-hoc` reports its sessions as `skipped_quota`. Pair with
+            `vision-scanners-estimate-create` to size a new scanner against the remaining budget.
         feature_flag: replay-vision
     vision-scanners-affected-cohort-create:
         operation: vision_scanners_affected_cohort_create
@@ -571,18 +571,18 @@ tools:
             idempotent: false
         title: Scan sessions against an ad-hoc prompt
         description: >
-            Watch specific sessions and answer a one-off question about them, with no scanner to configure first —
-            send `session_ids` plus a `prompt` ("did onboarding go wrong for this user?"). This is the tool for
-            investigating sessions you already have in hand; use `vision-scanners-create` only when the question
-            should keep running against future recordings. Optionally set `scanner_type` (defaults to `monitor`),
-            `scanner_config` for type-specific extras (`tags` for a classifier, `scale` for a scorer), and `model`.
-            Returns 202 with the `scanner_id` the prompt resolved to plus a per-session `scan_outcome`; read results
-            with `vision-observations-list` (by `session_id`) or `vision-scanners-observations-list` (by that
-            `scanner_id`) once the workflows finish — typically several minutes each, since rasterising a recording
-            into video and calling the LLM is slow, so scan and come back rather than polling tightly. Each session
-            spends credits, so check `vision-quota-retrieve` before scanning a large batch. Asking the same question
-            again returns the observations it already has rather than rescanning; to ask something different about
-            the same session, send a different prompt.
+            Watch specific sessions and answer a one-off question about them, with no scanner to configure first — send
+            `session_ids` plus a `prompt` ("did onboarding go wrong for this user?"). This is the tool for investigating
+            sessions you already have in hand; use `vision-scanners-create` only when the question should keep running
+            against future recordings. Optionally set `scanner_type` (defaults to `monitor`), `scanner_config` for
+            type-specific extras (`tags` for a classifier, `scale` for a scorer), and `model`. Returns 202 with the
+            `scanner_id` the prompt resolved to plus a per-session `scan_outcome`; read results with
+            `vision-observations-list` (by `session_id`) or `vision-scanners-observations-list` (by that `scanner_id`)
+            once the workflows finish — typically several minutes each, since rasterising a recording into video and
+            calling the LLM is slow, so scan and come back rather than polling tightly. Each session spends credits, so
+            check `vision-quota-retrieve` before scanning a large batch. Asking the same question again returns the
+            observations it already has rather than rescanning; to ask something different about the same session, send
+            a different prompt.
         requires_ai_consent: true
         feature_flag: replay-vision
     vision-scanners-scan-session:
@@ -600,11 +600,11 @@ tools:
             Trigger an existing scanner against a specific session immediately, bypassing the sampling rate and any
             scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under
             `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes —
-            rasterising the recording into video and calling the LLM is slow). Use this when an existing scanner
-            already asks the question you want answered; when it doesn't, reach for `vision-scanners-scan-ad-hoc`
-            instead of creating a throwaway scanner. A scanner can observe a given session only once —
-            re-triggering it on a session that already has an observation (even a failed or ineligible one) is a
-            no-op and will not produce a fresh scan.
+            rasterising the recording into video and calling the LLM is slow). Use this when an existing scanner already
+            asks the question you want answered; when it doesn't, reach for `vision-scanners-scan-ad-hoc` instead of
+            creating a throwaway scanner. A scanner can observe a given session only once — re-triggering it on a
+            session that already has an observation (even a failed or ineligible one) is a no-op and will not produce a
+            fresh scan.
         requires_ai_consent: true
         feature_flag: replay-vision
     vision-scanners-stats-retrieve:
