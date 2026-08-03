@@ -187,8 +187,12 @@ export function useDashboardMutations() {
     saveContext: (id: string, context: string) =>
       saveContext.mutateAsync({ id, context }),
     // Move the canvas's head back to an existing version (and rebuild it).
-    revertToVersion: (id: string, versionId: string) =>
-      revertToVersion.mutateAsync({ id, versionId }),
+    revertToVersion: (
+      id: string,
+      versionId: string,
+      expectedCurrentVersionId: string | null,
+    ) =>
+      revertToVersion.mutateAsync({ id, versionId, expectedCurrentVersionId }),
     // Record (or clear) the task generating this canvas. Shared on the canvas
     // row so every client polling the canvas sees the in-flight generation.
     setGenerationTask: (id: string, taskId: string | null) =>

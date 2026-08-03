@@ -55,6 +55,7 @@ export interface IDashboardsService {
   revertToVersion(input: {
     id: string;
     versionId: string;
+    expectedCurrentVersionId: string | null;
   }): Promise<CanvasBuildRecord>;
   // Read a canvas's build lifecycle (pointers + recent builds).
   getBuilds(id: string): Promise<CanvasBuildLifecycle>;

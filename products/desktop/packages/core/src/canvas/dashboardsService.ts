@@ -275,6 +275,7 @@ export class DashboardsService {
   async revertToVersion(input: {
     id: string;
     versionId: string;
+    expectedCurrentVersionId: string | null;
   }): Promise<CanvasBuildRecord> {
     const build = await this.api.json<Record<string, unknown>>(
       `canvases/${encodeURIComponent(input.id)}/revert/`,
@@ -282,7 +283,10 @@ export class DashboardsService {
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version_id: input.versionId }),
+        body: JSON.stringify({
+          version_id: input.versionId,
+          expected_current_version_id: input.expectedCurrentVersionId,
+        }),
       },
     );
     return toBuildRecord(build);

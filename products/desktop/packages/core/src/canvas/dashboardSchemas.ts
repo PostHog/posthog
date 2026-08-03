@@ -82,6 +82,7 @@ export const canvasSourceInput = z.object({
 export const revertCanvasInput = z.object({
   id: z.string().min(1),
   versionId: z.string().min(1),
+  expectedCurrentVersionId: z.string().nullable(),
 });
 
 // Persist the author-written context (markdown) shown in the Context tab and

@@ -356,7 +356,11 @@ export function FreeformCanvasView({
   const onRevert = useCallback(async () => {
     if (!browseVersionId) return;
     try {
-      await revertToVersion(dashboardId, browseVersionId);
+      await revertToVersion(
+        dashboardId,
+        browseVersionId,
+        dashboard?.currentVersionId ?? null,
+      );
       setBrowseVersion(threadId, null);
     } catch (error) {
       toast.error("Couldn't revert canvas", {
@@ -365,6 +369,7 @@ export function FreeformCanvasView({
     }
   }, [
     browseVersionId,
+    dashboard?.currentVersionId,
     dashboardId,
     threadId,
     revertToVersion,
