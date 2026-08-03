@@ -19,6 +19,7 @@ import fakeredis
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
+from products.warehouse_sources.backend.management.commands.manage_warehouse_queue import Command
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -522,6 +523,37 @@ class TestCheckMismatches:
 
         job.refresh_from_db()
         assert job.status == ExternalDataJob.Status.FAILED
+
+    def test_class_b_that_races_back_to_healthy_is_not_failed(self, team, queue_conn, fake_redis):
+        _, schema, job = _create_pipeline(team)
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=timezone.now() - timedelta(hours=1))
+        _insert_lease(queue_conn, team_id=team.pk, schema_id=str(schema.id), live=False)
+
+        # Simulate a consumer enqueuing batches between detection and repair: insert a
+        # pending batch for this job right after the class B target is collected, so the
+        # repair-time re-check sees live work and leaves the job alone.
+        real_collect = Command._collect_fail_targets
+
+        def collect_then_enqueue(self, conn, scope, *, queue, include_job_only):
+            targets = real_collect(self, conn, scope, queue=queue, include_job_only=include_job_only)
+            _insert_batch(
+                queue_conn,
+                team_id=team.pk,
+                schema_id=str(schema.id),
+                source_id=str(schema.source_id),
+                job_id=str(job.id),
+                run_uuid=str(uuid4()),
+                batch_index=0,
+            )
+            return targets
+
+        with patch.object(Command, "_collect_fail_targets", collect_then_enqueue):
+            out = _call("check-mismatches", "--team-id", str(team.pk), "--live-run", "--yes")
+
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.RUNNING  # not failed - raced back to healthy
+        assert "no longer a class B mismatch" in out
+        assert _lease_count(queue_conn, str(schema.id)) == 1  # lease preserved for live work
 
     def test_max_runs_cap_aborts(self, team, queue_conn, fake_redis):
         for _ in range(2):

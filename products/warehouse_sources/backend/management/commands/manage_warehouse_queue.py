@@ -763,9 +763,25 @@ class Command(BaseCommand):
         reason: str = options["reason"]
         self._confirm(f"Repair {len(repairable)} mismatch(es)? Type 'fail' to continue: ", "fail", yes=options["yes"])
 
+        repaired: list[FailTarget] = []
+        raced = 0
         for t in repairable:
+            # Class B is a job-only snapshot taken during collection. Re-check that
+            # the queue still holds nothing pending for this job before failing it:
+            # a consumer that enqueued batches since then has turned it back into a
+            # healthy Running job, and failing it now would create the class A
+            # mismatch this command exists to fix.
+            if t.run_uuid is None and self._job_has_pending_batches(conn, t, queue=queue):
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"job={t.job_id}: batches enqueued since detection - no longer a class B mismatch, skipped"
+                    )
+                )
+                raced += 1
+                continue
             self.stdout.write(f"run={t.run_uuid or '-'} job={t.job_id}:")
             self._fail_target(conn, t, reason=reason, queue=queue, is_delta=True)
+            repaired.append(t)
             logger.info(
                 "manage_warehouse_queue_check_mismatches",
                 sink=sink,
@@ -777,11 +793,27 @@ class Command(BaseCommand):
                 reason=reason,
             )
 
-        released, skipped_live = self._release_leases_for(conn, repairable, queue=queue, force=options["force"])
-        summary = f"Done. Repaired {len(repairable)} mismatch(es), released {released} group lease(s)."
+        # Only release leases for jobs we actually failed - a raced-back class B job
+        # is live work whose lease must stay put.
+        released, skipped_live = self._release_leases_for(conn, repaired, queue=queue, force=options["force"])
+        summary = f"Done. Repaired {len(repaired)} mismatch(es), released {released} group lease(s)."
+        if raced:
+            summary += f" Skipped {raced} that raced back to healthy."
         if skipped_live:
             summary += f" Skipped {skipped_live} LIVE lease(s)."
         self.stdout.write(self.style.SUCCESS(summary))
+
+    def _job_has_pending_batches(self, conn: psycopg.Connection[Any], target: FailTarget, *, queue: SinkQueue) -> bool:
+        """True if the queue now holds non-terminal batches for this job's schema.
+
+        Used to re-check a class B (job-only) target at repair time so a job that
+        enqueued work between detection and now is not failed out from under a live
+        consumer.
+        """
+        if target.schema_id is None:
+            return False
+        runs = queue.get_active_runs(conn, team_id=target.team_id, schema_ids=[target.schema_id], only_pending=True)
+        return any(str(r.job_id) == target.job_id for r in runs)
 
     # -- release-locks ----------------------------------------------------------
 
