@@ -16,7 +16,7 @@ import { creditsToUsd, formatCreditCount, freeTierNote } from '../../utils/credi
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
-import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
+import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, clampSegmentWidths } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -32,6 +32,12 @@ export function VisionMetrics(): JSX.Element {
     const { resetsOn, status, percentLabel, usedPct, usedFreePct, projectedPct } = projection
     const hasCap = hasCreditLimit(quota)
     const freeNote = quota ? freeTierNote(quota.free_monthly_credits) : null
+    // Same input the bar clamps, so a legend chip can never outlive its segment.
+    const [freeWidth, billedWidth, projectedWidth] = clampSegmentWidths([
+        usedFreePct,
+        usedPct - usedFreePct,
+        projectedPct,
+    ])
     const styles = QUOTA_STATUS_STYLES[status]
 
     // Memoized so a re-render (e.g. stats/quota arriving) can't churn the query and abort an in-flight load.
@@ -176,17 +182,13 @@ export function VisionMetrics(): JSX.Element {
                                         />
                                     </Tooltip>
                                     <div className="flex items-center gap-3 text-xs text-muted mt-1.5">
-                                        {usedFreePct > 0 && (
-                                            <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS}>
-                                                Free
-                                            </QuotaMeterLegendItem>
-                                        )}
-                                        {usedPct > usedFreePct && (
-                                            <QuotaMeterLegendItem>
-                                                {usedFreePct > 0 ? 'Billed' : 'Spent'}
-                                            </QuotaMeterLegendItem>
-                                        )}
-                                        <QuotaMeterLegendItem barClass={styles.bar} striped>
+                                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
+                                            Free
+                                        </QuotaMeterLegendItem>
+                                        <QuotaMeterLegendItem width={billedWidth}>
+                                            {freeWidth > 0 ? 'Billed' : 'Spent'}
+                                        </QuotaMeterLegendItem>
+                                        <QuotaMeterLegendItem barClass={styles.bar} striped width={projectedWidth}>
                                             Projected
                                         </QuotaMeterLegendItem>
                                         <span className="ml-auto">

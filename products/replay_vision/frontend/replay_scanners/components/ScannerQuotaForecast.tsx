@@ -15,7 +15,7 @@ import {
     splitProjectedPct,
 } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
+import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, clampSegmentWidths } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 
 interface Props {
@@ -55,6 +55,13 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const styles = QUOTA_STATUS_STYLES[effectiveStatus]
 
     const { thisScannerPct, othersPct } = splitProjectedPct(projectedPct, projectedCredits ?? 0, othersMonthly)
+    // Same input the bar clamps, so a legend chip can never outlive its segment.
+    const [freeWidth, billedWidth, othersWidth, thisWidth] = clampSegmentWidths([
+        usedFreePct,
+        usedPct - usedFreePct,
+        othersPct,
+        thisScannerPct,
+    ])
 
     const breakdown = (
         <div className="text-xs space-y-0.5">
@@ -146,14 +153,16 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                         />
                     </Tooltip>
                     <div className="flex items-center gap-3 text-xs text-muted">
-                        {usedFreePct > 0 && (
-                            <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS}>Free</QuotaMeterLegendItem>
-                        )}
-                        {usedPct > usedFreePct && (
-                            <QuotaMeterLegendItem>{usedFreePct > 0 ? 'Billed' : 'Spent'}</QuotaMeterLegendItem>
-                        )}
-                        <QuotaMeterLegendItem barClass="bg-accent">Projected (other scanners)</QuotaMeterLegendItem>
-                        <QuotaMeterLegendItem barClass={styles.bar} striped>
+                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
+                            Free
+                        </QuotaMeterLegendItem>
+                        <QuotaMeterLegendItem width={billedWidth}>
+                            {freeWidth > 0 ? 'Billed' : 'Spent'}
+                        </QuotaMeterLegendItem>
+                        <QuotaMeterLegendItem barClass="bg-accent" width={othersWidth}>
+                            Projected (other scanners)
+                        </QuotaMeterLegendItem>
+                        <QuotaMeterLegendItem barClass={styles.bar} striped width={thisWidth}>
                             Projected (this scanner)
                         </QuotaMeterLegendItem>
                     </div>

@@ -13,7 +13,7 @@ export interface QuotaMeterSegment {
 }
 
 /** Shading for the non-billable slice of spend, so free credits don't read as money spent. */
-export const QUOTA_METER_FREE_CLASS = 'bg-fill-success-secondary'
+export const QUOTA_METER_FREE_CLASS = 'QuotaMeterBar__free'
 
 interface QuotaMeterBarProps {
     /** Solid segment: actual usage as a percentage of the cap. */
@@ -77,16 +77,22 @@ export function QuotaMeterBar({
     )
 }
 
-/** Legend entry with a chip matching a bar segment. */
+/** Legend entry with a chip matching a bar segment. Renders nothing when its segment has no width. */
 export function QuotaMeterLegendItem({
     barClass,
     striped,
+    width,
     children,
 }: {
     barClass?: string
     striped?: boolean
+    /** Clamped width of the matching segment; omit for entries that are always shown. */
+    width?: number
     children: ReactNode
-}): JSX.Element {
+}): JSX.Element | null {
+    if (width !== undefined && width <= 0) {
+        return null
+    }
     return (
         <div className="flex items-center gap-1">
             <span
