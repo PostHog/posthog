@@ -30,6 +30,7 @@ import {
   isCanvasGenerating,
   isCanvasGenerationRunning,
 } from "@posthog/ui/features/canvas/freeform/canvasGenerationStatus";
+import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import { useCanvasBuilds } from "@posthog/ui/features/canvas/hooks/useCanvasBuilds";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import {
@@ -39,6 +40,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import {
+  dashboardIdOf,
   useFreeformChatStore,
   useFreeformThread,
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
@@ -65,13 +67,12 @@ import { CanvasFramePlaceholder } from "./CanvasFramePlaceholder";
 import { CanvasGenerateHero } from "./CanvasGenerateHero";
 import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
 import { CanvasSidePanel } from "./CanvasSidePanel";
+import {
+  canvasVersionNavigation,
+  shouldClearCanvasBrowse,
+} from "./canvasVersionNavigation";
 import { handleFreeformDataRequest } from "./freeformDataBridge";
 import { useCanvasNavigation, useHomeCanvasReset } from "./useHomeCanvasView";
-
-// The dashboardId a thread is keyed on ("dashboard:<id>" → "<id>").
-function dashboardIdOf(threadId: string): string {
-  return threadId.replace(/^dashboard:/, "");
-}
 
 // How long a mounted artifact iframe gets to post "ready"/"rendered" before
 // its signed URL is suspected expired.
@@ -211,20 +212,13 @@ export function FreeformCanvasView({
   );
 
   // When the run stops syncing, sweep the derived caches once: the agent's
-  // publish queued a build server-side, so the lifecycle (and version list)
-  // must refresh promptly for the artifact swap even though polling stops.
+  // publish queued a build server-side, so the record, lifecycle, versions,
+  // and source must refresh promptly for the artifact swap even though
+  // polling stops.
   const wasSyncingRef = useRef(isSyncing);
   useEffect(() => {
     if (wasSyncingRef.current && !isSyncing && dashboardId) {
-      void queryClient.invalidateQueries({
-        queryKey: trpc.dashboards.builds.queryKey({ id: dashboardId }),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: trpc.dashboards.get.queryKey({ id: dashboardId }),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: trpc.dashboards.versions.queryKey({ id: dashboardId }),
-      });
+      void invalidateCanvasLifecycle(queryClient, trpc, dashboardId);
     }
     wasSyncingRef.current = isSyncing;
   }, [isSyncing, dashboardId, queryClient, trpc]);
@@ -302,39 +296,29 @@ export function FreeformCanvasView({
   // (e.g. it was pruned server-side while this canvas was open).
   useEffect(() => {
     if (
-      browseVersionId &&
-      !versionsLoading &&
-      versions.length > 0 &&
-      !versions.some((v) => v.id === browseVersionId)
+      shouldClearCanvasBrowse({ versions, versionsLoading, browseVersionId })
     ) {
       setBrowseVersion(threadId, null);
     }
   }, [browseVersionId, versions, versionsLoading, threadId, setBrowseVersion]);
 
   // Undo/redo step through the version list relative to the HEAD (which, after
-  // a revert, may sit mid-list rather than at versions[0]).
-  const headIndex = useMemo(() => {
-    const headId = dashboard?.currentVersionId;
-    if (!headId) return 0;
-    const idx = versions.findIndex((v) => v.id === headId);
-    return idx === -1 ? 0 : idx;
-  }, [dashboard?.currentVersionId, versions]);
-  const browseIndex = browseVersionId
-    ? versions.findIndex((v) => v.id === browseVersionId)
-    : -1;
-  const currentIndex = browsing && browseIndex !== -1 ? browseIndex : headIndex;
-  const canUndo =
-    !isGenerating && versions.length > 0 && currentIndex < versions.length - 1;
-  const canRedo = !isGenerating && browsing && currentIndex > headIndex;
+  // a revert, may sit mid-list rather than at versions[0]). The arithmetic is
+  // a tested pure helper; only the isGenerating gate is view-local.
+  const nav = canvasVersionNavigation({
+    versions,
+    headVersionId: dashboard?.currentVersionId,
+    browseVersionId: browsing ? browseVersionId : null,
+  });
+  const { currentIndex } = nav;
+  const canUndo = !isGenerating && nav.canUndo;
+  const canRedo = !isGenerating && nav.canRedo;
   const onUndo = () => {
-    const target = versions[currentIndex + 1];
-    if (target) setBrowseVersion(threadId, target.id);
+    if (nav.undoTargetId) setBrowseVersion(threadId, nav.undoTargetId);
   };
   const onRedo = () => {
-    const newIndex = currentIndex - 1;
-    // Stepping onto (or past) the head ends the browse — back to live.
-    if (newIndex <= headIndex) setBrowseVersion(threadId, null);
-    else setBrowseVersion(threadId, versions[newIndex]?.id ?? null);
+    // A null target means stepping onto (or past) the head — back to live.
+    setBrowseVersion(threadId, nav.redoTargetId);
   };
 
   // Revert: make the browsed version the head. The mutation invalidates the

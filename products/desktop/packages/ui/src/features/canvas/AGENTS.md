@@ -81,8 +81,8 @@ The root `AGENTS.md` architecture rules still apply.
 
 - **A canvas's name is its own field on the record**, set at creation
   (`Untitled canvas` by default; the template picker / `useCreateAndOpenDashboard`
-  drive it) and copied with a `(fork)` suffix on fork. It is independent of any
-  heading the agent renders inside the React app.
+  drive it). It is independent of any heading the agent renders inside the
+  React app.
 
 ## Storage
 

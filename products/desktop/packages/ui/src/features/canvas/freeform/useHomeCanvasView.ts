@@ -1,5 +1,6 @@
 import type { CanvasNavIntent } from "@posthog/core/canvas/freeformSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
+import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import {
   useCreateAndOpenDashboard,
   useDashboard,
@@ -80,18 +81,7 @@ export function useHomeCanvasReset(args: {
     try {
       await resetMutation.mutateAsync({ channelId });
       setBrowseVersion(threadId, null);
-      await Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: trpc.dashboards.get.queryKey({ id: dashboardId }),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: trpc.dashboards.builds.queryKey({ id: dashboardId }),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: trpc.dashboards.versions.queryKey({ id: dashboardId }),
-        }),
-        queryClient.invalidateQueries(trpc.dashboards.source.pathFilter()),
-      ]);
+      await invalidateCanvasLifecycle(queryClient, trpc, dashboardId);
       toast.success("Canvas reset to default", {
         description: "Undo to browse your previous version.",
       });

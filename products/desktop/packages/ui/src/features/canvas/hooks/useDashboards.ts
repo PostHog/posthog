@@ -6,6 +6,7 @@ import type {
 } from "@posthog/core/canvas/dashboardSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import { invalidateCanvasLifecycle } from "@posthog/ui/features/canvas/hooks/invalidateCanvasLifecycle";
 import { useDashboardEditStore } from "@posthog/ui/features/canvas/stores/dashboardEditStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { logger } from "@posthog/ui/shell/logger";
@@ -150,15 +151,11 @@ export function useDashboardMutations() {
   );
   const revertToVersion = useMutation(
     trpc.dashboards.revertToVersion.mutationOptions({
-      onSuccess: () => {
-        invalidate();
-        // A revert moves the head and queues a rebuild; refresh both the
-        // version history and the build lifecycle so viewers converge.
-        void queryClient.invalidateQueries(
-          trpc.dashboards.versions.pathFilter(),
-        );
-        void queryClient.invalidateQueries(trpc.dashboards.builds.pathFilter());
-        void queryClient.invalidateQueries(trpc.dashboards.source.pathFilter());
+      // A revert moves the head and queues a rebuild; refresh the reverted
+      // canvas's record, build lifecycle, version history, and source so
+      // viewers converge — scoped to that canvas, not every open one.
+      onSuccess: (_data, variables) => {
+        void invalidateCanvasLifecycle(queryClient, trpc, variables.id);
       },
     }),
   );

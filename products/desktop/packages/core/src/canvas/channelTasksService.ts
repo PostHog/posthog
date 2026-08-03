@@ -23,9 +23,9 @@ export class ChannelTasksService {
     const rows = await this.api.listPaginated<ApiTask>(
       `tasks/?channel=${encodeURIComponent(channelId)}`,
       "list channel tasks",
+      { limit: 200 },
     );
     return rows.map((task) => ({
-      id: task.id,
       channelId,
       taskId: task.id,
       createdAt: Date.parse(task.created_at) || 0,
@@ -38,7 +38,6 @@ export class ChannelTasksService {
   }): Promise<ChannelTaskRecord> {
     const task = await this.setChannel(input.taskId, input.channelId);
     return {
-      id: task.id,
       channelId: input.channelId,
       taskId: task.id,
       createdAt: Date.parse(task.created_at) || 0,

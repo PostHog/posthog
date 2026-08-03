@@ -1,3 +1,8 @@
+import {
+  CANVAS_COMPONENT_PATH,
+  CANVAS_ENTRY_HTML,
+  CANVAS_SOURCE_SCHEMA_VERSION,
+} from "@posthog/shared";
 import { inject, injectable } from "inversify";
 import {
   type CanvasBuildActionInput,
@@ -19,7 +24,7 @@ import { PROJECT_API_CLIENT, type ProjectApiClient } from "./projectApiClient";
 const HOME_CANVAS_NAME = "Home";
 
 // The entry shell for a client-authored single-file project (the home canvas
-// seed): the runtime mounts the default export of src/canvas.tsx.
+// seed): the runtime mounts the default export of the canvas component file.
 const SINGLE_FILE_INDEX_HTML = `<!doctype html>
 <html>
   <head>
@@ -28,7 +33,7 @@ const SINGLE_FILE_INDEX_HTML = `<!doctype html>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/canvas.tsx"></script>
+    <script type="module" src="/${CANVAS_COMPONENT_PATH}"></script>
   </body>
 </html>
 `;
@@ -129,6 +134,7 @@ export class DashboardsService {
     const rows = await this.api.listPaginated<ApiCanvas>(
       `canvases/?channel=${encodeURIComponent(channelId)}`,
       "list canvases",
+      { limit: 200 },
     );
     return rows.map(toRecord);
   }
@@ -328,6 +334,7 @@ export class DashboardsService {
     const rows = await this.api.listPaginated<ApiCanvas>(
       `canvases/?channel=${encodeURIComponent(channelId)}&is_home=true`,
       "find home canvas",
+      { limit: 200 },
     );
     return rows.length ? toRecord(rows[0]) : null;
   }
@@ -340,12 +347,12 @@ export class DashboardsService {
     channelId: string,
   ): Promise<DashboardRecord> {
     const project = {
-      schemaVersion: 1,
+      schemaVersion: CANVAS_SOURCE_SCHEMA_VERSION,
       files: {
-        "index.html": SINGLE_FILE_INDEX_HTML,
-        "src/canvas.tsx": buildHomeCanvasCode(channelId, record.id),
+        [CANVAS_ENTRY_HTML]: SINGLE_FILE_INDEX_HTML,
+        [CANVAS_COMPONENT_PATH]: buildHomeCanvasCode(channelId, record.id),
       },
-      entryHtml: "index.html",
+      entryHtml: CANVAS_ENTRY_HTML,
       dependencies: { react: "19.0.0" },
       canvasSdkVersion: "0.1.0",
       capabilities: {
@@ -409,7 +416,7 @@ function sql(v: string): string {
   return "'" + String(v).replace(/'/g, "''") + "'";
 }
 
-type Row = { id: string; title: string; ref: string | null; createdAt: string };
+type Row = { id: string; title: string; createdAt: string };
 
 // Paginated reader for the channel's canvases or tasks, newest first.
 function useChannelRows(kind: "dashboard" | "task") {
@@ -436,7 +443,6 @@ function useChannelRows(kind: "dashboard" | "task") {
       const batch: Row[] = ((res && res.results) || []).map((r: any[]) => ({
         id: String(r[0]),
         title: String(r[1]),
-        ref: kind === "task" ? String(r[0]) : null,
         createdAt: String(r[2]),
       }));
       offsetRef.current += batch.length;
@@ -667,10 +673,7 @@ function TasksSection() {
           key={r.id}
           title={r.title}
           meta={r.createdAt.slice(0, 10)}
-          // A task row's file-system id is NOT the task id; the task id is the
-          // row's ref (ChannelTasksService files it as ref=taskId). Only rows
-          // with a ref are navigable.
-          onClick={r.ref ? () => ph.navigate?.toTask(r.ref as string) : undefined}
+          onClick={() => ph.navigate?.toTask(r.id)}
         />
       ))}
     </Section>

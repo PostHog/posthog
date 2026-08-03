@@ -24,7 +24,6 @@ import {
 import { channelSectionFor } from "@posthog/ui/features/canvas/channelSections";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { channelGlyph } from "@posthog/ui/features/canvas/components/channelGlyph";
-import { ensurePersonalChannel } from "@posthog/ui/features/canvas/ensurePersonalChannel";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -725,7 +724,7 @@ export function BrowserTabStrip() {
     // #me is provisioned lazily server-side with the channel list (same source
     // the sidebar's #me row reads); fall back to the new-task screen while it
     // hasn't loaded yet.
-    const personal = ensurePersonalChannel(channels);
+    const personal = channels.find((c) => c.channelType === "personal");
     if (personal) {
       navigate({
         to: "/website/$channelId",

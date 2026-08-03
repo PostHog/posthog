@@ -1,11 +1,11 @@
 import type { TaskChannel } from "@posthog/shared/domain-types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
-import { TASK_CHANNELS_QUERY_KEY } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
+import {
+  TASK_CHANNELS_QUERY_KEY,
+  useTaskChannels,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-
-const CHANNELS_POLL_INTERVAL_MS = 30_000;
 
 /** A Home-space channel: a backend task channel (one UUID for everything). */
 export interface Channel {
@@ -29,31 +29,23 @@ function toChannel(channel: TaskChannel): Channel {
 }
 
 /**
- * List the project's channels. Shares the task-channels query key so star and
- * create mutations keep one cache coherent.
+ * List the project's channels, normalized for the Home-space UI. A thin view
+ * over `useTaskChannels` — the single task-channels query (one key, one poll
+ * cadence) — so star and create mutations keep one cache coherent.
  */
 export function useChannels(options?: { enabled?: boolean }): {
   channels: Channel[];
   isLoading: boolean;
 } {
-  const query = useAuthenticatedQuery<TaskChannel[]>(
-    TASK_CHANNELS_QUERY_KEY,
-    (client) => client.getTaskChannels(),
-    {
-      enabled: options?.enabled ?? true,
-      refetchInterval: CHANNELS_POLL_INTERVAL_MS,
-    },
-  );
+  const { channels: taskChannels, isLoading } = useTaskChannels(options);
   // Memoize so the array reference is stable while the underlying data is
   // unchanged — callers depend on `channels` in their own memos/effects.
   const channels = useMemo(
     () =>
-      (query.data ?? [])
-        .map(toChannel)
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [query.data],
+      taskChannels.map(toChannel).sort((a, b) => a.name.localeCompare(b.name)),
+    [taskChannels],
   );
-  return { channels, isLoading: query.isLoading };
+  return { channels, isLoading };
 }
 
 /**

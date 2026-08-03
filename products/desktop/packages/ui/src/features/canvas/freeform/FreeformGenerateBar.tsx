@@ -12,7 +12,7 @@ import { forwardRef, useState } from "react";
 // user describes what they want and the agent builds + publishes the canvas. No
 // repo is picked up front — the agent attaches one lazily only if it needs it.
 // Used both for the first build (empty canvas) and for follow-up edits
-// (currentCode passed in).
+// (isEdit passed in).
 //
 // Shares the task composer's editor (PromptInput) so it matches it exactly — @
 // for files, / for skills, ↑↓ for history — but renders a blank toolbar for now:
@@ -71,10 +71,7 @@ export const FreeformGenerateBar = forwardRef<
       name,
       templateId,
       instruction,
-      // generate() only reads currentCode's truthiness (the agent re-reads
-      // the live source through the canvas tools), so the edit signal is a
-      // marker rather than the actual — possibly multi-file — source.
-      currentCode: isEdit ? "edit" : undefined,
+      isEdit,
       useStarter: !isEdit && useStarter,
       workspaceMode,
     });

@@ -8,6 +8,10 @@ import { useQuery } from "@tanstack/react-query";
 // Poll while a build is in flight (publishes queue a server-side build), then
 // settle down — the lifecycle only changes again on the next publish.
 const ACTIVE_POLL_MS = 2_000;
+// While a generation is in flight but no build is active yet, poll at the
+// canvas-record cadence — we're only waiting for the agent's publish to queue
+// a build, and the record poll runs at this same rate.
+const GENERATING_POLL_MS = 4_000;
 
 /**
  * A canvas's build lifecycle, polled while a build is queued or running — OR
@@ -33,11 +37,12 @@ export function useCanvasBuilds(
       {
         enabled: !!dashboardId && (options?.enabled ?? true),
         staleTime: ACTIVE_POLL_MS,
-        refetchInterval: (query) =>
-          generating ||
-          (query.state.data && hasActiveCanvasBuild(query.state.data))
-            ? ACTIVE_POLL_MS
-            : false,
+        refetchInterval: (query) => {
+          if (query.state.data && hasActiveCanvasBuild(query.state.data)) {
+            return ACTIVE_POLL_MS;
+          }
+          return generating ? GENERATING_POLL_MS : false;
+        },
       },
     ),
   );

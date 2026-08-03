@@ -40,10 +40,21 @@ export class ProjectApiClient {
     return (await res.json()) as T;
   }
 
-  /** List a DRF-paginated collection, walking `next` links until exhausted. */
-  async listPaginated<T>(path: string, errorLabel: string): Promise<T[]> {
+  /**
+   * List a DRF-paginated collection, walking `next` links until exhausted.
+   * `options.limit` sets the page size on the first request (subsequent pages
+   * follow the server's `next` links, which carry the limit forward).
+   */
+  async listPaginated<T>(
+    path: string,
+    errorLabel: string,
+    options?: { limit?: number },
+  ): Promise<T[]> {
     const all: T[] = [];
-    let suffix = path;
+    let suffix =
+      options?.limit != null
+        ? `${path}${path.includes("?") ? "&" : "?"}limit=${options.limit}`
+        : path;
     for (let i = 0; i < MAX_PAGES; i++) {
       const page = await this.json<{ next: string | null; results: T[] }>(
         suffix,

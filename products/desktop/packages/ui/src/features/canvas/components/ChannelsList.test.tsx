@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
     channelType: "public" | "personal";
     starred: boolean;
   }[],
-  starredIds: [] as string[],
   channelsLayout: true,
   navigate: vi.fn(),
 }));
@@ -24,10 +23,6 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannelMutations: () => ({ deleteChannel: vi.fn(), isDeleting: false }),
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelStars", () => ({
-  useChannelStars: () => ({
-    starredChannelIds: new Set(mocks.starredIds),
-    isLoading: false,
-  }),
   useChannelStarToggle: () => ({
     isStarred: false,
     toggleStar: vi.fn(),
@@ -86,7 +81,6 @@ describe("ChannelsList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.channels = [ME, ENG, DESIGN];
-    mocks.starredIds = [];
     mocks.channelsLayout = true;
     // The pane store is module state: reset to its resting value so a test that
     // slides the slider can't hand the next one a pre-focused search box.
@@ -122,7 +116,7 @@ describe("ChannelsList", () => {
   // Slack-style inset; the alpha keeps its deeper tree indentation.
   describe("group headings", () => {
     beforeEach(() => {
-      mocks.starredIds = [ENG.id];
+      mocks.channels = [ME, { ...ENG, starred: true }, DESIGN];
     });
 
     it("slightly indents rows under the layout", () => {
@@ -170,7 +164,7 @@ describe("ChannelsList", () => {
     // "Channels" headings only stand between you and the one row that matches.
     it("drops the group headings while filtering", async () => {
       const user = userEvent.setup();
-      mocks.starredIds = [ENG.id];
+      mocks.channels = [ME, { ...ENG, starred: true }, DESIGN];
       renderList();
       expect(screen.getByText("Starred")).toBeTruthy();
 

@@ -78,7 +78,7 @@ export function WebsiteChannelHistory({ channelId }: { channelId: string }) {
         if (archivedTaskIds.has(f.taskId) || !task) return [];
         return [
           {
-            key: `task:${f.id}`,
+            key: `task:${f.taskId}`,
             kind: "task" as const,
             title: task.title || "Untitled task",
             ts: Date.parse(task.updated_at) || 0,

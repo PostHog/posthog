@@ -1,12 +1,58 @@
 import { EditorView } from "@codemirror/view";
+import {
+  useDashboard,
+  useDashboardMutations,
+} from "@posthog/ui/features/canvas/hooks/useDashboards";
 import { useEditorExtensions } from "@posthog/ui/features/code-editor/hooks/useEditorExtensions";
-import { useEffect, useRef } from "react";
+import { toast } from "@posthog/ui/primitives/toast";
+import { useEffect, useRef, useState } from "react";
 
-// The Context tab's markdown editor. A self-contained CodeMirror instance (the
-// shared CodeMirrorEditor is wired to the host workspace/context-menu, which the
-// canvas panel must not touch), reusing the app's editor extensions + theme via
-// useEditorExtensions. `context.md` drives markdown syntax highlighting.
+// The canvas side panel's markdown editor for the author-written context (the
+// canvas record's `context`, passed to generation tasks). A self-contained
+// CodeMirror instance (the shared CodeMirrorEditor is wired to the host
+// workspace/context-menu, which the canvas panel must not touch), reusing the
+// app's editor extensions + theme via useEditorExtensions. `context.md` drives
+// markdown syntax highlighting.
 const CONTEXT_FILE = "context.md";
+
+/**
+ * The author-context editor for a canvas, bound to the saved record: shows the
+ * record's `context`, buffers edits locally while typing, and commits on blur
+ * through the `saveContext` mutation (which invalidates the record so every
+ * viewer converges on the saved text).
+ */
+export function CanvasContextEditor({ dashboardId }: { dashboardId: string }) {
+  const { dashboard } = useDashboard(dashboardId);
+  const { saveContext } = useDashboardMutations();
+  const saved = dashboard?.context ?? "";
+
+  // Local editing buffer; null = untouched (mirror the saved record). A
+  // touched buffer stays authoritative — a record poll landing mid-edit must
+  // not clobber unsaved typing — and resets only once the record catches up
+  // with the committed text, so a commit can't flash the stale value while the
+  // invalidated record refetches.
+  const [draft, setDraft] = useState<string | null>(null);
+  if (draft !== null && draft === saved) setDraft(null);
+
+  const commit = () => {
+    if (draft === null || draft === saved) return;
+    saveContext(dashboardId, draft).catch((error: unknown) => {
+      // The buffer stays authoritative, so the text isn't lost — the next
+      // blur retries the save.
+      toast.error("Couldn't save canvas context", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
+  };
+
+  return (
+    <ContextEditor
+      value={draft ?? saved}
+      onChange={setDraft}
+      onCommit={commit}
+    />
+  );
+}
 
 export function ContextEditor({
   value,

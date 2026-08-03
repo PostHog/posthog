@@ -64,7 +64,10 @@ export function useGenerateFreeformCanvas(args: {
       name: string;
       templateId?: string;
       instruction: string;
-      currentCode?: string;
+      /** True when the canvas already has published source (a follow-up edit
+       * rather than a first build). The agent re-reads the live source itself
+       * through the canvas tools. */
+      isEdit?: boolean;
       // The composer's picks, when the surface exposes model/effort selectors.
       adapter?: Adapter;
       model?: string;
@@ -104,9 +107,7 @@ export function useGenerateFreeformCanvas(args: {
             name,
             templateId: opts.templateId,
             instruction,
-            // The agent re-reads the live source through the canvas tools, so
-            // the hook only signals whether this is an edit of published code.
-            isEdit: !!opts.currentCode?.trim(),
+            isEdit: opts.isEdit ?? false,
             useStarter: opts.useStarter,
             channelId,
             channelName,

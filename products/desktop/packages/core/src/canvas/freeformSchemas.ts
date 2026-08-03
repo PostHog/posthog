@@ -5,44 +5,6 @@ import { z } from "zod";
 // generation path can resolve the right system prompt.
 export const FREEFORM_TEMPLATE_ID = "freeform";
 
-// A single point in a freeform canvas's edit history. Every agent turn appends
-// one full-file snapshot (Q7: full-file rewrite); the user can revert to any of
-// them and the `currentVersionId` pointer is what publishes. We keep whole-file
-// snapshots rather than diffs because canvases are small and a snapshot can
-// never fail to reconstruct.
-export const freeformVersionSchema = z.object({
-  id: z.string(),
-  // The complete single-file React source for this version.
-  code: z.string(),
-  // The author-written context (markdown) passed to the agent, as it stood for
-  // this version. Snapshotted so reverting restores the context too. Absent on
-  // versions saved before the Context tab existed.
-  context: z.string().optional(),
-  // The user prompt that produced this version (absent for the seed/empty one,
-  // and for a version created by a context-only edit).
-  prompt: z.string().optional(),
-  // Epoch ms the version was created.
-  createdAt: z.number(),
-});
-export type FreeformVersion = z.infer<typeof freeformVersionSchema>;
-
-// The freeform-specific payload that rides in a canvas's file-system `meta` blob.
-export const freeformCanvasSchema = z.object({
-  // The currently-rendered source (mirrors the version pointed to by
-  // currentVersionId; duplicated so the renderer needs only this field).
-  code: z.string(),
-  // Full, ordered edit history (oldest first). Always contains >= 1 entry once
-  // the agent has produced anything.
-  versions: z.array(freeformVersionSchema).default([]),
-  // Which version is live. Undo/redo moves this pointer; a new agent turn
-  // truncates any "redo" tail (Q8: linear-discard) and appends.
-  currentVersionId: z.string().optional(),
-  // The live author-written context (markdown), mirrors the version pointed to by
-  // currentVersionId. Prepended to every agent turn so the build is anchored to it.
-  context: z.string().default(""),
-});
-export type FreeformCanvas = z.infer<typeof freeformCanvasSchema>;
-
 // ---------------------------------------------------------------------------
 // Canvas data avenue: the host-side query the postMessage `ph.query` shim calls.
 // Routed through PostHog's cached query runner (the same avenue insights use, so

@@ -2274,20 +2274,6 @@ export class PostHogAPIClient {
     return (await response.json()) as TaskChannel;
   }
 
-  async getTaskChannel(id: string): Promise<TaskChannel> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(id)}/`;
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-    });
-    if (!response.ok) {
-      throw new Error(`Failed to fetch task channel: ${response.statusText}`);
-    }
-    return (await response.json()) as TaskChannel;
-  }
-
   // Rename a channel. The server normalizes the name (lowercase-dashed).
   async renameTaskChannel(id: string, name: string): Promise<TaskChannel> {
     const teamId = await this.getTeamId();
@@ -2440,49 +2426,6 @@ export class PostHogAPIClient {
       { channelId, returned: all.length },
     );
     return all;
-  }
-
-  // The task currently generating this channel's CONTEXT.md, shared across the
-  // project so any user sees an in-progress generation (instead of fragile
-  // local state). Returns null when nothing is generating.
-  async getChannelGenerationTask(channelId: string): Promise<string | null> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/context_generation/`;
-    const response = await this.api.fetcher.fetch({
-      method: "get",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-    });
-    if (response.status === 404) return null;
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch channel generation task: ${response.statusText}`,
-      );
-    }
-    const data = (await response.json()) as { task_id?: string | null };
-    return data.task_id ?? null;
-  }
-
-  // Record (or clear, with null) the task generating this channel's CONTEXT.md.
-  async setChannelGenerationTask(
-    channelId: string,
-    taskId: string | null,
-  ): Promise<void> {
-    const teamId = await this.getTeamId();
-    const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/context_generation/`;
-    const response = await this.api.fetcher.fetch({
-      method: "put",
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-      overrides: {
-        body: JSON.stringify({ task_id: taskId }),
-      },
-    });
-    if (!response.ok && response.status !== 404) {
-      throw new Error(
-        `Failed to set channel generation task: ${response.statusText}`,
-      );
-    }
   }
 
   // A channel's system-announcement feed (context created, CONTEXT.md being

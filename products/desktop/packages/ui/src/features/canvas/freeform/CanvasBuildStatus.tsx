@@ -6,10 +6,7 @@ import {
   WarningCircleIcon,
   XIcon,
 } from "@phosphor-icons/react";
-import {
-  hasActiveCanvasBuild,
-  latestFinishedCanvasBuild,
-} from "@posthog/core/canvas/canvasBuildSchemas";
+import { latestFinishedCanvasBuild } from "@posthog/core/canvas/canvasBuildSchemas";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button } from "@posthog/quill";
 import type { CanvasDiagnostic } from "@posthog/shared";
@@ -85,7 +82,7 @@ export function CanvasBuildStatus({
 
   if (!lifecycle || lifecycle.builds.length === 0) return null;
 
-  if (active && hasActiveCanvasBuild(lifecycle)) {
+  if (active) {
     const elapsed = formatElapsed(now - Date.parse(active.createdAt));
     return (
       <Flex align="center" gap="1" data-testid="canvas-build-active">

@@ -1,7 +1,8 @@
 import { z } from "zod";
 
+// A filing is the task's `channel` field on the tasks API, so the task id IS
+// the record's identity — there is no separate row id.
 export const channelTaskRecordSchema = z.object({
-  id: z.string(),
   channelId: z.string(),
   taskId: z.string(),
   createdAt: z.number(),
@@ -17,4 +18,4 @@ export const fileChannelTaskInput = z.object({
   taskId: z.string().min(1),
 });
 
-export const channelTaskIdInput = z.object({ id: z.string().min(1) });
+export const unfileChannelTaskInput = z.object({ taskId: z.string().min(1) });

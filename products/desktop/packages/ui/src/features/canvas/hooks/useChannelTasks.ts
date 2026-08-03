@@ -74,7 +74,7 @@ export function useChannelTaskMutations() {
     fileTask: (channelId: string, taskId: string) =>
       file.mutateAsync({ channelId, taskId }),
     // Unfiling clears the task's channel field, so it's keyed on the task id.
-    unfileTask: (taskId: string) => unfile.mutateAsync({ id: taskId }),
+    unfileTask: (taskId: string) => unfile.mutateAsync({ taskId }),
     isFiling: file.isPending,
     isUnfiling: unfile.isPending,
   };
