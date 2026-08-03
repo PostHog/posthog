@@ -362,6 +362,9 @@
             ],
             "description": "Whether to automatically apply default evaluation contexts to new feature flags"
         },
+        "default_ui_configuration": {
+            "description": "Project-wide default UI customization (currently sidebar element visibility), validated against the `UserUIConfiguration` schema. Members who haven't set their own `ui_configuration` inherit it. Send the complete object: it replaces the stored value wholesale. Null means no project default. Only project admins can modify it."
+        },
         "extra_settings": {},
         "feature_flag_confirmation_enabled": {
             "anyOf": [
