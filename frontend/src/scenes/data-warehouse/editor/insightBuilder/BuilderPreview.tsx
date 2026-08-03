@@ -221,7 +221,10 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
     return (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {showViewToggle ? (
-                <div className="flex shrink-0 items-center justify-end border-b px-2 py-1">
+                <div
+                    className="flex shrink-0 items-center justify-end border-b px-2 py-1"
+                    data-attr="sql-builder-view-toggle"
+                >
                     <LemonSegmentedButton
                         size="xsmall"
                         value={builderView}
@@ -231,7 +234,6 @@ export function BuilderPreview({ tabId }: { tabId: string }): JSX.Element {
                             { value: 'table', icon: <IconTableChart />, tooltip: 'Results of the generated SQL' },
                             { value: 'sql', icon: <IconCode />, tooltip: 'Generated SQL' },
                         ]}
-                        data-attr="sql-builder-view-toggle"
                     />
                 </div>
             ) : null}
