@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from django.http import Http404
 from django.test import RequestFactory, SimpleTestCase, override_settings
 
-from products.canvas.backend.presentation.artifacts import (
+from products.canvas.backend.artifacts import (
     ARTIFACT_TOKEN_SALT,
     _read_token,
     canvas_artifact,
@@ -45,8 +45,8 @@ class TestCanvasArtifacts(SimpleTestCase):
         self.assertEqual(_read_token(old_token), claims)
 
     @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["key"])
-    @patch("products.canvas.backend.presentation.artifacts.object_storage.read_bytes", return_value=b"body")
-    @patch("products.canvas.backend.presentation.artifacts.CanvasBuild")
+    @patch("products.canvas.backend.artifacts.object_storage.read_bytes", return_value=b"body")
+    @patch("products.canvas.backend.artifacts.CanvasBuild")
     def test_only_manifest_listed_files_are_served(self, canvas_build: MagicMock, read_bytes: MagicMock) -> None:
         content = b"body"
         build = MagicMock(
@@ -80,8 +80,8 @@ class TestCanvasArtifacts(SimpleTestCase):
         read_bytes.assert_called_once()
 
     @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=["key"])
-    @patch("products.canvas.backend.presentation.artifacts.object_storage.read_bytes", return_value=b"tampered")
-    @patch("products.canvas.backend.presentation.artifacts.CanvasBuild")
+    @patch("products.canvas.backend.artifacts.object_storage.read_bytes", return_value=b"tampered")
+    @patch("products.canvas.backend.artifacts.CanvasBuild")
     def test_corrupt_stored_artifact_is_not_served(self, canvas_build: MagicMock, _read_bytes: MagicMock) -> None:
         canvas_build.objects.for_team.return_value.filter.return_value.first.return_value = MagicMock(
             artifact_object_prefix="canvas_artifact/team_1/canvas/build",

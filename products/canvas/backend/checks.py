@@ -21,7 +21,7 @@ def check_artifact_delivery_settings(app_configs: Any, **kwargs: Any) -> list[Er
     if not origin and not keys:
         return []
 
-    from products.canvas.backend.presentation.artifacts import _configured_artifact_host  # noqa: PLC0415
+    from products.canvas.backend.artifacts import _configured_artifact_host  # noqa: PLC0415
 
     errors: list[Error] = []
     if not origin or not keys:

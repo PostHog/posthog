@@ -423,7 +423,7 @@ class CanvasBuildSerializer(serializers.Serializer):
     finished_at = serializers.DateTimeField(allow_null=True, help_text="When the build reached a terminal state.")
 
     def get_artifact_url(self, build: Any) -> str | None:
-        from products.canvas.backend.presentation.artifacts import create_canvas_artifact_url  # noqa: PLC0415
+        from products.canvas.backend.artifacts import create_canvas_artifact_url  # noqa: PLC0415
 
         # artifact_object_prefix is cleared by retention once a ready build's
         # objects are pruned; the artifact view 404s on it, so don't advertise a
