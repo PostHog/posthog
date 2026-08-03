@@ -18,6 +18,7 @@ const {
     isProductDirectory,
     isTripwire,
     parseCrateDependencies,
+    parsePytestIgnores,
     parseWorkspacePackageGlobs,
     reverseClosure,
     ALL,
@@ -449,6 +450,37 @@ test('the vendored workspace files claim only the product lane', () => {
     assert.equal(
         computeTargets(['products/alpha/pnpm-lock.yaml'], WORKSPACE_CONTEXT).includes('py:product:alpha'),
         true
+    )
+})
+
+// delta stands in for products/desktop: an app imported from another
+// repository that pytest.ini ignores and tach.toml never declares. Its
+// vendored .py files read as backend to the layout rules, so without the
+// detachment check they claim every backend lane for suites that never run on
+// them.
+const DETACHED_CONTEXT = {
+    ...WORKSPACE_CONTEXT,
+    products: [...CONTEXT.products, 'delta'],
+    backendDetachedProducts: new Set(['delta']),
+}
+
+test('a backend-detached product keeps its own lane instead of every backend lane', () => {
+    assert.deepEqual(computeTargets(['products/delta/tools/agent/policy.py'], DETACHED_CONTEXT), ['py:product:delta'])
+    assert.deepEqual(computeTargets(['products/delta/biome.json'], DETACHED_CONTEXT), [
+        'fe:product:delta',
+        'py:product:delta',
+    ])
+    // gamma is ignored by neither declaration, so the same shapes still widen.
+    assert.equal(computeTargets(['products/gamma/tools/agent/policy.py'], DETACHED_CONTEXT).includes('py:core'), true)
+})
+
+// pytest.ini spells the list inside one long addopts line, so a reader anchored
+// to the start of a line finds nothing and silently leaves every product
+// widening.
+test('pytest ignores are read from anywhere in addopts', () => {
+    assert.deepEqual(
+        parsePytestIgnores('addopts = -p no:warnings --ignore=tools/hogli --ignore=products/desktop --reuse-db'),
+        ['tools/hogli', 'products/desktop']
     )
 })
 

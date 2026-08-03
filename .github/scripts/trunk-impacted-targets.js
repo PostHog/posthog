@@ -401,6 +401,63 @@ function isInProductWorkspace(product, file, productWorkspaces) {
     return WORKSPACE_OWN_FILES.includes(relativePath) || matcher(relativePath)
 }
 
+// --- Backend-detached products ---
+
+// The narrowing above stops at the layout rules: a product with a vendored
+// workspace still owns every backend lane the moment one of its files reads as
+// backend, because the product rules assume every product is a Django product
+// whose Python some other product may import. products/desktop is not one. It
+// is a standalone app imported from another repository, with no manifest.tsx,
+// no backend/, no entry in frontend/src/products.json, and its own desktop-*
+// CI. The Python it does carry is a vendored copy of that repository's own
+// tooling under tools/, which this repository's suites never load.
+//
+// Two enforced declarations say so, and both have to hold:
+//
+//   1. pytest.ini ignores the subtree, so no backend test collects a single
+//      file under it. ci-backend.yml carries the same exclusion in its path
+//      filter, but a filter tuned to over-run is not a safe source for lane
+//      assignment, while an --ignore is a statement that the suite does not
+//      cover the path at all.
+//   2. The product is absent from tach.toml, the enforced Python module graph,
+//      so no declared module may import it.
+//
+// A product satisfying both cannot fail another product's backend suite, so
+// its files claim its own lanes instead of all of them. Either condition
+// missing keeps the old widening, and so does an unreadable pytest.ini or an
+// unavailable tach graph. Both declarations are already tripwires, so a PR
+// that detaches a product cannot itself run beside anything.
+const PYTEST_CONFIG = 'pytest.ini'
+
+// Reads the --ignore paths out of pytest's addopts. Nothing matching yields an
+// empty list, which leaves every product on the old widening.
+function parsePytestIgnores(text) {
+    return [...text.matchAll(/--ignore[= ](\S+)/g)].map((match) => match[1].replace(/\/+$/, ''))
+}
+
+function loadBackendDetachedProducts(repoRoot, products, tachGraph) {
+    if (!tachGraph) {
+        return new Set()
+    }
+    let ignored
+    try {
+        ignored = new Set(parsePytestIgnores(fs.readFileSync(path.join(repoRoot, PYTEST_CONFIG), 'utf8')))
+    } catch (error) {
+        console.error(`Could not read ${PYTEST_CONFIG} (${error.message}); every product widens to all backend lanes`)
+        return new Set()
+    }
+    const detached = new Set()
+    for (const product of products) {
+        // tach spells its modules both ways across the file, so a product
+        // counts as declared under either spelling.
+        const declared = tachGraph.graph.has(product) || tachGraph.graph.has(product.replace(/_/g, '-'))
+        if (ignored.has(`products/${product}`) && !declared) {
+            detached.add(product)
+        }
+    }
+    return detached
+}
+
 // --- Contract surfaces ---
 
 const CONTRACT_TASK = 'backend:contract-check'
@@ -717,6 +774,7 @@ function computeTargets(changedFiles, context) {
         tachGraph,
         contractSurfaces = new Map(),
         productWorkspaces = new Map(),
+        backendDetachedProducts = new Set(),
     } = context
     const targets = new Set()
 
@@ -874,6 +932,10 @@ function computeTargets(changedFiles, context) {
                     if (touchesContractSurface(product, file, contractSurfaces)) {
                         changedIsolatedProducts.add(product)
                     }
+                } else if (backendDetachedProducts.has(product)) {
+                    // No backend suite covers this product and no declared
+                    // module imports it, so the lane it keeps is its own.
+                    targets.add(pyProduct(product))
                 } else {
                     allPyProducts()
                 }
@@ -978,13 +1040,15 @@ function loadTachGraph(repoRoot) {
 
 function buildContext(repoRoot) {
     const products = listProducts(repoRoot)
+    const tachGraph = loadTachGraph(repoRoot)
     return {
         products,
         isolatedProducts: listIsolatedProducts(repoRoot, products),
         contractSurfaces: loadContractSurfaces(repoRoot, products),
         productWorkspaces: loadProductWorkspaces(repoRoot, products),
+        backendDetachedProducts: loadBackendDetachedProducts(repoRoot, products, tachGraph),
         rustGraph: loadRustGraph(repoRoot),
-        tachGraph: loadTachGraph(repoRoot),
+        tachGraph,
     }
 }
 
@@ -996,6 +1060,7 @@ module.exports = {
     globToRegExp,
     isProductDirectory,
     isTripwire,
+    parsePytestIgnores,
     parseWorkspacePackageGlobs,
     parseCrateDependencies,
     parseCrateName,
