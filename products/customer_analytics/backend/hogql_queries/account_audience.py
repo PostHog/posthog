@@ -143,11 +143,20 @@ def _where_exprs(team: Team, filters: AccountAudienceFilters) -> list[ast.Expr]:
         }
         for custom_property_filter in filters.custom_properties:
             definition = definitions.get(custom_property_filter.definition_id)
+            # A dropped predicate would silently broaden the audience to every account,
+            # so an unresolvable filter fails the resolution instead.
             if definition is None:
-                continue
+                raise ValueError(
+                    f"Audience filter references a deleted or unknown custom property "
+                    f"({custom_property_filter.definition_id}). Remove it from the trigger."
+                )
             predicate = _custom_property_filter_expr(custom_property_filter, definition)
-            if predicate is not None:
-                where.append(predicate)
+            if predicate is None:
+                raise ValueError(
+                    f"Audience filter on '{definition.name}' has a value incompatible with its "
+                    f"{definition.display_type} type."
+                )
+            where.append(predicate)
 
     return where
 

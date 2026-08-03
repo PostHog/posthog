@@ -20,6 +20,30 @@ from posthog.models.team.team import Team
 
 ACCOUNT_BATCH_SIZE = 500
 
+# Mirrors ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST in
+# products/customer_analytics/frontend/components/Accounts/accountsCustomPropertyFilters.ts.
+SUPPORTED_CUSTOM_PROPERTY_OPERATORS = frozenset(
+    {
+        "exact",
+        "is_not",
+        "icontains",
+        "not_icontains",
+        "regex",
+        "not_regex",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        "is_set",
+        "is_not_set",
+        "is_date_exact",
+        "is_date_before",
+        "is_date_after",
+    }
+)
+
+_VALUELESS_OPERATORS = frozenset({"is_set", "is_not_set"})
+
 
 @dataclass(frozen=True, kw_only=True)
 class AccountAudienceCustomPropertyFilter:
@@ -89,11 +113,23 @@ def parse_account_audience_filters(filters: dict) -> AccountAudienceFilters:
             raise exceptions.ValidationError(
                 {"filters": {"properties": "Account custom property filter keys must be property definition ids."}}
             )
+        operator = str(entry.get("operator") or "exact")
+        # A dropped predicate would silently broaden a mass send to every account, so anything
+        # the compiler can't express is rejected at write time instead.
+        if operator not in SUPPORTED_CUSTOM_PROPERTY_OPERATORS:
+            raise exceptions.ValidationError(
+                {"filters": {"properties": f"Unsupported operator for account audiences: {operator}"}}
+            )
+        value = entry.get("value")
+        if operator not in _VALUELESS_OPERATORS and value in (None, "", []):
+            raise exceptions.ValidationError(
+                {"filters": {"properties": f"A value is required for the {operator} operator."}}
+            )
         custom_properties.append(
             AccountAudienceCustomPropertyFilter(
                 definition_id=definition_id,
-                operator=str(entry.get("operator") or "exact"),
-                value=entry.get("value"),
+                operator=operator,
+                value=value,
             )
         )
 
@@ -117,8 +153,14 @@ def parse_account_audience_filters(filters: dict) -> AccountAudienceFilters:
 
 def get_account_audience_page(team: Team, filters: dict, cursor: str | None) -> list[str]:
     parsed = parse_account_audience_filters(filters)
-    return _require_provider().list_account_external_ids(team, parsed, cursor=cursor, limit=ACCOUNT_BATCH_SIZE)
+    try:
+        return _require_provider().list_account_external_ids(team, parsed, cursor=cursor, limit=ACCOUNT_BATCH_SIZE)
+    except ValueError as e:
+        raise exceptions.ValidationError({"filters": str(e)})
 
 
 def get_account_audience_count(team: Team, filters: dict) -> int:
-    return _require_provider().count_accounts(team, parse_account_audience_filters(filters))
+    try:
+        return _require_provider().count_accounts(team, parse_account_audience_filters(filters))
+    except ValueError as e:
+        raise exceptions.ValidationError({"filters": str(e)})

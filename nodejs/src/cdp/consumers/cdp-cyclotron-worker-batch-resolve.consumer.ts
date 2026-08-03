@@ -489,6 +489,7 @@ export function buildAccountHogFlowInvocation(params: {
         id: new UUIDT().toString(),
         state: {
             event: invocationGlobals.event,
+            accountAudience: true,
             actionStepCount: 0,
             variables: params.defaultVariables,
         } as any,

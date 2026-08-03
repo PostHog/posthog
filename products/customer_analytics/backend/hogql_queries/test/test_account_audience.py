@@ -134,10 +134,19 @@ class TestAccountAudience(ClickhouseTestMixin, NonAtomicBaseTest):
         assert self._list(self._custom_property_filters(definition.id, "is_set")) == ["with"]
         assert self._list(self._custom_property_filters(definition.id, "is_not_set")) == ["without"]
 
-    def test_unknown_definition_id_is_dropped(self):
+    def test_unknown_definition_id_fails_resolution(self):
+        # Dropping the predicate would silently broaden the audience to every account.
         create_account(team_id=self.team.id, name="A", external_id="a1")
 
-        assert self._list(self._custom_property_filters(uuid4(), "exact", ["x"])) == ["a1"]
+        with self.assertRaisesRegex(ValueError, "deleted or unknown custom property"):
+            self._list(self._custom_property_filters(uuid4(), "exact", ["x"]))
+
+    def test_type_incompatible_value_fails_resolution(self):
+        definition = create_custom_property_definition(team_id=self.team.id, name="MRR", display_type="number")
+        create_account(team_id=self.team.id, name="A", external_id="a1")
+
+        with self.assertRaisesRegex(ValueError, "incompatible"):
+            self._list(self._custom_property_filters(definition.id, "exact", ["not-a-number"]))
 
     def test_count_matches_list(self):
         tagged = create_account(team_id=self.team.id, name="Tagged", external_id="tagged")

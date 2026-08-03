@@ -64,7 +64,8 @@ from posthog.plugins.plugin_server_api import (
     rerun_hog_invocations,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
+from posthog.synthetic_user import SyntheticUser
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -938,6 +939,21 @@ class HogFlowActionSerializer(serializers.Serializer):
                                         "an account audience."
                                     )
                                 }
+                            )
+                        # Resolution runs under a service principal, so account access is
+                        # enforced here, when a person configures the audience.
+                        request = self.context.get("request")
+                        user = getattr(request, "user", None)
+                        if (
+                            user is not None
+                            and user.is_authenticated
+                            and not isinstance(user, SyntheticUser)
+                            and not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+                                "account", "viewer"
+                            )
+                        ):
+                            raise serializers.ValidationError(
+                                {"filters": "You do not have access to customer analytics accounts."}
                             )
                         parse_account_audience_filters(filters)
                     else:
@@ -3237,7 +3253,10 @@ class HogFlowViewSet(
 
         if is_account_audience(filters):
             # Account audiences never touch person data or flag conditions; the parse inside
-            # the count rejects anything but account filters.
+            # the count rejects anything but account filters. Sizing the audience reads account
+            # data, so it requires the same access the audience editor requires.
+            if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
+                raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
             return Response(
                 BlastRadiusSerializer(
                     {

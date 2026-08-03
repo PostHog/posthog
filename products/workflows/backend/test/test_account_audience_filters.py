@@ -36,6 +36,32 @@ class TestParseAccountAudienceFilters(SimpleTestCase):
             ("cohort_entry", {"properties": [{"key": "id", "type": "cohort", "value": 1, "operator": "in"}]}),
             ("non_uuid_key", {"properties": [{"key": "tier", "type": "account_custom_property", "operator": "exact"}]}),
             ("non_list_properties", {"properties": "nope"}),
+            (
+                "unknown_operator",
+                {
+                    "properties": [
+                        {
+                            "key": "7b0d4a12-8f0e-4c39-9a5f-52dd8f2f7a11",
+                            "type": "account_custom_property",
+                            "operator": "equals",
+                            "value": ["x"],
+                        }
+                    ]
+                },
+            ),
+            (
+                "missing_value",
+                {
+                    "properties": [
+                        {
+                            "key": "7b0d4a12-8f0e-4c39-9a5f-52dd8f2f7a11",
+                            "type": "account_custom_property",
+                            "operator": "exact",
+                            "value": [],
+                        }
+                    ]
+                },
+            ),
             ("non_list_tag_names", {"tag_names": "vip"}),
             ("non_str_tag_entries", {"tag_names": [1]}),
             ("non_int_user_ids", {"assigned_to_user_ids": ["7"]}),

@@ -65,8 +65,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // Account-audience batch invocations carry the account's group key as
                 // event.distinct_id; resolving it as a person distinct_id would attach an
                 // unrelated person to the run. Accounts have no person — skip the lookup.
+                // The state stamp wins over the live trigger, which may have been edited to a
+                // person audience while these children were queued; the trigger check remains
+                // as a fallback for jobs enqueued before the stamp existed.
                 const isAccountAudience =
-                    hogFlow.trigger?.type === 'batch' && hogFlow.trigger.filters?.audience_type === 'accounts'
+                    hogFlowInvocationState.accountAudience === true ||
+                    (hogFlow.trigger?.type === 'batch' && hogFlow.trigger.filters?.audience_type === 'accounts')
                 // A person merge repointed this job's distinct_id and re-keyed personId onto the survivor.
                 // Resolve by that personId so the step reads the merged person — resolving by the repointed
                 // distinct_id would hit its stale ~1min cache entry (the pre-merge person) and e.g. drop an email.

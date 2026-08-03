@@ -25,6 +25,9 @@ describe('buildAccountHogFlowInvocation', () => {
         expect(state.event.distinct_id).toEqual('acme-1')
         expect(state.event.properties['$groups']).toEqual({ customer: 'acme-1' })
         expect(state.personId).toBeUndefined()
+        // The stamp is what the hogflow worker trusts when the live trigger has been
+        // edited to a person audience while these children were still queued.
+        expect(state.accountAudience).toBe(true)
         expect(state.variables).toEqual({ greeting: 'hi' })
         expect(invocation.parentRunId).toEqual('batch-job-1')
         expect(invocation.queue).toEqual('hogflow')
