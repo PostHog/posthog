@@ -30,6 +30,26 @@ WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 # ticks.
 STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 
+# Consecutive failed runs after which a scout config trips its circuit breaker and is
+# auto-paused (`SignalScoutConfig.auto_paused_at`). Nothing else in the harness notices a
+# scout that has never once succeeded: every dispatch takes a fresh sandbox lease for the
+# full runtime cap, produces nothing, and books a `failed` run — so a permanently broken
+# (team, skill) lane costs a lease per interval forever. Five in a row is well past any
+# plausible run of bad luck (a flaky sandbox spawn, one upstream provider error) while still
+# tripping within hours on the tight cadences, not days.
+FAILURE_STREAK_PAUSE_THRESHOLD = 5
+
+# Cooldown a paused lane holds before the coordinator dispatches one probe — the half-open
+# state. A pause is not a tombstone: whatever wedged the lane (a broken sandbox env, a skill
+# the model can't work through) usually gets fixed without anyone thinking to un-pause a
+# scout, so the breaker has to re-test itself. A successful probe resumes the lane; a failed
+# one restarts the cooldown through its own `last_run_at` stamp. Set to a day so a wedged
+# lane costs one lease per day instead of one per interval. Deliberately independent of the
+# scout's own schedule: for a scout on a slower-than-daily cadence the probe IS more frequent
+# than its healthy schedule, which trades at most one lease per day for recovery within a day
+# rather than up to a full (possibly 30-day) interval after the underlying cause is fixed.
+AUTO_PAUSE_PROBE_INTERVAL_S = 24 * 60 * 60
+
 # Per-team ceiling on ENABLED scout configs — the per-team cost cap. Each enabled scout
 # is a recurring LLM sandbox run, so this bounds what one team can switch on. Set high so
 # teams can freely author scouts with minimal friction; it's a backstop against runaway

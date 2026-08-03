@@ -68,9 +68,15 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
             )
             .pipe(createNormalizeEventStep())
             .pipe(createProcessAiEventStep())
-            .pipe(createProcessPersonlessStep(options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS), {
-                retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
-            })
+            .pipe(
+                createProcessPersonlessStep(
+                    options.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+                    options.PERSONLESS_WRITES_DISABLED_TEAMS
+                ),
+                {
+                    retry: { tries: 5, sleepMs: 100, name: 'process_personless' },
+                }
+            )
             // AI events are never merge events, so there are no merges to fold in
             // this branch: every event processes immediately. The branch itself is
             // temporary and goes away once ingestion fully switches over to the

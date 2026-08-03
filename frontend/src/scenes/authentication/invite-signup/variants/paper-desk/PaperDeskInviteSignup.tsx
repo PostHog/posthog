@@ -99,7 +99,6 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
         passkeyRegistered,
         isPasskeyRegistering,
         passkeyError,
-        passkeySignupEnabled,
         challengeRequired,
         turnstileSiteKey,
         turnstileToken,
@@ -272,7 +271,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                 {!extraFieldsHidden && (
                     <InviteAlternativeLogins
                         invite={invite}
-                        showPasskey={passkeySignupEnabled && !passkeyRegistered}
+                        showPasskey={!passkeyRegistered}
                         onRegisterPasskey={() => registerPasskey()}
                         passkeyRegistering={isPasskeyRegistering}
                     />

@@ -12,6 +12,7 @@ import structlog
 import pyarrow.compute as pc
 import posthoganalytics
 from asgiref.sync import async_to_sync
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
@@ -37,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     pyarrow_schema_from_arrow_exportable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -467,9 +470,11 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
 
     try:
         from posthog.temporal.common.client import async_connect
-        from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
+
+        from products.managed_warehouse.backend.facade.temporal import (
             DuckLakeRegisterDataImportsInputs,
             DuckLakeRegisterDataImportsWorkflow,
+            build_register_data_imports_workflow_id,
         )
 
         # Connect and start inside one event loop: sync_connect() builds the client in
@@ -485,9 +490,11 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
                     schema_id=uuid.UUID(export_signal.schema_id),
                     prepared_queryable_folder=prepared_queryable_folder,
                 ),
-                id=(
-                    f"ducklake-register-data-imports-{export_signal.team_id}-"
-                    f"{export_signal.schema_id}-{export_signal.job_id}"
+                id=build_register_data_imports_workflow_id(
+                    team_id=export_signal.team_id,
+                    schema_id=export_signal.schema_id,
+                    job_id=export_signal.job_id,
+                    prepared_queryable_folder=prepared_queryable_folder,
                 ),
                 task_queue=settings.DUCKLAKE_TASK_QUEUE,
             )
@@ -500,8 +507,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
             external_data_job_id=export_signal.job_id,
         )
     except WorkflowAlreadyStartedError:
-        # Same job already has a registration in flight (e.g. a V2 child, or a duplicate
-        # final-batch redelivery) — registration is already handled, nothing to do.
+        # The id is scoped to this prepared generation, so a collision means this exact
+        # generation is already being registered and dropping the duplicate is correct.
         logger.info(
             "ducklake_registration_workflow_already_started",
             team_id=export_signal.team_id,
@@ -511,6 +518,76 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
     except Exception as e:
         logger.error(
             "failed_to_start_ducklake_registration_workflow",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+            exc_info=True,
+        )
+        capture_exception(e)
+
+
+def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
+    """Fire-and-forget start of `data-import-post-import` after a V3 final batch lands.
+
+    V2 starts the same workflow from `external-data-job` after the COMPLETED status
+    write, but on V3 that workflow ends at extraction — the loaded table only exists
+    once this consumer's post-load operations and job completion finish, so the trigger
+    lives here instead. Same tolerance as `_trigger_ducklake_register_data_imports`: the
+    start only happens when this `*_load` deployment has Temporal client env vars
+    configured; any failure is logged and captured without failing the load.
+    """
+    if export_signal.cdc_write_mode == "scd2_append" or export_signal.sync_type == "cdc":
+        # CDC finals land once per flush tick; running the post-import fan-out on every
+        # tick would spam these steps continuously. This also mirrors the pre-existing
+        # workflow behavior: CDC streaming schemas return early from `external-data-job`
+        # with skip_post_import_activities, so these steps never ran per tick there
+        # either. Deliberate gap, same as the DuckLake registration trigger above.
+        return
+
+    try:
+        from posthog.temporal.common.client import async_connect
+
+        from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+            PostImportWorkflow,
+            PostImportWorkflowInputs,
+            build_post_import_workflow_id,
+        )
+
+        # Connect and start inside one event loop (see the DuckLake trigger above).
+        # ALLOW_DUPLICATE_FAILED_ONLY keyed by job id: a redelivered final batch can't
+        # double-run a completed post-import, but can retry a failed one.
+        async def _start() -> None:
+            temporal = await async_connect()
+            await temporal.start_workflow(
+                PostImportWorkflow.run,
+                PostImportWorkflowInputs(
+                    team_id=export_signal.team_id,
+                    job_id=export_signal.job_id,
+                    schema_id=export_signal.schema_id,
+                    source_id=export_signal.source_id,
+                ),
+                id=build_post_import_workflow_id(export_signal.job_id),
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+            )
+
+        async_to_sync(_start)()
+        logger.info(
+            "post_import_workflow_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except WorkflowAlreadyStartedError:
+        logger.info(
+            "post_import_workflow_already_started",
+            team_id=export_signal.team_id,
+            external_data_schema_id=export_signal.schema_id,
+            external_data_job_id=export_signal.job_id,
+        )
+    except Exception as e:
+        logger.error(
+            "failed_to_start_post_import_workflow",
             team_id=export_signal.team_id,
             external_data_schema_id=export_signal.schema_id,
             external_data_job_id=export_signal.job_id,
@@ -641,6 +718,7 @@ def process_message(
             _mark_job_completed(export_signal)
             if prepared_queryable_folder:
                 _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+            _trigger_post_import_workflow(export_signal)
             return
 
         logger.debug(
@@ -709,7 +787,12 @@ def process_message(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
             ).time():
-                delta_table = async_to_sync(delta_table_helper.write_scd2_to_deltalake)(
+                scd2_writer = Scd2DeltaWriter(
+                    delta_table_helper,
+                    valid_from_column=SCD2_VALID_FROM_COLUMN,
+                    valid_to_column=SCD2_VALID_TO_COLUMN,
+                )
+                delta_table = async_to_sync(scd2_writer.write)(
                     data=pa_table,
                     primary_keys=primary_keys or [],
                     commit_metadata=commit_metadata,
@@ -804,6 +887,8 @@ def process_message(
 
             if prepared_queryable_folder:
                 _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+
+            _trigger_post_import_workflow(export_signal)
 
             logger.debug("post_load_operations_complete")
 

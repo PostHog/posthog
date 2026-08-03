@@ -39,7 +39,7 @@ import {
     LEGACY_ROLE_COLUMNS,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
-import { accountsExpansionLogic } from './accountsExpansionLogic'
+import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
 import { AccountsEvents } from './constants'
 
@@ -323,6 +323,51 @@ function CustomPropertyHistoryCell({
     )
 }
 
+const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
+    'Last Slack message at': 'summaries',
+}
+
+export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi): AccountExpansionTab | undefined {
+    return definition.is_canonical ? CANONICAL_PROPERTY_TAB[definition.name] : undefined
+}
+
+function CanonicalTimestampCell({
+    record,
+    definition,
+    value,
+    tab,
+}: {
+    record: unknown
+    definition: CustomPropertyDefinitionApi
+    value: string
+    tab: AccountExpansionTab
+}): JSX.Element {
+    const { visibleColumnNames } = useValues(accountsColumnConfigLogic)
+    const { openAccountTab } = useActions(accountsExpansionLogic)
+    const accountId = getNameCell(record, visibleColumnNames)?.id
+    const label = <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
+
+    if (!accountId) {
+        return label
+    }
+    return (
+        <Link
+            to={urls.customerAnalyticsAccount(accountId, tab)}
+            onClick={(event) => {
+                // Modifier-click keeps the href's new-tab behavior, matching the account name cell.
+                if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                    return
+                }
+                event.preventDefault()
+                event.stopPropagation()
+                openAccountTab(accountId, tab)
+            }}
+        >
+            {label}
+        </Link>
+    )
+}
+
 function CustomPropertyCell({
     record,
     column,
@@ -345,6 +390,10 @@ function CustomPropertyCell({
         return <span className="text-muted">—</span>
     }
     if (definition.display_type === 'date' || definition.display_type === 'datetime') {
+        const tab = getCanonicalPropertyTab(definition)
+        if (tab) {
+            return <CanonicalTimestampCell record={record} definition={definition} value={value} tab={tab} />
+        }
         return <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
     }
     if (definition.display_type === 'boolean') {
