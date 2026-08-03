@@ -779,8 +779,7 @@ class TestChartCardBlockBuilders(SimpleTestCase):
 
     def test_oversized_sections_split_below_block_char_cap(self):
         blocks = _section_blocks(["a" * 6500, "short"])
-        self.assertEqual(len(blocks), 4)
-        self.assertTrue(all(len(b["text"]["text"]) <= 3000 for b in blocks))
+        self.assertEqual([len(b["text"]["text"]) for b in blocks], [3000, 3000, 500, 5])
         self.assertEqual(blocks[-1]["text"]["text"], "short")
 
     def test_oversized_sections_split_at_whitespace_so_mrkdwn_entities_survive(self):

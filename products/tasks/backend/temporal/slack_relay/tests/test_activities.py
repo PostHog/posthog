@@ -445,7 +445,7 @@ class TestRelaySlackMessage(TestCase):
     def test_failed_chart_post_leaves_artifact_pending(
         self,
         _mock_delete_progress,
-        _mock_post,
+        mock_post,
         _mock_update,
         mock_integration_for_mapping,
         mock_read_bytes,
@@ -478,6 +478,7 @@ class TestRelaySlackMessage(TestCase):
         artifact.refresh_from_db()
         self.assertEqual(artifact.versions[0]["delivery_status"], "pending")
         self.assertEqual(artifact.location["delivery_status"], "pending")
+        mock_post.assert_called_once_with("<@U123> Here's the trend.")
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
