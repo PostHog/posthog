@@ -18,22 +18,16 @@ const DEFAULT_TIMEOUT_MS = 2000
  * - Wrapped in `instrumentFn` so latency / errors surface in tracing under
  *   the `cdp.mirror.<label>` key.
  *
- * The `call` arg returns `Promise<unknown> | undefined` so the common pattern
- * of `() => this.fooMirror?.bar(args)` works directly: when the mirror is null
- * the inner expression evaluates to undefined and the helper short-circuits.
  */
 export async function mirrorCall(
     label: string,
-    call: () => Promise<unknown> | undefined,
+    call: () => Promise<unknown>,
     timeoutMs: number = DEFAULT_TIMEOUT_MS
 ): Promise<void> {
     return instrumentFn({ key: `cdp.mirror.${label}`, sendException: false }, async () => {
         let timeoutId: NodeJS.Timeout | undefined
         try {
             const promise = call()
-            if (!promise) {
-                return
-            }
             await Promise.race([
                 promise,
                 new Promise<never>((_, reject) => {
@@ -57,7 +51,7 @@ export async function mirrorCall(
 export async function mirrorCallWithPrimary<T>(
     label: string,
     primaryCall: () => Promise<T>,
-    mirrorCallFactory: () => Promise<unknown> | undefined,
+    mirrorCallFactory: () => Promise<unknown>,
     timeoutMs?: number
 ): Promise<T> {
     const [primary] = await Promise.all([primaryCall(), mirrorCall(label, mirrorCallFactory, timeoutMs)])

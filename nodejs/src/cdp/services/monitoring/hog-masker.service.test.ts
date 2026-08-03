@@ -38,7 +38,7 @@ describe('HogMasker', () => {
             })
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
-            masker = new HogMaskerService(redis)
+            masker = new HogMaskerService(redis, redis)
         })
 
         const advanceTime = (ms: number) => {

@@ -58,21 +58,15 @@ describe('HogFlowDuplicateObserverService', () => {
     const readKey = async (key: string): Promise<string | null> =>
         (await redis.useClient({ name: 'read' }, (client) => client.get(key))) ?? null
 
-    it('is a no-op when redis is null', async () => {
-        const observer = new HogFlowDuplicateObserverService(null)
-        await observer.observe(buildInvocation(), buildAction('action-1'))
-        // Nothing to assert beyond not throwing — verifies the early return.
-    })
-
     it('is a no-op when invocation has no eventUuid', async () => {
-        const observer = new HogFlowDuplicateObserverService(redis)
+        const observer = new HogFlowDuplicateObserverService(redis, redis)
         await observer.observe(buildInvocation({ eventUuid: null }), buildAction('action-1'))
         const keys = await redis.useClient({ name: 'keys' }, (client) => client.keys(`${KEY_PREFIX}*`))
         expect(keys ?? []).toHaveLength(0)
     })
 
     it('writes the key on first observation and does not flag a duplicate', async () => {
-        const observer = new HogFlowDuplicateObserverService(redis)
+        const observer = new HogFlowDuplicateObserverService(redis, redis)
         await observer.observe(buildInvocation({ id: 'inv-A' }), buildAction('action-1'))
 
         const stored = await readKey('hogflow:observe:workflow-1:event-1:action-1')
@@ -81,7 +75,7 @@ describe('HogFlowDuplicateObserverService', () => {
     })
 
     it('does not flag a duplicate when the same invocation re-observes', async () => {
-        const observer = new HogFlowDuplicateObserverService(redis)
+        const observer = new HogFlowDuplicateObserverService(redis, redis)
         const inv = buildInvocation({ id: 'inv-A' })
         await observer.observe(inv, buildAction('action-1'))
         await observer.observe(inv, buildAction('action-1'))
@@ -90,7 +84,7 @@ describe('HogFlowDuplicateObserverService', () => {
     })
 
     it('flags a duplicate when a different invocation hits the same key', async () => {
-        const observer = new HogFlowDuplicateObserverService(redis)
+        const observer = new HogFlowDuplicateObserverService(redis, redis)
         await observer.observe(buildInvocation({ id: 'inv-A' }), buildAction('action-1'))
         await observer.observe(buildInvocation({ id: 'inv-B' }), buildAction('action-1'))
 

@@ -205,9 +205,7 @@ export class CdpCyclotronWorker<
         try {
             await Promise.all([
                 this.hogWatcher.observeResults(invocationResults),
-                mirrorCall('hog-watcher.observeResults', () =>
-                    this.hogWatcherMirror?.observeResults(invocationResults)
-                ),
+                mirrorCall('hog-watcher.observeResults', () => this.hogWatcherMirror.observeResults(invocationResults)),
             ])
         } catch (err: any) {
             captureException(err)
