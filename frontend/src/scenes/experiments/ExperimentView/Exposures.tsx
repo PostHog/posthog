@@ -18,7 +18,6 @@ import {
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { experimentLogic } from '../experimentLogic'
-import { EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
 import { useChartColors } from '../MetricsView/shared/colors'
 import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
@@ -221,10 +220,13 @@ function ExposuresChart({ exposures, axisLineColor }: ExposuresChartProps): JSX.
     )
 }
 
-function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria | undefined): string {
+function getExposureCriteriaLabel(
+    exposureCriteria: ExperimentExposureCriteria | undefined,
+    defaultEvent: string
+): string {
     const exposureConfig = exposureCriteria?.exposure_config
     if (!exposureConfig) {
-        return `Default (${EXPOSURE_DEFAULT_EVENT})`
+        return `Default (${defaultEvent})`
     }
 
     const displayName = getExposureConfigDisplayName(exposureConfig)
@@ -232,8 +234,15 @@ function getExposureCriteriaLabel(exposureCriteria: ExperimentExposureCriteria |
 }
 
 export function Exposures(): JSX.Element {
-    const { exposures, exposuresLoading, exposureCriteria, isExperimentDraft, experiment, excludedVariants } =
-        useValues(experimentLogic)
+    const {
+        exposures,
+        exposuresLoading,
+        exposureCriteria,
+        isExperimentDraft,
+        experiment,
+        excludedVariants,
+        resolvedExposureEvent,
+    } = useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(exposureCriteriaModalLogic)
     const colors = useChartColors()
 
@@ -394,7 +403,7 @@ export function Exposures(): JSX.Element {
                                 <h3 className="card-secondary">Exposure criteria</h3>
                                 <div className="flex items-center gap-2">
                                     <div className="text-sm font-semibold">
-                                        {getExposureCriteriaLabel(exposureCriteria)}
+                                        {getExposureCriteriaLabel(exposureCriteria, resolvedExposureEvent)}
                                     </div>
                                     <LemonButton
                                         icon={<IconPencil fontSize="12" />}

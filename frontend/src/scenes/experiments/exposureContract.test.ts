@@ -38,4 +38,41 @@ describe('exposureContract', () => {
     ])('resolves the exposure event and variant property for %s', (_name, exposureCriteria, expected) => {
         expect(getExposureEventAndProperty({ featureFlagKey: 'my-flag', exposureCriteria })).toEqual(expected)
     })
+
+    // The rollout swaps the default event server-side, so the default branches must name the
+    // resolved event while a custom event stays untouched.
+    it.each<[string, ExperimentExposureCriteria | undefined, string | null]>([
+        ['no exposure config', undefined, '$experiment_exposure'],
+        [
+            'default $feature_flag_called config',
+            {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: '$feature_flag_called',
+                    properties: [],
+                },
+            },
+            '$experiment_exposure',
+        ],
+        [
+            'custom event config',
+            {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: 'checkout_started',
+                    properties: [],
+                },
+            },
+            'checkout_started',
+        ],
+        ['action config', { exposure_config: { kind: NodeKind.ActionsNode, id: 42 } }, null],
+    ])('uses the resolved default event for %s', (_name, exposureCriteria, expectedEvent) => {
+        expect(
+            getExposureEventAndProperty({
+                featureFlagKey: 'my-flag',
+                exposureCriteria,
+                resolvedExposureEvent: '$experiment_exposure',
+            }).event
+        ).toBe(expectedEvent)
+    })
 })

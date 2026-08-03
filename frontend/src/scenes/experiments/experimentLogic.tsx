@@ -114,7 +114,7 @@ import {
     isLaunched,
     isSingleVariantShipped,
 } from './experimentsLogic'
-import { featureFlagVariantProperty } from './exposureContract'
+import { featureFlagVariantProperty, resolvedExposureEvent } from './exposureContract'
 import { holdoutsLogic } from './holdoutsLogic'
 import {
     legacyExpectedRunningTime,
@@ -566,6 +566,7 @@ export interface experimentLogicValues {
     launchExperimentLoading: boolean
     minimumDetectableEffect: number
     notifyWhenResultsReady: boolean
+    resolvedExposureEvent: string
     orderedPrimaryMetricsWithResults: {
         displayIndex: number
         error: any
@@ -3657,6 +3658,15 @@ export const experimentLogic = kea<experimentLogicType>([
             (experiment: Experiment): boolean => {
                 return !!experiment?.feature_flag?.active
             },
+        ],
+        /**
+         * The event this experiment's default exposure is actually counted on, resolved by the
+         * backend so the UI names the same event the results queries read. Falls back to
+         * `$feature_flag_called` for an experiment that hasn't been loaded from the API yet.
+         */
+        resolvedExposureEvent: [
+            (s) => [s.experiment],
+            (experiment: Experiment): string => resolvedExposureEvent(experiment ?? {}),
         ],
         isExperimentStopped: [
             (s) => [s.experiment],
