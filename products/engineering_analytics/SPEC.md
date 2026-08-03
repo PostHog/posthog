@@ -140,6 +140,7 @@ Engineering-specific decisions. Product-level decisions live in README → Locke
 - **Time to merge** = `open_to_merge_seconds` = `merged_at - created_at`, coarse (draft + ready combined) until state-transition events exist.
 - **Team ownership is stamped at CI emission time, never mirrored server-side.** The CI emitter stamps `test.owner_team` from the repo's ownership map (`products/*/product.yaml` + CODEOWNERS, first listed owner); unstamped spans aggregate as the first-class team `unowned`. Capture-time truth is intentional: a test belongs to whoever owned it when it flaked. Team surfaces stay team-level: author→team joins (via the `team_members` snapshot) produce aggregates only, never per-member figures or cross-team rankings; a slug mismatch yields an empty series, never another team's data.
 - **No provider abstraction until a second code host lands.** GitHub-isms stay below the builder boundary, canonical types above it; that seam makes extracting a `CodeHostProvider` Protocol mechanical.
+- **Trunk.io is advisory enrichment, never evidence.** GitHub and the CI spans remain the substrate for every count and classification; Trunk.io verdicts ride as separately named `trunk_io` fields joined by test identity, because its detection is a third-party heuristic this product cannot audit. The source's presence is the only toggle (connect or disconnect; no flag, no setting): a team without it gets the identical product minus the annotations, so the source can be dropped or re-added at any time without a code change.
 
 ## 7. Data sources
 
@@ -149,6 +150,10 @@ Warehouse tables (GitHub source):
 - `github_workflow_runs`: CI runs. Webhook-only (the webhook is the source of truth; history is a deliberate one-off backfill). A settled run never changes, so durations and trends are precise; until settled, `status` / `conclusion` mutate (see the freshness caveat).
 - `github_workflow_jobs`: per-job attempts (runner labels, queue and duration timestamps), the cost substrate. Webhook stream plus a window-limited backfill poll; per-run polling is infeasible at this volume.
 - `github_team_members`: org team membership, the author→team key. Optional at the source; every read that touches it must degrade gracefully when unsynced.
+
+Warehouse tables (Trunk.io source, optional):
+
+- `UnhealthyTests`: Trunk.io's current flaky/broken verdict per test, with its own quarantine bit. Joined onto the span-derived test-health queue by `(runner, nodeid)`, the same JUnit-derived identity the CI span emitter builds, and resolved per team and repo via `logic/sources.py` like every other table. Absence is a value, not an error: no source (or a disconnected one) means `has_trunk_io_data: false` and null `trunk_io` annotations, and nothing else changes.
 
 Other products read as sources:
 

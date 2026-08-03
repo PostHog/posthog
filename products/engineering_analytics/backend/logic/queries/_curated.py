@@ -26,11 +26,17 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
-from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
+from products.engineering_analytics.backend.logic.sources import (
+    GitHubTables,
+    TrunkIoTables,
+    resolve_github_tables,
+    resolve_trunk_io_tables,
+)
 from products.engineering_analytics.backend.logic.views import (
     job_costs,
     pull_requests,
     team_members,
+    trunk_io_unhealthy_tests,
     workflow_jobs,
     workflow_runs,
 )
@@ -54,6 +60,8 @@ class CuratedGitHubSource:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
+        self._trunk_io_tables: TrunkIoTables | None = None
+        self._trunk_io_resolved = False
 
     @property
     def team(self) -> Team:
@@ -108,6 +116,22 @@ class CuratedGitHubSource:
         if not self._tables.team_members:
             return None
         return f"({team_members.build_query(self._tables.team_members)})"
+
+    def trunk_io_source(self) -> str | None:
+        """Curated Trunk.io unhealthy-tests ``SELECT`` subquery, or None when no Trunk.io source is
+        connected for this handle's repository.
+
+        Resolved lazily and cached on first call, so only the reads that annotate with Trunk.io pay
+        the resolution queries; every other endpoint stays untouched by the source existing or not.
+        """
+        if not self._trunk_io_resolved:
+            self._trunk_io_resolved = True
+            self._trunk_io_tables = resolve_trunk_io_tables(
+                team=self._team, repository=self.repository, user_access_control=self._user_access_control
+            )
+        if self._trunk_io_tables is None:
+            return None
+        return f"({trunk_io_unhealthy_tests.build_query(self._trunk_io_tables.unhealthy_tests)})"
 
     def job_cost_source(self) -> str | None:
         """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``

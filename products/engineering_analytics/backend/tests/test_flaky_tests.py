@@ -1,8 +1,13 @@
+import json
+import zlib
+import tempfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+import pandas as pd
 from parameterized import parameterized
 from rest_framework import status
 
@@ -10,8 +15,15 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.engineering_analytics.backend.logic.queries._test_spans import selector_from_nodeid
-from products.engineering_analytics.backend.tests._github_fixtures import connect_github_source_without_data
+from products.engineering_analytics.backend.logic.sources import TRUNK_IO_UNHEALTHY_TESTS_SCHEMA
+from products.engineering_analytics.backend.logic.views.source_schema import TRUNK_IO_UNHEALTHY_TESTS_COLUMNS
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    connect_github_source_without_data,
+    create_trunk_io_source,
+    link_schema,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 T_RERUN_RECOVERY = "posthog/api/test/test_rerun/TestRerun::test_green_on_attempt_2"
 T_STALE_REREPORT = "posthog/api/test/test_stale/TestStale::test_reported_twice"
@@ -384,6 +396,121 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_invalid_params_return_400(self, _name: str, params: dict) -> None:
         response = self.client.get(f"/api/projects/{self.team.id}/engineering_analytics/flaky_tests/", params)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def _seed_trunk_io_table(self, rows: list[dict]) -> None:
+        source = create_trunk_io_source(self.team, repository="PostHog/posthog")
+        df = pd.DataFrame(rows, columns=list(TRUNK_IO_UNHEALTHY_TESTS_COLUMNS.keys()))
+        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
+        df.to_csv(tmp.name, index=False)
+        tmp.close()
+        self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
+        try:
+            table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
+                csv_path=Path(tmp.name),
+                table_name="trunkio_unhealthytests",
+                table_columns=TRUNK_IO_UNHEALTHY_TESTS_COLUMNS,
+                test_bucket="test_storage_bucket-posthog.products.engineering_analytics.trunk_io",
+                team=self.team,
+                source=source,
+            )
+        except PermissionError as err:
+            self.skipTest(f"object storage unavailable: {err}")
+        self.addCleanup(cleanup)
+        link_schema(self.team, source, name=TRUNK_IO_UNHEALTHY_TESTS_SCHEMA, table=table)
+
+    @staticmethod
+    def _trunk_row(
+        name: str,
+        *,
+        parent: str,
+        classname: str,
+        file_path: str,
+        status: str,
+        quarantined: int,
+        url: str,
+        variant: str = "",
+    ) -> dict:
+        return {
+            "id": f"trunk-{zlib.crc32(f'{name}{variant}'.encode())}",
+            "name": name,
+            "parent": parent,
+            "classname": classname,
+            "file_path": file_path,
+            "variant": variant,
+            "status": json.dumps({"value": status, "timestamp": "2026-08-01T00:00:00Z"}),
+            "quarantined": quarantined,
+            "html_url": url,
+            "pull_requests_impacted_last_7d": 0,
+        }
+
+    def test_trunk_io_annotations_ride_matching_items(self) -> None:
+        # Without a source, null annotations must read as "no data", never "healthy".
+        data = self._get()
+        assert data["has_trunk_io_data"] is False
+        assert all(item["trunk_io"] is None for item in data["items"])
+
+        self._seed_trunk_io_table(
+            [
+                # Two variants of one pytest test: 'broken' must outrank 'flaky' and any-variant
+                # quarantine must win, proven by the collapsed row carrying the broken variant's URL.
+                self._trunk_row(
+                    "test_green_on_attempt_2",
+                    parent="pytest",
+                    classname="posthog.api.test.test_rerun.TestRerun",
+                    file_path="posthog/api/test/test_rerun.py",
+                    status="FLAKY",
+                    quarantined=0,
+                    url="https://app.trunk.io/t/flaky-variant",
+                ),
+                self._trunk_row(
+                    "test_green_on_attempt_2",
+                    parent="pytest",
+                    classname="posthog.api.test.test_rerun.TestRerun",
+                    file_path="posthog/api/test/test_rerun.py",
+                    status="broken",
+                    quarantined=1,
+                    url="https://app.trunk.io/t/broken-variant",
+                    variant="ee",
+                ),
+                # Jest identity: Trunk records the frontend-working-directory JUnit path.
+                self._trunk_row(
+                    "surveyLogic saves",
+                    parent="../products/surveys/frontend/surveyLogic.test.ts",
+                    classname="../products/surveys/frontend/surveyLogic.test.ts",
+                    file_path="../products/surveys/frontend/surveyLogic.test.ts",
+                    status="flaky",
+                    quarantined=0,
+                    url="https://app.trunk.io/t/jest",
+                ),
+                # Flagged by Trunk but not in the queue: must not conjure an item.
+                self._trunk_row(
+                    "test_not_in_queue",
+                    parent="pytest",
+                    classname="posthog.api.test.test_other.TestOther",
+                    file_path="posthog/api/test/test_other.py",
+                    status="flaky",
+                    quarantined=0,
+                    url="https://app.trunk.io/t/unrelated",
+                ),
+            ]
+        )
+
+        data = self._get()
+        assert data["has_trunk_io_data"] is True
+        rows = {item["nodeid"]: item for item in data["items"]}
+        assert rows[T_RERUN_RECOVERY]["trunk_io"] == {
+            "status": "broken",
+            "quarantined": True,
+            "url": "https://app.trunk.io/t/broken-variant",
+        }
+        assert rows[T_JEST_RECOVERY]["trunk_io"] == {
+            "status": "flaky",
+            "quarantined": False,
+            "url": "https://app.trunk.io/t/jest",
+        }
+        # In the queue but not flagged by Trunk: annotation stays null while has_trunk_io_data is true.
+        assert rows[T_MASTER]["trunk_io"] is None
+        assert "posthog/api/test/test_other/TestOther::test_not_in_queue" not in rows
 
 
 # A wrong split yields a selector CI's quarantine matching would silently never hit. This is the

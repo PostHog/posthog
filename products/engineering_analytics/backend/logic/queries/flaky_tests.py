@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestClassification,
     FlakyTestItem,
     FlakyTestList,
+    TrunkIoTestAnnotation,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._test_spans import (
@@ -33,6 +34,7 @@ from products.engineering_analytics.backend.logic.queries._test_spans import (
     scan_placeholders,
     selector_from_nodeid,
 )
+from products.engineering_analytics.backend.logic.queries.trunk_io_annotations import fetch_trunk_io_annotations
 
 _SELECT = """
     SELECT
@@ -99,11 +101,23 @@ def query_flaky_tests(
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.
         workload=Workload.LOGS,
     )
-    rows = response.results or []
+    rows = (response.results or [])[: limit + 1]
+    page = rows[:limit]
+
+    # Advisory Trunk.io enrichment for the page, when the optional source is connected. Fetched
+    # as its own warehouse read because the queue's SQL runs on the LOGS cluster (see
+    # trunk_io_annotations); a missing source or an unmatched test just yields no annotation.
+    trunk_io_sql = curated.trunk_io_source()
+    annotations: dict[tuple[str, str], TrunkIoTestAnnotation] = {}
+    if trunk_io_sql is not None and page:
+        annotations = fetch_trunk_io_annotations(
+            curated=curated, trunk_io_source=trunk_io_sql, nodeids=[row[1] for row in page]
+        )
+
     return FlakyTestList(
         items=[
             FlakyTestItem(
-                runner=CITestRunner(runner),
+                runner=CITestRunner(row_runner),
                 nodeid=nodeid,
                 # Prefer the emitter's exact selector; reconstruct from the nodeid for older spans.
                 selector=selector or selector_from_nodeid(nodeid),
@@ -117,9 +131,10 @@ def query_flaky_tests(
                 master_failed_run_count=master_failed_run_count,
                 quarantined_failed_run_count=quarantined_failed_run_count,
                 last_signal_at=last_signal_at,
+                trunk_io=annotations.get((row_runner, nodeid)),
             )
             for (
-                runner,
+                row_runner,
                 nodeid,
                 selector,
                 same_commit_recovery_run_count,
@@ -128,8 +143,9 @@ def query_flaky_tests(
                 master_failed_run_count,
                 quarantined_failed_run_count,
                 last_signal_at,
-            ) in rows[:limit]
+            ) in page
         ],
         truncated=len(rows) > limit,
         limit=limit,
+        has_trunk_io_data=trunk_io_sql is not None,
     )

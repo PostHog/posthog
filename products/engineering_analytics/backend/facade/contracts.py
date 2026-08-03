@@ -575,6 +575,30 @@ class FlakyTestClassification(StrEnum):
         return cls.SUSPECTED_REGRESSION
 
 
+class TrunkIoTestStatus(StrEnum):
+    FLAKY = "flaky"
+    BROKEN = "broken"
+
+
+@dataclass(frozen=True)
+class TrunkIoTestAnnotation:
+    """Trunk.io's (the flaky-test vendor, not the trunk branch) current verdict on one test.
+
+    Advisory enrichment from the optional Trunk.io warehouse source, joined onto this product's
+    own evidence by test identity. It never feeds ``classification`` or any count: the CI-span
+    evidence stays the substrate, because Trunk.io's detection is a third-party heuristic this
+    product cannot audit, and the source can be disconnected at any time (every ``trunk_io``
+    field goes ``None`` and nothing else changes).
+    """
+
+    status: TrunkIoTestStatus
+    # Trunk.io-side quarantine (failures suppressed in its gate), unrelated to this repo's
+    # .test_quarantine.json quarantine that `quarantined_failed_run_count` counts.
+    quarantined: bool
+    # Trunk.io's own detail page for the test.
+    url: str
+
+
 @dataclass(frozen=True)
 class FlakyTestItem:
     """One test in the active test-health queue, aggregated from the per-test CI spans in the Traces store.
@@ -602,6 +626,8 @@ class FlakyTestItem:
     master_failed_run_count: int
     quarantined_failed_run_count: int
     last_signal_at: datetime
+    # Trunk.io's verdict where its identity matched; None when unmatched or the source is absent.
+    trunk_io: TrunkIoTestAnnotation | None = None
 
 
 @dataclass(frozen=True)
@@ -615,6 +641,9 @@ class FlakyTestList:
     items: list[FlakyTestItem]
     truncated: bool
     limit: int
+    # False means "no Trunk.io source for this repo", so items' trunk_io=None reads as "no data",
+    # never as "Trunk.io says this test is healthy".
+    has_trunk_io_data: bool = False
 
 
 @dataclass(frozen=True)

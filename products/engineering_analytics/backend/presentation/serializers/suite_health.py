@@ -11,11 +11,37 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    TrunkIoTestAnnotation,
 )
 from products.engineering_analytics.backend.presentation.serializers._shared import RepoRefSerializer
 
 
+class TrunkIoTestAnnotationSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TrunkIoTestAnnotation
+        extra_kwargs = {
+            "status": {
+                "help_text": "Trunk.io's current verdict for the test: 'flaky' (nondeterministic) or 'broken' "
+                "(failing consistently).",
+            },
+            "quarantined": {
+                "help_text": "True when Trunk.io is suppressing this test's failures in its own CI gate. "
+                "Independent of this repository's .test_quarantine.json quarantine, which "
+                "quarantined_failed_run_count counts.",
+            },
+            "url": {"help_text": "Trunk.io's detail page for the test."},
+        }
+
+
 class FlakyTestItemSerializer(DataclassSerializer):
+    trunk_io = TrunkIoTestAnnotationSerializer(
+        allow_null=True,
+        required=False,
+        help_text="Trunk.io's verdict for this test, from the optional Trunk.io warehouse source. Advisory "
+        "enrichment only: it never affects classification or any count. Null when no source is connected or "
+        "when Trunk.io doesn't currently flag the test; check has_trunk_io_data to tell those apart.",
+    )
+
     class Meta:
         dataclass = FlakyTestItem
         extra_kwargs = {
@@ -75,6 +101,11 @@ class FlakyTestListSerializer(DataclassSerializer):
                 "help_text": "True when more tests qualified than the cap; `items` is the highest-ranked `limit` rows.",
             },
             "limit": {"help_text": "Maximum number of tests returned in `items`."},
+            "has_trunk_io_data": {
+                "help_text": "True when a Trunk.io source is connected for this repository. When false, "
+                "trunk_io is null on every item because there is no data, not because Trunk.io considers "
+                "the tests healthy.",
+            },
         }
 
 

@@ -43,6 +43,20 @@ def create_github_source(
     )
 
 
+def create_trunk_io_source(
+    team: Team, *, repository: str = "PostHog/posthog", source_id: str = "trunk-source"
+) -> ExternalDataSource:
+    owner, _, name = repository.partition("/")
+    return ExternalDataSource.objects.create(
+        team=team,
+        source_id=source_id,
+        connection_id=source_id,
+        status=ExternalDataSource.Status.COMPLETED,
+        source_type=ExternalDataSourceType.TRUNKIO,
+        job_inputs={"repo_host": "github.com", "repo_owner": owner, "repo_name": name},
+    )
+
+
 def link_schema(
     team: Team,
     source: ExternalDataSource,

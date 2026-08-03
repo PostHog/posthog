@@ -94,7 +94,10 @@ tools:
             break: treat it as real until a recovery proves otherwise. A test qualifies on any same-commit recovery, any
             master/main failure, a quarantined failure, or failures on at least min_failed_prs distinct PRs (default 3).
             Counts are absolute, never rates, because fast passing runs are not emitted. Use selector to run or
-            quarantine the test with its runner; nodeid is only the stable grouping key.
+            quarantine the test with its runner; nodeid is only the stable grouping key. When the team has connected
+            the optional Trunk.io source (has_trunk_io_data), each item may carry trunk_io, Trunk.io's own
+            flaky/broken verdict for the test: advisory corroboration only, never part of classification or any
+            count, and null trunk_io means "no data", not "healthy", whenever has_trunk_io_data is false.
         feature_flag: engineering-analytics
     engineering-analytics-job-aggregates:
         operation: engineering_analytics_job_aggregates

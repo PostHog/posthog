@@ -48,7 +48,10 @@ autonomous agents (e.g. PostHog Desktop) reasoning about their own PRs.
   quarantine candidates. **It does not answer "which tests are flaky"**: this queue only sees the main Backend pytest
   and Frontend Jest suites, and recovery proof only arrives when someone re-runs failed jobs (or a pytest test is hand-marked
   `@pytest.mark.flaky(reruns=N)`). Counts are absolute signal, never rates: passing runs are mostly not
-  emitted, so there is no honest denominator.
+  emitted, so there is no honest denominator. When the team has connected the optional Trunk.io source
+  (`has_trunk_io_data: true`), items may carry `trunk_io` (Trunk.io's own flaky/broken verdict plus its
+  quarantine bit and detail URL). Treat it as corroboration only: it never feeds `classification` or any count,
+  and a null `trunk_io` under `has_trunk_io_data: false` means "no data", not "healthy".
 
 There is no aggregate time-to-merge tool and no "counts" tool — derive those from `pull-requests` (the stuck/failing
 counts, the merge-time percentiles).

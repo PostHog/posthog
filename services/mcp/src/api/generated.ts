@@ -33087,6 +33087,30 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `flaky` - FLAKY
+     * * `broken` - BROKEN
+     */
+    export type TrunkIoTestStatusEnum = typeof TrunkIoTestStatusEnum[keyof typeof TrunkIoTestStatusEnum];
+
+
+    export const TrunkIoTestStatusEnum = {
+      Flaky: 'flaky',
+      Broken: 'broken',
+    } as const;
+
+    export interface TrunkIoTestAnnotation {
+      /** Trunk.io's current verdict for the test: 'flaky' (nondeterministic) or 'broken' (failing consistently).
+       *
+       * * `flaky` - FLAKY
+       * * `broken` - BROKEN */
+      status: TrunkIoTestStatusEnum;
+      /** True when Trunk.io is suppressing this test's failures in its own CI gate. Independent of this repository's .test_quarantine.json quarantine, which quarantined_failed_run_count counts. */
+      quarantined: boolean;
+      /** Trunk.io's detail page for the test. */
+      url: string;
+    }
+
+    /**
      * * `confirmed_flake` - CONFIRMED_FLAKE
      * * `suspected_regression` - SUSPECTED_REGRESSION
      * * `quarantined` - QUARANTINED
@@ -33101,6 +33125,8 @@ export namespace Schemas {
     } as const;
 
     export interface FlakyTestItem {
+      /** Trunk.io's verdict for this test, from the optional Trunk.io warehouse source. Advisory enrichment only: it never affects classification or any count. Null when no source is connected or when Trunk.io doesn't currently flag the test; check has_trunk_io_data to tell those apart. */
+      trunk_io?: TrunkIoTestAnnotation | null;
       /** Test runner that emitted this signal: 'pytest' or 'jest'.
        *
        * * `pytest` - PYTEST
@@ -33137,6 +33163,8 @@ export namespace Schemas {
       truncated: boolean;
       /** Maximum number of tests returned in `items`. */
       limit: number;
+      /** True when a Trunk.io source is connected for this repository. When false, trunk_io is null on every item because there is no data, not because Trunk.io considers the tests healthy. */
+      has_trunk_io_data?: boolean;
     }
 
     /**

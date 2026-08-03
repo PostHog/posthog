@@ -1,4 +1,5 @@
-"""Resolve a team's GitHub warehouse tables at query time.
+"""Resolve a team's engineering-analytics warehouse tables at query time: the GitHub
+source (required) and the Trunk.io flaky-test source (optional enrichment).
 
 A warehouse table's real name is ``ExternalDataSource.prefix + <synced endpoint table>``,
 and ``prefix`` is free text the user sets when connecting the source. The product can
@@ -55,11 +56,20 @@ TEAM_MEMBERS_SCHEMA = "team_members"
 # teams, …) are irrelevant to the CI/PR read layer and dropped during grouping.
 _CURATED_ENDPOINTS = frozenset({PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA, TEAM_MEMBERS_SCHEMA})
 
+# Trunk.io source endpoint (``ExternalDataSchema.name``) behind the flaky-test enrichment:
+# Trunk's current flaky/broken verdict per test, with its own quarantine bit. The source's
+# other endpoints (QuarantinedTests, FailingTests) stay unresolved until a read needs them.
+TRUNK_IO_UNHEALTHY_TESTS_SCHEMA = "UnhealthyTests"
+
 # Resolved names are interpolated into HogQL ``FROM`` clauses. Warehouse table names are
 # always plain identifiers (the prefix is validated to ``[A-Za-z0-9_]`` at connect time and
 # the rest is the fixed ``github_<endpoint>`` suffix), so reject anything else defensively
 # rather than trust an unexpected name into SQL.
 _IDENTIFIER = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*\Z")
+# Trunk.io tables additionally allow the namespaced shape newer warehouse syncs land
+# (e.g. ``posthog_data_imports_team_2.trunkio_unhealthy_tests``): dot-joined identifier
+# segments, still nothing else.
+_DOTTED_IDENTIFIER = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*\Z")
 
 
 @dataclass(frozen=True)
@@ -185,6 +195,64 @@ def resolve_job_source_tables(team: Team) -> list[JobSourceTables]:
     return resolved
 
 
+@dataclass(frozen=True)
+class TrunkIoTables:
+    """The optional Trunk.io flaky-test warehouse tables the curated layer reads."""
+
+    unhealthy_tests: str
+
+
+def resolve_trunk_io_tables(
+    *,
+    team: Team,
+    repository: str,
+    user_access_control: "UserAccessControl | None" = None,
+) -> TrunkIoTables | None:
+    """Resolve the team's Trunk.io tables for one repository, or None when there is nothing to read.
+
+    None is the designed answer, never an error: Trunk.io is optional advisory enrichment, so a
+    team without the source (or one that disconnected it) simply gets no annotations. Connecting
+    or deleting the source is the only on/off switch; no flag or setting shadows it.
+
+    A Trunk.io source syncs exactly one repo (``repo_owner``/``repo_name`` in its config), so the
+    fence is repo equality with the selected GitHub source's ``owner/name`` identity. An empty
+    ``repository`` (a legacy GitHub source with no repo identity) resolves to None rather than
+    risk annotating one repo's tests with another repo's Trunk.io verdicts.
+    """
+    if not repository:
+        return None
+    wanted = repository.casefold()
+    for source in _accessible_sources(team, ExternalDataSourceType.TRUNKIO, user_access_control):
+        if _trunk_io_repository(source).casefold() != wanted:
+            continue
+        schemas = (
+            ExternalDataSchema.objects.filter(
+                team_id=team.pk, source_id=source.id, name=TRUNK_IO_UNHEALTHY_TESTS_SCHEMA, should_sync=True
+            )
+            .exclude(deleted=True)
+            .select_related("table")
+        )
+        for schema in schemas:
+            table = schema.table
+            if table is not None and not table.deleted and _DOTTED_IDENTIFIER.match(table.name):
+                return TrunkIoTables(unhealthy_tests=table.name)
+    return None
+
+
+def _trunk_io_repository(source: ExternalDataSource) -> str:
+    """The source's configured ``owner/name`` identity, or '' when unset or malformed.
+
+    ``job_inputs`` is an ``EncryptedJSONField`` that can hold any JSON value, so guard the
+    non-dict case like ``_source_repository`` does.
+    """
+    job_inputs = source.job_inputs
+    if not isinstance(job_inputs, dict):
+        return ""
+    owner = str(job_inputs.get("repo_owner") or "").strip()
+    name = str(job_inputs.get("repo_name") or "").strip()
+    return f"{owner}/{name}" if owner and name else ""
+
+
 # Listing the team's connected sources is its own concern (no curated read handle): it threads the
 # requesting user's access control so the picker can't enumerate sources the user can't access.
 def build_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
@@ -265,15 +333,21 @@ def _repo_candidates(*, team: Team, sources: QuerySet[ExternalDataSource]) -> It
 
 
 def _github_sources(team: Team, user_access_control: "UserAccessControl | None" = None) -> QuerySet[ExternalDataSource]:
-    """The team's non-deleted GitHub sources the caller may access, oldest first — the order
-    ``resolve_github_tables`` defaults from, so a picker's first entry matches the default source.
+    return _accessible_sources(team, ExternalDataSourceType.GITHUB, user_access_control)
+
+
+def _accessible_sources(
+    team: Team, source_type: ExternalDataSourceType, user_access_control: "UserAccessControl | None" = None
+) -> QuerySet[ExternalDataSource]:
+    """The team's non-deleted sources of ``source_type`` the caller may access, oldest first — the
+    order the resolvers default from, so a picker's first entry matches the default source.
 
     ``user_access_control`` applies the requesting user's per-source warehouse RBAC, so neither the
-    resolver nor the picker can reach a source the user can't access; ``None`` (system/Temporal/CLI
+    resolvers nor the picker can reach a source the user can't access; ``None`` (system/Temporal/CLI
     contexts) skips it, leaving team scoping. This is the single place that access scope is decided.
     """
     sources = (
-        ExternalDataSource.objects.filter(team_id=team.pk, source_type=ExternalDataSourceType.GITHUB)
+        ExternalDataSource.objects.filter(team_id=team.pk, source_type=source_type)
         .exclude(deleted=True)
         .order_by("created_at", "id")
     )

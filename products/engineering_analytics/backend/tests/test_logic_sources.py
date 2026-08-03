@@ -10,13 +10,16 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
+    TRUNK_IO_UNHEALTHY_TESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
     WORKFLOW_RUNS_SCHEMA,
     GitHubTables,
     JobSourceTables,
+    TrunkIoTables,
     list_github_sources,
     resolve_github_tables,
     resolve_job_source_tables,
+    resolve_trunk_io_tables,
 )
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
@@ -24,6 +27,7 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    create_trunk_io_source,
     create_warehouse_table_row,
     link_schema,
 )
@@ -149,6 +153,54 @@ class TestResolveGitHubTables(BaseTest):
         other_source = self._connect(prefix="other", schemas=self._BOTH_SYNCED, team=other_team)
         with self.assertRaises(GitHubSourceNotConnectedError):
             resolve_github_tables(team=self.team, source_id=str(other_source.id))
+
+
+class TestResolveTrunkIoTables(BaseTest):
+    """The optional Trunk.io resolver (ORM only). None is the designed answer for every
+    absence shape, and the repo fence must never hand one repo another repo's tables."""
+
+    def _connect(
+        self,
+        *,
+        repository: str = "PostHog/posthog",
+        table_name: str | None = "trunkio_unhealthytests",
+        should_sync: bool = True,
+        schema_name: str = TRUNK_IO_UNHEALTHY_TESTS_SCHEMA,
+    ) -> ExternalDataSource:
+        source = create_trunk_io_source(self.team, repository=repository)
+        table = create_warehouse_table_row(self.team, name=table_name, source=source) if table_name else None
+        link_schema(self.team, source, name=schema_name, table=table, should_sync=should_sync)
+        return source
+
+    def test_resolves_matching_repo_case_insensitively(self) -> None:
+        self._connect(repository="PostHog/posthog", table_name="posthog_data_imports.trunkio_unhealthy_tests")
+        tables = resolve_trunk_io_tables(team=self.team, repository="posthog/POSTHOG")
+        assert tables == TrunkIoTables(unhealthy_tests="posthog_data_imports.trunkio_unhealthy_tests")
+
+    @parameterized.expand(
+        [
+            ("no_source", None),
+            ("repo_mismatch", {"repository": "PostHog/posthog.com"}),
+            ("schema_not_synced", {"should_sync": False}),
+            ("schema_without_table", {"table_name": None}),
+            ("other_schema_only", {"schema_name": "FailingTests"}),
+        ]
+    )
+    def test_returns_none_when_nothing_to_read(self, _name: str, connect_kwargs: dict[str, Any] | None) -> None:
+        if connect_kwargs is not None:
+            self._connect(**connect_kwargs)
+        assert resolve_trunk_io_tables(team=self.team, repository="PostHog/posthog") is None
+
+    def test_returns_none_without_a_repository_identity(self) -> None:
+        # A legacy GitHub source can resolve with repository=''; that must never fan out to
+        # whichever Trunk.io source happens to exist.
+        self._connect()
+        assert resolve_trunk_io_tables(team=self.team, repository="") is None
+
+    def test_survives_non_dict_job_inputs(self) -> None:
+        source = self._connect()
+        ExternalDataSource.objects.filter(pk=source.pk).update(job_inputs=["not", "a", "dict"])
+        assert resolve_trunk_io_tables(team=self.team, repository="PostHog/posthog") is None
 
 
 class TestListGitHubSources(BaseTest):
