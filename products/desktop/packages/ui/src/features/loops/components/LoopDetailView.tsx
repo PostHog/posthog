@@ -1,8 +1,4 @@
-import {
-  ArrowLeftIcon,
-  LinkIcon,
-  PencilSimpleIcon,
-} from "@phosphor-icons/react";
+import { ArrowLeftIcon, LinkIcon } from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { isUploadableSkillSource } from "@posthog/core/message-editor/skillTags";
 import { useHostTRPC } from "@posthog/host-router/react";
@@ -17,7 +13,6 @@ import {
   Badge,
   Button,
   Switch,
-  Textarea,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
@@ -34,16 +29,14 @@ import { toast } from "@posthog/ui/primitives/toast";
 import {
   canGoBackInHistory,
   goBackInHistory,
-  navigateToEditLoop,
   navigateToLoops,
 } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { Flex, Text, TextField } from "@radix-ui/themes";
+import { Flex, Text } from "@radix-ui/themes";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useInlineEdit } from "../hooks/useInlineEdit";
 import { useLoop } from "../hooks/useLoop";
 import {
   useDeleteLoop,
@@ -69,6 +62,7 @@ import { formatLoopModel } from "../loopModels";
 import { loopSkillBundles, primaryLoopSkillBundle } from "../loopSkill";
 import { copyLoopLink } from "../utils/copyLoopLink";
 import { LoopLoadError } from "./LoopFallbacks";
+import { LoopForm } from "./LoopForm";
 import { LoopHeaderTitle } from "./LoopHeaderTitle";
 import { LoopRunRow } from "./LoopRunRow";
 import { LoopSpaceBreadcrumb } from "./LoopSpaceBreadcrumb";
@@ -83,6 +77,7 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
   const runLoop = useRunLoop(loopId);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [runNowPending, setRunNowPending] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   const runsQuery = useLoopRuns(loopId);
   const runs = runsQuery.data ?? [];
@@ -247,7 +242,12 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
 
           <Flex align="center" justify="between" gap="3" wrap="wrap">
             <Flex align="center" gap="2" wrap="wrap" className="min-w-0">
-              <EditableLoopTitle loop={loop} />
+              <Text
+                className="truncate font-bold text-[22px] text-gray-12 leading-tight tracking-tight"
+                title={loop.name}
+              >
+                {loop.name}
+              </Text>
               <Badge variant={loopStatusBadgeVariant(loop)}>
                 {loopStatusLabel(loop)}
               </Badge>
@@ -280,9 +280,9 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => navigateToEditLoop(loop.id)}
+                onClick={() => setIsEditing((editing) => !editing)}
               >
-                Edit
+                {isEditing ? "View summary" : "Edit"}
               </Button>
               <Button
                 variant="destructive"
@@ -294,14 +294,33 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
             </Flex>
           </Flex>
 
-          <EditableLoopDescription loop={loop} />
+          <Text
+            className={`max-w-3xl text-[12.5px] leading-snug ${
+              loop.description.trim() ? "text-gray-11" : "text-gray-10"
+            }`}
+          >
+            {loop.description.trim() || "No description"}
+          </Text>
 
           <PausedNotice loop={loop} />
         </Flex>
 
-        <ConfigSummarySection loop={loop} />
-
-        <InstructionsSection loop={loop} />
+        {isEditing ? (
+          <LoopForm
+            loop={loop}
+            variant="embedded"
+            onCancel={() => setIsEditing(false)}
+            onSaved={() => {
+              setIsEditing(false);
+              toast.success("Loop updated");
+            }}
+          />
+        ) : (
+          <>
+            <ConfigSummarySection loop={loop} />
+            <InstructionsSection loop={loop} />
+          </>
+        )}
 
         <Flex direction="column" gap="2">
           <Flex align="center" gap="2">
@@ -377,125 +396,6 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  );
-}
-
-function EditableLoopTitle({ loop }: { loop: LoopSchemas.Loop }) {
-  const updateLoop = useUpdateLoop(loop.id);
-  const edit = useInlineEdit({
-    current: loop.name,
-    isPending: updateLoop.isPending,
-    commitOnEnter: "enter",
-    onCommit: (name, { reset }) =>
-      updateLoop.mutate(
-        { name },
-        {
-          onSuccess: () => {
-            reset();
-            toast.success("Loop title updated");
-          },
-          onError: (error) => {
-            reset();
-            toast.error("Failed to update loop title", {
-              description: error.message,
-            });
-          },
-        },
-      ),
-  });
-
-  if (edit.isEditing) {
-    return (
-      <TextField.Root
-        value={edit.draft ?? ""}
-        disabled={updateLoop.isPending}
-        autoFocus
-        aria-label="Loop title"
-        className="w-full min-w-72 max-w-2xl flex-1 font-bold text-[22px] tracking-tight"
-        {...edit.inputProps}
-      />
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      className="group flex min-w-0 items-center gap-1 rounded-(--radius-1) px-1 py-0.5 text-left hover:bg-(--gray-3)"
-      aria-label="Edit loop title"
-      onClick={edit.startEditing}
-    >
-      <Text
-        className="truncate font-bold text-[22px] text-gray-12 leading-tight tracking-tight"
-        title={loop.name}
-      >
-        {loop.name}
-      </Text>
-      <PencilSimpleIcon
-        size={14}
-        className="shrink-0 text-gray-9 opacity-0 group-hover:opacity-100"
-      />
-    </button>
-  );
-}
-
-function EditableLoopDescription({ loop }: { loop: LoopSchemas.Loop }) {
-  const updateLoop = useUpdateLoop(loop.id);
-  const edit = useInlineEdit({
-    current: loop.description,
-    isPending: updateLoop.isPending,
-    allowEmpty: true,
-    onCommit: (description, { reset }) =>
-      updateLoop.mutate(
-        { description },
-        {
-          onSuccess: () => {
-            reset();
-            toast.success("Loop description updated");
-          },
-          onError: (error) => {
-            reset();
-            toast.error("Failed to update loop description", {
-              description: error.message,
-            });
-          },
-        },
-      ),
-  });
-
-  if (edit.isEditing) {
-    return (
-      <Textarea
-        value={edit.draft ?? ""}
-        disabled={updateLoop.isPending}
-        autoFocus
-        aria-label="Loop description"
-        placeholder="Add a description"
-        className="max-w-3xl text-[12.5px] leading-snug"
-        {...edit.inputProps}
-      />
-    );
-  }
-
-  const description = loop.description.trim();
-  return (
-    <button
-      type="button"
-      className="group flex max-w-3xl items-center gap-1 rounded-(--radius-1) px-1 py-0.5 text-left hover:bg-(--gray-3)"
-      aria-label="Edit loop description"
-      onClick={edit.startEditing}
-    >
-      <Text
-        className={`text-[12.5px] leading-snug ${
-          description ? "text-gray-11" : "text-gray-10"
-        }`}
-      >
-        {description || "Add a description"}
-      </Text>
-      <PencilSimpleIcon
-        size={12}
-        className="shrink-0 text-gray-9 opacity-0 group-hover:opacity-100"
-      />
-    </button>
   );
 }
 
@@ -713,51 +613,18 @@ function LoopSkillSummary({ loop }: { loop: LoopSchemas.Loop }) {
 }
 
 function InstructionsSection({ loop }: { loop: LoopSchemas.Loop }) {
-  const updateLoop = useUpdateLoop(loop.id);
   const primarySkill = primaryLoopSkillBundle(loop);
-  const edit = useInlineEdit({
-    current: loop.instructions,
-    isPending: updateLoop.isPending,
-    onCommit: (instructions, { reset }) =>
-      updateLoop.mutate(
-        { instructions },
-        {
-          onSuccess: () => {
-            reset();
-            toast.success("Instructions updated");
-          },
-          onError: (error) => {
-            reset();
-            toast.error("Failed to update instructions", {
-              description: error.message,
-            });
-          },
-        },
-      ),
-  });
 
   return (
     <Flex direction="column" gap="3">
-      <Flex align="center" gap="2">
-        <Text className="font-medium text-[13px] text-gray-12">
-          Instructions
-        </Text>
-        {updateLoop.isPending ? (
-          <Text className="text-[11px] text-gray-10">Saving…</Text>
-        ) : null}
-      </Flex>
-      <Textarea
-        value={edit.draft ?? loop.instructions}
-        disabled={updateLoop.isPending}
-        aria-label="Loop instructions"
-        className="max-h-[400px] min-h-[200px] bg-(--color-panel-solid) text-[12.5px] leading-relaxed"
-        {...edit.inputProps}
-      />
+      <Text className="font-medium text-[13px] text-gray-12">Instructions</Text>
+      <pre className="max-h-[400px] min-h-[160px] overflow-auto whitespace-pre-wrap rounded-(--radius-2) border border-border bg-(--color-panel-solid) p-3 font-sans text-[12.5px] text-gray-12 leading-relaxed">
+        {loop.instructions}
+      </pre>
       {primarySkill ? (
         <Text className="text-[11px] text-gray-10 leading-snug">
           This loop runs the {primarySkill.skill_name} skill: the leading /
-          {primarySkill.skill_name} line invokes its attached snapshot. Editing
-          here changes only the text; use Edit to change or detach the skill.
+          {primarySkill.skill_name} line invokes its attached snapshot.
         </Text>
       ) : null}
     </Flex>

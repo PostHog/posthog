@@ -75,10 +75,19 @@ const STEPS = ["Prompt", "When", "Options", "Review"] as const;
 interface LoopFormProps {
   /** Present in edit mode; absent when creating a new loop. */
   loop?: LoopSchemas.Loop;
+  variant?: "wizard" | "embedded";
+  onCancel?: () => void;
+  onSaved?: (loop: LoopSchemas.Loop) => void;
 }
 
-export function LoopForm({ loop }: LoopFormProps) {
+export function LoopForm({
+  loop,
+  variant = "wizard",
+  onCancel,
+  onSaved,
+}: LoopFormProps) {
   const isEdit = !!loop;
+  const isEmbedded = variant === "embedded";
   const projectId = useAuthStateValue((state) => state.currentProjectId);
   const [values, setValues] = useState<LoopFormValues>(() => {
     if (loop) return normalizeLoopFormValues(loopToFormValues(loop));
@@ -95,7 +104,7 @@ export function LoopForm({ loop }: LoopFormProps) {
   // Open when editing a loop that already pins a model, so the pinned value
   // is visible without hunting for it.
   const [showAdvanced, setShowAdvanced] = useState(
-    () => !!(loop && (loop.model || loop.reasoning_effort)),
+    () => isEmbedded || !!(loop && (loop.model || loop.reasoning_effort)),
   );
 
   useEffect(() => {
@@ -163,6 +172,10 @@ export function LoopForm({ loop }: LoopFormProps) {
     setValues((prev) => ({ ...prev, ...next }));
 
   const handleCancel = () => {
+    if (onCancel) {
+      onCancel();
+      return;
+    }
     if (isEdit) {
       navigateToLoopDetail(loop.id);
     } else {
@@ -238,7 +251,11 @@ export function LoopForm({ loop }: LoopFormProps) {
           return;
         }
       }
-      navigateToLoopDetail(saved.id);
+      if (onSaved) {
+        onSaved(saved);
+      } else {
+        navigateToLoopDetail(saved.id);
+      }
     } catch (error) {
       const safetyLimit =
         error instanceof LoopsApiError ? error.safetyLimit : null;
@@ -260,6 +277,194 @@ export function LoopForm({ loop }: LoopFormProps) {
       });
     }
   };
+
+  if (isEmbedded) {
+    return (
+      <Flex
+        direction="column"
+        gap="4"
+        className="rounded-(--radius-2) border border-border bg-(--color-panel-solid) p-4"
+      >
+        <Step
+          title="Prompt"
+          description="Name it and write the prompt the agent runs on every fire."
+        >
+          <Field label="Name" required>
+            <TextField.Root
+              size="2"
+              value={values.name}
+              placeholder="Daily standup summary"
+              disabled={isSubmitting}
+              onChange={(e) => patch({ name: e.target.value })}
+            />
+          </Field>
+          <Field label="Description">
+            <TextField.Root
+              size="2"
+              value={values.description}
+              placeholder="A short summary shown on the Loops list"
+              disabled={isSubmitting}
+              onChange={(e) => patch({ description: e.target.value })}
+            />
+          </Field>
+          <LoopInstructionsFields
+            values={values}
+            disabled={isSubmitting}
+            onPatch={patch}
+          />
+        </Step>
+
+        <Divider />
+
+        <Step
+          title="When"
+          description="A loop can have several triggers, and any one of them starts a run. With no triggers, you run it yourself from the loop's page."
+        >
+          <LoopTriggerEditor
+            triggers={values.triggers}
+            triggerEndpointPath={triggerEndpointPath}
+            disabled={isSubmitting}
+            onChange={(triggers) => patch({ triggers })}
+          />
+        </Step>
+
+        <Divider />
+
+        <Step
+          title="Options"
+          description="Who can see it, what it can work on, and how you hear about runs."
+        >
+          <Field
+            label="Visibility"
+            className="max-w-[340px]"
+            hint={
+              values.contextTarget
+                ? "Loops attached to a channel post runs to its shared feed, so they're visible to everyone on the project."
+                : undefined
+            }
+          >
+            <SettingsOptionSelect
+              value={values.visibility}
+              options={VISIBILITY_OPTIONS}
+              disabled={isSubmitting || !!values.contextTarget}
+              size="lg"
+              ariaLabel="Visibility"
+              onValueChange={(value) =>
+                patch({
+                  visibility: value as LoopSchemas.LoopVisibilityEnum,
+                })
+              }
+            />
+          </Field>
+
+          {showContextField ? (
+            <Field
+              label="Context"
+              hint="A context is one of the channels in your sidebar. Attach this loop to a channel and its runs show up in that channel's feed; it can also keep the channel's context.md or a canvas up to date."
+            >
+              <LoopContextFields
+                value={values.contextTarget}
+                disabled={isSubmitting}
+                onChange={(contextTarget) =>
+                  patch(
+                    contextTarget
+                      ? { contextTarget, visibility: "team" }
+                      : { contextTarget },
+                  )
+                }
+              />
+            </Field>
+          ) : null}
+
+          <Field
+            label="Base repository"
+            hint={
+              values.repositories.length > 1
+                ? `${values.repositories.length - 1} more ${
+                    values.repositories.length === 2
+                      ? "repository stays"
+                      : "repositories stay"
+                  } attached to this loop.`
+                : "The repository runs check out and work in. Optional. Leave empty for a report-only loop that works purely through connectors."
+            }
+          >
+            <LoopRepositoryPicker
+              value={values.repositories[0] ?? null}
+              disabled={isSubmitting}
+              onChange={(repository) =>
+                setValues((prev) => ({
+                  ...prev,
+                  repositories: repository
+                    ? [repository, ...prev.repositories.slice(1)]
+                    : prev.repositories.slice(1),
+                }))
+              }
+            />
+          </Field>
+
+          <Field label="Notifications">
+            <LoopNotificationsFields
+              notifications={values.notifications}
+              disabled={isSubmitting}
+              onChange={(notifications) => patch({ notifications })}
+            />
+          </Field>
+        </Step>
+
+        <Divider />
+
+        <Step
+          title="Advanced"
+          description="Behavior, model, and reasoning settings."
+        >
+          <Field label="Behavior">
+            <LoopBehaviorFields
+              behaviors={values.behaviors}
+              disabled={isSubmitting}
+              onChange={(behaviors) => patch({ behaviors })}
+            />
+          </Field>
+          <LoopModelFields
+            adapter={values.runtimeAdapter}
+            model={values.model}
+            reasoningEffort={values.reasoningEffort}
+            disabled={isSubmitting}
+            onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
+            onModelChange={(model) => patch({ model })}
+            onReasoningEffortChange={(reasoningEffort) =>
+              patch({ reasoningEffort })
+            }
+          />
+        </Step>
+
+        <Flex
+          align="center"
+          justify="end"
+          gap="2"
+          className="border-border border-t pt-4"
+        >
+          <Button
+            variant="soft"
+            color="gray"
+            size="2"
+            disabled={isSubmitting}
+            onClick={handleCancel}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="solid"
+            size="2"
+            loading={isSubmitting}
+            disabled={!canSubmit}
+            onClick={() => void handleSubmit()}
+          >
+            Save changes
+          </Button>
+        </Flex>
+      </Flex>
+    );
+  }
 
   return (
     <Box className="flex h-full items-center justify-center p-6">

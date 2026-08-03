@@ -166,13 +166,6 @@ export function navigateToLoopDetail(loopId: string): void {
   });
 }
 
-export function navigateToEditLoop(loopId: string): void {
-  void getRouterOrNull()?.navigate({
-    to: "/code/loops/$loopId/edit",
-    params: { loopId },
-  });
-}
-
 export function navigateToAgents(): void {
   void getRouterOrNull()?.navigate({ to: "/code/agents" });
 }
