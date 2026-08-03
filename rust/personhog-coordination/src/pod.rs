@@ -674,16 +674,17 @@ impl PodHandle {
             }
         }
 
-        // Phase 2: with nothing in flight anywhere, release each
-        // partition (dropping cache and serving authority) and clear
-        // the local ownership state.
-        // Only the partitions that actually quiesced. Release unfences and
-        // drops the cache without waiting, so releasing one whose drain
+        // Phase 2: release each partition that quiesced — dropping its
+        // cache and serving authority — and clear the local ownership
+        // state for it.
+        //
+        // Only the ones that quiesced. Release unfences and drops the
+        // cache without waiting, so releasing a partition whose drain
         // was cut off mid-flight lets a write admitted before the lease
         // was lost ack after the replacement owner has warmed — the very
-        // ordering Phase 1 exists to establish. A partition left fenced
-        // and unreleased stays that way until the process restarts,
-        // which is the outcome its drain timing out already implies.
+        // ordering Phase 1 exists to establish. One left fenced and
+        // unreleased stays that way until the process restarts, which is
+        // the outcome its drain timing out already implies.
         for partition in held {
             if !quiesced.contains(&partition) {
                 continue;
@@ -694,7 +695,11 @@ impl PodHandle {
             self.warmed_partitions.lock().await.remove(&partition);
             self.fenced_partitions.lock().await.remove(&partition);
         }
-        gauge!("personhog_coordination_partitions_held").set(0.0);
+        // Whatever is left, not zero. A partition whose drain never
+        // quiesced is still held, and reporting none held would hide it
+        // at the one moment the count is worth reading.
+        gauge!("personhog_coordination_partitions_held")
+            .set(self.held_partition_count().await as f64);
         if !failures.is_empty() {
             return Err(Error::invalid_state(format!(
                 "self-fence completed with {} failure(s): {}",

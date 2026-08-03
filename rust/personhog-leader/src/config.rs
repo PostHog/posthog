@@ -448,16 +448,27 @@ impl Config {
     /// Ceiling on the drain's wait for an open window to commit.
     ///
     /// The wait exists to catch a committer about to fire anyway — it
-    /// sleeps for the window, then commits — so a long budget only helps
-    /// when the commit is retrying, which is the case where the
-    /// successor's abort is the right answer regardless. Capped because
-    /// the pre-revoke self-fence allows three seconds for a whole drain:
-    /// the broker's own patience reaches 7.5s at the production lease,
-    /// so a budget derived from the lease alone would truncate on every
-    /// shutdown with an open window and report a failed drain.
+    /// sleeps for the window, then commits — so a longer budget only
+    /// helps when the commit is retrying, which is the case where the
+    /// successor's abort is the right answer regardless.
+    ///
+    /// Absolute rather than derived from the lease, because what it has
+    /// to fit inside is absolute: the pre-revoke self-fence allows three
+    /// seconds for a whole drain. Bounding it by the broker's own
+    /// patience instead would be inert — `fencing_txn_timeout` floors at
+    /// a second and the window can make three such calls, so that bound
+    /// never falls below four and a half, and every accepted lease would
+    /// leave the cap doing all the work. It reached 7.5s at the
+    /// production lease, which truncated on every shutdown with an open
+    /// window and reported the drain as failed.
+    ///
+    /// Residual: a `drain_timeout` configured under two seconds shrinks
+    /// that allowance below this budget, and the leader cannot see the
+    /// coordination-side value to derive against. Truncating is safe —
+    /// the wait is best-effort — so the cost is a spurious drain
+    /// failure, not a correctness one.
     pub fn fencing_settle_budget(&self) -> Duration {
-        self.fencing_broker_txn_timeout()
-            .min(Duration::from_secs(2))
+        Duration::from_secs(2)
     }
 
     pub fn fencing_broker_txn_timeout(&self) -> Duration {
