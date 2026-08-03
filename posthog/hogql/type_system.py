@@ -1343,10 +1343,23 @@ def _infer_generic_function_type(
     return None
 
 
+# HogQL date conversions that print to a ClickHouse `*OrNull` parser when handed a string, but
+# overload to the plain, non-nullable constructor for date/datetime/integer input (see
+# DATE_CONVERSION_FUNCTIONS: `toDate` -> `toDateOrNull`, `toDateTime` ->
+# `parseDateTime64BestEffortOrNull`). Their nullability is therefore argument-dependent, and
+# claiming non-nullable for the string path makes callers' `assumeNotNull(...)` look redundant
+# when it is load-bearing.
+_STRING_PARSED_DATE_CONVERSIONS = {"todate", "to_date", "_todate", "todatetime", "todatetimeus"}
+
+
 def _conversion_nullable(normalized_name: str, arg_types: list[ast.ConstantType]) -> bool:
     if normalized_name.endswith("orzero") or normalized_name.endswith("ordefault"):
         return False
-    return any(arg_type.nullable for arg_type in arg_types) or normalized_name in {
+    if any(arg_type.nullable for arg_type in arg_types):
+        return True
+    if normalized_name in _STRING_PARSED_DATE_CONVERSIONS:
+        return bool(arg_types) and isinstance(arg_types[0], ast.StringType)
+    return normalized_name in {
         "toint",
         "tofloat",
         "tobool",
