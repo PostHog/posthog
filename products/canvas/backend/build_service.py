@@ -41,7 +41,7 @@ from posthog.storage import object_storage
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import SYNTHETIC_INDEX_HTML, has_errors, validate_source_project
-from products.tasks.backend.exceptions import (
+from products.tasks.backend.facade.sandbox import (
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
