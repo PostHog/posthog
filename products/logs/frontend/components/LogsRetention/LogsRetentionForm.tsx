@@ -1,22 +1,34 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonSegmentedButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonSegmentedButton, LemonSegmentedButtonOption, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { AvailableFeature } from '~/types'
 
 import { DropRuleFilterEditor } from 'products/logs/frontend/components/LogsSampling/DropRuleFilterEditor'
 
 import { RETENTION_DAYS_OPTIONS, logsRetentionFormLogic } from './logsRetentionFormLogic'
 
-const RETENTION_OPTIONS = RETENTION_DAYS_OPTIONS.map((days) => ({ value: days, label: `${days} days` }))
-
 export function LogsRetentionForm(): JSX.Element {
     const { retentionForm, retentionFormErrors } = useValues(logsRetentionFormLogic)
     const { setRetentionFormValue } = useActions(logsRetentionFormLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const hasFilters = retentionForm.filter_group.values.length > 0
+
+    // Gate paid tiers on the org entitlement, mirroring the team-wide LogsRetentionSettings — the
+    // backend rejects an unentitled tier with a 403, so disable it here rather than fail on save.
+    const retentionOptions: LemonSegmentedButtonOption<number>[] = RETENTION_DAYS_OPTIONS.map((days) => ({
+        value: days,
+        label: `${days} days`,
+        disabledReason:
+            days === 30 && !hasAvailableFeature(AvailableFeature.LOGS_RETENTION_30D)
+                ? 'Upgrade to a paid plan to use 30-day retention'
+                : undefined,
+    }))
 
     return (
         <div className="flex flex-col gap-4 max-w-3xl">
@@ -25,7 +37,7 @@ export function LogsRetentionForm(): JSX.Element {
                     <LemonInput
                         value={retentionForm.name}
                         onChange={(v) => setRetentionFormValue('name', v)}
-                        placeholder="e.g. Keep payment logs for 90 days"
+                        placeholder="e.g. Keep payment logs for 30 days"
                     />
                 </LemonField.Pure>
                 <LemonField.Pure label="Enabled">
@@ -41,7 +53,7 @@ export function LogsRetentionForm(): JSX.Element {
                     <LemonSegmentedButton
                         value={retentionForm.retention_days}
                         onChange={(v) => v && setRetentionFormValue('retention_days', v)}
-                        options={RETENTION_OPTIONS}
+                        options={retentionOptions}
                         size="small"
                     />
                 </LemonField.Pure>
