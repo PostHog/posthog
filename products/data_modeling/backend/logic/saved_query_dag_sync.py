@@ -56,7 +56,18 @@ def resolve_dependency_to_node(
     # ephemeral view
     if isinstance(table, HogQLSavedQuery):
         saved_query = DataWarehouseSavedQuery.objects.get(team=team, name=dependency_name, deleted=False)
-        return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
+        node = Node.objects.filter(team=team, dag=dag, saved_query=saved_query).first()
+        if node is not None:
+            return node
+        # parent lives in another dag; cross-dag edges are forbidden, so reference it as a table
+        node, _ = Node.objects.get_or_create(
+            team=team,
+            dag=dag,
+            name=dependency_name,
+            type=NodeType.TABLE,
+            defaults={"properties": {"origin": "cross_dag_view", "saved_query_id": str(saved_query.id)}},
+        )
+        return node
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -66,8 +77,10 @@ def resolve_dependency_to_node(
             )
             # matview
             if matview_saved_query is not None:
-                return Node.objects.get(team=team, dag=dag, saved_query=matview_saved_query, name=dependency_name)
-            # warehouse table
+                node = Node.objects.filter(team=team, dag=dag, saved_query=matview_saved_query).first()
+                if node is not None:
+                    return node
+            # warehouse table (also the fallback when the matview's node lives in another dag)
             warehouse_table = (
                 DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
             )
