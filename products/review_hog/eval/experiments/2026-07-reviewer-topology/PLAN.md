@@ -106,7 +106,7 @@ wall-clock (cross-perspective stays parallel, like C2's shape but serialized ove
 
 Not new plumbing: reuses the warm-session executor helpers (`start/continue/end_sandbox_session`, same as the validate
 stage) and the existing `(pass_number, chunk_id)` skip-resume via `load_perspective_results`. **Full design already in
-`ARCHITECTURE.md` → "NEXT candidate — per-PERSPECTIVE warm review session" — read that first.**
+`DECISIONS.md` → "NEXT candidate — per-PERSPECTIVE warm review session" — read that first.**
 
 Experiment wiring: `EXPERIMENT_WARM_REVIEW_SESSION` constant (default False) + `EXPERIMENT_FORCE_CHUNKING=True`
 (C1 chunking). When on, `ReviewPerspectivesWorkflow` routes to a per-perspective session activity (chunks as turns,

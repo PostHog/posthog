@@ -194,6 +194,18 @@ describe('onboardingLogic — flow composition', () => {
                 INSTALL_DEDUP_KEYS.OPENTELEMETRY,
             ])
         })
+
+        // Metrics and Logs both send over OTel, but their install steps are NOT
+        // functionally identical (Metrics is OTLP/scrape-agent only; Logs offers 10
+        // SDK-specific flows). Collapsing them would drop the loser's instruction map,
+        // so picking both must keep both install steps regardless of which is primary.
+        it('Metrics primary + Logs secondary keeps both install steps (no dedup)', () => {
+            logic.actions.setProductKey(ProductKey.METRICS)
+            logic.actions.setSecondaryProductKeys([ProductKey.LOGS])
+
+            const installs = logic.values.flow.filter((s) => s.stepKey === OnboardingStepKey.INSTALL)
+            expect(installs.map((s) => s.id)).toEqual(['install:metrics', 'install:logs'])
+        })
     })
 
     describe('install-step — no dedup', () => {
@@ -422,6 +434,16 @@ describe('onboardingLogic — flow composition', () => {
                     type: logic.actionTypes.recordProductIntentOnboardingComplete,
                     payload: { product_type: ProductKey.PRODUCT_ANALYTICS } as any,
                 },
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    expect(action.payload).toMatchObject({
+                        completed_snippet_onboarding: true,
+                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+                    })
+                    return true
+                },
             ])
         })
 
@@ -474,6 +496,25 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toNotHaveDispatchedActions(['recordProductIntentOnboardingComplete', 'setIsCompleting'])
+        })
+    })
+
+    describe('completeSelfDrivingOnboarding', () => {
+        it('persists both onboarding completion signals', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.completeSelfDrivingOnboarding()
+            }).toDispatchActions([
+                (action) => {
+                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
+                        return false
+                    }
+                    expect(action.payload).toMatchObject({
+                        completed_snippet_onboarding: true,
+                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
+                    })
+                    return true
+                },
+            ])
         })
     })
 

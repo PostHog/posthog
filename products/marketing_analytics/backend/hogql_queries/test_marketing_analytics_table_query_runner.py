@@ -1,5 +1,5 @@
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import Mock, patch
 
 from parameterized import parameterized
@@ -21,14 +21,23 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
+from posthog.clickhouse.query_tagging import Feature, reset_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.utils import uuid7
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import MarketingSourceAdapter
-from products.marketing_analytics.backend.hogql_queries.constants import DEFAULT_LIMIT, DRILL_DOWN_LEVEL_CONFIG
+from products.marketing_analytics.backend.hogql_queries.constants import (
+    DEFAULT_LIMIT,
+    DRILL_DOWN_LEVEL_CONFIG,
+    SESSIONS_COLUMN_ALIAS,
+)
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import REVALIDATION_TRIGGER
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+
+_BASE_RUNNER = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner"
 
 
 class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
@@ -52,6 +61,10 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             properties=[],
         )
 
+    def tearDown(self):
+        reset_query_tags()
+        super().tearDown()
+
     def _create_query_runner(
         self, query: MarketingAnalyticsTableQuery | None = None
     ) -> MarketingAnalyticsTableQueryRunner:
@@ -59,6 +72,27 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
         if query is None:
             query = self.default_query
         return MarketingAnalyticsTableQueryRunner(query=query, team=self.team)
+
+    @parameterized.expand(
+        [
+            # A user-facing read is access-controlled; only background writers bypass. Getting this wrong
+            # either freezes warehouse-backed costs for access-control teams (no bypass on the userless
+            # revalidation) or leaks tables into a user read (bypass when it shouldn't).
+            ("user_facing", None, False),
+            ("dagster_warmer", {"feature": Feature.CACHE_WARMUP}, True),
+            ("revalidation_task", {"trigger": REVALIDATION_TRIGGER}, True),
+        ]
+    )
+    @patch(f"{_BASE_RUNNER}.Database.create_for")
+    def test_background_warming_bypasses_warehouse_access_control(self, _name, tags, expected_bypass, create_for):
+        runner = self._create_query_runner()  # no user — mirrors the background task's userless runner
+        if tags is None:
+            _ = runner._shared_hogql_database
+        else:
+            with tags_context(**tags):
+                _ = runner._shared_hogql_database
+
+        assert create_for.call_args.kwargs["bypass_warehouse_access_control"] is expected_bypass
 
     def _create_mock_adapter(self, name: str, validation_result: bool = True) -> Mock:
         """Create a mock adapter for testing"""
@@ -409,6 +443,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (MarketingAnalyticsDrillDownLevel.CHANNEL, "Channel"),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE, "Channel"),
             (MarketingAnalyticsDrillDownLevel.SOURCE, MarketingAnalyticsBaseColumns.SOURCE),
             (MarketingAnalyticsDrillDownLevel.CAMPAIGN, MarketingAnalyticsBaseColumns.CAMPAIGN),
             (MarketingAnalyticsDrillDownLevel.MEDIUM, "Medium"),
@@ -431,6 +466,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (MarketingAnalyticsDrillDownLevel.CHANNEL,),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,),
             (MarketingAnalyticsDrillDownLevel.SOURCE,),
             (MarketingAnalyticsDrillDownLevel.CAMPAIGN,),
             (MarketingAnalyticsDrillDownLevel.MEDIUM,),
@@ -463,6 +499,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (MarketingAnalyticsDrillDownLevel.CHANNEL,),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,),
             (MarketingAnalyticsDrillDownLevel.SOURCE,),
             (MarketingAnalyticsDrillDownLevel.CAMPAIGN,),
             (MarketingAnalyticsDrillDownLevel.MEDIUM,),
@@ -552,6 +589,141 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
             f"source={source!r} expected channel={expected_channel!r}, got {channels}"
         )
 
+    def test_channel_source_drill_down_keeps_sources_separate_within_a_channel(self):
+        """CHANNEL_SOURCE is the composite level: google and bing both classify as Paid Search,
+        but must stay separate rows. If source drops out of the grouping key they collapse into
+        one row and the level becomes indistinguishable from CHANNEL."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
+        )
+        runner = self._create_query_runner(query)
+        runner._apply_drill_down_level()
+
+        union_subquery = _build_synthetic_adapter_union(["google", "bing"])
+        cte_select = runner._build_campaign_cost_select(union_subquery)
+        response = execute_hogql_query(query=cte_select, team=self.team)
+
+        column_names = [col.alias if isinstance(col, ast.Alias) else str(col) for col in cte_select.select]
+        channel_idx = column_names.index(MarketingSourceAdapter.campaign_name_field)
+        source_idx = column_names.index(MarketingSourceAdapter.source_name_field)
+        rows = {(row[channel_idx], row[source_idx]) for row in response.results}
+
+        assert rows == {("Paid Search", "google"), ("Paid Search", "bing")}
+
+    def test_channel_source_drill_down_surfaces_untagged_traffic(self):
+        """Sessions is the only side of the query that sees traffic with no UTM tags and no ad spend.
+        Without it a team with nothing connected gets an empty table — which is the whole reason the
+        redesigned dashboard can drop the onboarding gate. A direct visit has to produce a row."""
+        # Timestamped uuid7: the sessions table prunes on the timestamp embedded in the session id,
+        # so a "now" id with a backdated event would be filtered out of the query's date range.
+        session_id = str(uuid7("2023-01-15"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=session_id,
+            timestamp="2023-01-15",
+            properties={"$session_id": session_id, "$referring_domain": "$direct", "$current_url": "http://x.com/"},
+        )
+        flush_persons_and_events()
+
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
+        )
+        result = self._create_query_runner(query).calculate()
+
+        assert result.columns is not None
+        assert SESSIONS_COLUMN_ALIAS in result.columns
+
+        channel_idx = result.columns.index("Channel")
+        sessions_idx = result.columns.index(SESSIONS_COLUMN_ALIAS)
+        source_idx = result.columns.index(MarketingAnalyticsBaseColumns.SOURCE)
+        direct_rows = [row for row in result.results if row[channel_idx].value == "Direct"]
+
+        assert len(direct_rows) == 1
+        assert direct_rows[0][sessions_idx].value == 1
+        # Untagged traffic has no utm_source, so the sessions side has to supply the organic default
+        # rather than an empty key — an empty one wouldn't join and would render as a blank cell.
+        assert direct_rows[0][source_idx].value == "organic"
+
+    def test_channel_source_drill_down_joins_three_sides_with_a_conversion_goal(self):
+        """With a conversion goal the sessions CTE joins on a key spanning two other tables
+        (coalesce over campaign_costs and the conversion CTE). ClickHouse rejects some multi-table
+        FULL JOIN keys outright, and no other test builds this shape — every one of them runs with
+        zero conversion goals, where the key collapses to a single-table reference."""
+        session_id = str(uuid7("2023-01-15"))
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=session_id,
+            timestamp="2023-01-15",
+            properties={
+                "$session_id": session_id,
+                "utm_source": "google",
+                "utm_medium": "cpc",
+                "utm_campaign": "brand",
+            },
+        )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id=session_id,
+            timestamp="2023-01-16",
+            properties={
+                "$session_id": session_id,
+                "utm_source": "google",
+                "utm_medium": "cpc",
+                "utm_campaign": "brand",
+            },
+        )
+        flush_persons_and_events()
+
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
+            draftConversionGoal=self._create_test_conversion_goal(goal_id="channel_source_goal"),
+        )
+        result = self._create_query_runner(query).calculate()
+
+        assert result.columns is not None
+        channel_idx = result.columns.index("Channel")
+        source_idx = result.columns.index(MarketingAnalyticsBaseColumns.SOURCE)
+        rows = [(row[channel_idx].value, row[source_idx].value) for row in result.results]
+
+        # One row per (channel, source) — a broken join key would fan this out into duplicates.
+        assert len(rows) == len(set(rows))
+        assert ("Paid Search", "google") in rows
+
+    def test_channel_source_drill_down_emits_both_channel_and_source_columns(self):
+        """The whole point of the composite level: Source survives as a column (it's excluded at
+        CHANNEL). Losing it would silently turn the table back into a flat channel breakdown."""
+        query = MarketingAnalyticsTableQuery(
+            dateRange=self.default_date_range,
+            limit=DEFAULT_LIMIT,
+            offset=0,
+            properties=[],
+            drillDownLevel=MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE,
+        )
+        runner = self._create_query_runner(query)
+
+        with patch.object(MarketingAnalyticsTableQueryRunner, "_get_marketing_source_adapters") as mock_get_adapters:
+            mock_get_adapters.return_value = []
+            ast_query = runner.to_query()
+
+        column_names = [col.alias if isinstance(col, ast.Alias) else str(col) for col in ast_query.select]
+
+        assert column_names[:2] == ["Channel", MarketingAnalyticsBaseColumns.SOURCE.value]
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_channel_drill_down_meta_to_facebook_mapping_snapshot(self):
         """Channel drill-down rewrites adapter source 'meta' to 'facebook' before lookupPaidSourceType."""
@@ -574,6 +746,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             (MarketingAnalyticsDrillDownLevel.CHANNEL, True),
+            (MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE, True),
             (MarketingAnalyticsDrillDownLevel.SOURCE, True),
             (MarketingAnalyticsDrillDownLevel.CAMPAIGN, True),
             (MarketingAnalyticsDrillDownLevel.MEDIUM, False),

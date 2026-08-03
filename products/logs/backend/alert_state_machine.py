@@ -9,7 +9,7 @@ that mutates those two fields.
 The semgrep rule at `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml`
 enforces this invariant in CI.
 
-The decision logic itself lives in the shared machine at `common/alerting/state_machine.py`
+The decision logic itself lives in `products/alerts/backend/state_machine.py`
 (configured here with `LOGS_ALERT_POLICY`); this module owns the logs-shaped inputs
 (`AlertSnapshot`, `CheckResult`) and the model mutation (`apply_outcome`).
 """
@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from common.alerting.state_machine import (
+from products.alerts.backend.state_machine import (
     LOGS_ALERT_POLICY,
     MAX_CONSECUTIVE_FAILURES,
     AlertCheckOutcome,

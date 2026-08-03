@@ -31,7 +31,9 @@ from posthog.hogql.direct_query_metrics import SNOWFLAKE_CONNECTION_CACHE_TOTAL
 if TYPE_CHECKING:
     import snowflake.connector
 
-    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.snowflake import (
+        SnowflakeSourceConfig,
+    )
     from products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.snowflake import (
         SnowflakeImplementation,
     )

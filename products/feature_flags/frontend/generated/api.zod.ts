@@ -212,6 +212,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 'is_not',
                                                 'icontains',
                                                 'not_icontains',
+                                                'starts_with',
+                                                'not_starts_with',
+                                                'ends_with',
+                                                'not_ends_with',
                                                 'regex',
                                                 'not_regex',
                                                 'gt',
@@ -220,10 +224,10 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
                                                 'lte',
                                             ])
                                             .describe(
-                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             )
                                             .describe(
-                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             ),
                                     }),
                                     zod.object({
@@ -533,8 +537,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsUpdateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -639,6 +641,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'is_not',
                                                 'icontains',
                                                 'not_icontains',
+                                                'starts_with',
+                                                'not_starts_with',
+                                                'ends_with',
+                                                'not_ends_with',
                                                 'regex',
                                                 'not_regex',
                                                 'gt',
@@ -647,10 +653,10 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                                 'lte',
                                             ])
                                             .describe(
-                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             )
                                             .describe(
-                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
+                                                'Operator used to compare the property value.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `gte` - gte\n\* `lt` - lt\n\* `lte` - lte'
                                             ),
                                     }),
                                     zod.object({
@@ -960,8 +966,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsCreateStaticCohortForFlagCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -1048,8 +1052,6 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),
@@ -1136,8 +1138,6 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
         created_at: zod.iso.datetime({ offset: true }).optional(),
         version: zod.number().default(featureFlagsEnrichUsageDashboardCreateBodyVersionDefault),
         ensure_experience_continuity: zod.boolean().nullish(),
-        rollback_conditions: zod.unknown().optional(),
-        performed_rollback: zod.boolean().nullish(),
         tags: zod.array(zod.unknown()).optional(),
         evaluation_contexts: zod.array(zod.unknown()).optional(),
         analytics_dashboards: zod.array(zod.number()).optional(),

@@ -62,9 +62,7 @@ export function TrendsSeries(): JSX.Element | null {
               ? MathAvailability.BoxPlotOnly
               : MathAvailability.All
     const supportsDataWarehouse =
-        (isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot) ||
-        isLifecycle ||
-        isStickiness
+        (isTrends && display !== ChartDisplayType.CalendarHeatmap) || isLifecycle || isStickiness
 
     const showFormulaOption =
         isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot

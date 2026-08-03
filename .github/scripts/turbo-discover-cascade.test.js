@@ -95,6 +95,53 @@ layer = "modules"
     assert.deepEqual(dependents.sort(), ['a', 'b'])
 })
 
+// Test selection must stay transitive by default: a change in c can break a's
+// tests through b even though a never imports c. Only merge-queue lane
+// assignment asks for one hop, so a flipped default here would silently
+// under-test every contract change.
+test('direct stops at the first hop while the default stays transitive', () => {
+    const toml = `
+[[modules]]
+path = "products.a"
+depends_on = ["products.b"]
+layer = "modules"
+
+[[modules]]
+path = "products.b"
+depends_on = ["products.c"]
+layer = "modules"
+
+[[modules]]
+path = "products.c"
+depends_on = ["posthog"]
+layer = "modules"
+`
+    const graph = parseTachModules(toml)
+    assert.deepEqual(tachDependents(['c'], graph, { direct: true }), ['b'])
+    assert.deepEqual(tachDependents(['c'], graph).sort(), ['a', 'b'])
+})
+
+test('direct dependents terminate on a cycle rather than walking it', () => {
+    const toml = `
+[[modules]]
+path = "products.a"
+depends_on = ["products.b"]
+layer = "modules"
+
+[[modules]]
+path = "products.b"
+depends_on = ["products.a"]
+layer = "modules"
+
+[[modules]]
+path = "products.downstream"
+depends_on = ["products.a"]
+layer = "modules"
+`
+    const graph = parseTachModules(toml)
+    assert.deepEqual(tachDependents(['b'], graph, { direct: true }), ['a'])
+})
+
 test('core is never a node: posthog/ee/<root> are excluded as keys and values, and closures never traverse through them', () => {
     const toml = `
 [[modules]]

@@ -13,18 +13,20 @@ from structlog.types import FilteringBoundLogger
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
     SourceResponse,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
+    LinkedinAdsSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-from .client import LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
-from .schemas import FLOAT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
+from .client import API_VERSION, LinkedinAdsClient, LinkedinAdsDailyRateLimitError, LinkedinAdsResource
+from .schemas import FLOAT_FIELDS, INT_FIELDS, RESOURCE_SCHEMAS, URN_COLUMNS, VIRTUAL_COLUMN_URN_MAPPING
 
 module_logger = structlog.get_logger(__name__)
 
@@ -152,7 +154,9 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
             _backoff_sleep(attempt)
 
 
-def linkedin_ads_client_for_integration(integration_id: int, team_id: int) -> LinkedinAdsClient:
+def linkedin_ads_client_for_integration(
+    integration_id: int, team_id: int, api_version: str = API_VERSION
+) -> LinkedinAdsClient:
     """Initialize a LinkedIn Ads client from an OAuth integration id."""
     integration = _get_integration(integration_id, team_id)
 
@@ -169,12 +173,14 @@ def linkedin_ads_client_for_integration(integration_id: int, team_id: int) -> Li
 
     if not integration.access_token:
         raise LinkedinAdsMissingTokenError("LinkedIn Ads integration does not have an access token")
-    return LinkedinAdsClient(integration.access_token)
+    return LinkedinAdsClient(integration.access_token, api_version=api_version)
 
 
-def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> LinkedinAdsClient:
+def linkedin_ads_client(
+    config: LinkedinAdsSourceConfig, team_id: int, api_version: str = API_VERSION
+) -> LinkedinAdsClient:
     """Initialize a LinkedIn Ads client with provided config."""
-    return linkedin_ads_client_for_integration(config.linkedin_ads_integration_id, team_id)
+    return linkedin_ads_client_for_integration(config.linkedin_ads_integration_id, team_id, api_version=api_version)
 
 
 def linkedin_ads_source(
@@ -187,6 +193,7 @@ def linkedin_ads_source(
     db_incremental_field_last_value: typing.Any = None,
     incremental_field: str | None = None,
     incremental_field_type: IncrementalFieldType | None = None,
+    api_version: str = API_VERSION,
 ) -> SourceResponse:
     """A data warehouse LinkedIn Ads source.
 
@@ -197,7 +204,7 @@ def linkedin_ads_source(
     schema = get_schemas()[resource_name]
 
     def get_rows() -> collections.abc.Iterator[pa.Table]:
-        client = linkedin_ads_client(config, team_id)
+        client = linkedin_ads_client(config, team_id, api_version=api_version)
         resource = LinkedinAdsResource(resource_name)
 
         # Determine date range for analytics resources
@@ -310,6 +317,38 @@ def _convert_timestamp_to_date(last_modified: dict[str, int] | None) -> dt.date 
     return transformed_date
 
 
+def _coerce_metric(value: typing.Any, field_name: str, resource_name: str, *, as_int: bool) -> int | float:
+    """Coerce an adAnalytics metric to a stable python type. Always returns a number — never None,
+    never raises.
+
+    Two reasons this has to be total. LinkedIn omits a metric when its value is zero, so leaving it
+    as None means a batch where every row omitted it infers as arrow `null`, gets rewritten to
+    `string` by the Delta-compat cast, and then fails to merge with a batch that had values. And a
+    bare `float(value)` raises on the first non-numeric cell, killing an entire multi-year backfill
+    over one bad row. Absent/blank is genuinely zero here, so 0 is also the honest value.
+    """
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return 0 if as_int else 0.0
+
+    # Take genuine ints as-is; float() would lose precision past its 53-bit mantissa.
+    if as_int and isinstance(value, int):
+        return int(value)
+
+    # Everything else routes through float, since `int()` rejects "3.0".
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        module_logger.warning(
+            "linkedin_ads.unparseable_metric",
+            resource=resource_name,
+            field=field_name,
+            raw_value=repr(value)[:100],
+        )
+        return 0 if as_int else 0.0
+
+    return round(numeric) if as_int else numeric
+
+
 def _flatten_linkedin_record(
     record: dict[str, typing.Any],
     schema: LinkedinAdsSchema,
@@ -382,22 +421,32 @@ def _flatten_linkedin_record(
 
         value = record.get(field_name)
 
-        # Convert based on field type
-        if value is not None:
-            if field_name in FLOAT_FIELDS:
-                value = float(value)
-            # Extract the int from creative `id` URN so it joins with `creative_id` in creative_stats.
-            elif field_name == "id" and isinstance(value, str) and value.startswith("urn:li:"):
-                urn_result = _extract_type_and_id_from_urn(value)
-                if urn_result is None:
-                    module_logger.warning(
-                        "linkedin_ads.malformed_pk_urn",
-                        resource=schema.name,
-                        raw_id=value,
-                    )
-                    return None
-                _, value = urn_result
+        # Convert based on field type. The metric branches deliberately run even when `value` is
+        # None — an absent metric means zero, and leaving it None is what lets an all-null column
+        # form and break the cross-batch schema merge.
+        if field_name in INT_FIELDS:
+            value = _coerce_metric(value, field_name, schema.name, as_int=True)
+        elif field_name in FLOAT_FIELDS:
+            value = _coerce_metric(value, field_name, schema.name, as_int=False)
+        # Extract the int from creative `id` URN so it joins with `creative_id` in creative_stats.
+        elif value is not None and field_name == "id" and isinstance(value, str) and value.startswith("urn:li:"):
+            urn_result = _extract_type_and_id_from_urn(value)
+            if urn_result is None:
+                module_logger.warning(
+                    "linkedin_ads.malformed_pk_urn",
+                    resource=schema.name,
+                    raw_id=value,
+                )
+                return None
+            _, value = urn_result
 
         flattened[field_name] = value
+
+    # `date_start` is both the primary key and the partition key for the stats resources, and it has
+    # the same all-null exposure as the metrics. A stats row without one is unusable, so drop it
+    # rather than let it destabilize the column type.
+    if schema.is_stats and "dateRange" in schema.field_names and flattened.get("date_start") is None:
+        module_logger.warning("linkedin_ads.missing_stats_date_range", resource=schema.name)
+        return None
 
     return flattened

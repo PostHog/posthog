@@ -138,6 +138,9 @@
         <warpstream_logs>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </warpstream_logs>
+        <warpstream_traces>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_traces>
     </named_collections>
 
     <macros>

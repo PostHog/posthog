@@ -26,9 +26,13 @@ use metrics::{gauge, histogram};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinError;
 
-use super::keys::{PendingTransferKey, Stage2Key, TombstoneKey};
+use super::keys::{
+    PendingTransferKey, Stage2CohortPrefix, Stage2DirtyKey, Stage2Key, TombstoneKey,
+};
 use super::keyspace::{BehavioralKey, PersonPrefix, PersonRecordKey};
-use super::rocks::{CohortStore, EventSnapshotRaw, StoreError, StoreStats};
+use super::rocks::{
+    CohortStore, EventSnapshotRaw, Stage2DirtyTrackingGuard, StoreError, StoreStats,
+};
 use super::staged::StagedBatch;
 use crate::observability::metrics::{
     STORE_OFFLOAD_EXEC_DURATION_SECONDS, STORE_OFFLOAD_INFLIGHT,
@@ -288,14 +292,15 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one person's `cf_person_records` value as raw bytes. The event fold reads this on
-    /// the hot path (Event lane); decoding lives with the caller.
+    /// Point-read one person's `cf_person_records` value as raw bytes; decoding lives with the
+    /// caller.
     pub async fn get_person_record(
         &self,
         key: &PersonRecordKey,
+        lane: ReadLane,
     ) -> Result<Option<Vec<u8>>, StoreError> {
         let key = *key;
-        self.read("get_person_record", ReadLane::Event, move |store| {
+        self.read("get_person_record", lane, move |store| {
             store.get_person_record(&key)
         })
         .await
@@ -315,30 +320,69 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one `cf_stage2` value (stage-2 compose is an event-path read).
-    pub async fn get_stage2(&self, key: &Stage2Key) -> Result<Option<Vec<u8>>, StoreError> {
+    /// Point-read one `cf_stage2` value.
+    pub async fn get_stage2(
+        &self,
+        key: &Stage2Key,
+        lane: ReadLane,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
         let key = *key;
-        self.read("get_stage2", ReadLane::Event, move |store| {
-            store.get_stage2(&key)
-        })
-        .await
+        self.read("get_stage2", lane, move |store| store.get_stage2(&key))
+            .await
     }
 
-    /// Batch-read `cf_stage2` values, preserving input order (stage-2 compose, event path).
+    /// Batch-read `cf_stage2` values, preserving input order.
     pub async fn multi_get_stage2(
         &self,
         keys: Vec<Stage2Key>,
+        lane: ReadLane,
     ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
-        self.read("multi_get_stage2", ReadLane::Event, move |store| {
+        self.read("multi_get_stage2", lane, move |store| {
             store.multi_get_stage2(&keys)
         })
         .await
     }
 
-    /// Point-read one redirect tombstone (the tombstone-redirect hop is an event-path read).
-    pub async fn get_tombstone(&self, key: &TombstoneKey) -> Result<Option<Vec<u8>>, StoreError> {
+    /// Scan one bounded page of a partition/team/cohort `cf_stage2` slice on the maintenance lane.
+    pub async fn scan_stage2_cohort(
+        &self,
+        prefix: Stage2CohortPrefix,
+        start_after: Option<Vec<u8>>,
+        limit: usize,
+    ) -> Result<Vec<Stage2Key>, StoreError> {
+        self.read("scan_stage2_cohort", ReadLane::Maintenance, move |store| {
+            store.scan_stage2_cohort(prefix, start_after.as_deref(), limit)
+        })
+        .await
+    }
+
+    /// Scan one bounded page of a cohort's dirty-person markers on the maintenance lane.
+    pub async fn scan_stage2_dirty(
+        &self,
+        prefix: Stage2CohortPrefix,
+        start_after: Option<Vec<u8>>,
+        limit: usize,
+    ) -> Result<Vec<Stage2DirtyKey>, StoreError> {
+        self.read("scan_stage2_dirty", ReadLane::Maintenance, move |store| {
+            store.scan_stage2_dirty(prefix, start_after.as_deref(), limit)
+        })
+        .await
+    }
+
+    /// Start process-local dirty capture for one queued reconcile job. The returned lease owns the
+    /// registration and disables it on drop.
+    pub fn track_stage2_dirty(&self, prefix: Stage2CohortPrefix) -> Stage2DirtyTrackingGuard {
+        self.store.track_stage2_dirty(prefix)
+    }
+
+    /// Point-read one redirect tombstone.
+    pub async fn get_tombstone(
+        &self,
+        key: &TombstoneKey,
+        lane: ReadLane,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
         let key = *key;
-        self.read("get_tombstone", ReadLane::Event, move |store| {
+        self.read("get_tombstone", lane, move |store| {
             store.get_tombstone(&key)
         })
         .await

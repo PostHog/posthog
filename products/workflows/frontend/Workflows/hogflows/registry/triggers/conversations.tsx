@@ -5,6 +5,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import { HogFlowPropertyFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowFilters'
 import {
     type EventTriggerConfig,
     registerTriggerType,
@@ -75,18 +76,51 @@ function StepTriggerConfigurationSupportStatusChanged({ node }: { node: any }): 
     )
 }
 
-function StepTriggerConfigurationSupportMessage({ node }: { node: any }): JSX.Element {
+const SUPPORT_TRIGGER_META: Record<string, { name: string; description: string }> = {
+    $conversation_message_received: {
+        name: 'Ticket message received',
+        description: 'This trigger runs when a customer sends a message on a ticket.',
+    },
+    $conversation_message_sent: {
+        name: 'Ticket message sent',
+        description: 'This trigger runs when a teammate sends a reply on a ticket.',
+    },
+    $conversation_ticket_assigned: {
+        name: 'Ticket assigned',
+        description: 'This trigger runs when a ticket is assigned to a teammate or team.',
+    },
+}
+
+// A support trigger is fundamentally an event subscription; these extra property filters narrow it,
+// e.g. only tickets assigned to one team (assignee_role_name), or a given priority/channel.
+function StepTriggerConfigurationSupportFilters({ node }: { node: any }): JSX.Element {
+    const { setWorkflowActionConfig } = useActions(workflowLogic)
     const config = node.data.config as EventTriggerConfig
-    const eventId = getEventId(config)
-    const kind = eventId === '$conversation_message_sent' ? 'sent' : 'received'
+    const eventId = getEventId(config) ?? '$conversation_message_received'
+    const meta = SUPPORT_TRIGGER_META[eventId] ?? SUPPORT_TRIGGER_META['$conversation_message_received']
 
     return (
         <div className="flex flex-col gap-2 w-full">
-            <p className="mb-0 text-sm text-muted-alt">
-                {kind === 'sent'
-                    ? 'This trigger runs when a teammate sends a reply on a ticket.'
-                    : 'This trigger runs when a customer sends a message on a ticket.'}
-            </p>
+            <p className="mb-0 text-sm text-muted-alt">{meta.description}</p>
+            <LemonField.Pure
+                label="Filters"
+                info="Only run when the ticket matches these properties. Filter on assignee_role_name to target a single team, or on priority, status, or channel_source."
+            >
+                <HogFlowPropertyFilters
+                    filtersKey={`support-trigger-${node.data.id}`}
+                    filters={config.filters ?? {}}
+                    setFilters={(filters) =>
+                        setWorkflowActionConfig(node.data.id, {
+                            type: 'event',
+                            filters: {
+                                ...filters,
+                                events: [{ id: eventId, type: 'events', name: meta.name }],
+                            },
+                        })
+                    }
+                    typeKey={`support-trigger-${node.data.id}`}
+                />
+            </LemonField.Pure>
         </div>
     )
 }
@@ -121,6 +155,22 @@ registerTriggerType({
 })
 
 registerTriggerType({
+    value: 'support_ticket_assigned',
+    label: 'Ticket assigned',
+    icon: <IconBolt />,
+    description: 'Trigger when a ticket is assigned to a teammate or team',
+    group: 'Support',
+    matchConfig: (config) => config.type === 'event' && getEventId(config) === '$conversation_ticket_assigned',
+    buildConfig: () => ({
+        type: 'event',
+        filters: {
+            events: [{ id: '$conversation_ticket_assigned', type: 'events', name: 'Ticket assigned' }],
+        },
+    }),
+    ConfigComponent: StepTriggerConfigurationSupportFilters,
+})
+
+registerTriggerType({
     value: 'support_message_sent',
     label: 'Ticket message sent',
     icon: <IconBolt />,
@@ -133,7 +183,7 @@ registerTriggerType({
             events: [{ id: '$conversation_message_sent', type: 'events', name: 'Ticket message sent' }],
         },
     }),
-    ConfigComponent: StepTriggerConfigurationSupportMessage,
+    ConfigComponent: StepTriggerConfigurationSupportFilters,
 })
 
 registerTriggerType({
@@ -149,5 +199,5 @@ registerTriggerType({
             events: [{ id: '$conversation_message_received', type: 'events', name: 'Ticket message received' }],
         },
     }),
-    ConfigComponent: StepTriggerConfigurationSupportMessage,
+    ConfigComponent: StepTriggerConfigurationSupportFilters,
 })

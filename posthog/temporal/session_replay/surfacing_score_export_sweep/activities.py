@@ -1,10 +1,12 @@
 """Activities: plan the (day × hash bucket) fan-out, then per partition fetch → pseudonymize → Parquet → S3 put.
 
-Only AI-training opted-in orgs are exported (the ML mirror's gate), with the
-mirror's exact pseudonym scheme, so exported ids join onto `block-metadata`
-and nothing else. Object keys are deterministic, so retries and the re-export
-window overwrite; an empty partition still writes an empty object so deleted
-sessions drop out rather than going stale.
+All scored sessions are exported, pseudonymized with the ML mirror's exact
+pseudonym scheme, so exported ids join onto `block-metadata` — which only
+exists for AI-training opted-in orgs (the mirror's gate) — and nothing else.
+Rows from non-opted-in teams are opaque pseudonyms that join to nothing.
+Object keys are deterministic, so retries and the re-export window overwrite;
+an empty partition still writes an empty object so deleted sessions drop out
+rather than going stale.
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team
 from posthog.temporal.session_replay.surfacing_score_export_sweep import sql as export_sql
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
     CH_EXPORT_QUERY_MAX_MEMORY_BYTES,
@@ -102,10 +103,6 @@ _PARQUET_FIELDS: list[pa.Field[Any]] = [
 _PARQUET_SCHEMA = pa.schema(_PARQUET_FIELDS)
 
 
-def _opted_in_team_ids() -> list[int]:
-    return list(Team.objects.filter(organization__is_ai_training_opted_in=True).values_list("id", flat=True))
-
-
 # (team_id, session_id, started_at, score)
 _ScoredRow = tuple[int, str, datetime, float]
 
@@ -114,7 +111,7 @@ _Cursor = tuple[str, int]
 _FIRST_PAGE: _Cursor = ("", 0)
 
 
-def _fetch_page(spec: ExportPartitionSpec, team_ids: list[int], cursor: _Cursor) -> list[_ScoredRow]:
+def _fetch_page(spec: ExportPartitionSpec, cursor: _Cursor) -> list[_ScoredRow]:
     return cast(
         list[_ScoredRow],
         sync_execute(
@@ -122,7 +119,6 @@ def _fetch_page(spec: ExportPartitionSpec, team_ids: list[int], cursor: _Cursor)
             {
                 "of_chunks": spec.of_chunks,
                 "chunk_id": spec.chunk_id,
-                "team_ids": team_ids,
                 "day_start": f"{spec.day} 00:00:00",
                 "cursor_session_id": cursor[0],
                 "cursor_team_id": cursor[1],
@@ -175,15 +171,14 @@ async def export_scores_partition_activity(spec: ExportPartitionSpec) -> ExportP
         raise ApplicationError(str(e), type=type(e).__name__, non_retryable=True) from e
 
     activity.heartbeat({"phase": "fetch", "day": spec.day, "chunk_id": spec.chunk_id})
-    team_ids = await sync_to_async(_opted_in_team_ids, thread_sensitive=False)()
 
     sink = io.BytesIO()
     writer = pq.ParquetWriter(sink, _PARQUET_SCHEMA, compression="snappy")
     cursor = _FIRST_PAGE
     rows_total = 0
     try:
-        while team_ids:
-            rows = await sync_to_async(_fetch_page, thread_sensitive=False)(spec, team_ids, cursor)
+        while True:
+            rows = await sync_to_async(_fetch_page, thread_sensitive=False)(spec, cursor)
             if rows:
                 table = await sync_to_async(_page_table, thread_sensitive=False)(rows, secret)
                 await sync_to_async(writer.write_table, thread_sensitive=False)(table)

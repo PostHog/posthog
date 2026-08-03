@@ -1,6 +1,5 @@
 import os
 import re
-import json
 import uuid
 import string
 import secrets
@@ -8,7 +7,7 @@ from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
 from pydantic import BaseModel
@@ -20,7 +19,7 @@ if TYPE_CHECKING:
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, models, transaction
+from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -29,26 +28,36 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.integration import Integration
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
+from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
+from products.tasks.backend.storage import append_jsonl_object
 
 logger = structlog.get_logger(__name__)
 
 LogLevel = Literal["debug", "info", "warn", "error"]
+MCPBuiltInAgentKey = Literal["support", "scout"]
+MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
+MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
+    "support_reply": "support",
+    "signals_scout": "scout",
+}
 
 
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
@@ -58,7 +67,7 @@ def resolve_schema(schema: type[BaseModel] | dict) -> dict:
 
 
 class Channel(TeamScopedRootMixin):
-    """A shared feed of tasks (rendered as "#<name>" in PostHog Code). Every task is
+    """A shared feed of tasks (rendered as "#<name>" in PostHog Desktop). Every task is
     owned by the channel it was kicked off in. Each user gets one private "personal"
     channel ("#me") per team, provisioned lazily on first channel list."""
 
@@ -79,6 +88,21 @@ class Channel(TeamScopedRootMixin):
     channel_type = models.CharField(max_length=16, choices=ChannelType, default=ChannelType.PUBLIC)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    github_integration = models.ForeignKey(
+        "posthog.Integration",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        limit_choices_to={"kind": "github"},
+    )
+    repositories = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text="GitHub repositories inherited by new tasks in this channel",
     )
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
@@ -110,6 +134,10 @@ PR_READY_EMAIL_PR_URL_STATE_KEY = "pr_ready_email_pr_url"
 
 
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
+    class Runtime(models.TextChoices):
+        ACP = "acp", "ACP"
+        PI = "pi", "Pi"
+
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
         ERROR_TRACKING = "error_tracking", "Error Tracking"
@@ -135,6 +163,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # ReviewHog PR reviewer — its sandbox steps (chunking/review/validation/dedup) spawn one task each.
         REVIEW_HOG = "review_hog", "ReviewHog"
         IMAGE_BUILDER = "image_builder", "Image Builder"
+        # Loop firings: named, cloud-executed agent automations triggered by schedule,
+        # GitHub event or API. See products/tasks/docs/LOOPS.md.
+        LOOP = "loop", "Loop"
+        # "Create fix task" on the MCP analytics tool-quality failure drill-down.
+        MCP_ANALYTICS = "mcp_analytics", "MCP Analytics"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -171,6 +204,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     repository = models.CharField(
         max_length=255, null=True, blank=True
     )  # Format is organization/repo, for example posthog/posthog-js
+    repositories = ArrayField(
+        models.CharField(max_length=255),
+        default=list,
+        db_default=[],
+        blank=True,
+        help_text="GitHub repositories available to this task",
+    )
 
     # Channel this task was kicked off in. Legacy tasks (and tasks from non-channel
     # surfaces) stay NULL. SET_NULL so deleting a channel never deletes its tasks.
@@ -181,6 +221,20 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         blank=True,
         related_name="tasks",
         db_index=False,
+    )
+
+    # Loop firing that spawned this task, if any. NULL for every non-loop task. SET_NULL
+    # so deleting a loop never deletes its historical runs. db_index=False here: the index
+    # is added CONCURRENTLY in a follow-up migration (see 0062), which is a separate DDL
+    # statement Django can't emit as part of a plain AddField.
+    loop = models.ForeignKey(
+        "tasks.Loop",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="tasks",
+        db_index=False,
+        db_constraint=True,
     )
 
     # DEPRECATED - do not use
@@ -208,7 +262,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     archived = models.BooleanField(
         default=False,
         help_text=(
-            "If true, the task is hidden from default list responses. Used by PostHog Code clients "
+            "If true, the task is hidden from default list responses. Used by PostHog Desktop clients "
             "to share archive state across desktop and mobile."
         ),
     )
@@ -226,6 +280,14 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.
     state = models.JSONField(default=dict, null=True, blank=True)
 
+    runtime = models.CharField(
+        max_length=10,
+        choices=Runtime,
+        default=Runtime.ACP,
+        db_default=Runtime.ACP,
+        help_text="Agent protocol/harness driving this task's runs.",
+    )
+
     class Meta:
         db_table = "posthog_task"
         managed = True
@@ -235,6 +297,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
+            models.Index(fields=["loop"], name="posthog_task_loop_idx"),
         ]
 
     def __str__(self):
@@ -257,6 +320,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if is_new:
             self._track_task_created()
+
+    @property
+    def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
+        expected_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(self.origin_product)
+        marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
+        return expected_key if marker == expected_key else None
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> models.QuerySet["Task"]:
@@ -284,7 +353,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             surface=DESKTOP_SURFACE,
         )
 
-    def capture_event(self, event: str, properties: dict | None = None) -> None:
+    def capture_event(
+        self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
+    ) -> None:
+        # capture_fn lets Celery callers pass a ph_scoped_capture client — the module-level
+        # posthoganalytics.capture silently drops events in workers (see posthog.ph_client).
         try:
             distinct_id = (
                 str(self.created_by.distinct_id) if self.created_by_id and self.created_by else str(self.team.uuid)
@@ -296,10 +369,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "description": self.description[:500] if self.description else "",
                 "origin_product": self.origin_product,
                 "repository": self.repository,
+                "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
             if properties:
                 all_properties.update(properties)
-            posthoganalytics.capture(
+            (capture_fn or posthoganalytics.capture)(
                 distinct_id=distinct_id,
                 event=event,
                 properties=all_properties,
@@ -348,9 +422,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         extra_state: dict | None = None,
         branch: str | None = None,
     ) -> "TaskRun":
-        state: dict = {"mode": mode}
+        state: dict = {} if self.runtime == Task.Runtime.PI else {"mode": mode}
         if extra_state:
             state.update({k: v for k, v in extra_state.items() if k != "mode"})
+        state.setdefault("repositories", self.repositories or ([self.repository] if self.repository else []))
         # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
         if "use_dedicated_stream" not in state:
             distinct_id = (self.created_by.distinct_id if self.created_by else None) or f"team_{self.team_id}"
@@ -380,6 +455,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 "environment": task_run.environment,
                 "is_resume": is_resume,
                 "has_pending_message": has_pending,
+                # Loop attribution: this event uses Task.capture_event (not TaskRun's),
+                # so carry it from the run state the same way TaskRun.capture_event does.
+                "loop_id": state.get("loop_id"),
+                "loop_trigger_id": state.get("loop_trigger_id"),
             },
         )
         return task_run
@@ -430,13 +509,14 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             task.save(update_fields=["state", "updated_at"])
         self.state = state
 
-    def soft_delete(self):
+    def soft_delete(self, capture_fn: Callable[..., None] | None = None):
         self.deleted = True
         self.deleted_at = django_timezone.now()
         self.save()
         self.capture_event(
             "task_deleted",
             {"duration_seconds": round((django_timezone.now() - self.created_at).total_seconds(), 1)},
+            capture_fn=capture_fn,
         )
 
     def delete(self, *args, **kwargs):
@@ -451,6 +531,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,
         repository: str | None = None,
+        channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         branch: str | None = None,
@@ -469,9 +550,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
+        self_driving_head_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -492,7 +575,12 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
-        github_integration = Integration.objects.filter(team=team, kind="github").first()
+        github_integration = (
+            Integration.objects.filter(team=team, kind="github")
+            .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+            .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+            .first()
+        )
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -540,6 +628,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             if sandbox_env is None:
                 raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
+        expected_agent_key = MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN.get(origin_product)
+        if mcp_builtin_agent_key is not None and mcp_builtin_agent_key != expected_agent_key:
+            raise ValueError(f"Agent key {mcp_builtin_agent_key!r} does not match task origin {origin_product!r}")
+
         task = Task.objects.create(
             team=team,
             title=title,
@@ -549,8 +641,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             github_integration=github_integration,
             github_user_integration=github_user_integration,
             repository=repository,
+            channel=channel,
             internal=internal,
             json_schema=resolve_schema(output_schema) if output_schema else None,
+            state={MCP_BUILT_IN_AGENT_STATE_KEY: mcp_builtin_agent_key} if mcp_builtin_agent_key else {},
             **({"signal_report_id": signal_report_id} if signal_report_id else {}),
         )
 
@@ -643,6 +737,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if wizard_head_branch:
             extra_state["wizard_head_branch"] = wizard_head_branch
 
+        # Same server-generated-branch pattern for signals implementation runs: the stamped value
+        # is the only caller-unwritable end of the run->PR link, so the self-driving review
+        # carve-out matches a PR's GitHub-attested head ref against it (find_signal_implementation_run)
+        # instead of trusting the API-writable output.pr_url.
+        if self_driving_head_branch:
+            extra_state["self_driving_head_branch"] = self_driving_head_branch
+
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
@@ -675,6 +776,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         interaction_origin: str | None = None,
         model: str | None = None,
         initial_permission_mode: str | None = None,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -699,6 +801,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             interaction_origin=interaction_origin,
             model=model,
             initial_permission_mode=initial_permission_mode,
+            mcp_builtin_agent_key=mcp_builtin_agent_key,
         )
         return task
 
@@ -711,6 +814,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        channel: Channel | None = None,
         create_pr: bool = True,
         mode: str = "background",
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -733,10 +837,13 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
+        self_driving_head_branch: str | None = None,
         pending_user_message: str | None = None,
         workflow_id_prefix: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
+        github_read_access: bool = False,
+        mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -747,6 +854,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             origin_product=origin_product,
             user_id=user_id,
             repository=repository,
+            channel=channel,
             slack_thread_context=slack_thread_context,
             slack_thread_url=slack_thread_url,
             branch=branch,
@@ -765,12 +873,18 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             ai_stage=ai_stage,
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
+            self_driving_head_branch=self_driving_head_branch,
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
+            mcp_builtin_agent_key=mcp_builtin_agent_key,
         )
 
         run_extra_state = dict(extra_state or {})
+        if github_read_access:
+            # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
+            # GitHub token into the (repo-less) sandbox instead of the full credential path.
+            run_extra_state["github_read_access"] = True
         if start_workflow:
             # Persist everything the dispatch needs alongside the row, in the same INSERT, so a
             # reconciler can re-dispatch faithfully if the on_commit callback below is ever lost.
@@ -816,6 +930,71 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         return task
 
 
+class TaskSession(TeamScopedRootMixin, UUIDModel):
+    organization = models.ForeignKey(
+        "posthog.Organization",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="task_sessions", db_index=False)
+    object_storage_key = models.CharField(max_length=512, null=True, blank=True, unique=True)
+    content_sha256 = models.CharField(max_length=64, null=True, blank=True)
+    size = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_session"
+        indexes = [
+            models.Index(fields=["organization", "-updated_at"], name="task_session_org_updated_idx"),
+            models.Index(fields=["team", "-updated_at"], name="task_session_team_updated_idx"),
+            models.Index(fields=["task", "-updated_at"], name="task_session_task_updated_idx"),
+        ]
+
+    @classmethod
+    def create_for_task(cls, task: Task) -> "TaskSession":
+        return cls.objects.unscoped().create(
+            organization_id=task.team.organization_id,
+            team_id=task.team_id,
+            task=task,
+        )
+
+    def read_jsonl(self) -> str:
+        if self.object_storage_key is None:
+            return ""
+        return object_storage.read(self.object_storage_key, missing_ok=True) or ""
+
+    def tag_object(self) -> None:
+        if self.object_storage_key is None:
+            return
+        try:
+            object_storage.tag(
+                self.object_storage_key,
+                {
+                    "data_class": "task_session",
+                    "organization_id": str(self.organization_id),
+                    "team_id": str(self.team_id),
+                    "task_id": str(self.task_id),
+                },
+            )
+        except Exception as error:
+            logger.warning(
+                "task_session.failed_to_tag_object",
+                task_session_id=str(self.id),
+                object_storage_key=self.object_storage_key,
+                error=str(error),
+            )
+
+
 class TaskThreadMessage(TeamScopedRootMixin):
     """One message in a task's thread — the side conversation channel members have
     around a task. Human messages never reach the agent unless the task author
@@ -857,7 +1036,9 @@ class TaskThreadMessage(TeamScopedRootMixin):
 
     class Meta:
         db_table = "posthog_task_thread_message"
-        indexes = [models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created")]
+        indexes = [
+            models.Index(fields=["task", "created_at"], name="task_thread_msg_task_created"),
+        ]
 
     def __str__(self):
         return f"Thread message {self.id} on task {self.task_id}"
@@ -889,6 +1070,118 @@ class TaskThreadMessageMention(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
+
+
+class TaskActivity(TeamScopedRootMixin):
+    """One row per (user, task): the latest thing that happened on a task the user is
+    involved in, plus whether they have seen it.
+
+    Collapsing to one row per task is what makes "read" a property of the task rather
+    than of a feed cursor, so opening the task from anywhere clears it. Rows are
+    projected on write by ``products.tasks.backend.facade.api``.
+    """
+
+    class Kind(models.TextChoices):
+        CREATED = "created", "Created"
+        MENTION = "mention", "Mention"
+        MESSAGE = "message", "Message"
+        AWAITING_INPUT = "awaiting_input", "Awaiting input"
+        COMPLETED = "completed", "Completed"
+
+    # uuid7 rather than the uuid4 the sibling task models use: rows are insert-heavy and
+    # read newest-first, so a time-ordered key keeps the index appends local and makes the
+    # id a meaningful tiebreak when two rows share an activity_at.
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    message = models.ForeignKey(
+        TaskThreadMessage, on_delete=models.SET_NULL, null=True, blank=True, related_name="activity_rows"
+    )
+    kind = models.CharField(max_length=32, choices=Kind)
+    activity_at = models.DateTimeField()
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_activity"
+        constraints = [models.UniqueConstraint(fields=["team", "user", "task"], name="task_activity_user_task_unique")]
+        indexes = [
+            models.Index(fields=["team", "user", "activity_at", "id"], name="task_activity_feed_idx"),
+            models.Index(
+                fields=["team", "user"], condition=models.Q(read_at__isnull=True), name="task_activity_unread_idx"
+            ),
+        ]
+
+    @classmethod
+    def record(
+        cls,
+        *,
+        team_id: int,
+        user_id: int,
+        task_id: uuid.UUID | str,
+        kind: str,
+        activity_at: datetime,
+        message_id: uuid.UUID | None = None,
+        actor_id: int | None = None,
+    ) -> None:
+        """Record the latest activity on ``task_id`` for ``user_id``, newest-wins.
+
+        A single upsert rather than read-modify-write: two messages landing on the same
+        task concurrently would otherwise race and lose one. The ``WHERE`` on the conflict
+        clause is what makes it newest-wins, so an out-of-order write (a retried Temporal
+        activity, say) can't drag ``activity_at`` backwards.
+
+        Activity the user caused themselves lands already-read — their own reply should
+        never light up their own unread badge.
+        """
+        read_at = activity_at if actor_id is not None and actor_id == user_id else None
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                INSERT INTO {cls._meta.db_table}
+                       (id, team_id, user_id, task_id, message_id, kind, activity_at, read_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (team_id, user_id, task_id) DO UPDATE
+                   SET message_id = EXCLUDED.message_id,
+                       kind = EXCLUDED.kind,
+                       activity_at = EXCLUDED.activity_at,
+                       read_at = CASE
+                           WHEN {cls._meta.db_table}.activity_at = EXCLUDED.activity_at
+                           THEN {cls._meta.db_table}.read_at
+                           ELSE EXCLUDED.read_at
+                       END
+                 WHERE {cls._meta.db_table}.activity_at <= EXCLUDED.activity_at
+                """,
+                [uuid7(), team_id, user_id, task_id, message_id, kind, activity_at, read_at],
+            )
+
+
+class TaskPin(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    pinned_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_pin"
+        constraints = [models.UniqueConstraint(fields=["user", "task"], name="task_pin_user_task_unique")]
+        indexes = [models.Index(fields=["user", "-pinned_at"], name="task_pin_user_pinned_idx")]
+
+
+@receiver(post_save, sender=Task)
+def project_task_created_activity(sender, instance: Task, created: bool, **kwargs) -> None:
+    """Seed the creator's activity row. A signal rather than a facade call because tasks are
+    created from several paths (API, automations, the sandbox warm path) and every one of them
+    should show up in its creator's feed."""
+    if created and instance.created_by_id is not None:
+        TaskActivity.record(
+            team_id=instance.team_id,
+            user_id=instance.created_by_id,
+            task_id=instance.id,
+            kind=TaskActivity.Kind.CREATED,
+            activity_at=instance.created_at,
+            actor_id=instance.created_by_id,
+        )
 
 
 class ChannelFeedMessage(TeamScopedRootMixin):
@@ -1043,6 +1336,239 @@ class TaskAutomation(models.Model):
         return self.RunStatus.RUNNING
 
 
+class Loop(ModelActivityMixin, TeamScopedRootMixin):
+    """A named, cloud-executed agent automation: instructions plus model config,
+    fired by schedule/GitHub/API triggers. Each firing spawns an internal Task
+    that runs on the standard tasks pipeline as the loop's owner (created_by).
+    See products/tasks/docs/LOOPS.md."""
+
+    class Visibility(models.TextChoices):
+        PERSONAL = "personal", "Personal"
+        TEAM = "team", "Team"
+
+    class OverlapPolicy(models.TextChoices):
+        SKIP = "skip", "Skip"
+        ALLOW = "allow", "Allow"
+        CANCEL_PREVIOUS = "cancel_previous", "Cancel previous"
+
+    activity_logging_on_delete = True
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # locks them and stalls deploys; Django still enforces the relation and on_delete at the
+    # app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    # The original creator, immutable. `created_by` doubles as the current owner and is reassigned by
+    # ownership takeover; `creator` is not, so it stays the authority for the destructive/visibility
+    # operations (delete, un-share) that takeover must not confer on whoever grabbed the loop.
+    creator = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    name = models.CharField(max_length=400)
+    description = models.TextField(blank=True, default="")
+    visibility = models.CharField(max_length=16, choices=Visibility, default=Visibility.PERSONAL)
+    instructions = models.TextField()
+    runtime_adapter = models.CharField(max_length=32)
+    model = models.CharField(max_length=128, blank=True, default="")
+    reasoning_effort = models.CharField(max_length=32, null=True, blank=True)
+    repositories = models.JSONField(default=list, blank=True)
+    sandbox_environment = models.ForeignKey(
+        "tasks.SandboxEnvironment", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    enabled = models.BooleanField(default=True)
+    overlap_policy = models.CharField(max_length=32, choices=OverlapPolicy, default=OverlapPolicy.SKIP)
+    behaviors = models.JSONField(default=dict, blank=True)
+    connectors = models.JSONField(default=dict, blank=True)
+    notifications = models.JSONField(default=dict, blank=True)
+    # Binding to a context (a "#channel" / desktop folder) this loop is attached to, or {} when
+    # unattached. Shape: {folder_id, name, outputs: {post_to_feed, update_context, canvas_id}}.
+    # Drives feed placement (each run's Task.channel) and the context.md / canvas publish contract
+    # injected into every run's prompt. See products/tasks/docs/LOOPS.md.
+    context_target = models.JSONField(default=dict, blank=True)
+    # Skill bundles attached at save time: zipped local skills whose manifest entries (same shape
+    # as TaskRun.artifacts entries, type "skill_bundle", bytes in object storage under
+    # get_skill_bundle_s3_prefix()) are copied into every fired run so the sandbox installs them.
+    skill_bundles = models.JSONField(default=list, blank=True)
+    internal = models.BooleanField(
+        default=False,
+        help_text="If true, this loop is for internal use and should not be exposed to end users.",
+    )
+    # What created this loop: `user_created` for loops a person made in the UI/API, other values
+    # mark loops created by a backend flow. Mirrors `Task.origin_product` (attribution, not
+    # ownership; the loop is still team- and owner-scoped via `team`/`created_by`).
+    origin_product = models.CharField(
+        max_length=32,
+        choices=Task.OriginProduct.choices,
+        default=Task.OriginProduct.USER_CREATED,
+        help_text="Which product or flow created this loop.",
+    )
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    last_run_status = models.CharField(max_length=32, null=True, blank=True)
+    last_error = models.TextField(null=True, blank=True)
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    # Why a loop is currently paused when it wasn't the owner who paused it, so the UI can explain
+    # it and a reactivation flow can clear it. Null for a normal owner pause. See loop_lifecycle.py.
+    disabled_reason = models.CharField(max_length=64, null=True, blank=True)
+    deleted = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_loop"
+
+    def __str__(self):
+        return self.name
+
+    @staticmethod
+    def skill_bundle_s3_prefix_for(team_id: int, loop_id: "uuid.UUID | str") -> str:
+        """Base prefix for a loop's skill bundle objects in S3, computable from ids so
+        seeding can validate snapshot paths without loading the row."""
+        tasks_folder = settings.OBJECT_STORAGE_TASKS_FOLDER
+        return f"{tasks_folder}/artifacts/team_{team_id}/loop_{loop_id}"
+
+    def get_skill_bundle_s3_prefix(self) -> str:
+        return Loop.skill_bundle_s3_prefix_for(self.team_id, self.id)
+
+    def _get_before_update(self, **kwargs: Any) -> "Loop | None":
+        # ModelActivityMixin's prior-state lookup goes through `objects` (the fail-closed
+        # TeamScopedManager). Loop saves happen from webhook handlers and Temporal activities
+        # with no ambient team scope, so route the lookup through `.unscoped()` to avoid a
+        # TeamScopeError when logging the change (same pattern as SignalScoutConfig).
+        if not self.pk:
+            return None
+        return type(self).objects.unscoped().filter(pk=self.pk).first()
+
+
+class LoopTrigger(TeamScopedRootMixin):
+    """One firing condition attached to a loop. Schedule triggers are backed by a
+    Temporal Schedule whose identity hangs off this row's id, so trigger rows are
+    updated in place, never delete-and-recreated."""
+
+    class TriggerType(models.TextChoices):
+        SCHEDULE = "schedule", "Schedule"
+        GITHUB = "github", "GitHub"
+        API = "api", "API"
+
+    class ScheduleSyncStatus(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SYNCED = "synced", "Synced"
+        FAILED = "failed", "Failed"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team FK: same hot-table rationale as Loop above.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    loop = models.ForeignKey(Loop, on_delete=models.CASCADE, related_name="triggers")
+    type = models.CharField(max_length=16, choices=TriggerType)
+    enabled = models.BooleanField(default=True)
+    config = models.JSONField(default=dict)
+    # Denormalized off `config` for `type=github` rows only (see `save()`), so webhook
+    # fan-out matching hits an indexed column instead of scanning the JSON `config` blob.
+    github_integration_id = models.BigIntegerField(null=True, blank=True)
+    repository = models.CharField(max_length=512, null=True, blank=True)
+    event_types = ArrayField(models.CharField(max_length=32), null=True, blank=True)
+    schedule_sync_status = models.CharField(max_length=16, choices=ScheduleSyncStatus, null=True, blank=True)
+    last_fired_at = models.DateTimeField(null=True, blank=True)
+    # Set once a one-time (`run_at`) trigger has fired its single occurrence. Terminal: its spent
+    # Temporal Schedule is torn down and no sync path re-arms it. See loop_service.complete_one_time_trigger.
+    completed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_task_loop_trigger"
+        indexes = [
+            models.Index(fields=["github_integration_id", "repository"], name="task_loop_trigger_gh_repo_idx"),
+        ]
+
+    def __str__(self):
+        return f"{self.type} trigger on loop {self.loop_id}"
+
+    def save(self, *args, **kwargs):
+        if self.type == self.TriggerType.GITHUB:
+            config = self.config if isinstance(self.config, dict) else {}
+            github_integration_id = config.get("github_integration_id")
+            try:
+                self.github_integration_id = int(github_integration_id) if github_integration_id is not None else None
+            except (TypeError, ValueError):
+                self.github_integration_id = None
+            repository = config.get("repository")
+            self.repository = repository.strip() if isinstance(repository, str) and repository.strip() else None
+            events = config.get("events")
+            self.event_types = (
+                [event for event in events if isinstance(event, str)] if isinstance(events, list) else None
+            )
+        else:
+            self.github_integration_id = None
+            self.repository = None
+            self.event_types = None
+        super().save(*args, **kwargs)
+
+    @property
+    def schedule_id(self) -> str:
+        return f"loop-trigger-{self.id}"
+
+
+class LoopFire(TeamScopedRootMixin):
+    """Per-fire dedup record, so schedule replays, webhook redeliveries, API retries and
+    double-clicked manual runs never double-spawn a run. Trigger fires dedup on
+    (loop_trigger, fire_key); manual "run now" fires have no trigger and dedup on
+    (loop, fire_key). The fire key is the Temporal workflow id, the X-GitHub-Delivery GUID
+    or the client idempotency key depending on path. The created run's ids and terminal
+    reason are recorded so a dedup hit (a retry) returns the original outcome instead of a
+    bare "deduped"."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team FK: same hot-table rationale as Loop above.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # Always set. Direct FK (not just via loop_trigger) so manual fires have a dedup scope and so
+    # the per-loop rate-cap and retention queries hit an index instead of joining through trigger.
+    loop = models.ForeignKey(Loop, on_delete=models.CASCADE, related_name="fires", null=True, db_constraint=False)
+    # Null for manual "run now" fires, which have no trigger.
+    # SET_NULL, not CASCADE: replacing a trigger during an ordinary edit must not delete its LoopFire
+    # rows. Those rows carry the per-loop/per-team rate-cap history (counted by `loop`, which survives),
+    # so a CASCADE would let an owner reset their own cost caps just by editing triggers.
+    loop_trigger = models.ForeignKey(
+        LoopTrigger, on_delete=models.SET_NULL, related_name="fires", null=True, blank=True
+    )
+    fire_key = models.CharField(max_length=512)
+    # Outcome of the fire, for returning to a retry that dedups against this row.
+    outcome_reason = models.CharField(max_length=64, null=True, blank=True)
+    outcome_task_id = models.UUIDField(null=True, blank=True)
+    outcome_task_run_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_loop_fire"
+        constraints = [
+            # Trigger fires: unique per (trigger, key). Partial so manual fires (null trigger)
+            # don't all collide on a shared NULL.
+            models.UniqueConstraint(
+                fields=["loop_trigger", "fire_key"],
+                name="task_loop_fire_trigger_key_unique",
+                condition=models.Q(loop_trigger__isnull=False),
+            ),
+            # Manual fires: unique per (loop, key) when there's no trigger.
+            models.UniqueConstraint(
+                fields=["loop", "fire_key"],
+                name="task_loop_fire_loop_key_unique",
+                condition=models.Q(loop_trigger__isnull=True),
+            ),
+        ]
+        indexes = [
+            # Per-loop rate-cap window and retention pruning.
+            models.Index(fields=["loop", "created_at"], name="task_loop_fire_loop_ct_idx"),
+        ]
+
+    def __str__(self):
+        return f"Fire {self.fire_key} on loop {self.loop_id}"
+
+
 class TaskRun(models.Model):
     class Status(models.TextChoices):
         NOT_STARTED = "not_started", "Not Started"
@@ -1060,6 +1586,13 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    active_task_session = models.ForeignKey(
+        TaskSession,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="active_runs",
+    )
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
 
@@ -1103,6 +1636,23 @@ class TaskRun(models.Model):
         help_text="Run state data for resuming or tracking execution state",
     )
 
+    # Local url-based MCP servers imported from the creating client (PostHog Desktop),
+    # merged into the sandbox agent server's --mcpServers at spawn. Encrypted because
+    # header values carry credentials; never exposed through API responses.
+    imported_mcp_servers = EncryptedJSONStringField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Client-imported MCP server configs (type/name/url/headers) to make available in the sandbox",
+    )
+
+    relayed_mcp_servers = models.JSONField(
+        blank=True,
+        null=True,
+        default=None,
+        help_text="Names of desktop-only MCP servers the creating client relays into this run (docs/cloud-mcp-relay.md). Names only — configuration never crosses the wire.",
+    )
+
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
@@ -1127,6 +1677,14 @@ class TaskRun(models.Model):
                 KeyTransform("wizard_head_branch", "state"),
                 name="task_run_wizard_branch_idx",
                 condition=models.Q(state__wizard_head_branch__isnull=False),
+            ),
+            # Same shape again for the self-driving review carve-out lookup
+            # `filter(state__self_driving_head_branch=...)`; only signals implementation runs
+            # carry the key.
+            models.Index(
+                KeyTransform("self_driving_head_branch", "state"),
+                name="task_run_sd_branch_idx",
+                condition=models.Q(state__self_driving_head_branch__isnull=False),
             ),
             # Time-range scans over runs (default ordering, recent-runs lookups, and the
             # signals outcome-billing query that buckets PR runs into a period).
@@ -1184,7 +1742,11 @@ class TaskRun(models.Model):
         state["handoff_resumed"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
+        state.pop("pending_user_message_id", None)
         state.pop("pending_user_message_ts", None)
+        state.pop("sandbox_id", None)
+        state.pop("sandbox_url", None)
+        state.pop("sandbox_jwt_kid", None)
         self.state = state
 
         logger.info(
@@ -1243,6 +1805,21 @@ class TaskRun(models.Model):
                 state.pop(key, None)
             if updates:
                 state.update(updates)
+
+        return cls.mutate_state_atomic(run_id, _mutator)
+
+    @classmethod
+    def clear_sandbox_connection_state_atomic(
+        cls,
+        run_id: str | uuid.UUID,
+        sandbox_id: str,
+    ) -> dict[str, Any]:
+        def _mutator(state: dict[str, Any]) -> None:
+            if state.get("sandbox_id") != sandbox_id:
+                return
+
+            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid"):
+                state.pop(key, None)
 
         return cls.mutate_state_atomic(run_id, _mutator)
 
@@ -1383,13 +1960,9 @@ class TaskRun(models.Model):
         if not entries:
             return
 
-        existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
-        is_new_file = not existing_content
+        is_new_file = append_jsonl_object(self.log_url, entries)
 
-        new_lines = "\n".join(json.dumps(entry) for entry in entries)
-        content = existing_content + ("\n" if existing_content else "") + new_lines
-
-        object_storage.write(self.log_url, content)
+        self._mirror_logs_to_posthog_logs(entries)
 
         if is_new_file and ttl_days is not None:
             try:
@@ -1407,6 +1980,41 @@ class TaskRun(models.Model):
                     log_url=self.log_url,
                     error=str(e),
                 )
+
+    def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
+        """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
+
+        Fire-and-forget: mirroring failures must never break the run's log write.
+        """
+        from products.tasks.backend.feature_flags import agent_otel_telemetry_enabled_for_state
+        from products.tasks.backend.logic.services.run_log_mirror import mirror_entries, mirroring_enabled
+
+        if not settings.TASK_RUN_LOGS_MIRROR_ORIGIN_PRODUCTS:
+            return
+
+        # Per-run rollout decision (tasks-agent-run-otel-telemetry), stamped into run
+        # state at dispatch; fail closed while the stamp is absent.
+        if not agent_otel_telemetry_enabled_for_state(self.state if isinstance(self.state, dict) else None):
+            return
+
+        try:
+            origin_product = self.task.origin_product
+            if not mirroring_enabled(origin_product):
+                return
+
+            mirror_entries(
+                entries,
+                team_id=self.team_id,
+                task_id=str(self.task_id),
+                run_id=str(self.id),
+                origin_product=origin_product,
+            )
+        except Exception as e:
+            logger.warning(
+                "task_run.mirror_logs_to_posthog_logs_failed",
+                task_run_id=str(self.id),
+                error=str(e),
+            )
 
     def effective_rtk(self) -> bool | None:
         """rtk posture for analytics: the launch-persisted effective value, falling
@@ -1454,9 +2062,14 @@ class TaskRun(models.Model):
                 "run_id": str(self.id),
                 "team_id": self.team_id,
                 "repository": self.task.repository,
+                "repositories": (self.state or {}).get("repositories")
+                or self.task.repositories
+                or ([self.task.repository] if self.task.repository else []),
                 "origin_product": self.task.origin_product,
                 "title": self.task.title,
                 "signal_report_id": str(self.task.signal_report_id) if self.task.signal_report_id else None,
+                "loop_id": (self.state or {}).get("loop_id"),
+                "loop_trigger_id": (self.state or {}).get("loop_trigger_id"),
                 "environment": self.environment,
                 # The bare `environment` property gets clobbered by the analytics
                 # client's deployment-region super-property, so ship the run's
@@ -1693,6 +2306,11 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
         default=list, db_default=models.Value("[]"), help_text="Chronological artifact versions."
     )
     current_version = models.PositiveIntegerField(default=1, db_default=1)
+    # Slack delivery exchanges this for an anonymous image url that bypasses export access
+    # checks, so it's a dedicated column the API never accepts from callers — only the chart
+    # endpoint sets it, for an export it rendered itself. Plain id, not an FK: exports live in
+    # another product and expire on their own TTL; delivery treats a dangling id as no link.
+    export_asset_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1705,6 +2323,89 @@ class TaskArtifact(TeamScopedRootMixin, UUIDModel):
 
     def __str__(self):
         return f"{self.name} ({self.artifact_type})"
+
+
+class SandboxSession(TeamScopedRootMixin, UUIDModel):
+    """Usage ledger for one cloud sandbox: when it ran, its resource shape, and which
+    slice of its lifetime is attributable to a user.
+
+    One row per sandbox, keyed on the provider sandbox id and upserted by the
+    provisioning activity so activity retries stay idempotent. Rows record raw usage
+    only — pricing/credit conversion happens downstream at aggregation time
+    (see logic/services/sandbox_usage.py). Pre-warmed sandboxes stay unattributed
+    (``user_attributed_at`` NULL, on PostHog's dime) until a user claims the run with
+    their first message; the boundary timestamps are deliberately redundant so any
+    future billable-window policy (wall-clock, active-plus-grace, ...) can be computed
+    from the ledger without a backfill.
+    """
+
+    class EndedReason(models.TextChoices):
+        CLEANUP = "cleanup", "Cleanup"
+        REAPED = "reaped", "Reaped"
+
+    # db_constraint=False on the team FK: adding an FK constraint to that hot table
+    # locks it and stalls deploys; Django still enforces the relation and on_delete at
+    # the app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task_run = models.ForeignKey("tasks.TaskRun", on_delete=models.CASCADE, related_name="sandbox_sessions")
+
+    sandbox_id = models.CharField(max_length=255, unique=True, help_text="Provider sandbox id (e.g. Modal object id)")
+    origin_product = models.CharField(
+        max_length=20,
+        choices=Task.OriginProduct,
+        null=True,
+        blank=True,
+        help_text="Task origin at provision time, denormalized for per-origin aggregation",
+    )
+    prewarmed = models.BooleanField(default=False, help_text="Sandbox was provisioned ahead of any user demand")
+    vm_runtime = models.BooleanField(
+        default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
+    )
+
+    # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
+    # sandbox may consume — raw usage metrics derive from these; the burstable request
+    # floors are recorded for future pricing-policy work only (Modal bills max(request, actual)).
+    cpu_cores = models.FloatField(help_text="CPU core limit")
+    memory_gb = models.FloatField(help_text="Memory limit in GiB")
+    ttl_seconds = models.IntegerField(help_text="Hard TTL after which the provider kills the sandbox")
+    burstable = models.BooleanField(default=False)
+    cpu_request_cores = models.FloatField(null=True, blank=True, help_text="Reserved CPU floor when burstable")
+    memory_request_mb = models.IntegerField(null=True, blank=True, help_text="Reserved memory floor when burstable")
+
+    created_at = models.DateTimeField(default=django_timezone.now, help_text="Sandbox provisioned")
+    # Anchored at the Sandbox.create() boundary, not ledger-row insert time: the
+    # provider's TTL clock starts there, before repo setup runs and the row is opened.
+    ttl_expires_at = models.DateTimeField(help_text="Absolute provider kill deadline (creation boundary + TTL)")
+    user_attributed_at = models.DateTimeField(
+        null=True, blank=True, help_text="Start of the user-attributable window; NULL while (pre)warm and unclaimed"
+    )
+    last_user_activity_at = models.DateTimeField(
+        null=True, blank=True, help_text="Most recent user message routed to this sandbox's run"
+    )
+    ended_at = models.DateTimeField(
+        null=True, blank=True, help_text="Sandbox destroyed; NULL rows are clamped to ttl_expires_at"
+    )
+    ended_reason = models.CharField(max_length=20, choices=EndedReason, null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_sandbox_session"
+        indexes = [
+            # The usage report scans sessions overlapping the period instance-wide:
+            # closed recently (ended_at > begin) or open and not yet past their TTL
+            # (ended_at IS NULL AND ttl_expires_at > begin) — the partial index keeps
+            # rows that never got a close stamp from being re-fetched forever.
+            models.Index(fields=["ended_at"], name="sandbox_session_ended_at_idx"),
+            models.Index(
+                fields=["ttl_expires_at"],
+                condition=models.Q(ended_at__isnull=True),
+                name="sandbox_session_open_ttl_idx",
+            ),
+            # For per-team/per-origin re-aggregation once pricing decides which origins bill.
+            models.Index(fields=["team", "user_attributed_at"], name="sandbox_session_team_attr_idx"),
+        ]
+
+    def __str__(self):
+        return f"Sandbox session {self.sandbox_id} for run {self.task_run_id}"
 
 
 class SandboxSnapshot(UUIDModel):
@@ -1977,6 +2678,18 @@ class SandboxCustomImage(TeamScopedRootMixin):
         default="",
         help_text="Published Modal named-image reference (name:tag) for the latest successful build.",
     )
+    base_image_reference = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Immutable VM base image reference used for the latest successful build.",
+    )
+    base_image_refresh_reference = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="VM base image reference most recently queued for an automatic refresh.",
+    )
     scan_result = models.JSONField(default=dict, blank=True, help_text="Latest security scan verdict and findings.")
     error = models.TextField(blank=True, default="", help_text="Failure detail for scan_failed/build_failed states.")
     build_log = models.TextField(blank=True, default="", help_text="Sanitized tail of the latest Modal build output.")
@@ -2033,7 +2746,7 @@ class SandboxCustomImage(TeamScopedRootMixin):
 
 
 class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Code access."""
+    """Invite codes for PostHog Desktop access."""
 
     code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
     max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
@@ -2078,7 +2791,7 @@ class CodeInvite(UUIDModel):
 
 
 class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Code invite."""
+    """Tracks each redemption of a PostHog Desktop invite."""
 
     invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
@@ -2101,7 +2814,7 @@ TASK_PRESENCE_TTL_SECONDS = 60
 class TaskPresence(TeamScopedRootMixin):
     """Per-device 'this user is actively watching this task' beacon.
 
-    Created/refreshed by the desktop and mobile PostHog Code clients while a
+    Created/refreshed by the desktop and mobile PostHog Desktop clients while a
     task screen is foregrounded. The push fanout consults this table to skip
     devices that are demonstrably already watching the task, so we don't fire
     phantom notifications at a phone while the user is mid-conversation with
@@ -2148,119 +2861,25 @@ class TaskPresence(TeamScopedRootMixin):
         return f"Presence: user {self.user_id} on task {self.task_id} via device {self.push_token_id}"
 
 
-class CodeWorkflowConfig(TeamScopedRootMixin):
-    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
-    version = models.PositiveIntegerField(default=1)
-    bindings = models.JSONField(default=dict, help_text="Situation id → ordered WorkflowAction list")
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
+@receiver(post_delete, sender=TaskSession)
+def delete_task_session_object(sender: type[TaskSession], instance: TaskSession, **kwargs: Any) -> None:
+    if instance.object_storage_key is None:
+        return
+    object_storage_key = instance.object_storage_key
+    task_session_id = str(instance.id)
 
-    class Meta:
-        db_table = "posthog_code_workflow_config"
-        constraints = [
-            models.UniqueConstraint(fields=["team", "user"], name="code_workflow_config_team_user_unique"),
-        ]
+    def delete_object() -> None:
+        try:
+            object_storage.delete(object_storage_key)
+        except Exception as error:
+            logger.warning(
+                "task_session.failed_to_delete_object",
+                task_session_id=task_session_id,
+                object_storage_key=object_storage_key,
+                error=str(error),
+            )
 
-    def __str__(self):
-        return f"CodeWorkflowConfig(team={self.team_id}, user={self.user_id}, v{self.version})"
-
-
-class CodePrSnapshot(TeamScopedRootMixin):
-    class State(models.TextChoices):
-        OPEN = "open", "Open"
-        DRAFT = "draft", "Draft"
-        MERGED = "merged", "Merged"
-        CLOSED = "closed", "Closed"
-
-    class CiStatus(models.TextChoices):
-        PASSING = "passing", "Passing"
-        FAILING = "failing", "Failing"
-        PENDING = "pending", "Pending"
-        NONE = "none", "None"
-
-    class ReviewDecision(models.TextChoices):
-        APPROVED = "approved", "Approved"
-        CHANGES_REQUESTED = "changes_requested", "Changes requested"
-        REVIEW_REQUIRED = "review_required", "Review required"
-
-    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    github_integration = models.ForeignKey(
-        "posthog.Integration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
-    )
-    pr_url = models.CharField(max_length=500)
-    number = models.PositiveIntegerField()
-    title = models.TextField(blank=True, default="")
-    state = models.CharField(max_length=10, choices=State.choices)
-    ci_status = models.CharField(max_length=10, choices=CiStatus.choices, default=CiStatus.NONE)
-    review_decision = models.CharField(max_length=20, choices=ReviewDecision.choices, null=True, blank=True)
-    unresolved_threads = models.PositiveIntegerField(default=0)
-    mergeable = models.BooleanField(null=True, blank=True)
-    author_login = models.CharField(max_length=255, null=True, blank=True)
-    head_branch = models.CharField(
-        max_length=255,
-        null=True,
-        blank=True,
-        help_text="PR head (source) branch, used to group follow-up task runs under this PR's workstream",
-    )
-    requested_reviewer_logins = models.JSONField(default=list, help_text="GitHub logins requested as reviewers")
-    pr_updated_at = models.DateTimeField(null=True, blank=True, help_text="PR's last-updated time on GitHub")
-    fingerprint = models.CharField(max_length=64, blank=True, default="", help_text="Change-detection hash")
-    fetched_at = models.DateTimeField(default=django_timezone.now, help_text="When this snapshot was last polled")
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_code_pr_snapshot"
-        constraints = [
-            models.UniqueConstraint(fields=["team", "pr_url"], name="code_pr_snapshot_team_url_unique"),
-        ]
-
-    def __str__(self):
-        return f"CodePrSnapshot({self.pr_url} {self.state})"
-
-
-class CodeWorkstream(TeamScopedRootMixin):
-    class WorkstreamState(models.TextChoices):
-        ATTENTION = "attention", "Needs attention"
-        IN_PROGRESS = "in_progress", "In progress"
-
-    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
-    key = models.CharField(max_length=600, help_text="Grouping key: pr:<url> | branch:<repo>#<branch> | path:<path>")
-    repo_name = models.CharField(max_length=255, null=True, blank=True)
-    repo_full_path = models.CharField(max_length=512, null=True, blank=True)
-    branch = models.CharField(max_length=255, null=True, blank=True)
-    pr_url = models.CharField(max_length=500, null=True, blank=True)
-    pr_snapshot = models.ForeignKey(CodePrSnapshot, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
-    pr = models.JSONField(null=True, blank=True, help_text="Per-user-resolved PrSnapshot wire shape")
-    situations = models.JSONField(default=list, help_text="List of situation ids this workstream is in")
-    primary_situation = models.CharField(max_length=20, null=True, blank=True, help_text="Board column placement")
-    state = models.CharField(max_length=20, choices=WorkstreamState.choices)
-    tasks = models.JSONField(default=list, help_text="List of {id, title, status} for grouped tasks")
-    last_activity_at = models.DateTimeField()
-    generated_at = models.DateTimeField(default=django_timezone.now, help_text="When this row was last rebuilt")
-    created_at = models.DateTimeField(default=django_timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_code_workstream"
-        ordering = ["-last_activity_at"]
-        constraints = [
-            models.UniqueConstraint(fields=["team", "user", "key"], name="code_workstream_team_user_key_unique"),
-        ]
-        indexes = [
-            models.Index(fields=["team", "user", "state"], name="code_workstream_state_idx"),
-        ]
-
-    def __str__(self):
-        return f"CodeWorkstream({self.key} {self.state})"
+    transaction.on_commit(delete_object)
 
 
 @receiver(post_save, sender=TaskRun)

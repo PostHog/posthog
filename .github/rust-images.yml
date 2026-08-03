@@ -72,6 +72,10 @@
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 
+- image: cohort-seeder
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
 - image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
@@ -98,6 +102,10 @@
   dockerfile: ./rust/Dockerfile
   project: vznmbshh6q
 
+- image: personhog-identity
+  dockerfile: ./rust/Dockerfile
+  project: jfz76fgvqd
+
 - image: personhog-leader
   dockerfile: ./rust/Dockerfile
   project: g0kjbvxgqx
@@ -113,6 +121,10 @@
 - image: personhog-writer
   dockerfile: ./rust/Dockerfile
   project: hj9nd3cg9w
+
+- image: personhog-test-harness
+  dockerfile: ./rust/Dockerfile
+  project: 6tl5lmb8l8
 
 - image: kafka-assigner
   dockerfile: ./rust/Dockerfile

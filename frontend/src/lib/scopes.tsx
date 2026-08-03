@@ -32,14 +32,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
     { key: 'account', objectName: 'Account', objectPlural: 'accounts' },
     { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
-    { key: 'agents', objectName: 'Agent', objectPlural: 'agents' },
-    {
-        key: 'agent_approvals',
-        objectName: 'Agent approval',
-        objectPlural: 'agent approvals',
-        info: 'Grants the ability to approve or reject queued agent tool-approval requests on behalf of the consenting user, including requests whose spec sets `allow_agent_approver: false` (human-only). Only grant this to OAuth clients that put a human in the loop at decide time, like the PostHog Code desktop app.',
-        disabledActions: ['read'],
-    },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
@@ -115,6 +107,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'link', objectName: 'Link', objectPlural: 'links' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
+    { key: 'ai_observability_clusters', objectName: 'Cluster', objectPlural: 'clusters' },
     {
         key: 'llm_gateway',
         objectName: 'LLM gateway',
@@ -122,10 +115,12 @@ export const API_SCOPES: APIScope[] = [
         disabledActions: ['write'],
         unprivilegedExcluded: true,
     },
+    { key: 'llm_playground', objectName: 'LLM playground', objectPlural: 'LLM playground' },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
+    { key: 'loop', objectName: 'Loop', objectPlural: 'loops' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
     { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
@@ -190,6 +185,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
+    { key: 'toolbar', objectName: 'Toolbar', objectPlural: 'toolbar' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
@@ -210,6 +206,8 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
+    { key: 'review_hog', objectName: 'ReviewHog', objectPlural: 'ReviewHog reviews' },
+    { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
     { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
     { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
@@ -235,9 +233,12 @@ API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
     // INTERNAL_API_SCOPE_OBJECTS — server-minted only, never user-grantable.
     clickhouse_test_cluster_perf: 'Internal: minted programmatically only.',
+    internal_run: 'Internal: marks a server-minted sandbox/agent run credential.',
+    mcp_builtin_agent: 'Internal: identifies a trusted built-in agent credential.',
     signal_scout_internal: 'Internal: sandbox-only writes for the headless Signals agent.',
     signal_scout_report: 'Internal: sandbox-only writes for the scout report channel.',
     // OAUTH_HIDDEN_SCOPE_OBJECTS — pasteable into a PAT, but never advertised via OAuth/CLI/MCP.
+    batch_import_support: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     query_performance: 'OAuth-hidden: staff-only, pasteable into a PAT but not advertised.',
     wizard_session: 'OAuth-hidden: pasteable into a PAT but not advertised.',
     // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
@@ -249,7 +250,12 @@ export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, strin
     external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
 }
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'feature_flag:read'] as const
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
+    'endpoint:read',
+    'feature_flag:read',
+    'account:read',
+    'loop:write',
+] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 

@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import Organization, Team, User
 
 from django.conf import settings
 from django.core import exceptions, mail
@@ -27,7 +27,7 @@ from prometheus_client import Counter
 
 from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import sanitize_email_string
+from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
 
@@ -129,7 +129,8 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "login_notification": "44",
     "personal_api_key_exposed": "45",
     "code_based_verification": "75",
-    "project_secret_api_key_exposed": "49",
+    "feature_flags_secure_api_key_exposed": "49",
+    "project_secret_api_key_exposed": "76",
     "oauth_token_exposed": "50",
     "passkey_added": "51",
     "passkey_removed": "52",
@@ -149,7 +150,39 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "integration_access_requested": "70",
     "posthog_ai_access_requested": "72",
     "wizard_pr_ready": "74",
+    "loop_run_summary": "77",
 }
+
+
+def get_email_team_and_org_context(
+    team: Optional["Team"] = None,
+    organization: Optional["Organization"] = None,
+) -> dict[str, str]:
+    """
+    team_name, organization_name, and customer_id (the billing customer) for a transactional
+    email. Spread it into template_context whenever a team or organization is in scope. Absent
+    values are omitted so templates render only what's present, and both names are sanitized,
+    so one that happens to be a URL degrades to a placeholder instead of rendering as a link.
+    """
+    if organization is None and team is not None:
+        organization = team.organization
+    context: dict[str, str] = {}
+    if team is not None and team.name:
+        context["team_name"] = sanitize_display_name(
+            team.name,
+            fallback="your project",
+            context={"helper": "get_email_team_and_org_context", "field": "team_name"},
+        )
+    if organization is not None:
+        if organization.name:
+            context["organization_name"] = sanitize_display_name(
+                organization.name,
+                fallback="your organization",
+                context={"helper": "get_email_team_and_org_context", "field": "organization_name"},
+            )
+        if organization.customer_id:
+            context["customer_id"] = organization.customer_id
+    return context
 
 
 def get_customer_io_template_id(template_name: str) -> str:

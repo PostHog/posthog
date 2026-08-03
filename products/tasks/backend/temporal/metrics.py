@@ -71,6 +71,16 @@ def _bool_label(value: bool | None) -> str:
     return "true" if value else "false"
 
 
+_ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
+
+
+def _runtime_adapter_label(value: str | None) -> str:
+    """Bounded label: unexpected values collapse to "other" to cap cardinality."""
+    if not value:
+        return "unknown"
+    return value if value in _ALLOWED_RUNTIME_ADAPTERS else "other"
+
+
 def increment_snapshot_usage(
     used_snapshot: bool,
     *,
@@ -139,6 +149,7 @@ def record_run_token_usage(
     origin_product: str | None,
     run_environment: str | None,
     rtk_enabled: bool | None,
+    runtime_adapter: str | None,
     status: str | None,
 ) -> None:
     """Record a terminal run's token expenditure (from ``TaskRun.state.token_usage``).
@@ -150,6 +161,7 @@ def record_run_token_usage(
             "origin_product": origin_product or "unknown",
             "run_environment": run_environment or "unknown",
             "rtk_enabled": _bool_label(rtk_enabled),
+            "runtime_adapter": _runtime_adapter_label(runtime_adapter),
             "status": status or "unknown",
         }
         for kind, key in _RUN_TOKEN_KINDS.items():
@@ -188,14 +200,25 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
         pass
 
 
-def increment_sandbox_created(runtime: str) -> None:
-    """Record a sandbox creation, labeled by runtime ("vm" or "gvisor")."""
+def record_sandbox_created(runtime: str, image_kind: str, image_fallback: bool, latency_ms: int | None) -> None:
     try:
-        meter = _metric_meter({"runtime": runtime})
+        meter = _metric_meter(
+            {
+                "runtime": runtime,
+                "image_kind": image_kind,
+                "image_fallback": _bool_label(image_fallback),
+            }
+        )
         meter.create_counter(
             "tasks_process_sandbox_created",
-            "Sandboxes created for process-task runs by runtime",
+            "Sandboxes created for process-task runs by runtime and image kind",
         ).add(1)
+        if latency_ms is not None:
+            meter.create_histogram_timedelta(
+                "tasks_process_sandbox_creation_latency",
+                "Sandbox creation latency by runtime and image kind",
+                unit="ms",
+            ).record(dt.timedelta(milliseconds=latency_ms))
     except Exception:
         pass
 

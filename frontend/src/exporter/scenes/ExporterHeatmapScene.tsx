@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 
 import { exporterViewLogic } from '../exporterViewLogic'
 
@@ -9,14 +10,15 @@ export default function ExporterHeatmapScene(): JSX.Element {
     const { exportToken } = exportedData
     const width = exportedData.heatmap_context?.width
 
+    const { heightOverride } = useValues(heatmapDataLogic({ context: 'in-app', exportToken }))
+
     return (
         <div
             className="heatmap-exporter relative"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 width: width ? `${width}px` : '100%',
-                minHeight: '100vh',
-                overflow: 'hidden',
+                height: `${heightOverride}px`,
             }}
         >
             <HeatmapCanvas
@@ -40,7 +42,7 @@ export default function ExporterHeatmapScene(): JSX.Element {
                     title="Heatmap export"
                     className="bg-white"
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ width: '100%', height: '100vh', display: 'block' }}
+                    style={{ width: '100%', height: `${heightOverride}px`, display: 'block' }}
                     src={exportedData.heatmap_url ?? ''}
                     // these two sandbox values are necessary so that the site and toolbar can run
                     // this is a very loose sandbox,

@@ -60,17 +60,32 @@ class HogFunctionType(models.TextChoices):
     WAREHOUSE_SOURCE_WEBHOOK = "warehouse_source_webhook"
     SITE_APP = "site_app"
     TRANSFORMATION = "transformation"
+    TRANSFORMATION_LOG = "transformation_log"
 
 
 TYPES_THAT_RELOAD_PLUGIN_SERVER = (
     HogFunctionType.DESTINATION,
     HogFunctionType.TRANSFORMATION,
+    HogFunctionType.TRANSFORMATION_LOG,
     HogFunctionType.INTERNAL_DESTINATION,
     HogFunctionType.SOURCE_WEBHOOK,
     HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK,
 )
 TYPES_WITH_TRANSPILED_FILTERS = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
 TYPES_WITH_JAVASCRIPT_SOURCE = (HogFunctionType.SITE_DESTINATION, HogFunctionType.SITE_APP)
+# Types that run sequentially during ingestion and are ordered by execution_order
+TYPES_WITH_EXECUTION_ORDER = (HogFunctionType.TRANSFORMATION, HogFunctionType.TRANSFORMATION_LOG)
+
+# Function types a cyclotron worker actually executes, so a "rerun" — which re-enqueues
+# the stored invocation onto the cyclotron hog queue — can run to completion. Every other
+# type executes elsewhere (source webhooks inline in the cdp-api HTTP handler,
+# transformations during ingestion, site_* transpiled to client-side JS) and can never
+# drain from that queue, so enqueuing one wedges the partition. Keep in sync with the Node
+# rerun paginator (`RERUNNABLE_HOG_FUNCTION_TYPES`) and the frontend invocations UI.
+TYPES_THAT_CAN_RERUN = (
+    HogFunctionType.DESTINATION,
+    HogFunctionType.INTERNAL_DESTINATION,
+)
 
 
 class HogFunction(FileSystemSyncMixin, UUIDTModel):
@@ -144,6 +159,9 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         elif self.type == HogFunctionType.TRANSFORMATION:
             folder = "Unfiled/Transformations"
             href = f"/pipeline/transformations/hog-{self.pk}/configuration"
+        elif self.type == HogFunctionType.TRANSFORMATION_LOG:
+            folder = "Unfiled/Transformations"
+            href = f"/functions/{self.pk}/configuration"
         elif self.type == HogFunctionType.SOURCE_WEBHOOK:
             folder = "Unfiled/Sources"
             href = f"/functions/{self.pk}/configuration"

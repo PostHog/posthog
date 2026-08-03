@@ -5,7 +5,7 @@ use crate::{
     stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         batch::Batch,
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Parsed},
         operator::{OperatorResult, ValueOperator},
         Exception, ExceptionList,
     },
@@ -63,7 +63,7 @@ impl ExceptionResolver {
 
 impl ValueOperator for ExceptionResolver {
     type Context = ResolutionStage;
-    type Item = ExceptionProperties;
+    type Item = ExceptionEvent<Parsed>;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
@@ -73,7 +73,7 @@ impl ValueOperator for ExceptionResolver {
 
     async fn execute_value(
         &self,
-        mut evt: ExceptionProperties,
+        mut evt: ExceptionEvent<Parsed>,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
         let team_id = evt.team_id;

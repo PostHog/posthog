@@ -161,7 +161,11 @@ class MetricSerializer(serializers.ModelSerializer):
             "description": {"help_text": "What the metric means and how to interpret it."},
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},
-            "confidence": {"help_text": "AI author's confidence in the proposal, 0-1."},
+            "confidence": {
+                "help_text": "AI author's confidence in the proposal, 0-1.",
+                "min_value": 0.0,
+                "max_value": 1.0,
+            },
             "reasoning": {"help_text": "AI author's reasoning, surfaced as review context."},
         }
 

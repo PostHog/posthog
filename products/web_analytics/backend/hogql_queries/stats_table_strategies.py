@@ -7,8 +7,10 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
 from products.web_analytics.backend.hogql_queries.query_constants.stats_table_queries import (
+    FIRST_PAGEVIEW_INNER_QUERY,
     FRUSTRATION_METRICS_INNER_QUERY,
     MAIN_INNER_QUERY,
+    NO_JOIN_MAIN_INNER_QUERY,
     NO_JOIN_PATH_BOUNCE_AND_AVG_TIME_QUERY,
     NO_JOIN_PATH_BOUNCE_QUERY,
     PATH_BOUNCE_AND_AVG_TIME_QUERY,
@@ -54,6 +56,9 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
     the query tag can be attributed separately even though the SQL shape
     is identical.
     """
+
+    # Inner scan template; subclasses swap it to change only the events aggregation.
+    INNER_QUERY = MAIN_INNER_QUERY
 
     def __init__(
         self,
@@ -128,12 +133,12 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
 
     def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
         query = parse_select(
-            MAIN_INNER_QUERY,
+            self.INNER_QUERY,
             timings=self.runner.timings,
             placeholders={
                 "breakdown_value": breakdown,
                 "event_where": self.runner.event_type_expr,
-                "all_properties": self.runner._all_properties(),
+                "all_properties": self.runner.all_properties(),
                 "inside_periods": self.runner._periods_expression(),
             },
         )
@@ -144,6 +149,36 @@ class SimpleBreakdownStrategy(StatsTableQueryStrategy):
             query.select.append(ast.Alias(alias="conversion_count", expr=self.runner.conversion_count_expr))
             query.select.append(ast.Alias(alias="conversion_person_id", expr=self.runner.conversion_person_id_expr))
 
+        return query
+
+
+class NoJoinSimpleBreakdownStrategy(SimpleBreakdownStrategy):
+    """Simple breakdown without the events↔sessions join.
+
+    Eligible when the tile displays no session-derived column (no bounce
+    rate, no conversion goal) and the breakdown value is computed from event
+    columns — the join then contributes only the session grouping key and the
+    session-start timestamp, both recoverable from the UUIDv7 session id.
+    The outer query is inherited unchanged; only the inner scan differs.
+    Filters (user + test account) apply inline to the single events scan, so
+    filtered and unfiltered queries are equally eligible."""
+
+    def build_query(self) -> ast.SelectQuery:
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_simple_breakdown").inc()
+        return super().build_query()
+
+    def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            NO_JOIN_MAIN_INNER_QUERY,
+            timings=self.runner.timings,
+            placeholders={
+                "breakdown_value": breakdown,
+                "event_where": self.runner.event_type_expr,
+                "all_properties": self.runner.all_properties(),
+                "inside_periods": self.runner._periods_expression(),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
         return query
 
 
@@ -163,6 +198,50 @@ class ChannelTypeStrategy(SimpleBreakdownStrategy):
     SQL is the same template."""
 
 
+class FirstPageviewAttributionStrategy(SimpleBreakdownStrategy):
+    """Breakdowns attributed to the session's first ``$pageview``/``$screen``.
+
+    Same outer query as ``SimpleBreakdownStrategy``, but the inner scan is two
+    levels: a per-session aggregate (``GROUP BY session_id`` with a single
+    ``argMinIf`` tuple anchoring every property to the earliest in-range
+    pageview) wrapped in a projection that computes the breakdown value from
+    the aliased tuple. See ``FIRST_PAGEVIEW_INNER_QUERY`` for why the aggregate
+    must be aliased. Conversion aggregates go into the per-session level, with
+    pass-through columns added to the projection.
+    """
+
+    INNER_QUERY = FIRST_PAGEVIEW_INNER_QUERY
+
+    def _inner_query(self, breakdown: ast.Expr) -> ast.SelectQuery:
+        query = parse_select(
+            self.INNER_QUERY,
+            timings=self.runner.timings,
+            placeholders={
+                "breakdown_value": breakdown,
+                "first_pageview_properties": self.runner._first_pageview_properties_expr(),
+                "event_where": self.runner.event_type_expr,
+                "all_properties": self.runner.all_properties(),
+                "inside_periods": self.runner._periods_expression(),
+                "session_id_present": self.runner.events_session_id_present,
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+
+        if self.runner.conversion_count_expr and self.runner.conversion_person_id_expr:
+            assert query.select_from is not None
+            per_session_query = query.select_from.table
+            assert isinstance(per_session_query, ast.SelectQuery)
+            per_session_query.select.append(ast.Alias(alias="conversion_count", expr=self.runner.conversion_count_expr))
+            per_session_query.select.append(
+                ast.Alias(alias="conversion_person_id", expr=self.runner.conversion_person_id_expr)
+            )
+            query.select.append(ast.Field(chain=["conversion_count"]))
+            query.select.append(ast.Field(chain=["conversion_person_id"]))
+
+        return query
+
+
 class PathBounceStrategy(StatsTableQueryStrategy):
     """PAGE breakdown with bounce rate (no scroll depth or avg time)."""
 
@@ -173,7 +252,7 @@ class PathBounceStrategy(StatsTableQueryStrategy):
                 timings=self.runner.timings,
                 placeholders={
                     "breakdown_value": self.runner._counts_breakdown_value(),
-                    "session_properties": self.runner._session_properties(),
+                    "session_properties": self.runner.session_properties(),
                     "event_properties": self.runner._event_properties(),
                     "bounce_event_properties": self.runner._event_properties_for_bounce_rate(),
                     "bounce_breakdown_value": self.runner._bounce_entry_pathname_breakdown(),
@@ -196,7 +275,7 @@ class PathBounceAvgTimeStrategy(StatsTableQueryStrategy):
                 timings=self.runner.timings,
                 placeholders={
                     "breakdown_value": self.runner._counts_breakdown_value(),
-                    "session_properties": self.runner._session_properties(),
+                    "session_properties": self.runner.session_properties(),
                     "event_properties": self.runner._event_properties(),
                     "time_on_page_event_properties": self.runner._event_properties_for_scroll(),
                     "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
@@ -226,9 +305,10 @@ class NoJoinPathBounceStrategy(StatsTableQueryStrategy):
 
     QUERY = NO_JOIN_PATH_BOUNCE_QUERY
     TIMING_KEY = "stats_table_no_join_path_bounce"
+    COUNTER_FAMILY = "stats_table_paths"
 
     def build_query(self) -> ast.SelectQuery:
-        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family="stats_table_paths").inc()
+        WEB_ANALYTICS_NO_JOIN_SERVED.labels(family=self.COUNTER_FAMILY).inc()
         with self.runner.timings.measure(self.TIMING_KEY):
             query = parse_select(
                 self.QUERY,
@@ -249,6 +329,8 @@ class NoJoinPathBounceStrategy(StatsTableQueryStrategy):
             "current_session_period": self.runner._current_period_expression("$start_timestamp"),
             "previous_session_period": self.runner._previous_period_expression("$start_timestamp"),
             "inside_session_periods": self.runner._periods_expression("$start_timestamp"),
+            "event_filters": ast.Constant(value=True),
+            "bounce_sessions_filter": ast.Constant(value=True),
         }
 
 
@@ -266,6 +348,48 @@ class NoJoinPathBounceAvgTimeStrategy(NoJoinPathBounceStrategy):
         return {
             **super()._placeholders(),
             "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
+            "time_on_page_filters": ast.Constant(value=True),
+        }
+
+
+class SessionIdSetPathBounceStrategy(NoJoinPathBounceStrategy):
+    """PAGE breakdown with bounce rate for filtered queries, join-free.
+
+    Same two-scan shape as the no-join strategy, linked by a session-id set:
+    counts apply the events-side filters directly; the bounce side aggregates
+    only sessions whose ids appear in a `SELECT DISTINCT $session_id_uuid`
+    subquery over events matching the pathname-excluded filters (mirroring the
+    join path's `_event_properties_for_bounce_rate` semantics — a session's
+    entry-path bounce rate must not be restricted by which pathname is being
+    viewed). The id filter is rewritten below the per-session GROUP BY by
+    `build_direct_session_id_in_pushdown` (GLOBAL IN, executed once) when the
+    runner flips the `sessionIdPushdown` modifier at execution. When the only
+    filter is `$pathname`, the bounce side has nothing to filter by and stays
+    unfiltered — no id set, no preflight.
+    """
+
+    TIMING_KEY = "stats_table_session_id_set_path_bounce"
+    COUNTER_FAMILY = "stats_table_paths_session_id_set"
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            **super()._placeholders(),
+            "event_filters": self.runner._event_properties(),
+            "bounce_sessions_filter": self.runner._session_id_set_bounce_filter(),
+        }
+
+
+class SessionIdSetPathBounceAvgTimeStrategy(SessionIdSetPathBounceStrategy):
+    """PAGE breakdown with average time on page and bounce rate, filtered, join-free."""
+
+    QUERY = NO_JOIN_PATH_BOUNCE_AND_AVG_TIME_QUERY
+    TIMING_KEY = "stats_table_session_id_set_path_bounce_and_avg_time"
+
+    def _placeholders(self) -> dict[str, ast.Expr]:
+        return {
+            **super()._placeholders(),
+            "time_on_page_breakdown_value": self.runner._scroll_prev_pathname_breakdown(),
+            "time_on_page_filters": self.runner._event_properties_for_scroll(),
         }
 
 
@@ -305,7 +429,7 @@ class FrustrationMetricsStrategy(StatsTableQueryStrategy):
                 "event_where": parse_expr(
                     "events.event IN ('$pageview', '$screen', '$rageclick', '$dead_click', '$exception')"
                 ),
-                "all_properties": self.runner._all_properties(),
+                "all_properties": self.runner.all_properties(),
                 "inside_periods": self.runner._periods_expression(),
             },
         )

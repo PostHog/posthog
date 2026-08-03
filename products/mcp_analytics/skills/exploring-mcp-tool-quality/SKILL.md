@@ -26,7 +26,8 @@ UI, and is gated behind the `mcp-analytics` flag — no hand-written SQL needed.
 
 **HogQL via `posthog:execute-sql` is the path for cross-tool questions** — the
 "which tool errors most" ranking below has no typed tool, so rank with SQL, then
-drill into the worst tool with `posthog:query-mcp-tool-stats` / `-failures`. The full
+drill into the worst tool with `posthog:query-mcp-tool-stats` and
+`posthog:query-mcp-tool-failures`. The full
 property schema and the canonical query recipes live in the shared MCP data
 reference:
 [`products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
@@ -89,10 +90,13 @@ under "Tool-quality matrix".
 For one tool's top failure buckets (grouped by harness), call
 `posthog:query-mcp-tool-failures` with the `toolName` — it's the typed equivalent of the
 query below. Failures come from the **same source as the error rate**: errored
-`$mcp_tool_call` events (`$mcp_is_error`), scoped by the effective tool name. There is no
-free-text error message on tool calls, so failures are grouped by `$mcp_error_type` (a
-semantic bucket: `internal`, `validation`, `api_4xx`, `api_5xx`, `permission`, `timeout`,
-`rate_limited`, `missing_context`) and the HTTP `$mcp_error_status` when present:
+`$mcp_tool_call` events (`$mcp_is_error`), scoped by the effective tool name. Failures are
+grouped by `$mcp_error_type` (a semantic bucket: `internal`, `validation`, `api_4xx`,
+`api_5xx`, `permission`, `timeout`, `rate_limited`, `missing_context`) and the HTTP
+`$mcp_error_status` when present. To see individual errored calls inside a bucket — with
+the captured `$mcp_error_message`, session id, harness, and intent — pass the bucket's raw
+`error_type`/`error_status` to `posthog:query-mcp-tool-failure-occurrences`
+(`$mcp_error_message` is empty on events captured before message capture shipped):
 
 ```sql
 posthog:execute-sql
@@ -136,8 +140,11 @@ Always surface a UI link so the user can verify visually.
 - `$mcp_client_name` lets you cut quality by harness (Claude Code vs Cursor vs
   …); the canonical bucketing `multiIf` is in
   [models-mcp.md](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md)
-- If the SQL contradicts the tool-quality screen, trust the screen and flag this
-  skill for an update — the frontend bucketing logic is the source of truth
+- Harness bucketing is resolved **server-side** by
+  `products/mcp_analytics/backend/mcp_harness.py` — that's the source of truth,
+  and `posthog:query-mcp-harness-breakdown` runs it. If your hand-written SQL
+  disagrees with the screen, your bucketing has drifted from `mcp_harness.py`;
+  prefer the typed tool over re-deriving it
 
 ## Related skills
 

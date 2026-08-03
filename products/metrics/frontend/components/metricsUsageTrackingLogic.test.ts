@@ -5,6 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import {
     metricsQueryCreate,
@@ -61,6 +62,14 @@ describe('metricsUsageTrackingLogic', () => {
     let logic: ReturnType<typeof metricsUsageTrackingLogic.build>
 
     beforeEach(() => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+                [AccessControlResourceType.Insight]: AccessControlLevel.Editor,
+            },
+        } as AppContext
         initKeaTests()
         jest.mocked(posthog.capture).mockClear()
         jest.mocked(metricsValuesRetrieve).mockReset().mockResolvedValue({ results: [] })

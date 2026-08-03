@@ -9,6 +9,8 @@ export type MlAnonymizeImpl = 'rust' | 'ts'
 /** Rust engine that produced the output (tree = the parse fallback fired). `''` when not applicable. */
 export type MlAnonymizeRoute = 'stream' | 'tree' | ''
 
+export type MlImageLaneStage = 'collected' | 'deduped' | 'queued' | 'produced' | 'produce_failed'
+
 export class SessionRecordingIngesterMetrics {
     private static readonly sessionsHandled = new Gauge({
         name: 'recording_blob_ingestion_v2_session_manager_count',
@@ -64,13 +66,31 @@ export class SessionRecordingIngesterMetrics {
         name: 'recording_blob_ingestion_v2_ml_anonymize_duration_ms',
         help: 'Per-message ML mirror anonymize time in ms, by implementation and route',
         labelNames: ['impl', 'route'],
-        buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, Infinity],
+        // The measured interval includes libuv threadpool queue wait, which under backpressure
+        // reaches tens of seconds — the tail buckets exist so quantiles don't clamp at 10s.
+        buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000, Infinity],
     })
 
     private static readonly mlAnonymizeFailed = new Counter({
         name: 'recording_blob_ingestion_v2_ml_anonymize_failed',
         help: 'Messages dropped because ML mirror anonymization failed (fail-closed), by implementation',
         labelNames: ['impl'],
+    })
+
+    private static readonly mlImagesCollected = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_images_collected',
+        help: 'Images through the out-of-band scrub lane, by stage: collected (returned by the addon), deduped (suppressed by the cross-message cache), queued (handed to the producer), produced (delivery acked), produce_failed (delivery failed; refs un-marked for natural retry)',
+        labelNames: ['outcome'],
+    })
+
+    private static readonly mlImageBytesProduced = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_bytes_produced',
+        help: 'Bytes of collected images delivered to the scrub topic (acked)',
+    })
+
+    private static readonly mlImagePseudoTeamInvalid = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_image_pseudo_team_invalid',
+        help: 'Messages whose derived team pseudonym failed the consumer ref-shape check; collection disabled for them (inline blur instead)',
     })
 
     public static incrementMessageReceived(partition: number): void {
@@ -116,5 +136,17 @@ export class SessionRecordingIngesterMetrics {
 
     public static incrementMlAnonymizeFailed(impl: MlAnonymizeImpl): void {
         this.mlAnonymizeFailed.labels(impl).inc()
+    }
+
+    public static incrementMlImagesCollected(outcome: MlImageLaneStage, count: number): void {
+        this.mlImagesCollected.labels(outcome).inc(count)
+    }
+
+    public static incrementMlImageBytesProduced(bytes: number): void {
+        this.mlImageBytesProduced.inc(bytes)
+    }
+
+    public static incrementMlImagePseudoTeamInvalid(): void {
+        this.mlImagePseudoTeamInvalid.inc()
     }
 }

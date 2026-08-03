@@ -8,7 +8,7 @@ use crate::{
     stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         batch::Batch,
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Parsed},
         operator::{OperatorResult, ValueOperator},
         Exception, ExceptionList, Stacktrace,
     },
@@ -195,7 +195,7 @@ fn partition_into_units(frames: Vec<RawFrame>) -> Vec<Vec<RawFrame>> {
 
 impl ValueOperator for FrameResolver {
     type Context = ResolutionStage;
-    type Item = ExceptionProperties;
+    type Item = ExceptionEvent<Parsed>;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
@@ -205,7 +205,7 @@ impl ValueOperator for FrameResolver {
 
     async fn execute_value(
         &self,
-        mut evt: ExceptionProperties,
+        mut evt: ExceptionEvent<Parsed>,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
         // Clone rather than take: `$debug_images` is serialized back onto the

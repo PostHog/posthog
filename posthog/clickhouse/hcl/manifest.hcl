@@ -26,7 +26,7 @@
 # golden from a host of that role (codegen/README has the extraction).
 
 role "ops" {
-  env "local"   { layers = ["roles/shared", "roles/ops/shared", "roles/ops/local"] }
+  env "local-multi"   { layers = ["roles/shared", "roles/ops/shared", "roles/ops/local"] }
   env "dev"     { layers = ["roles/shared", "roles/ops/shared", "roles/ops/dev"] }
   env "prod-us" { layers = ["roles/shared", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
@@ -36,7 +36,7 @@ role "ops" {
 # composes a self-contained roles/logs/local (extracted from the live node) rather
 # than the shared cloud layers.
 role "logs" {
-  env "local"   { layers = ["roles/logs/local"] }
+  env "local-multi"   { layers = ["roles/logs/local"] }
   env "dev"     { layers = ["roles/shared", "roles/logs/shared", "roles/logs/dev"] }
   env "prod-us" { layers = ["roles/shared", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
@@ -50,7 +50,7 @@ role "logs" {
 # env-uniform person / person_distinct_id2 Distributed shims (0240). dev currently
 # has only the top-level shared objects (per the latest dump).
 role "ai_events" {
-  env "local"   { layers = ["roles/shared", "roles/ai_events/shared", "roles/ai_events/local"] }
+  env "local-multi"   { layers = ["roles/shared", "roles/ai_events/shared", "roles/ai_events/local"] }
   env "dev"     { layers = ["roles/shared"] }
   env "prod-us" { layers = ["roles/shared", "roles/ai_events/shared", "roles/ai_events/prod"] }
   env "prod-eu" { layers = ["roles/shared", "roles/ai_events/shared", "roles/ai_events/prod"] }
@@ -62,7 +62,7 @@ role "ai_events" {
 # kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
 # ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
 role "aux" {
-  env "local"   { layers = ["roles/shared", "roles/auxiliary/shared", "roles/auxiliary/local"] }
+  env "local-multi"   { layers = ["roles/shared", "roles/auxiliary/shared", "roles/auxiliary/local"] }
   env "prod-us" { layers = ["roles/shared", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
 }
@@ -75,7 +75,7 @@ role "aux" {
 # carry the env-specific channel_definition / events / raw_sessions_v3 (prod-us also
 # has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
 role "sessions" {
-  env "local"   { layers = ["roles/shared"] }
+  env "local-multi"   { layers = ["roles/shared"] }
   env "prod-us" { layers = ["roles/shared", "roles/sessions/shared", "roles/sessions/prod-us"] }
   env "prod-eu" { layers = ["roles/shared", "roles/sessions/shared", "roles/sessions/prod-eu"] }
 }
@@ -102,7 +102,7 @@ role "batch_exports" {
 # columns per env that are added out-of-band and churn constantly, so their goldens
 # live in PostHog/posthog-cloud-infra (clickhouse/hcl/), not the OSS gate.
 role "data" {
-  env "local" { layers = ["roles/shared", "roles/data/local"] }
+  env "local-multi" { layers = ["roles/shared", "roles/data/local"] }
 }
 
 # role "endpoints" {

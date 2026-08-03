@@ -3,7 +3,10 @@ import logging
 from collections.abc import Mapping
 from typing import cast
 
+from django.db.models import Q
+
 from asgiref.sync import async_to_sync
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
@@ -26,6 +29,7 @@ from .models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
+from .report_charts import CHART_SIZES, MAX_CHART_CAPTION_LENGTH, MAX_CHART_ID_LENGTH, MAX_CHART_TITLE_LENGTH
 from .report_generation.resolve_reviewers import enrich_reviewer_dicts_with_org_members
 
 logger = logging.getLogger(__name__)
@@ -99,27 +103,26 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
         from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
-        schema = (
+        statuses = set(
             ExternalDataSchema.objects.filter(
+                Q(name=schema_name) | Q(name__endswith=f".{schema_name}"),
                 team_id=team_id,
                 source__source_type=ext_source_type,
-                name=schema_name,
             )
             .exclude(source__deleted=True)
-            .first()
+            .values_list("status", flat=True)
         )
-        if schema is None:
-            return None
-        if schema.status == ExternalDataSchema.Status.RUNNING:
+        if ExternalDataSchema.Status.RUNNING in statuses:
             return "running"
-        if schema.status == ExternalDataSchema.Status.COMPLETED:
-            return "completed"
-        if schema.status in (
+        # One failing repo outranks its siblings' success, so a broken repo is never hidden.
+        if statuses & {
             ExternalDataSchema.Status.FAILED,
             ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
             ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW,
-        ):
+        }:
             return "failed"
+        if ExternalDataSchema.Status.COMPLETED in statuses:
+            return "completed"
         return None
 
     def validate(self, attrs: dict) -> dict:
@@ -335,8 +338,79 @@ class SignalReportRefundSerializer(serializers.ModelSerializer):
         return obj.billing_synced_at is not None
 
 
+# The chart `query` is free-form JSON by design, and the generated schema has to keep it that way.
+#
+# This is load-bearing, not a style call. The MCP executor dispatches Zod's *parsed* output
+# (`services/mcp/src/tools/exec.ts` — "Dispatch the parsed output so coerced values and defaults
+# apply"), and a generated `zod.object({...})` strips keys it doesn't name. Declaring the node's
+# shape — even just `kind` — would therefore drop `source` / `display` / `shortId` on the way through
+# the tool and hand the backend a bare `{"kind": ...}`: valid per `ReportChart`, and a chart that
+# renders nothing. `additionalProperties` doesn't save it either; it reaches the TypeScript type but
+# not the Zod schema.
+#
+# So the field stays untyped in the schema (the `spec: zod.unknown()` precedent), and the contract
+# lives in `help_text` where the scout reads it, enforced by `ReportChart` server-side.
+@extend_schema_field(OpenApiTypes.ANY)
+class ChartQueryField(serializers.JSONField):
+    """The query node on a report chart. Typed for the schema pipeline so the generated MCP tool and
+    frontend types describe a query node instead of an opaque `unknown`, while still carrying the
+    node's per-kind fields through untouched."""
+
+
+class ReportChartSerializer(serializers.Serializer):
+    """One chart attached to a report — rendered in the inbox and referenceable from the summary."""
+
+    chart_id = serializers.CharField(
+        max_length=MAX_CHART_ID_LENGTH,
+        help_text=(
+            "Stable slug for this chart within the report (lowercase letters, numbers, underscores, "
+            "hyphens; must start with a letter or number). Reference it from `summary` as a markdown "
+            "link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart "
+            "at that point in the body. A chart you don't reference still renders, below the summary."
+        ),
+    )
+    title = serializers.CharField(
+        max_length=MAX_CHART_TITLE_LENGTH,
+        help_text="Short heading shown above the chart.",
+    )
+    query = ChartQueryField(
+        help_text=(
+            "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics "
+            "chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), "
+            "or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute "
+            "dates where the node supports it, so the reader sees the data you wrote about rather "
+            "than whatever a relative range resolves to when they open the report."
+        ),
+    )
+    caption = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_CHART_CAPTION_LENGTH,
+        help_text="Optional one-line note on what to look at in the chart.",
+    )
+    size = serializers.ChoiceField(
+        choices=CHART_SIZES,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How much height the chart gets: `small` for a single number or a short series, `medium` "
+            "for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, "
+            "a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart "
+            "from its query, and two charts referenced from the same paragraph sit side by side."
+        ),
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
+    charts = ReportChartSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Charts the report shows, in the order they were written. The summary places one with a "
+            "`[label](chart:<chart_id>)` link; the rest render below it."
+        ),
+    )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
             "Why refunding this report's PR would be rejected right now, or null when a refund "
@@ -350,7 +424,11 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="Actionability choice from the latest actionability judgment artefact (when present).",
     )
     already_addressed = serializers.SerializerMethodField(
-        help_text="Whether the issue appears already fixed, from the actionability judgment artefact.",
+        help_text=(
+            "Whether the issue is already being handled — fixed in recent changes, or with a fix in "
+            "flight (an open PR, a recently active branch, an assigned / in-progress issue or agent "
+            "task) — from the actionability judgment artefact."
+        ),
     )
     dismissal_reason = serializers.SerializerMethodField(
         help_text="Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
@@ -367,6 +445,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
+    )
+    implementation_pr_merged = serializers.SerializerMethodField(
+        help_text=(
+            "Whether that implementation PR is merged, per the GitHub webhook. False when there is no "
+            "PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been "
+            "resolved directly, without a merged PR."
+        ),
     )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
@@ -385,6 +470,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "artefact_count",
+            "charts",
             "priority",
             "actionability",
             "already_addressed",
@@ -394,6 +480,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "implementation_pr_merged",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -509,6 +596,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return implementation_pr_url_map.get(str(obj.id))
         value = getattr(obj, "implementation_pr_url", None)
         return value if isinstance(value, str) else None
+
+    def get_implementation_pr_merged(self, obj: SignalReport) -> bool:
+        merged_report_ids: set[str] | None = self.context.get("implementation_pr_merged_ids")
+        if merged_report_ids is not None:
+            return str(obj.id) in merged_report_ids
+        # Annotated path: the JSON flag arrives as text, and NULL means no PR-bearing run at all.
+        value = getattr(obj, "implementation_pr_merged", None)
+        return value in (True, "true", "True")
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:
@@ -706,6 +801,16 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         max_length=200,
         help_text="Optional human-readable display name. Not backfilled from GitHub by the server.",
     )
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500,
+        help_text=(
+            "Optional short evidence for why this reviewer was chosen. Omitted entries keep the "
+            "prior reason for reviewers already on the report."
+        ),
+    )
 
     def validate(self, attrs: dict) -> dict:
         if not attrs.get("github_login") and not attrs.get("user_uuid"):
@@ -828,3 +933,175 @@ class CommitDiffResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text="True when the diff was too large to return in full and has been truncated.",
     )
+
+
+class PullRequestCheckSerializer(serializers.Serializer):
+    """One CI check on a pull request's head commit — a GitHub Actions check run or a legacy commit
+    status, normalized to a common shape."""
+
+    name = serializers.CharField(read_only=True, help_text="Check run name or status context.")
+    status = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Lifecycle state: 'queued', 'in_progress', or 'completed'.",
+    )
+    conclusion = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Outcome once completed: 'success', 'failure', 'neutral', 'cancelled', 'skipped', "
+        "'timed_out', or 'action_required'. Null while still running.",
+    )
+    url = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Link to the check run / status detail on GitHub."
+    )
+
+
+class PullRequestChecksResponseSerializer(serializers.Serializer):
+    """Response for the PR checks endpoint — the CI status of a report's implementation PR."""
+
+    checks = PullRequestCheckSerializer(many=True, read_only=True)
+
+
+class PullRequestCommentReactionSerializer(serializers.Serializer):
+    """One emoji reaction on a review comment, with the reactor so the viewer's own can be toggled."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub reaction id (needed to remove it).")
+    content = serializers.CharField(
+        read_only=True,
+        help_text="Reaction key: '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', or 'eyes'.",
+    )
+    user_login = serializers.CharField(
+        read_only=True, allow_null=True, help_text="GitHub login of the user who added the reaction."
+    )
+
+
+class PullRequestCommentSerializer(serializers.Serializer):
+    """One comment on a pull request — a conversation comment or an inline review comment."""
+
+    id = serializers.CharField(read_only=True, help_text="GitHub comment id.")
+    author = serializers.CharField(read_only=True, allow_null=True, help_text="Comment author's GitHub login.")
+    author_avatar_url = serializers.CharField(read_only=True, allow_null=True, help_text="Author's GitHub avatar URL.")
+    body = serializers.CharField(read_only=True, allow_blank=True, help_text="Comment body (GitHub-flavored markdown).")
+    created_at = serializers.CharField(read_only=True, allow_null=True, help_text="ISO 8601 creation timestamp.")
+    url = serializers.CharField(read_only=True, allow_null=True, help_text="Link to the comment on GitHub.")
+    comment_type = serializers.ChoiceField(
+        read_only=True,
+        choices=["conversation", "review"],
+        help_text="'conversation' for a PR discussion comment, 'review' for an inline code-review comment.",
+    )
+    path = serializers.CharField(
+        read_only=True, allow_null=True, help_text="File path the review comment is anchored to (review comments only)."
+    )
+    line = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Line in the diff the review comment is anchored to — the end line for multi-line comments "
+        "(review comments only; null when the comment is outdated relative to the PR head).",
+    )
+    start_line = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="First line of a multi-line review comment's range (review comments only).",
+    )
+    side = serializers.ChoiceField(
+        read_only=True,
+        allow_null=True,
+        choices=["LEFT", "RIGHT"],
+        help_text="Diff side the review comment is anchored to: 'LEFT' = deletions, 'RIGHT' = additions "
+        "(review comments only).",
+    )
+    diff_hunk = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Diff hunk excerpt the review comment applies to (review comments only).",
+    )
+    in_reply_to_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Id of the thread root comment this one replies to; null for thread roots and conversation comments.",
+    )
+    commit_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="SHA of the commit the review comment was made against (review comments only).",
+    )
+    reactions = PullRequestCommentReactionSerializer(
+        many=True,
+        read_only=True,
+        help_text="Emoji reactions on this review comment, one entry per reactor.",
+    )
+
+
+class PullRequestCommentsResponseSerializer(serializers.Serializer):
+    """Response for the PR comments endpoint — conversation and review comments merged chronologically."""
+
+    comments = PullRequestCommentSerializer(many=True, read_only=True)
+
+
+class PullRequestReviewCommentCreateSerializer(serializers.Serializer):
+    """Request body for posting an inline PR review comment as the requesting user.
+
+    Two shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new
+    thread on a diff line (`body` + `path` + `line`, optionally `side`)."""
+
+    body = serializers.CharField(help_text="Comment body (GitHub-flavored markdown).", max_length=65536)
+    # Numeric-only: this id is interpolated into the GitHub reply URL, so an unconstrained string could
+    # smuggle path segments (e.g. `../../issues/1/comments`) and retarget the request.
+    in_reply_to = serializers.RegexField(
+        r"^[0-9]+$",
+        required=False,
+        allow_null=True,
+        help_text="Numeric id of the thread root comment to reply to. When set, path/line/side are ignored.",
+    )
+    path = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="File path to anchor a new comment thread to (required when starting a new thread).",
+    )
+    line = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Diff line to anchor a new comment thread to (required when starting a new thread).",
+    )
+    side = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=["LEFT", "RIGHT"],
+        help_text="Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("in_reply_to") and not (attrs.get("path") and attrs.get("line")):
+            raise serializers.ValidationError("Provide either in_reply_to (reply) or path + line (new thread).")
+        return attrs
+
+
+class PullRequestReviewCommentCreateResponseSerializer(serializers.Serializer):
+    """Response after posting a review comment — the created comment in the normalized PR-comment shape."""
+
+    comment = PullRequestCommentSerializer(read_only=True)
+
+
+class PullRequestReviewCommentUpdateSerializer(serializers.Serializer):
+    """Request body for editing a review comment's markdown body."""
+
+    body = serializers.CharField(help_text="New comment body (GitHub-flavored markdown).", max_length=65536)
+
+
+_REACTION_CONTENTS = ["+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"]
+
+
+class PullRequestReviewCommentReactionCreateSerializer(serializers.Serializer):
+    """Request body for adding an emoji reaction to a review comment."""
+
+    content = serializers.ChoiceField(
+        choices=_REACTION_CONTENTS,
+        help_text="Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.",
+    )
+
+
+class PullRequestReviewCommentReactionCreateResponseSerializer(serializers.Serializer):
+    """Response after adding a reaction — the created reaction, so the frontend can track its id."""
+
+    reaction = PullRequestCommentReactionSerializer(read_only=True)

@@ -7,6 +7,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from django.utils import timezone
+
 import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
@@ -18,6 +20,8 @@ from posthog.dags.data_deletion_requests import (
     DeletionRequestContext,
     PersonRemovalContext,
     _property_removal_where,
+    auto_approve_deletion_requests_job,
+    auto_approve_deletion_requests_schedule,
     data_deletion_request_event_removal,
     data_deletion_request_person_removal,
     data_deletion_request_pickup_sensor,
@@ -33,7 +37,13 @@ from posthog.dags.data_deletion_requests import (
     process_property_removal_shard,
     verify_property_removal,
 )
-from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+from posthog.models.data_deletion_request import (
+    DataDeletionRequest,
+    ExecutionMode,
+    RequestStatus,
+    RequestType,
+    auto_approve_pending_requests,
+)
 from posthog.test.persons import create_person
 
 TEAM_ID = 99999
@@ -581,6 +591,163 @@ def test_verify_queued_job_registered_in_clickhouse_location():
     from posthog.dags.locations.clickhouse import defs
 
     assert defs.get_job_def("verify_queued_deletion_requests_job") is not None
+
+
+# ---------------------------------------------------------------------------
+# Auto-approve sweep tests
+# ---------------------------------------------------------------------------
+
+AUTO_APPROVE_TEAM_ID = 77777
+
+
+def _pending_event_removal(**overrides) -> DataDeletionRequest:
+    now = datetime.now()
+    fields = {
+        "team_id": AUTO_APPROVE_TEAM_ID,
+        "request_type": RequestType.EVENT_REMOVAL,
+        "events": ["$pageview"],
+        "start_time": now - timedelta(days=7),
+        # Closed range: the sweep won't touch a request that is still collecting events.
+        "end_time": now - timedelta(minutes=1),
+        "status": RequestStatus.PENDING,
+        "requires_approval": False,
+        **overrides,
+    }
+    return DataDeletionRequest.objects.create(**fields)
+
+
+@pytest.mark.django_db
+def test_auto_approve_job_approves_small_pending_event_removal(cluster: ClickhouseCluster):
+    cluster.any_host(_truncate_writable_events).result()
+    now = datetime.now()
+    events = [(AUTO_APPROVE_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1)) for i in range(3)]
+    cluster.any_host(partial(_insert_events, events)).result()
+    request = _pending_event_removal()
+
+    result = auto_approve_deletion_requests_job.execute_in_process()
+    assert result.success
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.APPROVED
+    assert request.approved is True
+    assert request.approved_automatically is True
+    # No human approved it, so the audit trail must not name one.
+    assert request.approved_by is None
+    assert request.approved_at is not None
+    assert request.execution_mode == ExecutionMode.DEFERRED
+    # The job decides against a count it measured itself, and persists it.
+    assert request.count == 3
+    assert request.stats_calculated_at is not None
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_auto_approve_job_ignores_request_that_opted_out(cluster: ClickhouseCluster):
+    cluster.any_host(_truncate_writable_events).result()
+    request = _pending_event_removal(requires_approval=True)
+
+    result = auto_approve_deletion_requests_job.execute_in_process()
+    assert result.success
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.PENDING
+    assert request.approved is False
+    # Not even measured: the opt-out is a queryset filter, which is what bounds what a backlog of
+    # requests the job can never act on costs in ClickHouse queries.
+    assert request.count is None
+    assert request.stats_calculated_at is None
+
+
+@pytest.mark.django_db
+def test_auto_approve_job_leaves_oversized_request_pending_but_refreshes_its_stats(cluster: ClickhouseCluster):
+    cluster.any_host(_truncate_writable_events).result()
+    now = datetime.now()
+    events = [(AUTO_APPROVE_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1)) for i in range(3)]
+    cluster.any_host(partial(_insert_events, events)).result()
+    request = _pending_event_removal()
+
+    with patch("posthog.models.data_deletion_request.AUTO_APPROVE_MAX_EVENTS", 2):
+        result = auto_approve_deletion_requests_job.execute_in_process()
+    assert result.success
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.PENDING
+    assert request.approved is False
+    # Measuring is the job's whole point, so the reviewer inherits a fresh count even when the
+    # request is too big to approve.
+    assert request.count == 3
+    assert request.stats_calculated_at is not None
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_auto_approve_job_skips_a_request_it_cannot_measure(cluster: ClickhouseCluster):
+    cluster.any_host(_truncate_writable_events).result()
+    now = datetime.now()
+    events = [(AUTO_APPROVE_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=1))]
+    cluster.any_host(partial(_insert_events, events)).result()
+    # A predicate that no longer compiles (the referenced property was dropped, the syntax was
+    # hand-edited in the DB) makes the stats fetch raise. It must not take the sweep down with it.
+    broken = _pending_event_removal(hogql_predicate="this is not ) valid hogql")
+    healthy = _pending_event_removal()
+
+    result = auto_approve_deletion_requests_job.execute_in_process()
+    assert result.success
+
+    broken.refresh_from_db()
+    healthy.refresh_from_db()
+    assert broken.status == RequestStatus.PENDING
+    assert healthy.status == RequestStatus.APPROVED
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+@pytest.mark.django_db
+def test_auto_approve_sweep_does_not_let_stuck_requests_starve_new_ones(cluster: ClickhouseCluster):
+    # A request the sweep can never approve stays PENDING with requires_approval False, so it is a
+    # candidate on every tick, forever. Ordered by created_at it holds the front of the queue and a
+    # newer request behind it is never even measured.
+    cluster.any_host(_truncate_writable_events).result()
+    now = datetime.now()
+    events = [(AUTO_APPROVE_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1)) for i in range(3)]
+    cluster.any_host(partial(_insert_events, events)).result()
+
+    stuck = _pending_event_removal()
+    newer = _pending_event_removal()
+    DataDeletionRequest.objects.filter(pk=stuck.pk).update(created_at=timezone.now() - timedelta(days=1))
+
+    # One slot per tick, and a limit that keeps `stuck` permanently over it.
+    with patch("posthog.models.data_deletion_request.AUTO_APPROVE_MAX_EVENTS", 2):
+        auto_approve_pending_requests(max_requests=1)
+    # Second tick: the slot must go to the request that has never been looked at.
+    auto_approve_pending_requests(max_requests=1)
+
+    stuck.refresh_from_db()
+    newer.refresh_from_db()
+    assert stuck.status == RequestStatus.PENDING
+    assert newer.status == RequestStatus.APPROVED
+
+    cluster.any_host(_truncate_writable_events).result()
+
+
+def test_auto_approve_job_registered_in_clickhouse_location():
+    from posthog.dags.locations.clickhouse import defs
+
+    assert defs.get_job_def("auto_approve_deletion_requests_job") is not None
+    assert any(schedule.name == "auto_approve_deletion_requests_schedule" for schedule in defs.schedules or [])
+
+
+def test_auto_approve_schedule_launches_a_run_on_tick():
+    # A schedule function that returns nothing is registered and cronned exactly like a working one,
+    # but Dagster skips every tick ("Schedule function returned an empty result") and the sweep never
+    # runs. Nothing else here would notice.
+    with dagster.build_schedule_context(scheduled_execution_time=None) as context:
+        result = auto_approve_deletion_requests_schedule.evaluate_tick(context)
+
+    assert len(result.run_requests or []) == 1
+    assert result.skip_message is None
 
 
 # ---------------------------------------------------------------------------

@@ -47,6 +47,638 @@ export interface TaskRunErrorResponseApi {
     is_pro?: boolean
 }
 
+export interface LoopRepositoryEntryDTOApi {
+    github_integration_id: number
+    full_name: string
+}
+
+export interface LoopBehaviorsDTOApi {
+    create_prs?: boolean
+    watch_ci?: boolean
+    fix_review_comments?: boolean
+    max_fix_iterations?: number
+}
+
+export interface LoopConnectorsDTOApi {
+    mcp_installation_ids?: string[]
+    posthog_mcp_scopes?: string
+}
+
+export type LoopNotificationChannelDTOApiParams = { [key: string]: unknown }
+
+export interface LoopNotificationChannelDTOApi {
+    enabled?: boolean
+    events?: string[]
+    params?: LoopNotificationChannelDTOApiParams
+}
+
+export interface LoopNotificationsDTOApi {
+    push: LoopNotificationChannelDTOApi
+    email: LoopNotificationChannelDTOApi
+    slack: LoopNotificationChannelDTOApi
+}
+
+export interface LoopContextOutputsDTOApi {
+    post_to_feed?: boolean
+    update_context?: boolean
+    /** @nullable */
+    canvas_id?: string | null
+}
+
+export interface LoopContextTargetDTOApi {
+    /** What the loop maintains in this context each run. */
+    outputs: LoopContextOutputsDTOApi
+    folder_id: string
+    name: string
+}
+
+export type LoopTriggerDTOApiConfig = { [key: string]: unknown }
+
+/**
+ * Read response for a single loop trigger.
+ */
+export interface LoopTriggerDTOApi {
+    id: string
+    loop_id: string
+    type: string
+    enabled: boolean
+    config: LoopTriggerDTOApiConfig
+    /** @nullable */
+    schedule_sync_status: string | null
+    /** @nullable */
+    last_fired_at: string | null
+    created_at: string
+    updated_at: string
+}
+
+export interface LoopSkillBundleDTOApi {
+    id: string
+    skill_name: string
+    skill_source: string
+    size: number
+    content_sha256: string
+    uploaded_at: string
+}
+
+/**
+ * Detail/create/update response for a loop, including its triggers.
+ */
+export interface LoopDTOApi {
+    id: string
+    team_id: number
+    /** @nullable */
+    created_by_id: number | null
+    name: string
+    description: string
+    visibility: string
+    instructions: string
+    runtime_adapter: string
+    model: string
+    /** @nullable */
+    reasoning_effort: string | null
+    /** Repositories this loop operates on. */
+    repositories: LoopRepositoryEntryDTOApi[]
+    /** @nullable */
+    sandbox_environment_id: string | null
+    enabled: boolean
+    /** @nullable */
+    disabled_reason: string | null
+    overlap_policy: string
+    /** PR / CI-follow-up behavior configuration. */
+    behaviors: LoopBehaviorsDTOApi
+    /** MCP connector configuration for this loop's runs. */
+    connectors: LoopConnectorsDTOApi
+    /** Per-channel notification configuration. */
+    notifications: LoopNotificationsDTOApi
+    /** Context this loop is attached to, or null when unattached. */
+    context_target?: LoopContextTargetDTOApi | null
+    internal: boolean
+    origin_product: string
+    /** @nullable */
+    last_run_at: string | null
+    /** @nullable */
+    last_run_status: string | null
+    /** @nullable */
+    last_error: string | null
+    consecutive_failures: number
+    created_at: string
+    updated_at: string
+    /** Triggers attached to this loop. */
+    triggers: LoopTriggerDTOApi[]
+    /** Skill bundles attached to this loop, seeded into every fired run. */
+    skill_bundles: LoopSkillBundleDTOApi[]
+}
+
+export interface PaginatedLoopDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LoopDTOApi[]
+    /** Hard cap on non-deleted loops per project. Creating a loop beyond this returns a 429 with `error: loop_safety_limit`. Authoritative — read this rather than assuming a value. */
+    max_loops_per_team?: number
+    /** Current number of non-deleted, user-facing loops in this project, counted against `max_loops_per_team`. At or above the cap, creation is blocked. */
+    total_loop_count?: number
+}
+
+/**
+ * * `personal` - personal
+ * * `team` - team
+ */
+export type LoopWriteVisibilityEnumApi = (typeof LoopWriteVisibilityEnumApi)[keyof typeof LoopWriteVisibilityEnumApi]
+
+export const LoopWriteVisibilityEnumApi = {
+    Personal: 'personal',
+    Team: 'team',
+} as const
+
+/**
+ * * `claude` - claude
+ * * `codex` - codex
+ */
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+
+export const RuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ * * `ultracode` - ultracode
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+    Ultracode: 'ultracode',
+} as const
+
+export interface LoopRepositoryEntryApi {
+    /** GitHub integration id this repository is accessed through. */
+    github_integration_id: number
+    /**
+     * Repository in `organization/repo` format, e.g. `posthog/posthog`.
+     * @maxLength 255
+     */
+    full_name: string
+}
+
+/**
+ * * `skip` - skip
+ * * `allow` - allow
+ * * `cancel_previous` - cancel_previous
+ */
+export type OverlapPolicyEnumApi = (typeof OverlapPolicyEnumApi)[keyof typeof OverlapPolicyEnumApi]
+
+export const OverlapPolicyEnumApi = {
+    Skip: 'skip',
+    Allow: 'allow',
+    CancelPrevious: 'cancel_previous',
+} as const
+
+export interface LoopBehaviorsApi {
+    /** Whether the agent may push branches and open PRs. False makes this a report-only loop. */
+    create_prs?: boolean
+    /** Whether to watch CI on loop-created PRs and report status. */
+    watch_ci?: boolean
+    /** Whether to automatically address review comments on loop-created PRs. */
+    fix_review_comments?: boolean
+    /**
+     * Ceiling on automatic CI/review-comment fix iterations, capped at 10.
+     * @minimum 0
+     * @maximum 10
+     */
+    max_fix_iterations?: number
+}
+
+/**
+ * * `read_only` - read_only
+ * * `full` - full
+ */
+export type PosthogMcpScopesEnumApi = (typeof PosthogMcpScopesEnumApi)[keyof typeof PosthogMcpScopesEnumApi]
+
+export const PosthogMcpScopesEnumApi = {
+    ReadOnly: 'read_only',
+    Full: 'full',
+} as const
+
+export interface LoopConnectorsApi {
+    /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. */
+    mcp_installation_ids?: string[]
+    /** Scope of the PostHog MCP access injected into this loop's runs.
+     *
+     * * `read_only` - read_only
+     * * `full` - full */
+    posthog_mcp_scopes?: PosthogMcpScopesEnumApi
+}
+
+/**
+ * * `run_completed` - run_completed
+ * * `run_failed` - run_failed
+ * * `pr_created` - pr_created
+ * * `needs_attention` - needs_attention
+ */
+export type EventsEnumApi = (typeof EventsEnumApi)[keyof typeof EventsEnumApi]
+
+export const EventsEnumApi = {
+    RunCompleted: 'run_completed',
+    RunFailed: 'run_failed',
+    PrCreated: 'pr_created',
+    NeedsAttention: 'needs_attention',
+} as const
+
+/**
+ * Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.
+ */
+export type LoopNotificationChannelApiParams = { [key: string]: unknown }
+
+export interface LoopNotificationChannelApi {
+    /** Whether this channel is active. */
+    enabled?: boolean
+    /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+    events?: EventsEnumApi[]
+    /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
+    params?: LoopNotificationChannelApiParams
+}
+
+export interface LoopNotificationsApi {
+    /** Push notification settings. */
+    push?: LoopNotificationChannelApi
+    /** Email notification settings. */
+    email?: LoopNotificationChannelApi
+    /** Slack notification settings. */
+    slack?: LoopNotificationChannelApi
+}
+
+export interface LoopContextOutputsWriteApi {
+    /** Whether each run is filed into the context's feed as a card (sets the run's channel). */
+    post_to_feed?: boolean
+    /** Whether each run reads and republishes the context's context.md to reflect the latest state. */
+    update_context?: boolean
+    /**
+     * Id of a canvas in this context the loop keeps up to date each run, or null to maintain none.
+     * @nullable
+     */
+    canvas_id?: string | null
+}
+
+export interface LoopContextTargetWriteApi {
+    /** Desktop folder id of the context this loop is attached to. */
+    folder_id: string
+    /**
+     * Context (channel) name, used to file runs into its feed.
+     * @maxLength 128
+     */
+    name: string
+    /** What the loop maintains in this context each run. */
+    outputs?: LoopContextOutputsWriteApi
+}
+
+/**
+ * * `schedule` - schedule
+ * * `github` - github
+ * * `api` - api
+ */
+export type LoopTriggerTypeEnumApi = (typeof LoopTriggerTypeEnumApi)[keyof typeof LoopTriggerTypeEnumApi]
+
+export const LoopTriggerTypeEnumApi = {
+    Schedule: 'schedule',
+    Github: 'github',
+    Api: 'api',
+} as const
+
+export interface LoopTriggerWriteApi {
+    /** Existing trigger id to update in place. Omit to create a new trigger. */
+    id?: string
+    /** Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).
+     *
+     * * `schedule` - schedule
+     * * `github` - github
+     * * `api` - api */
+    type: LoopTriggerTypeEnumApi
+    /** Whether this trigger is active. Disabling pauses only this trigger. */
+    enabled?: boolean
+    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}` where `events` is one or more of `issues`, `issue_comment`, `pull_request`, `push` (`event.action` shorthand like `issues.opened` is folded into an `actions` filter, one event per trigger) and `filters` takes `{actions, branches, labels}`; api takes no config. */
+    config?: unknown
+}
+
+/**
+ * Request body for creating or updating a loop. Field required/default semantics match
+ * the `Loop` model; partial updates only touch keys present in the payload.
+ */
+export interface LoopWriteApi {
+    /**
+     * Display name for the loop.
+     * @maxLength 400
+     */
+    name: string
+    /** Free-form description of what this loop does. */
+    description?: string
+    /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
+    take_ownership?: boolean
+    /** `personal` (owner-only) or `team` (visible and fireable by any team member).
+     *
+     * * `personal` - personal
+     * * `team` - team */
+    visibility?: LoopWriteVisibilityEnumApi
+    /** The prompt delivered to the agent on every run. */
+    instructions: string
+    /** Runtime adapter: 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter: RuntimeAdapterEnumApi
+    /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
+    model?: string
+    /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
+     * @maxItems 1
+     */
+    repositories?: LoopRepositoryEntryApi[]
+    /**
+     * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
+     * @nullable
+     */
+    sandbox_environment?: string | null
+    /** Whether the loop's triggers are active. Pausing disables all triggers. */
+    enabled?: boolean
+    /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
+     *
+     * * `skip` - skip
+     * * `allow` - allow
+     * * `cancel_previous` - cancel_previous */
+    overlap_policy?: OverlapPolicyEnumApi
+    /** PR / CI-follow-up behavior configuration. */
+    behaviors?: LoopBehaviorsApi
+    /** MCP connector configuration for this loop's runs. */
+    connectors?: LoopConnectorsApi
+    /** Per-channel notification configuration. */
+    notifications?: LoopNotificationsApi
+    /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
+    context_target?: LoopContextTargetWriteApi | null
+    /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
+    triggers?: LoopTriggerWriteApi[]
+}
+
+/**
+ * Request body for creating or updating a loop. Field required/default semantics match
+ * the `Loop` model; partial updates only touch keys present in the payload.
+ */
+export interface PatchedLoopWriteApi {
+    /**
+     * Display name for the loop.
+     * @maxLength 400
+     */
+    name?: string
+    /** Free-form description of what this loop does. */
+    description?: string
+    /** On a team loop, claim ownership as part of this update so you can edit identity-bearing config (instructions, model, triggers, ...) that only the owner may change. Ignored on personal loops and on create. */
+    take_ownership?: boolean
+    /** `personal` (owner-only) or `team` (visible and fireable by any team member).
+     *
+     * * `personal` - personal
+     * * `team` - team */
+    visibility?: LoopWriteVisibilityEnumApi
+    /** The prompt delivered to the agent on every run. */
+    instructions?: string
+    /** Runtime adapter: 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi
+    /** LLM model identifier, validated against `runtime_adapter`'s catalog. Leave blank to let PostHog pick a sensible default at run time. */
+    model?: string
+    /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
+     * @maxItems 1
+     */
+    repositories?: LoopRepositoryEntryApi[]
+    /**
+     * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
+     * @nullable
+     */
+    sandbox_environment?: string | null
+    /** Whether the loop's triggers are active. Pausing disables all triggers. */
+    enabled?: boolean
+    /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
+     *
+     * * `skip` - skip
+     * * `allow` - allow
+     * * `cancel_previous` - cancel_previous */
+    overlap_policy?: OverlapPolicyEnumApi
+    /** PR / CI-follow-up behavior configuration. */
+    behaviors?: LoopBehaviorsApi
+    /** MCP connector configuration for this loop's runs. */
+    connectors?: LoopConnectorsApi
+    /** Per-channel notification configuration. */
+    notifications?: LoopNotificationsApi
+    /** Context (channel) this loop is attached to, or null to detach. Drives feed placement and the context.md / canvas it keeps up to date. */
+    context_target?: LoopContextTargetWriteApi | null
+    /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. At most 25 triggers per loop. */
+    triggers?: LoopTriggerWriteApi[]
+}
+
+export interface LoopPreviewRequestApi {
+    /** Trigger type to simulate. Defaults to a synthetic schedule fire.
+     *
+     * * `schedule` - schedule
+     * * `github` - github
+     * * `api` - api */
+    trigger_type?: LoopTriggerTypeEnumApi
+    /** Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context. */
+    payload?: unknown
+}
+
+export interface LoopPreviewDTOApi {
+    instructions: string
+    trigger_type: string
+    trigger_context: string
+}
+
+/**
+ * * `created` - created
+ * * `deduped` - deduped
+ * * `overlap_skipped` - overlap_skipped
+ * * `rate_capped` - rate_capped
+ * * `team_rate_capped` - team_rate_capped
+ * * `disabled` - disabled
+ * * `gate_blocked` - gate_blocked
+ * * `owner_inactive` - owner_inactive
+ * * `owner_changed` - owner_changed
+ */
+export type LoopFireResultReasonEnumApi = (typeof LoopFireResultReasonEnumApi)[keyof typeof LoopFireResultReasonEnumApi]
+
+export const LoopFireResultReasonEnumApi = {
+    Created: 'created',
+    Deduped: 'deduped',
+    OverlapSkipped: 'overlap_skipped',
+    RateCapped: 'rate_capped',
+    TeamRateCapped: 'team_rate_capped',
+    Disabled: 'disabled',
+    GateBlocked: 'gate_blocked',
+    OwnerInactive: 'owner_inactive',
+    OwnerChanged: 'owner_changed',
+} as const
+
+/**
+ * Response for a manual (`run/`) or external (`trigger/`) fire.
+ */
+export interface LoopFireResultApi {
+    created: boolean
+    /** Outcome of the fire attempt.
+     *
+     * * `created` - created
+     * * `deduped` - deduped
+     * * `overlap_skipped` - overlap_skipped
+     * * `rate_capped` - rate_capped
+     * * `team_rate_capped` - team_rate_capped
+     * * `disabled` - disabled
+     * * `gate_blocked` - gate_blocked
+     * * `owner_inactive` - owner_inactive
+     * * `owner_changed` - owner_changed */
+    reason: LoopFireResultReasonEnumApi
+    /**
+     * Id of the created task, when `created` is true.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Id of the created task run, when `created` is true.
+     * @nullable
+     */
+    task_run_id: string | null
+}
+
+/**
+ * @nullable
+ */
+export type LoopRunDTOApiOutput = { [key: string]: unknown } | null
+
+/**
+ * A single entry in a loop's run history.
+ */
+export interface LoopRunDTOApi {
+    id: string
+    task_id: string
+    /** @nullable */
+    loop_trigger_id: string | null
+    status: string
+    environment: string
+    /** @nullable */
+    branch: string | null
+    /** @nullable */
+    error_message: string | null
+    /** @nullable */
+    output: LoopRunDTOApiOutput
+    created_at: string
+    /** @nullable */
+    completed_at: string | null
+}
+
+export interface LoopRunPageApi {
+    /** Run history entries, newest first. */
+    results: LoopRunDTOApi[]
+    /**
+     * Opaque cursor for the next page, or null when there are no more results.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
+/**
+ * * `user` - user
+ * * `repo` - repo
+ * * `marketplace` - marketplace
+ * * `codex` - codex
+ */
+export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
+
+export const SkillSourceEnumApi = {
+    User: 'user',
+    Repo: 'repo',
+    Marketplace: 'marketplace',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `zip` - zip
+ */
+export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
+
+export const BundleFormatEnumApi = {
+    Zip: 'zip',
+} as const
+
+/**
+ * One zipped local skill in a skill-bundle replace request.
+ */
+export interface LoopSkillBundleUploadApi {
+    /**
+     * File name for the stored bundle, e.g. `my-skill.zip`.
+     * @maxLength 255
+     */
+    file_name: string
+    /**
+     * Name of the skill inside the bundle.
+     * @maxLength 255
+     */
+    skill_name: string
+    /** Local source the bundle was built from, such as user or repo.
+     *
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex */
+    skill_source: SkillSourceEnumApi
+    /**
+     * SHA-256 hex digest of the bundle bytes.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    content_sha256: string
+    /** Archive format used for the bundle.
+     *
+     * * `zip` - zip */
+    bundle_format: BundleFormatEnumApi
+    /** Base64-encoded bundle bytes. */
+    content_base64: string
+}
+
+/**
+ * Request body for replacing a loop's attached skill bundles wholesale. Send an empty
+ * list to detach every skill.
+ */
+export interface LoopSkillBundlesWriteApi {
+    bundles: LoopSkillBundleUploadApi[]
+}
+
 /**
  * @nullable
  */
@@ -128,6 +760,20 @@ export interface SandboxCustomImageWriteApi {
     repository?: string | null
     /** If true, only you can see and use this image; otherwise the whole team can. */
     private?: boolean
+}
+
+/**
+ * Request body for renaming / re-describing a custom sandbox base image.
+ */
+export interface PatchedSandboxCustomImageUpdateApi {
+    /**
+     * New display name for the custom image. Omit to leave unchanged.
+     * @minLength 1
+     * @maxLength 255
+     */
+    name?: string
+    /** New description. Omit to leave unchanged; pass an empty string to clear it. */
+    description?: string
 }
 
 /**
@@ -264,6 +910,98 @@ export interface PatchedSandboxEnvironmentWriteApi {
 }
 
 /**
+ * * `awaiting_input` - awaiting_input
+ * * `completed` - completed
+ * * `mention` - mention
+ * * `message` - message
+ * * `created` - created
+ */
+export type ActivityKindEnumApi = (typeof ActivityKindEnumApi)[keyof typeof ActivityKindEnumApi]
+
+export const ActivityKindEnumApi = {
+    AwaitingInput: 'awaiting_input',
+    Completed: 'completed',
+    Mention: 'mention',
+    Message: 'message',
+    Created: 'created',
+} as const
+
+/**
+ * Response shape for one task in the requester's activity feed (one row per task).
+ */
+export interface TaskActivityDTOApi {
+    id: string
+    task_id: string
+    task_title: string
+    /** @nullable */
+    channel_id: string | null
+    /** @nullable */
+    channel_name: string | null
+    activity_at: string
+    /** What the latest activity on this task was: an agent run waiting on the requester (awaiting_input), a completed run (completed), someone @-mentioning them (mention), a thread reply (message), or their creating the task (created).
+     *
+     * * `awaiting_input` - awaiting_input
+     * * `completed` - completed
+     * * `mention` - mention
+     * * `message` - message
+     * * `created` - created */
+    activity_kind: ActivityKindEnumApi
+    /** Content of the thread message tied to the latest activity; empty for task-creation rows. */
+    snippet: string
+    /** Author of the thread message tied to the latest activity, when one applies. */
+    latest_author?: TaskUserBasicInfoApi | null
+    /** @nullable */
+    latest_message_id?: string | null
+    /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
+    is_unread: boolean
+}
+
+/**
+ * A page of the requester's activity feed, plus the unread total across the whole feed.
+ */
+export interface TaskActivityPageDTOApi {
+    /** Tasks with activity, most recent first. */
+    results: TaskActivityDTOApi[]
+    /** Unread tasks across the requester's whole feed, not just this page. Backs the sidebar badge. */
+    unread_count: number
+    /**
+     * Activity timestamp to pass as before for the next page, or null on the final page.
+     * @nullable
+     */
+    next_before?: string | null
+    /**
+     * Activity ID to pass as before_id for the next page, or null on the final page.
+     * @nullable
+     */
+    next_before_id?: string | null
+}
+
+export interface TaskActivityReadMarkerApi {
+    /** Task whose displayed activity should be marked read. */
+    task_id: string
+    /** Mark activity at or before this timestamp read without clearing newer activity. */
+    seen_before: string
+}
+
+/**
+ * Request body for clearing the unread flag on specific tasks.
+ */
+export interface TaskActivityMarkReadApi {
+    /**
+     * Displayed task activities to mark read if they have not changed.
+     * @maxItems 500
+     */
+    activities: TaskActivityReadMarkerApi[]
+}
+
+export interface TaskActivityMarkReadResponseApi {
+    /** How many feed rows changed from unread to read. */
+    marked_read: number
+    /** The requester's remaining unread total after the update. */
+    unread_count: number
+}
+
+/**
  * Detail/create/update/run response for a task automation.
  */
 export interface TaskAutomationDTOApi {
@@ -390,6 +1128,9 @@ export interface ChannelDTOApi {
     id: string
     name: string
     channel_type: string
+    /** @nullable */
+    github_integration: number | null
+    repositories: string[]
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
 }
@@ -465,15 +1206,23 @@ export interface ChannelFeedMessageWriteApi {
     created_at?: string
 }
 
-/**
- * Request body for creating (resolve-or-create) or renaming a public channel.
- */
-export interface PatchedChannelWriteApi {
+export interface PatchedChannelUpdateApi {
     /**
      * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
      * @maxLength 128
      */
     name?: string
+    /**
+     * Team GitHub integration used for repositories linked to this channel.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * GitHub repositories inherited by new tasks in this channel.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
 }
 
 /**
@@ -503,17 +1252,159 @@ export interface PaginatedTaskMentionDTOListApi {
 }
 
 /**
+ * * `acp` - ACP
+ * * `pi` - Pi
+ */
+export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+
+export const RuntimeEnumApi = {
+    Acp: 'acp',
+    Pi: 'pi',
+} as const
+
+/**
+ * * `anthropic` - anthropic
+ * * `openai` - openai
+ */
+export type TaskRunDetailDTOProviderEnumApi =
+    (typeof TaskRunDetailDTOProviderEnumApi)[keyof typeof TaskRunDetailDTOProviderEnumApi]
+
+export const TaskRunDetailDTOProviderEnumApi = {
+    Anthropic: 'anthropic',
+    Openai: 'openai',
+} as const
+
+export interface TaskRunArtifactMetadataApi {
+    /**
+     * Name of the local skill included in a skill_bundle artifact.
+     * @maxLength 255
+     */
+    skill_name: string
+    /** Local source for the uploaded skill bundle, such as user or repo.
+     *
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex */
+    skill_source: SkillSourceEnumApi
+    /**
+     * SHA-256 hex digest of the uploaded skill bundle bytes.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    content_sha256: string
+    /** Archive format used for the local skill bundle.
+     *
+     * * `zip` - zip */
+    bundle_format: BundleFormatEnumApi
+    /**
+     * Version of the local skill bundle metadata schema.
+     * @minimum 1
+     */
+    schema_version: number
+}
+
+export interface TaskRunArtifactResponseApi {
+    /** Stable identifier for the artifact within this run */
+    id?: string
+    /** Artifact file name */
+    name: string
+    /** Artifact classification (plan, context, etc.) */
+    type: string
+    /** Source of the artifact, such as agent_output or user_attachment */
+    source?: string
+    /** Artifact size in bytes */
+    size?: number
+    /** Optional MIME type */
+    content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
+    /** S3 object key for the artifact */
+    storage_path: string
+    /** Timestamp when the artifact was uploaded */
+    uploaded_at: string
+    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    url?: string
+}
+
+/**
+ * @nullable
+ */
+export type TaskRunDetailDTOApiOutput = { [key: string]: unknown } | null
+
+export type TaskRunDetailDTOApiState = { [key: string]: unknown }
+
+/**
+ * Detail response for a task run.
+ *
+ * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
+ * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
+ * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
+ * ``latest_run`` shape by the task detail response.
+ */
+export interface TaskRunDetailDTOApi {
+    id: string
+    /** Parent task id this run belongs to. */
+    task: string
+    /** @nullable */
+    stage: string | null
+    /** @nullable */
+    branch: string | null
+    status: string
+    environment: string
+    /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
+     *
+     * * `anthropic` - anthropic
+     * * `openai` - openai */
+    provider?: TaskRunDetailDTOProviderEnumApi | null
+    /**
+     * Configured LLM model identifier for this run.
+     * @nullable
+     */
+    model?: string | null
+    /** Configured reasoning effort for this run when the selected model supports it.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Presigned S3 URL for log access (valid for 1 hour).
+     * @nullable
+     */
+    log_url?: string | null
+    /** @nullable */
+    error_message: string | null
+    /** @nullable */
+    output: TaskRunDetailDTOApiOutput
+    state: TaskRunDetailDTOApiState
+    readonly artifacts: readonly TaskRunArtifactResponseApi[]
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    updated_at?: string | null
+    /** @nullable */
+    completed_at?: string | null
+}
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
 
 /**
- * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
- * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
- * avoids presigning a log URL per conversation.
+ * Detail response for a task.
  *
- * Read access here follows the conversation (the share-by-link unit), not per-creator task
- * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+ * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+ * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+ * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
  */
 export interface TaskDetailDTOApi {
     id: string
@@ -524,8 +1415,14 @@ export interface TaskDetailDTOApi {
     title_manually_set: boolean
     description: string
     origin_product: string
+    /** Agent protocol and harness used for this task's runs.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
+    repositories: string[]
     /** @nullable */
     github_integration: number | null
     /** @nullable */
@@ -538,11 +1435,8 @@ export interface TaskDetailDTOApi {
     archived: boolean
     /** @nullable */
     archived_at: string | null
-    /**
-     * Id of the latest TaskRun; null when the task has no runs.
-     * @nullable
-     */
-    readonly latest_run: string | null
+    /** Latest run details for this task */
+    latest_run?: TaskRunDetailDTOApi | null
     /** @nullable */
     created_at?: string | null
     /** @nullable */
@@ -550,6 +1444,8 @@ export interface TaskDetailDTOApi {
     created_by?: TaskUserBasicInfoApi | null
     /** @nullable */
     ci_prompt: string | null
+    /** @nullable */
+    channel?: string | null
 }
 
 export interface PaginatedTaskDetailDTOListApi {
@@ -578,6 +1474,8 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `hogdesk` - HogDesk
  * * `review_hog` - ReviewHog
  * * `image_builder` - Image Builder
+ * * `loop` - Loop
+ * * `mcp_analytics` - MCP Analytics
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -598,34 +1496,8 @@ export const OriginProductEnumApi = {
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
     ImageBuilder: 'image_builder',
-} as const
-
-/**
- * * `claude` - claude
- * * `codex` - codex
- */
-export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
-
-export const RuntimeAdapterEnumApi = {
-    Claude: 'claude',
-    Codex: 'codex',
-} as const
-
-/**
- * * `low` - low
- * * `medium` - medium
- * * `high` - high
- * * `xhigh` - xhigh
- * * `max` - max
- */
-export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
-
-export const ReasoningEffortEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-    Max: 'max',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
 } as const
 
 /**
@@ -635,7 +1507,7 @@ export const ReasoningEffortEnumApi = {
  * ``validated_data`` (integration/report PK fields already resolved to instances) to the
  * facade ``create_task`` / ``update_task`` functions.
  */
-export interface TaskWriteApi {
+export interface TaskCreateApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
      * @maxLength 255
@@ -645,7 +1517,7 @@ export interface TaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -662,7 +1534,9 @@ export interface TaskWriteApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -670,6 +1544,12 @@ export interface TaskWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -723,7 +1603,151 @@ export interface TaskWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
+     * @nullable
+     */
+    pending_user_message?: string | null
+    /**
+     * Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded first message when creation reuses that warm Run, e.g. skill bundles or file attachments. If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is created cold. Ignored when no warm Run is matched.
+     * @items.maxLength 128
+     */
+    pending_user_artifact_ids?: string[]
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * @nullable
+     */
+    auto_publish?: boolean | null
+    /**
+     * Channel this task is owned by (the channel it was kicked off in).
+     * @nullable
+     */
+    channel?: string | null
+    /**
+     * Sandbox environment selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * @nullable
+     */
+    sandbox_environment_id?: string | null
+    /**
+     * Custom image selected for matching a pre-warmed cloud run. Not persisted on the task.
+     * @nullable
+     */
+    custom_image_id?: string | null
+    /** Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: RuntimeEnumApi
+}
+
+/**
+ * Request body for creating or updating a task.
+ *
+ * Field required/default semantics match the ``Task`` model. The view passes
+ * ``validated_data`` (integration/report PK fields already resolved to instances) to the
+ * facade ``create_task`` / ``update_task`` functions.
+ */
+export interface TaskWriteApi {
+    /**
+     * Short human-readable title. Auto-generated from `description` when omitted.
+     * @maxLength 255
+     */
+    title?: string
+    /** Whether the title was set by a human (vs auto-generated from the description). */
+    title_manually_set?: boolean
+    /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
+    description?: string
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
+     *
+     * * `onboarding` - Onboarding
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `automation` - Automation
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `signals_scout` - Signals Scout
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
+    origin_product?: OriginProductEnumApi
+    /**
+     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * @maxLength 255
+     * @nullable
+     */
+    repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
+    /**
+     * GitHub integration for this task.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * User-scoped GitHub integration to use for user-authored cloud runs.
+     * @nullable
+     */
+    github_user_integration?: string | null
+    /**
+     * Signal report this task implements, when created from a report.
+     * @nullable
+     */
+    signal_report?: string | null
+    /**
+     * How the created task relates to the signal report (e.g. 'implementation', 'discussion', 'research'). Recorded as a signals task_run work-log entry; 'implementation' also opens the auto-start spend gate. Any routing-safe identifier (lowercase letters, numbers, '_', '-') is accepted.
+     * @maxLength 200
+     */
+    signal_report_task_relationship?: string
+    /** JSON schema used to validate the output of the task. */
+    json_schema?: unknown
+    /** If true, this task is for internal use and should not be exposed to end users. */
+    internal?: boolean
+    /** If true, the task is hidden from default list responses. */
+    archived?: boolean
+    /**
+     * Custom prompt for CI fixes. If blank, a default prompt will be used.
+     * @nullable
+     */
+    ci_prompt?: string | null
+    /**
+     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * @nullable
+     */
+    model?: string | null
+    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -764,7 +1788,7 @@ export interface PatchedTaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -781,7 +1805,9 @@ export interface PatchedTaskWriteApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -789,6 +1815,12 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -842,7 +1874,8 @@ export interface PatchedTaskWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -866,6 +1899,18 @@ export interface PatchedTaskWriteApi {
     channel?: string | null
 }
 
+export interface TaskPinRequestApi {
+    /** Whether the task should be pinned for the requester. */
+    pinned: boolean
+}
+
+export interface TaskPinResponseApi {
+    /** Task whose pin state was updated. */
+    task_id: string
+    /** Current pin state for the requester. */
+    pinned: boolean
+}
+
 /**
  * Request body for the presence beacon and beacon-leave endpoints.
  *
@@ -879,6 +1924,45 @@ export interface PatchedTaskWriteApi {
 export interface TaskPresenceBeaconRequestApi {
     /** UUID of the caller's UserPushToken (returned by `/api/users/@me/push_tokens/` on register). */
     device_id: string
+}
+
+/**
+ * * `http` - http
+ * * `sse` - sse
+ */
+export type ImportedMcpServerTypeEnumApi =
+    (typeof ImportedMcpServerTypeEnumApi)[keyof typeof ImportedMcpServerTypeEnumApi]
+
+export const ImportedMcpServerTypeEnumApi = {
+    Http: 'http',
+    Sse: 'sse',
+} as const
+
+export interface ImportedMcpServerHeaderApi {
+    /** @maxLength 256 */
+    name: string
+    /** @maxLength 4096 */
+    value: string
+}
+
+/**
+ * One client-imported MCP server, in the agent server's --mcpServers entry shape.
+ */
+export interface ImportedMcpServerApi {
+    type: ImportedMcpServerTypeEnumApi
+    /** @maxLength 64 */
+    name: string
+    /** @maxLength 2048 */
+    url: string
+    headers?: ImportedMcpServerHeaderApi[]
+}
+
+/**
+ * One desktop-only MCP server relayed into the run — a name only, never configuration.
+ */
+export interface RelayedMcpServerApi {
+    /** @maxLength 64 */
+    name: string
 }
 
 /**
@@ -924,6 +2008,17 @@ export const ClaudeRuntimeAdapterEnumApi = {
 } as const
 
 /**
+ * * `200k` - 200k
+ * * `1m` - 1m
+ */
+export type ContextWindowEnumApi = (typeof ContextWindowEnumApi)[keyof typeof ContextWindowEnumApi]
+
+export const ContextWindowEnumApi = {
+    '200k': '200k',
+    '1m': '1m',
+} as const
+
+/**
  * * `default` - default
  * * `acceptEdits` - acceptEdits
  * * `plan` - plan
@@ -945,6 +2040,16 @@ export const InitialPermissionModeEnumApi = {
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -998,9 +2103,20 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Claude runtimes.
      *
@@ -1046,6 +2162,16 @@ export const CodexTaskRunCreateSchemaInitialPermissionModeEnumApi = {
  * Request body for creating a new task run
  */
 export interface CodexTaskRunCreateSchemaApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution mode: 'interactive' for user-connected runs, 'background' for autonomous runs
      *
      * * `interactive` - interactive
@@ -1099,9 +2225,20 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
      *
@@ -1149,7 +2286,7 @@ export interface TaskRunResumeRequestSchemaApi {
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
-    /** Optional GitHub user token from PostHog Code for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
+    /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
 }
 
@@ -1180,59 +2317,6 @@ export const TaskRunArtifactTypeEnumApi = {
     UserAttachment: 'user_attachment',
     SkillBundle: 'skill_bundle',
 } as const
-
-/**
- * * `user` - user
- * * `repo` - repo
- * * `marketplace` - marketplace
- * * `codex` - codex
- */
-export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
-
-export const SkillSourceEnumApi = {
-    User: 'user',
-    Repo: 'repo',
-    Marketplace: 'marketplace',
-    Codex: 'codex',
-} as const
-
-/**
- * * `zip` - zip
- */
-export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
-
-export const BundleFormatEnumApi = {
-    Zip: 'zip',
-} as const
-
-export interface TaskRunArtifactMetadataApi {
-    /**
-     * Name of the local skill included in a skill_bundle artifact.
-     * @maxLength 255
-     */
-    skill_name: string
-    /** Local source for the uploaded skill bundle, such as user or repo.
-     *
-     * * `user` - user
-     * * `repo` - repo
-     * * `marketplace` - marketplace
-     * * `codex` - codex */
-    skill_source: SkillSourceEnumApi
-    /**
-     * SHA-256 hex digest of the uploaded skill bundle bytes.
-     * @pattern ^[a-f0-9]{64}$
-     */
-    content_sha256: string
-    /** Archive format used for the local skill bundle.
-     *
-     * * `zip` - zip */
-    bundle_format: BundleFormatEnumApi
-    /**
-     * Version of the local skill bundle metadata schema.
-     * @minimum 1
-     */
-    schema_version: number
-}
 
 export interface TaskStagedArtifactFinalizeUploadApi {
     /** Stable identifier returned by the staged prepare upload endpoint */
@@ -1275,27 +2359,6 @@ export interface TaskStagedArtifactFinalizeUploadApi {
 export interface TaskStagedArtifactsFinalizeUploadRequestApi {
     /** Array of staged artifacts to finalize after upload */
     artifacts: TaskStagedArtifactFinalizeUploadApi[]
-}
-
-export interface TaskRunArtifactResponseApi {
-    /** Stable identifier for the artifact within this run */
-    id?: string
-    /** Artifact file name */
-    name: string
-    /** Artifact classification (plan, context, etc.) */
-    type: string
-    /** Source of the artifact, such as agent_output or user_attachment */
-    source?: string
-    /** Artifact size in bytes */
-    size?: number
-    /** Optional MIME type */
-    content_type?: string
-    /** Optional structured metadata for special artifact types, such as skill bundles. */
-    metadata?: TaskRunArtifactMetadataApi
-    /** S3 object key for the artifact */
-    storage_path: string
-    /** Timestamp when the artifact was uploaded */
-    uploaded_at: string
 }
 
 export interface TaskStagedArtifactsFinalizeUploadResponseApi {
@@ -1385,85 +2448,6 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
 }
 
-/**
- * * `anthropic` - anthropic
- * * `openai` - openai
- */
-export type TaskRunDetailDTOProviderEnumApi =
-    (typeof TaskRunDetailDTOProviderEnumApi)[keyof typeof TaskRunDetailDTOProviderEnumApi]
-
-export const TaskRunDetailDTOProviderEnumApi = {
-    Anthropic: 'anthropic',
-    Openai: 'openai',
-} as const
-
-/**
- * @nullable
- */
-export type TaskRunDetailDTOApiOutput = { [key: string]: unknown } | null
-
-export type TaskRunDetailDTOApiState = { [key: string]: unknown }
-
-/**
- * Detail response for a task run.
- *
- * Reads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the
- * presigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /
- * ``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested
- * ``latest_run`` shape by the task detail response.
- */
-export interface TaskRunDetailDTOApi {
-    id: string
-    /** Parent task id this run belongs to. */
-    task: string
-    /** @nullable */
-    stage: string | null
-    /** @nullable */
-    branch: string | null
-    status: string
-    environment: string
-    /** Configured runtime adapter for this run, such as 'claude' or 'codex'.
-     *
-     * * `claude` - claude
-     * * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi | null
-    /** Configured LLM provider for this run, such as 'anthropic' or 'openai'.
-     *
-     * * `anthropic` - anthropic
-     * * `openai` - openai */
-    provider?: TaskRunDetailDTOProviderEnumApi | null
-    /**
-     * Configured LLM model identifier for this run.
-     * @nullable
-     */
-    model?: string | null
-    /** Configured reasoning effort for this run when the selected model supports it.
-     *
-     * * `low` - low
-     * * `medium` - medium
-     * * `high` - high
-     * * `xhigh` - xhigh
-     * * `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi | null
-    /**
-     * Presigned S3 URL for log access (valid for 1 hour).
-     * @nullable
-     */
-    log_url?: string | null
-    /** @nullable */
-    error_message: string | null
-    /** @nullable */
-    output: TaskRunDetailDTOApiOutput
-    state: TaskRunDetailDTOApiState
-    readonly artifacts: readonly TaskRunArtifactResponseApi[]
-    /** @nullable */
-    created_at?: string | null
-    /** @nullable */
-    updated_at?: string | null
-    /** @nullable */
-    completed_at?: string | null
-}
-
 export interface PaginatedTaskRunDetailDTOListApi {
     count: number
     /** @nullable */
@@ -1511,6 +2495,16 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
  * Request body for creating a task run without starting execution yet.
  */
 export interface TaskRunBootstrapCreateRequestApi {
+    /**
+     * Local url-based MCP servers from the creating client (PostHog Desktop) to make available inside the cloud sandbox. Header values are treated as credentials: stored encrypted and never returned by the API.
+     * @nullable
+     */
+    imported_mcp_servers?: ImportedMcpServerApi[] | null
+    /**
+     * Names of desktop-only MCP servers the creating client (PostHog Desktop) relays into the cloud sandbox over the durable event/command channel. Names only — the server configuration (command, env, URL, headers) never crosses the wire.
+     * @nullable
+     */
+    relayed_mcp_servers?: RelayedMcpServerApi[] | null
     /** Execution environment for the new run. Use 'cloud' for remote sandbox runs and 'local' for desktop sessions.
      *
      * * `local` - local
@@ -1561,9 +2555,20 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
-    /** Ephemeral GitHub user token from PostHog Code for user-authored cloud pull requests. */
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
+    /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
     github_user_token?: string
     /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
      *
@@ -1580,11 +2585,6 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
-    /**
-     * Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream.
-     * @maxLength 120
-     */
-    home_quick_action?: string
 }
 
 /**
@@ -1595,9 +2595,9 @@ export interface TaskRunBootstrapCreateRequestApi {
  * * `failed` - failed
  * * `cancelled` - cancelled
  */
-export type TaskRunUpdateStatusEnumApi = (typeof TaskRunUpdateStatusEnumApi)[keyof typeof TaskRunUpdateStatusEnumApi]
+export type RunStatusEnumApi = (typeof RunStatusEnumApi)[keyof typeof RunStatusEnumApi]
 
-export const TaskRunUpdateStatusEnumApi = {
+export const RunStatusEnumApi = {
     NotStarted: 'not_started',
     Queued: 'queued',
     InProgress: 'in_progress',
@@ -1625,7 +2625,7 @@ export interface PatchedTaskRunUpdateApi {
      * * `completed` - completed
      * * `failed` - failed
      * * `cancelled` - cancelled */
-    status?: TaskRunUpdateStatusEnumApi
+    status?: RunStatusEnumApi
     /**
      * Git branch name to associate with the task
      * @nullable
@@ -1881,15 +2881,24 @@ export const JsonrpcEnumApi = {
  * * `close` - close
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
+ * * `mcp_response` - mcp_response
+ * * `pi/rpc` - pi/rpc
+ * * `queue_get` - queue_get
+ * * `queue_clear` - queue_clear
  */
-export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
+export type TaskRunCommandRequestMethodEnumApi =
+    (typeof TaskRunCommandRequestMethodEnumApi)[keyof typeof TaskRunCommandRequestMethodEnumApi]
 
-export const MethodEnumApi = {
+export const TaskRunCommandRequestMethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
+    McpResponse: 'mcp_response',
+    PiRpc: 'pi/rpc',
+    QueueGet: 'queue_get',
+    QueueClear: 'queue_clear',
 } as const
 
 /**
@@ -1906,18 +2915,17 @@ export interface TaskRunCommandRequestApi {
      * * `cancel` - cancel
      * * `close` - close
      * * `permission_response` - permission_response
-     * * `set_config_option` - set_config_option */
-    method: MethodEnumApi
+     * * `set_config_option` - set_config_option
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear */
+    method: TaskRunCommandRequestMethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
     /** Optional JSON-RPC request ID (string or number) */
     id?: unknown
 }
-
-/**
- * Command result on success
- */
-export type TaskRunCommandResponseApiResult = { [key: string]: unknown }
 
 /**
  * Error details on failure
@@ -1933,7 +2941,7 @@ export interface TaskRunCommandResponseApi {
     /** Request ID echoed back (string or number) */
     id?: unknown
     /** Command result on success */
-    result?: TaskRunCommandResponseApiResult
+    result?: unknown
     /** Error details on failure */
     error?: TaskRunCommandResponseApiError
 }
@@ -1952,6 +2960,12 @@ export interface TaskRunRelayMessageRequestApi {
      * @maxLength 10000
      */
     text: string
+    /**
+     * Id of the user message this turn answers, when the agent-server echoes it.
+     * @maxLength 128
+     * @nullable
+     */
+    message_id?: string | null
     /**
      * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
      * @items.maxLength 10000
@@ -1992,6 +3006,28 @@ export interface StreamReadTokenResponseApi {
      * @nullable
      */
     stream_base_url: string | null
+}
+
+export interface TaskSessionResponseApi {
+    /** Task session identifier */
+    id: string
+    /**
+     * Temporary URL for downloading the session
+     * @nullable
+     */
+    download_url: string | null
+    /**
+     * SHA-256 digest of the current session content
+     * @nullable
+     */
+    content_sha256: string | null
+}
+
+export interface TaskSessionSyncResponseApi {
+    /** Task session identifier */
+    id: string
+    /** SHA-256 digest of the uploaded session content */
+    content_sha256: string
 }
 
 /**
@@ -2245,6 +3281,35 @@ export interface TaskRunLivingArtifactEditRequestApi {
     metadata?: TaskRunLivingArtifactEditRequestApiMetadata
 }
 
+/**
+ * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.
+ */
+export type TaskRunLivingArtifactChartRequestApiQuery = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactChartRequestApi {
+    /**
+     * Chart title, also used as the delivered file name.
+     * @maxLength 255
+     */
+    name: string
+    /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id. */
+    query?: TaskRunLivingArtifactChartRequestApiQuery
+    /** Numeric id of a saved insight to render. Provide exactly one of query or insight_id. */
+    insight_id?: number
+}
+
+export interface TaskRunLivingArtifactChartResponseApi {
+    /** The living artifact registered for delivery. */
+    artifact: TaskRunLivingArtifactResponseApi
+    /** Id of the rendered PNG export backing the chart. */
+    export_asset_id: number
+    /**
+     * Link to explore this chart interactively in PostHog.
+     * @nullable
+     */
+    url?: string | null
+}
+
 export type TaskThreadMessageDTOApiPayload = { [key: string]: unknown }
 
 /**
@@ -2297,6 +3362,11 @@ export interface WizardCloudRunDTOApi {
      * @nullable
      */
     started_at?: string | null
+}
+
+export interface PinnedTaskIdsResponseApi {
+    /** Visible task IDs pinned by the requester, newest pin first. */
+    task_ids: string[]
 }
 
 export interface TaskRepositoriesResponseApi {
@@ -2645,8 +3715,19 @@ export interface WarmTaskRequestApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Optional sandbox environment to provision before the task is submitted.
+     * @nullable
+     */
+    sandbox_environment_id?: string | null
+    /**
+     * Optional custom base image to provision before the task is submitted; takes precedence over the environment's image.
+     * @nullable
+     */
+    custom_image_id?: string | null
 }
 
 /**
@@ -2658,6 +3739,37 @@ export interface WarmTaskResponseApi {
     /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
     run_id: string
 }
+
+export type LoopsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LoopsRunsRetrieveParams = {
+    /**
+     * Opaque pagination cursor from a previous response's `next_cursor`.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * Max results per page (default 50, max 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type LoopsTriggerCreateBodyOne = { [key: string]: unknown }
+
+export type LoopsTriggerCreateBodyTwo = { [key: string]: unknown }
+
+export type LoopsTriggerCreateBodyThree = { [key: string]: unknown }
 
 export type SandboxCustomImagesListParams = {
     /**
@@ -2679,6 +3791,23 @@ export type SandboxListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type TaskActivityListParams = {
+    /**
+     * Activity timestamp from the final row of the previous page.
+     */
+    before?: string
+    /**
+     * Activity ID from the final row of the previous page.
+     */
+    before_id?: string
+    /**
+     * Maximum number of tasks to return (most recent activity first).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
 }
 
 export type TaskAutomationsListParams = {

@@ -92,6 +92,19 @@ AI endpoint hardcodes `historical_migration: false`. This is intentional because
 - Historical rerouting adds complexity without clear benefit for AI use case
 - Can be added later if backfill support is needed
 
+**Interaction with `CaptureMode::Import`:** the `historical_migration: false`
+hardcode is no longer the only thing keeping the AI and OTEL handlers out of an
+import-only deployment. Import mode's router arm does not register `ai_router`
+or `otel_router` at all (see `router.rs`), so `/i/v0/ai` and `/i/v0/ai/otel`
+return 404 there. This matters because those handlers build their own
+`ProcessingContext` with `historical_migration: false`, which would sidestep
+Import's historical-only drop gate and its GRL bypass and return a false 200 for
+traffic the deployment silently discards. Dropping the routes is the structural
+guarantee; the hardcode is defense in depth. `/i/v0/ai/batch` stays reachable in
+Import mode because it lives on `batch_router` and dispatches to the gated
+`v0_endpoint::event` handler, which honors the batch's `historical_migration`
+flag.
+
 ## Notes
 
 - The AI endpoint's unique features (multipart parsing, blob handling, etc.) are intentional and should be preserved

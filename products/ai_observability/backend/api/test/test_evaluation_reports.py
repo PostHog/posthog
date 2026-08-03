@@ -232,6 +232,15 @@ class TestEvaluationReportApi(APIBaseTest):
             conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
         )
 
+    def _create_trace_sentiment_evaluation(self) -> Evaluation:
+        evaluation = self._create_sentiment_evaluation()
+        Evaluation.objects.filter(id=evaluation.id).update(
+            target=EvaluationTarget.TRACE,
+            target_config={"window_seconds": 60},
+        )
+        evaluation.refresh_from_db()
+        return evaluation
+
     def test_unauthenticated_user_cannot_access(self):
         self.client.logout()
         response = self.client.get(self.base_url)
@@ -357,11 +366,29 @@ class TestEvaluationReportApi(APIBaseTest):
         report = EvaluationReport.objects.get(evaluation=sentiment_evaluation)
         self.assertEqual(response.json()["id"], str(report.id))
 
-    @parameterized.expand([("trace_target", "trace"), ("unsupported_output", "unsupported")])
+    def test_create_accepts_trace_evaluation(self) -> None:
+        trace_evaluation = self._create_trace_evaluation()
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(trace_evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.get(evaluation=trace_evaluation)
+        self.assertEqual(response.json()["id"], str(report.id))
+
+    @parameterized.expand([("trace_sentiment", "trace_sentiment"), ("unsupported_output", "unsupported")])
     def test_create_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:
         evaluation = (
-            self._create_trace_evaluation()
-            if evaluation_kind == "trace"
+            self._create_trace_sentiment_evaluation()
+            if evaluation_kind == "trace_sentiment"
             else self._create_unsupported_output_evaluation()
         )
         response = self.client.post(
@@ -378,30 +405,46 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "evaluation")
 
-    def test_deliverable_includes_reportable_generation_evaluations_only(self):
+    def test_deliverable_includes_supported_generation_and_trace_evaluations(self):
         boolean_report = self._create_report()
         sentiment_report = self._create_report(evaluation=self._create_sentiment_evaluation())
         trace_report = self._create_report(evaluation=self._create_trace_evaluation())
+        trace_sentiment_report = self._create_report(evaluation=self._create_trace_sentiment_evaluation())
         unsupported_report = self._create_report(evaluation=self._create_unsupported_output_evaluation())
 
         deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
 
-        self.assertEqual(deliverable_ids, {boolean_report.id, sentiment_report.id})
-        self.assertNotIn(trace_report.id, deliverable_ids)
+        self.assertEqual(deliverable_ids, {boolean_report.id, sentiment_report.id, trace_report.id})
+        self.assertNotIn(trace_sentiment_report.id, deliverable_ids)
         self.assertNotIn(unsupported_report.id, deliverable_ids)
 
-    @parameterized.expand([("trace_target", "trace"), ("unsupported_output", "unsupported")])
+    @patch("products.ai_observability.backend.api.evaluation_reports.async_to_sync")
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_generate_accepts_trace_evaluation(
+        self,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+    ) -> None:
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        report = self._create_report(evaluation=self._create_trace_evaluation())
+
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+
+    @parameterized.expand([("trace_sentiment", "trace_sentiment"), ("unsupported_output", "unsupported")])
     def test_generate_rejects_unreportable_evaluation(self, _name: str, evaluation_kind: str) -> None:
         evaluation = (
-            self._create_trace_evaluation()
-            if evaluation_kind == "trace"
+            self._create_trace_sentiment_evaluation()
+            if evaluation_kind == "trace_sentiment"
             else self._create_unsupported_output_evaluation()
         )
         report = self._create_report(evaluation=evaluation)
         response = self.client.post(f"{self.base_url}{report.id}/generate/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_list_includes_sentiment_and_excludes_unreportable_reports(self):
+    def test_list_includes_supported_generation_and_trace_reports(self):
         sentiment_evaluation = self._create_sentiment_evaluation()
         sentiment_report = EvaluationReport.objects.create(
             team=self.team,
@@ -410,13 +453,17 @@ class TestEvaluationReportApi(APIBaseTest):
             trigger_threshold=100,
             delivery_targets=[],
         )
-        self._create_report(evaluation=self._create_trace_evaluation())
+        trace_report = self._create_report(evaluation=self._create_trace_evaluation())
+        self._create_report(evaluation=self._create_trace_sentiment_evaluation())
         self._create_report(evaluation=self._create_unsupported_output_evaluation())
 
         response = self.client.get(self.base_url)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual([result["id"] for result in response.json()["results"]], [str(sentiment_report.id)])
+        self.assertEqual(
+            {result["id"] for result in response.json()["results"]},
+            {str(sentiment_report.id), str(trace_report.id)},
+        )
 
     def test_create_scheduled_sets_next_delivery_date(self):
         response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=WEEKLY;BYDAY=MO"), format="json")

@@ -312,13 +312,26 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
             status=RequestStatus.DRAFT,
         )
 
-    def _call_submit(self, request: DataDeletionRequest, method: str = "POST"):
+    def _call_submit(self, request: DataDeletionRequest, method: str = "POST", data: dict | None = None):
         path = f"/admin/posthog/datadeletionrequest/{request.pk}/submit/"
-        http_request = self.factory.post(path) if method == "POST" else self.factory.get(path)
+        http_request = self.factory.post(path, data or {}) if method == "POST" else self.factory.get(path)
         http_request.user = self.user
         _attach_messages(http_request)
         with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
             return self.admin.submit_view(http_request, str(request.pk))
+
+    def _event_removal_request(self, **kwargs):
+        now = timezone.now()
+        fields = {
+            "team_id": self.team.id,
+            "request_type": RequestType.EVENT_REMOVAL,
+            "events": ["$pageview"],
+            "start_time": now - timedelta(days=7),
+            "end_time": now - timedelta(minutes=1),
+            "status": RequestStatus.DRAFT,
+            **kwargs,
+        }
+        return DataDeletionRequest.objects.create(**fields)
 
     def test_submit_with_properties_only_succeeds(self):
         request = self._property_removal_request(properties=["$ip"])
@@ -369,6 +382,39 @@ class TestDataDeletionRequestAdminSubmitView(BaseTest):
         self.assertTrue(resp_ok.context_data["can_submit"])
         self.assertFalse(resp_empty.context_data["can_submit"])
         self.assertTrue(resp_empty.context_data["missing_properties"])
+
+    @parameterized.expand(
+        [
+            ("event_removal_opted_in", RequestType.EVENT_REMOVAL, {}, False),
+            ("event_removal_opted_out", RequestType.EVENT_REMOVAL, {"requires_approval": "on"}, True),
+            # No checkbox is rendered for these, and requires_approval must still say a human is needed —
+            # False would hide them from the changelist's "requires approval" filter, on precisely the
+            # requests a reviewer has to find.
+            ("property_removal", RequestType.PROPERTY_REMOVAL, {}, True),
+        ]
+    )
+    def test_submit_leaves_request_pending_and_records_optout(self, _name, request_type, post_data, expected_flag):
+        request = (
+            self._event_removal_request()
+            if request_type == RequestType.EVENT_REMOVAL
+            else self._property_removal_request(properties=["$ip"])
+        )
+
+        response = self._call_submit(request, data=post_data)
+
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        # Submitting never approves — the sweep job owns that decision now.
+        self.assertEqual(request.status, RequestStatus.PENDING)
+        self.assertFalse(request.approved)
+        self.assertEqual(request.requires_approval, expected_flag)
+
+    def test_submit_get_offers_the_optout_only_to_event_removals(self):
+        event_removal = self._event_removal_request()
+        property_removal = self._property_removal_request(properties=["$ip"])
+
+        self.assertTrue(self._call_submit(event_removal, method="GET").context_data["auto_approve_candidate"])
+        self.assertFalse(self._call_submit(property_removal, method="GET").context_data["auto_approve_candidate"])
 
 
 @freeze_time("2025-01-15 12:00:00")

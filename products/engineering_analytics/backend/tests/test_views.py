@@ -1,170 +1,30 @@
-import tempfile
-from pathlib import Path
+import json
 from typing import Any
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-import pandas as pd
-
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
-from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.engineering_analytics.backend.logic.sources import (
-    PULL_REQUESTS_SCHEMA,
-    WORKFLOW_RUNS_SCHEMA,
-    GitHubTables,
-    list_github_sources,
-)
+from products.engineering_analytics.backend.logic.sources import list_github_sources
 from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
-    PULL_REQUESTS_COLUMNS as _PULL_REQUESTS_COLUMNS,
-    WORKFLOW_RUNS_COLUMNS as _WORKFLOW_RUNS_COLUMNS,
+    PULL_REQUESTS_COLUMNS,
+    WORKFLOW_RUNS_COLUMNS,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    _pr_row,
+    _run_row,
+    create_github_source,
+    create_github_warehouse_table,
+    pr_association,
+    pr_association_entry,
+    repo_id,
+)
 
 from ee.models.rbac.access_control import AccessControl
-
-TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.views"
-
-# Non-default prefix on purpose: every fixture below lands tables named
-# `myprefixgithub_*`, so the resolver and builders are proven against a name the old
-# hardcoded `github_*` constants would never have matched.
-GITHUB_SOURCE_PREFIX = "myprefix"
-
-
-def create_github_source(
-    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, source_id: str = "gh-source", repository: str = ""
-) -> ExternalDataSource:
-    return ExternalDataSource.objects.create(
-        team=team,
-        source_id=source_id,
-        connection_id=source_id,
-        status=ExternalDataSource.Status.COMPLETED,
-        source_type=ExternalDataSourceType.GITHUB,
-        prefix=prefix,
-        job_inputs={"repository": repository} if repository else {},
-    )
-
-
-def link_schema(
-    team: Team,
-    source: ExternalDataSource,
-    *,
-    name: str,
-    table: DataWarehouseTable | None,
-    should_sync: bool = True,
-) -> ExternalDataSchema:
-    return ExternalDataSchema.objects.create(team=team, source=source, name=name, table=table, should_sync=should_sync)
-
-
-def create_warehouse_table_row(
-    team: Team, *, name: str, source: ExternalDataSource | None = None
-) -> DataWarehouseTable:
-    # ORM-only table (no object storage); for resolver/mapping tests that mock the query.
-    return DataWarehouseTable.objects.create(
-        team=team,
-        name=name,
-        format=DataWarehouseTable.TableFormat.CSVWithNames,
-        url_pattern="",
-        external_data_source=source,
-        columns={},
-    )
-
-
-def connect_github_source_without_data(
-    team: Team, *, prefix: str = GITHUB_SOURCE_PREFIX, repository: str = ""
-) -> GitHubTables:
-    """A GitHub source with pull_requests/workflow_runs schemas over empty ORM tables.
-
-    The resolver finds these without touching object storage; pair with a mocked query
-    when only resolution (not real warehouse data) matters.
-    """
-    source = create_github_source(team, prefix=prefix, repository=repository)
-    pr_table = create_warehouse_table_row(team, name=f"{prefix}github_pull_requests", source=source)
-    run_table = create_warehouse_table_row(team, name=f"{prefix}github_workflow_runs", source=source)
-    link_schema(team, source, name=PULL_REQUESTS_SCHEMA, table=pr_table)
-    link_schema(team, source, name=WORKFLOW_RUNS_SCHEMA, table=run_table)
-    return GitHubTables(pull_requests=pr_table.name, workflow_runs=run_table.name, repository=repository)
-
-
-def _user(login: str) -> str:
-    return f'{{"login": "{login}", "avatar_url": "https://avatars/{login}"}}'
-
-
-def _base(full_name: str, ref: str = "") -> str:
-    return f'{{"ref": "{ref}", "repo": {{"full_name": "{full_name}"}}}}'
-
-
-def _labels(*names: str) -> str:
-    return "[" + ", ".join(f'{{"name": "{name}"}}' for name in names) + "]"
-
-
-def _pr_row(
-    number: int,
-    login: str,
-    state: str,
-    draft: int,
-    created_at: str,
-    *,
-    merged_at: str | None = None,
-    head_sha: str = "",
-    head_ref: str = "",
-    base_ref: str = "",
-    full_name: str = "PostHog/posthog",
-    labels: tuple[str, ...] = (),
-) -> dict[str, Any]:
-    return {
-        "id": 1000 + number,
-        "number": number,
-        "title": f"PR {number}",
-        "state": state,
-        "draft": draft,
-        "created_at": created_at,
-        "updated_at": merged_at or created_at,
-        "merged_at": merged_at,
-        "closed_at": merged_at,
-        "user": _user(login),
-        "head": f'{{"sha": "{head_sha}", "ref": "{head_ref}"}}',
-        "base": _base(full_name, base_ref),
-        "labels": _labels(*labels),
-    }
-
-
-def _run_row(
-    run_id: int,
-    name: str,
-    head_sha: str,
-    status: str,
-    conclusion: str | None,
-    run_started_at: str,
-    updated_at: str,
-    *,
-    full_name: str = "PostHog/posthog",
-    run_attempt: int = 1,
-    pr_number: int | None = None,
-    head_branch: str = "main",
-) -> dict[str, Any]:
-    return {
-        "id": run_id,
-        "name": name,
-        "head_sha": head_sha,
-        "head_branch": head_branch,
-        "status": status,
-        "conclusion": conclusion,
-        "created_at": run_started_at,
-        "run_started_at": run_started_at,
-        "updated_at": updated_at,
-        "run_attempt": run_attempt,
-        # Mirror the real Nullable(String) column: an unassociated run lands NULL, not "[]",
-        # so the builder's ifNull(pull_requests, '[]') guard is exercised on the real path.
-        "pull_requests": f'[{{"number": {pr_number}}}]' if pr_number is not None else None,
-        "repository": f'{{"full_name": "{full_name}"}}',
-    }
 
 
 class TestListGithubSourcesAccessControl(BaseTest):
@@ -209,26 +69,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
     runs without the dev stack."""
 
     def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
-        # Returns the real table name (prefixed), which the builder is then told to read —
-        # proving build_query honors the resolved name instead of a hardcoded one.
-        df = pd.DataFrame(rows, columns=list(columns.keys()))
-        tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
-        df.to_csv(tmp.name, index=False)
-        tmp.close()
-        self.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-        try:
-            table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
-                csv_path=Path(tmp.name),
-                table_name=base_name,
-                table_columns=columns,
-                test_bucket=TEST_BUCKET,
-                team=self.team,
-                source_prefix=GITHUB_SOURCE_PREFIX,
-            )
-        except PermissionError as err:
-            self.skipTest(f"object storage unavailable: {err}")
-        self.addCleanup(cleanup)
-        return table.name
+        return create_github_warehouse_table(self, base_name, columns, rows)
 
     def _select(self, sql: str) -> list[tuple]:
         return execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
@@ -236,7 +77,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
     def test_pull_requests_view_maps_columns(self) -> None:
         table_name = self._create_table(
             "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
+            PULL_REQUESTS_COLUMNS,
             [
                 _pr_row(
                     10,
@@ -282,7 +123,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
     def test_workflow_runs_view_maps_columns(self) -> None:
         table_name = self._create_table(
             "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
+            WORKFLOW_RUNS_COLUMNS,
             [
                 _run_row(2001, "CI", "sha1", "completed", "success", "2026-01-20 10:00:00", "2026-01-20 10:30:00"),
                 _run_row(2002, "CI", "sha2", "completed", "failure", "2026-01-22 10:00:00", "2026-01-22 10:45:00"),
@@ -330,12 +171,131 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         raw = (
             "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'main' AS head_branch, 'completed' AS status, "
             "'success' AS conclusion, 1 AS run_attempt, nullIf('', '') AS pull_requests, "
-            f"'{repo_json}' AS repository, "
+            f"'{repo_json}' AS repository, nullIf('', '') AS head_commit, "
             "'2026-01-20 10:00:00' AS run_started_at, '2026-01-20 10:30:00' AS updated_at, "
             "'2026-01-20 10:00:00' AS created_at)"
         )
         rows = self._select(f"SELECT pr_number, repo_owner, repo_name FROM ({workflow_runs.build_query(raw)}) AS r")
         assert rows[0] == (0, "PostHog", "posthog")
+
+    def test_workflow_runs_view_attributes_only_own_repo_prs_and_falls_back_to_the_merge_commit(self) -> None:
+        # GitHub's pull_requests association lists every PR in the fork network sharing the run's
+        # head SHA, so a push to our default branch arrives carrying downstream forks' "sync from
+        # upstream" PRs. Taking the first entry unfiltered credited those runs to a stranger's PR
+        # number under our own owner/name. Only a base.repo.id matching the run's repository.id is
+        # ours; a push's real attribution is the (#NNNN) squash-merge suffix instead.
+        own, fork = "PostHog/posthog", "Mu-L/posthog-1"
+        cases: list[tuple[str, str | None, str | None, int, int | None]] = [
+            # (head_branch, pull_requests, commit message, expected pr_number, expected commit_pr_number)
+            ("pr-branch", pr_association(42, base_repo=own), "feat: wip", 42, None),
+            # The real master-push shape: only foreign entries, so nothing is ours.
+            ("master", pr_association(1379, 3, base_repo=fork), "feat: thing (#73832)", 0, 73832),
+            # A foreign entry listed FIRST must not shadow ours — position is what the old code used.
+            (
+                "pr-branch",
+                json.dumps([pr_association_entry(1379, base_repo=fork), pr_association_entry(42, base_repo=own)]),
+                "feat: wip",
+                42,
+                None,
+            ),
+            ("master", None, "chore: direct push", 0, None),
+        ]
+        rows = [
+            {
+                "id": 5000 + index,
+                "name": "CI",
+                "head_sha": f"sha{index}",
+                "head_branch": head_branch,
+                "status": "completed",
+                "conclusion": "success",
+                "created_at": "2026-01-20 10:00:00",
+                "run_started_at": "2026-01-20 10:00:00",
+                "updated_at": "2026-01-20 10:30:00",
+                "run_attempt": 1,
+                "pull_requests": association,
+                "repository": json.dumps({"full_name": own, "id": repo_id(own)}),
+                "head_commit": json.dumps({"message": message}),
+            }
+            for index, (head_branch, association, message, _, _) in enumerate(cases)
+        ]
+        table_name = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, rows)
+
+        results = self._select(
+            f"SELECT id, pr_number, commit_pr_number FROM ({workflow_runs.build_query(table_name)}) AS r ORDER BY id"
+        )
+        assert results == [(5000 + index, pr, commit_pr) for index, (_, _, _, pr, commit_pr) in enumerate(cases)]
+
+    def test_workflow_runs_view_resolves_default_branch_pushes_through_the_merge_commit(self) -> None:
+        # A default-branch push carries no association of its own, so commit_pr_number is the only
+        # attribution it gets. The merged PR's merge_commit_sha IS that run's head SHA, which
+        # resolves landings the (#NNNN) message suffix can't, but it must be read only off a
+        # MERGED PR, since GitHub fills it on an open one with a throwaway test-merge commit.
+        own = "PostHog/posthog"
+        cases: list[tuple[str, str, int | None]] = [
+            # (head_sha, commit message, expected commit_pr_number)
+            # The case only the join serves: a merge-commit landing, no (#NNNN) in the subject.
+            ("shaA", "fix: regenerate generated types", 101),
+            # An open PR's merge_commit_sha is a test merge, not a landing, so it must not attribute.
+            ("shaB", "chore: direct push", None),
+            # Join miss (no PR row for this SHA) still falls back to the message suffix.
+            ("shaC", "feat: thing (#103)", 103),
+            # Several merged PRs sharing one merge commit stay ONE run row, not one per PR.
+            ("shaD", "feat: stacked landing (#104)", 104),
+        ]
+        prs = [
+            _pr_row(
+                101,
+                "alice",
+                "closed",
+                0,
+                "2026-01-19 09:00:00",
+                merged_at="2026-01-20 09:00:00",
+                merge_commit_sha="shaA",
+            ),
+            _pr_row(102, "bob", "open", 0, "2026-01-19 09:00:00", merge_commit_sha="shaB"),
+            _pr_row(
+                104,
+                "carol",
+                "closed",
+                0,
+                "2026-01-19 09:00:00",
+                merged_at="2026-01-20 09:00:00",
+                merge_commit_sha="shaD",
+            ),
+            _pr_row(
+                105,
+                "dave",
+                "closed",
+                0,
+                "2026-01-19 09:00:00",
+                merged_at="2026-01-20 09:00:00",
+                merge_commit_sha="shaD",
+            ),
+        ]
+        runs = [
+            {
+                "id": 6000 + index,
+                "name": "CI",
+                "head_sha": head_sha,
+                "head_branch": "master",
+                "status": "completed",
+                "conclusion": "success",
+                "created_at": "2026-01-20 10:00:00",
+                "run_started_at": "2026-01-20 10:00:00",
+                "updated_at": "2026-01-20 10:30:00",
+                "run_attempt": 1,
+                "pull_requests": None,
+                "repository": json.dumps({"full_name": own, "id": repo_id(own)}),
+                "head_commit": json.dumps({"message": message}),
+            }
+            for index, (head_sha, message, _) in enumerate(cases)
+        ]
+        prs_table = self._create_table("github_pull_requests", PULL_REQUESTS_COLUMNS, prs)
+        runs_table = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, runs)
+
+        query = workflow_runs.build_query(runs_table, pull_requests_table=prs_table)
+        results = self._select(f"SELECT id, commit_pr_number FROM ({query}) AS r ORDER BY id")
+        assert results == [(6000 + index, expected) for index, (_, _, expected) in enumerate(cases)]
 
     def test_workflow_runs_view_tolerates_all_nullable_columns(self) -> None:
         # Prod lands every column Nullable, so a single run can carry NULL across timestamps,
@@ -356,7 +316,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "pull_requests": None,
             "repository": None,
         }
-        table_name = self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, [sparse_run])
+        table_name = self._create_table("github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [sparse_run])
         rows = self._select(
             "SELECT status, conclusion, duration_seconds, repo_owner, repo_name, pr_number, run_attempt "
             f"FROM ({workflow_runs.build_query(table_name)}) AS r"

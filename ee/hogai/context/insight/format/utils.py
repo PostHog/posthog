@@ -101,3 +101,45 @@ def format_date(date: datetime.date) -> str:
 
 def strip_datetime_seconds(date: str) -> str:
     return datetime.datetime.fromisoformat(date).strftime("%Y-%m-%d %H:%M" if ":" in date else "%Y-%m-%d")
+
+
+# Appended to a bucket's date cell when that bucket is still collecting data.
+PARTIAL_BUCKET_MARKER = " (partial)"
+
+
+def parse_bucket_datetime(day: str) -> Optional[datetime.datetime]:
+    """Parse a trends/funnel bucket label into a naive datetime (project-local).
+
+    Bucket labels are `%Y-%m-%d` or `%Y-%m-%d %H:%M:%S` strings emitted in the project
+    timezone. Returns None if the label can't be parsed, so callers fall back to not
+    flagging the bucket rather than crashing on an unexpected format."""
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(day, fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.datetime.fromisoformat(day).replace(tzinfo=None)
+    except ValueError:
+        return None
+
+
+def partial_bucket_flags(days: list[str], current_interval_start: datetime.datetime) -> list[bool]:
+    """Flag each bucket that falls in the current (still-collecting) interval or later.
+
+    `current_interval_start` is the start of the interval containing "now", in project-local
+    naive time. A bucket at or after it hasn't finished accruing data yet, so its value is
+    partial — this is what makes daily/hourly automation over trends results unsafe when the
+    last row is silently incomplete or labeled in the future."""
+    flags: list[bool] = []
+    for day in days:
+        bucket_start = parse_bucket_datetime(day)
+        flags.append(bucket_start is not None and bucket_start >= current_interval_start)
+    return flags
+
+
+def partial_bucket_note(timezone: str) -> str:
+    return (
+        f'Note: rows marked "{PARTIAL_BUCKET_MARKER.strip()}" cover an interval that is still in progress '
+        f"as of the query time, so their values are incomplete. Timezone: {timezone}."
+    )

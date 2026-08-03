@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { compactTraceResults } from '@/lib/trace-compaction'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
     POSTHOG_META_KEY,
@@ -7,6 +8,11 @@ import {
     type ToolBase,
     type ZodObjectAny,
 } from '@/tools/types'
+
+// LLM trace query kinds return every event with its full properties (entire
+// prompts, completions, tool payloads). Their results are bounded before being
+// returned so a single huge trace can't blow the caller's context window.
+const TRACE_QUERY_KINDS = new Set(['TraceQuery', 'TracesQuery'])
 
 interface QueryWrapperConfig<T extends ZodObjectAny> {
     name: string
@@ -142,12 +148,13 @@ export function createQueryWrapper<T extends ZodObjectAny>(config: QueryWrapperC
 
             const data = await context.api.query({ projectId }).runQuery({ query })
             const shouldSurfaceFormatted = effectiveOutputFormat !== 'json' && data.formatted_results
+            const results = TRACE_QUERY_KINDS.has(config.kind) ? compactTraceResults(data.results) : data.results
             // Include `query` in the payload so UI apps (TrendsVisualizer, LifecycleVisualizer)
             // can honor query-level filters like `lifecycleFilter.toggledLifecycles` and
             // `trendsFilter.display`.
             return {
                 query,
-                results: data.results,
+                results,
                 _posthogUrl: buildInsightUrl('InsightVizNode', query, baseUrl, config.urlPrefix),
                 ...(data.warnings ? { warnings: data.warnings } : {}),
                 ...(shouldSurfaceFormatted ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: data.formatted_results } : {}),

@@ -40,13 +40,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    _UNSET,
     FRESHNESS_WINDOW_SECONDS,
+    TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     PendingBatch,
+    _Unset,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
+    RUNS_TERMINALIZED_STALE_TOTAL,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -66,6 +70,10 @@ DeltaProcessBatchFn = Callable[[PendingBatch, VerifyOwnership | None], Coroutine
 # timeout so a degraded probe can't starve the reconcile sweep it rides on.
 FRESHNESS_PROBE_TIMEOUT_SECONDS = 30.0
 
+# Stamped on a run the loader abandoned: its extraction ended without a final batch, so nothing
+# finalized it and there is no failed queue batch for the failed-run reconcile to key on.
+STRANDED_RUN_ERROR = "run abandoned before completion (no loader progress; reconciled from queue)"
+
 # Errors that fail identically on every attempt. Substring-matched because they
 # surface as generic exceptions; keep entries specific so transients can't match.
 NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
@@ -77,6 +85,20 @@ NON_RETRYABLE_ERROR_PATTERNS: tuple[str, ...] = (
     # (SchemaColumnTypeChangedException) — only a reset and full re-sync can fix it
     "Source column type changed",
     # the schema or job row was deleted mid-sync — no retry can bring it back
+    "ExternalDataSchema matching query does not exist",
+    "ExternalDataJob matching query does not exist",
+)
+
+# Subset of the non-retryable errors that are expected upstream/customer conditions rather than
+# pipeline bugs. The run still fails with an actionable message, but the engine skips
+# error-tracking capture for these so they don't drown real bugs. Kept deliberately narrow.
+EXPECTED_USER_ERROR_PATTERNS: tuple[str, ...] = (
+    # a source column's type changed upstream and no longer fits the stored Delta column
+    # (SchemaColumnTypeChangedException) — delta-rs can't widen in place, so the fix is a
+    # user-driven reset and full re-sync, not a code change
+    "Source column type changed",
+    # the schema or job was deleted (e.g. the user removed the source) while a batch for it
+    # was still in flight — an upstream/customer action, not a pipeline bug
     "ExternalDataSchema matching query does not exist",
     "ExternalDataJob matching query does not exist",
 )
@@ -95,8 +117,20 @@ class DeltaBatchConsumerAdapter:
     succeeded_state: str = SourceBatchStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchStatus.State.WAITING_RETRY.value
     per_group_connections: bool = True
+    # A skip means the job is dead and fail_run already failed the run's batches;
+    # the engine must record nothing over them.
+    record_skip_as_success: bool = False
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        claim_sync_types: list[str] | None = None,
+        claim_exclude_sync_types: list[str] | None = None,
+    ) -> None:
+        # Fleet partition: the sync_type classes this consumer claims and sweeps.
+        # None/None (the default) means the whole queue — a single-fleet deployment.
+        self._claim_sync_types = claim_sync_types
+        self._claim_exclude_sync_types = claim_exclude_sync_types
         # job_id -> (is_dead, checked_at via time.monotonic())
         self._job_dead_cache: dict[str, tuple[bool, float]] = {}
 
@@ -115,6 +149,8 @@ class DeltaBatchConsumerAdapter:
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             lease_ttl_seconds=lease_ttl_seconds,
+            sync_types=self._claim_sync_types,
+            exclude_sync_types=self._claim_exclude_sync_types,
         )
 
     async def unlock(
@@ -143,15 +179,28 @@ class DeltaBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
         batch_created_at: datetime | None = None,
+        expected_state_changed_at: datetime | None | _Unset = _UNSET,
     ) -> None:
-        await BatchQueue.update_status(
+        # 'failed' is absorbing: fail_run can retire a claimed batch mid-flight, and a
+        # newer write would supersede it — un-failing a cancelled run. Takeover-sentinel
+        # failures stay supersedable (see _is_job_dead's matching exemption).
+        # expected_state_changed_at additionally fences the recovery re-queue against a
+        # live owner that completed the batch after the stale scan (see the sweep).
+        inserted = await BatchQueue.update_status_unless_failed(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
             batch_created_at=batch_created_at,
+            supersedable_failed_error=LOCK_TAKEOVER_LATEST_ERROR,
+            expected_state_changed_at=expected_state_changed_at,
         )
+        if not inserted:
+            raise OwnershipLostError(
+                f"batch {batch_id} moved under this writer (already failed or state advanced); "
+                f"refusing to write '{job_state}' over it"
+            )
 
     async def fail_run(
         self,
@@ -229,6 +278,15 @@ class DeltaBatchConsumerAdapter:
             lease_ttl_seconds=lease_ttl_seconds,
         )
 
+    async def delete_expired_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        await BatchQueue.delete_expired_lease(conn, team_id=team_id, schema_id=schema_id)
+
     async def get_stale_executing(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -238,7 +296,12 @@ class DeltaBatchConsumerAdapter:
     ) -> list[PendingBatch]:
         # keep_locks is meaningless for the lease sink: get_stale_executing holds
         # no locks and the lease LEFT JOIN already excludes live groups.
-        return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
+        return await BatchQueue.get_stale_executing(
+            conn,
+            grace_seconds=grace_seconds,
+            sync_types=self._claim_sync_types,
+            exclude_sync_types=self._claim_exclude_sync_types,
+        )
 
     async def reconcile_failed_runs(
         self,
@@ -295,21 +358,116 @@ class DeltaBatchConsumerAdapter:
             except Exception as e:
                 logger.exception("reconcile_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
                 capture_exception(e)
+                reconciled = False
+
+            if reconciled:
+                RUNS_RECONCILED_TOTAL.inc()
+                logger.warning(
+                    "run_reconciled_to_failed",
+                    job_id=ref.job_id,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    external_data_schema_id=ref.schema_id,
+                )
+
+            # Attempted for every ref: this sweep is the retry for a fail_run whose own release
+            # failed silently. Safe to repeat, since the release compare-and-deletes on the token.
+            if ref.workflow_run_id:
+                try:
+                    await sync_to_async(release_v3_pipeline_lock)(
+                        team_id=ref.team_id,
+                        schema_id=ref.schema_id,
+                        token=ref.workflow_run_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "failed_to_release_v3_pipeline_lock",
+                        job_id=ref.job_id,
+                        schema_id=ref.schema_id,
+                        exc_info=True,
+                    )
+                    capture_exception(e)
+            else:
+                logger.info(
+                    "v3_pipeline_lock_release_skipped_no_workflow_run_id",
+                    job_id=ref.job_id,
+                    run_uuid=ref.run_uuid,
+                    external_data_schema_id=ref.schema_id,
+                )
+
+        # Runs the loader abandoned leave no 'failed' batch for get_failed_runs to key on, so sweep
+        # them on the same cadence and connection. Isolated so its failure can't take the sweep down.
+        try:
+            await self._reconcile_stale_stranded_runs(conn, stale_seconds=TAKEOVER_STALE_THRESHOLD_SECONDS, limit=limit)
+        except Exception as e:
+            logger.exception("stranded_run_reconcile_sweep_failed")
+            capture_exception(e)
+
+    async def _reconcile_stale_stranded_runs(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        stale_seconds: int,
+        limit: int,
+    ) -> None:
+        """Fail runs the loader abandoned: non-terminal batches, no live lease, no progress for ``stale_seconds``.
+
+        ``reconcile_failed_runs`` above only catches runs with a ``failed`` queue batch. When an
+        extraction workflow dies mid-run it leaves the batches non-terminal with no failed batch and the
+        ExternalDataJob stuck RUNNING, and lock takeover only fires on the next scheduled run — so
+        without this the batches strand until the retention prune (days later).
+
+        Ordering mirrors lock takeover, not the retention sweep: these batches are still within
+        ``CLAIM_ELIGIBILITY_INTERVAL`` and could still be claimed, so fail them FIRST — a straggler
+        claimed after the job is failed could load and flip a FAILED job back to COMPLETED via its final
+        batch. Failing batches first also self-heals a crash mid-sweep: the run then has a failed batch,
+        so ``reconcile_failed_runs`` finalizes the job next cycle.
+        """
+        refs = await BatchQueue.get_stale_stranded_runs(conn, stale_seconds=stale_seconds, limit=limit)
+        for ref in refs:
+            try:
+                failed_batches = await BatchQueue.fail_run(
+                    conn,
+                    run_uuid=ref.run_uuid,
+                    team_id=ref.team_id,
+                    schema_id=ref.schema_id,
+                    reason=STRANDED_RUN_ERROR,
+                )
+            except Exception as e:
+                # Without the batches failed we'd fail the job while leaving claimable stragglers
+                # behind — the exact resurrection this ordering prevents. Skip the rest for this run.
+                logger.exception("stranded_run_batch_sweep_failed", run_uuid=ref.run_uuid)
+                capture_exception(e)
                 continue
 
-            if not reconciled:
-                continue  # job was already terminal — nothing to reconcile
+            try:
+                reconciled = await sync_to_async(mark_job_failed_if_not_terminal)(
+                    job_id=ref.job_id,
+                    team_id=ref.team_id,
+                    error=STRANDED_RUN_ERROR,
+                )
+            except Exception as e:
+                logger.exception("stranded_run_job_status_update_failed", job_id=ref.job_id, run_uuid=ref.run_uuid)
+                capture_exception(e)
+                reconciled = False
 
-            RUNS_RECONCILED_TOTAL.inc()
+            # Count only fully terminalized runs: on a failed job write the failed-run
+            # reconcile finishes the job next cycle and counts it in RUNS_RECONCILED_TOTAL.
+            if reconciled:
+                RUNS_TERMINALIZED_STALE_TOTAL.inc()
             logger.warning(
-                "run_reconciled_to_failed",
+                "stranded_run_terminalized",
                 job_id=ref.job_id,
                 run_uuid=ref.run_uuid,
                 team_id=ref.team_id,
                 external_data_schema_id=ref.schema_id,
+                non_terminal_batches=ref.non_terminal_batches,
+                failed_batches=failed_batches,
+                job_reconciled=reconciled,
             )
 
-            # Release the V3 pipeline lock too, otherwise it blocks the schema's next sync until its TTL expires.
+            # Best-effort, compare-and-deletes on the token: safe even if the lease already expired
+            # or another pod reclaimed the group.
             if ref.workflow_run_id:
                 try:
                     await sync_to_async(release_v3_pipeline_lock)(
@@ -414,6 +572,10 @@ class DeltaBatchConsumerAdapter:
         message = str(err)
         return not any(pattern in message for pattern in NON_RETRYABLE_ERROR_PATTERNS)
 
+    def is_expected_user_error(self, err: Exception) -> bool:
+        message = str(err)
+        return any(pattern in message for pattern in EXPECTED_USER_ERROR_PATTERNS)
+
     async def after_batch_processed(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -429,6 +591,8 @@ class BatchConsumer(SharedBatchConsumer):
         config: ConsumerConfig,
         process_batch: DeltaProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
+        claim_sync_types: list[str] | None = None,
+        claim_exclude_sync_types: list[str] | None = None,
     ) -> None:
         async def process_with_ownership_check(batch: PendingBatch) -> None:
             await process_batch(batch, self._make_verify_ownership(batch))
@@ -436,7 +600,10 @@ class BatchConsumer(SharedBatchConsumer):
         super().__init__(
             config=config,
             process_batch=process_with_ownership_check,
-            adapter=DeltaBatchConsumerAdapter(),
+            adapter=DeltaBatchConsumerAdapter(
+                claim_sync_types=claim_sync_types,
+                claim_exclude_sync_types=claim_exclude_sync_types,
+            ),
             health_reporter=health_reporter,
         )
 
@@ -483,13 +650,18 @@ def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> No
     if existing is not None:
         return
 
-    update_external_job_status(
-        job_id=job_id,
-        team_id=team_id,
-        status=ExternalDataJob.Status.FAILED,
-        logger=structlog.get_logger(),
-        latest_error=error,
-    )
+    try:
+        update_external_job_status(
+            job_id=job_id,
+            team_id=team_id,
+            status=ExternalDataJob.Status.FAILED,
+            logger=structlog.get_logger(),
+            latest_error=error,
+        )
+    except ExternalDataJob.DoesNotExist:
+        # The job row itself was deleted between the check above and this write (e.g. its
+        # source/schema was removed mid-sync) — nothing left to mark failed.
+        pass
 
 
 def mark_job_failed_if_not_terminal(*, job_id: str, team_id: int, error: str) -> bool:

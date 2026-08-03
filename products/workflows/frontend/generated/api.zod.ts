@@ -389,12 +389,12 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsCreateBodyActionsItemIdMax = 200
+
 export const hogFlowsCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsCreateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsCreateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowsCreateBodyActionsItemTypeMax = 100
-
 export const hogFlowsCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 
@@ -520,7 +520,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .number()
                         .optional()
                         .describe(
-                            "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                            "Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
                         ),
                     from: zod.string().describe('Source action id.'),
                 })
@@ -532,7 +532,10 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsCreateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsCreateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -572,10 +575,24 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe('Property filters gating this action.'),
                     type: zod
-                        .string()
-                        .max(hogFlowsCreateBodyActionsItemTypeMax)
+                        .enum([
+                            'trigger',
+                            'function',
+                            'function_email',
+                            'function_sms',
+                            'function_push',
+                            'delay',
+                            'wait_until_condition',
+                            'wait_until_time_window',
+                            'conditional_branch',
+                            'random_cohort_branch',
+                            'exit',
+                        ])
                         .describe(
-                            'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                            '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                        )
+                        .describe(
+                            'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
                         ),
                     config: zod
                         .union([
@@ -687,12 +704,14 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
@@ -714,12 +733,12 @@ export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsUpdateBodyActionsItemIdMax = 200
+
 export const hogFlowsUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowsUpdateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsUpdateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowsUpdateBodyActionsItemTypeMax = 100
-
 export const hogFlowsUpdateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsUpdateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 
@@ -845,7 +864,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         .number()
                         .optional()
                         .describe(
-                            "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                            "Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
                         ),
                     from: zod.string().describe('Source action id.'),
                 })
@@ -857,7 +876,10 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsUpdateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsUpdateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -897,10 +919,24 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe('Property filters gating this action.'),
                     type: zod
-                        .string()
-                        .max(hogFlowsUpdateBodyActionsItemTypeMax)
+                        .enum([
+                            'trigger',
+                            'function',
+                            'function_email',
+                            'function_sms',
+                            'function_push',
+                            'delay',
+                            'wait_until_condition',
+                            'wait_until_time_window',
+                            'conditional_branch',
+                            'random_cohort_branch',
+                            'exit',
+                        ])
                         .describe(
-                            'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                            '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                        )
+                        .describe(
+                            'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
                         ),
                     config: zod
                         .union([
@@ -1012,12 +1048,14 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
@@ -1039,12 +1077,12 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsPartialUpdateBodyActionsItemIdMax = 200
+
 export const hogFlowsPartialUpdateBodyActionsItemNameMax = 400
 
 export const hogFlowsPartialUpdateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsPartialUpdateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowsPartialUpdateBodyActionsItemTypeMax = 100
-
 export const hogFlowsPartialUpdateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsPartialUpdateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 
@@ -1175,7 +1213,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .number()
                         .optional()
                         .describe(
-                            "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                            "Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
                         ),
                     from: zod.string().describe('Source action id.'),
                 })
@@ -1187,7 +1225,10 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsPartialUpdateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsPartialUpdateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -1227,10 +1268,24 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe('Property filters gating this action.'),
                     type: zod
-                        .string()
-                        .max(hogFlowsPartialUpdateBodyActionsItemTypeMax)
+                        .enum([
+                            'trigger',
+                            'function',
+                            'function_email',
+                            'function_sms',
+                            'function_push',
+                            'delay',
+                            'wait_until_condition',
+                            'wait_until_time_window',
+                            'conditional_branch',
+                            'random_cohort_branch',
+                            'exit',
+                        ])
                         .describe(
-                            'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                            '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                        )
+                        .describe(
+                            'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
                         ),
                     config: zod
                         .union([
@@ -1342,12 +1397,14 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .optional()
@@ -1374,14 +1431,16 @@ export const HogFlowsBatchJobsCreateBody = /* @__PURE__ */ zod.object({
             'Not currently tracked — stays at its initial value. Use the workflow logs\/metrics endpoints for run outcome.\n\n\* `waiting` - Waiting\n\* `queued` - Queued\n\* `active` - Active\n\* `completed` - Completed\n\* `cancelled` - Cancelled\n\* `failed` - Failed'
         ),
     hog_flow: zod.uuid().describe('ID of the workflow this batch run belongs to.'),
-    filters: zod
-        .unknown()
-        .optional()
-        .describe("Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters."),
     variables: zod.unknown().optional().describe('Variable value overrides applied to this run.'),
 })
 
 export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
+    base_updated_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored graph is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.'
+        ),
     operations: zod
         .array(
             zod.object({
@@ -1398,7 +1457,7 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
                         '\* `update_action` - update_action\n\* `add_action` - add_action\n\* `remove_action` - remove_action\n\* `add_edge` - add_edge\n\* `remove_edge` - remove_edge\n\* `replace_action_edges` - replace_action_edges'
                     )
                     .describe(
-                        "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action}: append a full action node. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} \/ remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding\/removing branch conditions); incoming edges are left intact.\n\n\* `update_action` - update_action\n\* `add_action` - add_action\n\* `remove_action` - remove_action\n\* `add_edge` - add_edge\n\* `remove_edge` - remove_edge\n\* `replace_action_edges` - replace_action_edges"
+                        "Graph edit. update_action {id, patch}: deep-merge patch into the action's fields (a null leaf deletes that key) — the surgical path for tweaking one config value. add_action {action, edges?}: append a full action node, optionally wiring its edges in the same op. remove_action {id}: delete a node and reconnect its incoming edges to its first outgoer. add_edge {edge} \/ remove_edge {edge}: add or delete one edge. replace_action_edges {id, edges}: replace this action's outgoing edges with the given set (use when adding\/removing branch conditions); incoming edges are left intact.\n\n\* `update_action` - update_action\n\* `add_action` - add_action\n\* `remove_action` - remove_action\n\* `add_edge` - add_edge\n\* `remove_edge` - remove_edge\n\* `replace_action_edges` - replace_action_edges"
                     ),
                 id: zod
                     .string()
@@ -1429,7 +1488,7 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .optional()
                             .describe(
-                                "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                                "Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
                             ),
                         from: zod.string().describe('Source action id.'),
                     })
@@ -1449,14 +1508,14 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .number()
                                 .optional()
                                 .describe(
-                                    "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                                    "Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
                                 ),
                             from: zod.string().describe('Source action id.'),
                         })
                     )
                     .optional()
                     .describe(
-                        "replace_action_edges only. The complete set of the action's outgoing edges; incoming edges are preserved."
+                        "replace_action_edges: the complete set of the action's outgoing edges (incoming edges are preserved). add_action: optional edges to wire the new node in the same op."
                     ),
             })
         )
@@ -1481,12 +1540,12 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMi
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemIdMax = 200
+
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemDescriptionDefault = ``
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemTypeMax = 100
-
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsInvocationsCreateBodyConfigurationOneActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsInvocationsCreateBodyConfigurationOneSchedulesItemTimezoneMax = 64
@@ -1672,7 +1731,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .number()
                             .optional()
                             .describe(
-                                "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                                "Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
                             ),
                         from: zod.string().describe('Source action id.'),
                     })
@@ -1684,7 +1743,10 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
             actions: zod
                 .array(
                     zod.object({
-                        id: zod.string().describe('Unique node ID within the workflow.'),
+                        id: zod
+                            .string()
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemIdMax)
+                            .describe('Unique node ID within the workflow.'),
                         name: zod
                             .string()
                             .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemNameMax)
@@ -1731,10 +1793,24 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             .optional()
                             .describe('Property filters gating this action.'),
                         type: zod
-                            .string()
-                            .max(hogFlowsInvocationsCreateBodyConfigurationOneActionsItemTypeMax)
+                            .enum([
+                                'trigger',
+                                'function',
+                                'function_email',
+                                'function_sms',
+                                'function_push',
+                                'delay',
+                                'wait_until_condition',
+                                'wait_until_time_window',
+                                'conditional_branch',
+                                'random_cohort_branch',
+                                'exit',
+                            ])
                             .describe(
-                                'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                                '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                            )
+                            .describe(
+                                'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
                             ),
                         config: zod
                             .union([
@@ -1850,12 +1926,14 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                                     ),
                             ])
                             .describe(
-                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                                "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                             ),
                         output_variable: zod
                             .unknown()
                             .optional()
-                            .describe('Output variable definition for downstream actions.'),
+                            .describe(
+                                'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                            ),
                     })
                 )
                 .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),
@@ -1922,6 +2000,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "When the draft was last written; null when there's no staged draft. Pass this to publish (and as base_updated_at on further draft edits) so a concurrent editor's changes aren't clobbered — a mismatch returns 409."
                 ),
+            action_redirects: zod
+                .record(zod.string(), zod.string())
+                .nullable()
+                .describe(
+                    'Skip-forward map for deleted steps: {deleted_action_id: next surviving action_id}. Maintained automatically when a live graph edit deletes actions, so in-flight runs parked on a deleted step continue at its surviving successor instead of exiting. Null when no live deletions have occurred.'
+                ),
         })
         .describe('Mixin for serializers to add user access control fields')
         .optional()
@@ -1944,7 +2028,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(hogFlowsInvocationsCreateBodyUseDraftDefault)
         .describe(
-            "Test the workflow's staged draft instead of its live config. Requires an open draft; can't be combined with an explicit configuration override."
+            "Test the workflow's staged draft instead of its live config. Set this only when workflows-get returns a non-null 'draft'; it can't be combined with an explicit configuration override."
         ),
 })
 
@@ -1955,13 +2039,13 @@ export const HogFlowsPublishCreateBody = /* @__PURE__ */ zod.object({
         .boolean()
         .default(hogFlowsPublishCreateBodyConfirmDefault)
         .describe(
-            'False (default) previews the publish: returns how many runs are in flight without changing anything. True applies the staged draft to the live workflow.'
+            'False (default) previews the publish: returns the impact on people in-flight without changing anything. True applies the staged draft to the live workflow.'
         ),
-    draft_updated_at: zod.iso
-        .datetime({ offset: true })
+    confirm_token: zod
+        .string()
         .optional()
         .describe(
-            'The draft_updated_at you loaded — required when confirm=true. A mismatch returns 409, so you never publish a draft someone else has changed since you read it.'
+            'From the preview response — required when confirm=true. Expires after 15 minutes, and any draft edit invalidates it (409), so you always publish the exact draft you previewed.'
         ),
 })
 
@@ -2033,6 +2117,17 @@ export const HogFlowsRerunCreateBody = /* @__PURE__ */ zod
     })
     .describe('Rerun invocations of a hog function or hog flow from their stored payloads.')
 
+export const hogFlowsRevisionsRestoreCreateBodyOverwriteDefault = false
+
+export const HogFlowsRevisionsRestoreCreateBody = /* @__PURE__ */ zod.object({
+    overwrite: zod
+        .boolean()
+        .default(hogFlowsRevisionsRestoreCreateBodyOverwriteDefault)
+        .describe(
+            "Replace the open staged draft with this revision's content. Without it, restoring while a draft is open returns 409."
+        ),
+})
+
 export const hogFlowsSchedulesCreateBodyTimezoneMax = 64
 
 export const HogFlowsSchedulesCreateBody = /* @__PURE__ */ zod.object({
@@ -2081,12 +2176,12 @@ export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsBulkDeleteCreateBodyActionsItemIdMax = 200
+
 export const hogFlowsBulkDeleteCreateBodyActionsItemNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyActionsItemDescriptionDefault = ``
 export const hogFlowsBulkDeleteCreateBodyActionsItemFiltersOneSourceDefault = `events`
-export const hogFlowsBulkDeleteCreateBodyActionsItemTypeMax = 100
-
 export const hogFlowsBulkDeleteCreateBodyActionsItemConfigTwoConditionFiltersOneSourceDefault = `events`
 export const hogFlowsBulkDeleteCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDefault = `events`
 
@@ -2217,7 +2312,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         .number()
                         .optional()
                         .describe(
-                            "Required for type='branch'. conditional_branch: index into config.conditions[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
+                            "Required for type='branch'. conditional_branch: index into config.conditions[index]. random_cohort_branch: index into config.cohorts[index]. wait_until_condition: use index:0 — it advances via the index:0 branch edge when it resolves (a condition match or an events entry firing)."
                         ),
                     from: zod.string().describe('Source action id.'),
                 })
@@ -2229,7 +2324,10 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
         actions: zod
             .array(
                 zod.object({
-                    id: zod.string().describe('Unique node ID within the workflow.'),
+                    id: zod
+                        .string()
+                        .max(hogFlowsBulkDeleteCreateBodyActionsItemIdMax)
+                        .describe('Unique node ID within the workflow.'),
                     name: zod.string().max(hogFlowsBulkDeleteCreateBodyActionsItemNameMax).describe('Display name.'),
                     description: zod
                         .string()
@@ -2269,10 +2367,24 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         .optional()
                         .describe('Property filters gating this action.'),
                     type: zod
-                        .string()
-                        .max(hogFlowsBulkDeleteCreateBodyActionsItemTypeMax)
+                        .enum([
+                            'trigger',
+                            'function',
+                            'function_email',
+                            'function_sms',
+                            'function_push',
+                            'delay',
+                            'wait_until_condition',
+                            'wait_until_time_window',
+                            'conditional_branch',
+                            'random_cohort_branch',
+                            'exit',
+                        ])
                         .describe(
-                            'trigger | function | function_email | function_sms | delay | conditional_branch | wait_until_condition | wait_until_time_window | random_cohort_branch | exit.'
+                            '\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
+                        )
+                        .describe(
+                            'One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.\n\n\* `trigger` - trigger\n\* `function` - function\n\* `function_email` - function_email\n\* `function_sms` - function_sms\n\* `function_push` - function_push\n\* `delay` - delay\n\* `wait_until_condition` - wait_until_condition\n\* `wait_until_time_window` - wait_until_time_window\n\* `conditional_branch` - conditional_branch\n\* `random_cohort_branch` - random_cohort_branch\n\* `exit` - exit'
                         ),
                     config: zod
                         .union([
@@ -2384,12 +2496,14 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                                 ),
                         ])
                         .describe(
-                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
+                            "Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel, filters?}. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. function\*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open\/click tracking, so opens and clicks are not recorded for that step (delivery\/bounce\/unsubscribe still are). Dictionary input values are template strings too — write booleans\/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: {delay_duration: '<number><unit>'} where unit is m|h|d. Fractions OK ('0.5m'=30s; seconds unsupported). Per-unit max m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages should sum to 100 (an unallocated remainder routes to the last cohort). wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}."
                         ),
                     output_variable: zod
                         .unknown()
                         .optional()
-                        .describe('Output variable definition for downstream actions.'),
+                        .describe(
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                        ),
                 })
             )
             .describe("Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too."),

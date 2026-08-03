@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { EXEC_BUILT_PAYLOAD, markExecPayload, buildToolResultPayload, isToolCallPayload } from '@/lib/build-tool-result'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 // Simulates a `query-trends` handler return value: a UI-resource tool that
 // carries both the raw `results` object and a pre-formatted pipe-delimited table
@@ -172,7 +173,69 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
     })
 })
 
+// Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork) go through the exec
+// wrapper, which sets `forceUiDataToMeta` + `includeUiResponseMeta`. The app payload
+// should only move onto `_meta` when a compact formatted table takes structuredContent's
+// place for the model — otherwise it stays in the standard structuredContent field so it
+// isn't duplicated under a non-standard `_meta` key.
+describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', () => {
+    it('suppresses structuredContent and re-homes the payload onto _meta when a formatted table exists', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(/* withFormatted */ true),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            includeUiResponseMeta: true,
+            distinctId: 'd',
+        })
+
+        // Model reads the compact table, not the verbose JSON.
+        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        expect(payload).not.toHaveProperty('structuredContent')
+        // The UI app hydrates from _meta since structuredContent was dropped.
+        expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
+    })
+
+    it('keeps the payload in structuredContent and never emits _meta app-data when there is no formatted table', () => {
+        // Regression guard for the duplicated-results report: without a compact table the
+        // model reads the data as text anyway, so re-homing it onto `_meta` only duplicates
+        // the full payload under a non-standard key. Keep it in structuredContent instead.
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(/* withFormatted */ false),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            includeUiResponseMeta: true,
+            distinctId: 'd',
+        })
+
+        expect(payload.structuredContent).toMatchObject({ results: expect.any(Array) })
+        expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
+        // The UI resource URI is still exposed for single-exec clients.
+        expect(payload._meta?.ui).toEqual({ resourceUri: 'ui://posthog/query-results.html' })
+    })
+})
+
 describe('buildToolResultPayload — non-query use cases', () => {
+    it('preserves array handler results', () => {
+        const result = [{ id: 'template-1' }]
+        Object.defineProperty(result, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {
+            value: 'informational result',
+            enumerable: false,
+        })
+
+        const payload = buildToolResultPayload({
+            handlerResult: result,
+            toolMeta: undefined,
+            toolName: 'templates-list',
+            params: {},
+        })
+
+        expect(payload.content).toEqual([{ type: 'text', text: 'informational result' }])
+    })
+
     it('passes string handler results through verbatim (no character-indexed expansion)', () => {
         // Regression guard for the original bug: `execute-sql` and other
         // string-returning handlers must not be object-rest-destructured.
@@ -251,5 +314,46 @@ describe('isToolCallPayload — nominal brand', () => {
         expect(isToolCallPayload(null)).toBe(false)
         expect(isToolCallPayload('string-result')).toBe(false)
         expect(isToolCallPayload(42)).toBe(false)
+    })
+})
+
+describe('buildToolResultPayload — confirmed-action prepare results', () => {
+    const prepareResult = {
+        confirmation_hash: 'signed-token-abc',
+        confirmation_word: 'confirm',
+        action: 'create loop',
+        message: "About to create the loop 'Open PR Summary'. Reply 'confirm' to create it.",
+        next_steps: 'Surface the message above to the user.',
+    }
+
+    it('carries the prepare payload on _meta so UI apps can read the hash', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: prepareResult,
+            toolMeta: undefined,
+            toolName: 'loops-create-prepare',
+            params: { name: 'Open PR Summary' },
+        })
+
+        expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({
+            confirmation_hash: 'signed-token-abc',
+            confirmation_word: 'confirm',
+        })
+        expect(payload).not.toHaveProperty('structuredContent')
+        expect(payload.content[0]!.text).toContain('signed-token-abc')
+    })
+
+    it.each([
+        ['non-prepare object result', { results: [{ id: 1 }] }],
+        ['confirmation_hash without the confirm word', { confirmation_hash: 'abc', confirmation_word: 'yes' }],
+        ['non-string confirmation_hash', { confirmation_hash: 42, confirmation_word: 'confirm' }],
+    ])('does not attach _meta for %s', (_label, handlerResult) => {
+        const payload = buildToolResultPayload({
+            handlerResult,
+            toolMeta: undefined,
+            toolName: 'whatever',
+            params: {},
+        })
+
+        expect(payload).not.toHaveProperty('_meta')
     })
 })

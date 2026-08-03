@@ -21,22 +21,26 @@ export type NormalizedPushError = {
     code?: string
     // Whether this means the device token should be removed from the person (a permanent, dead token).
     unregistered: boolean
+    // Whether the send is worth retrying: transient provider/network problems are, config/content ones aren't.
+    retriable: boolean
     // Log severity: config problems the user must fix are errors; transient/expected ones are warnings.
     level: LogEntryLevel
     // A plain-language explanation for the workflow logs.
     message: string
 }
 
-// Thrown by a channel send on a terminal failure. Carries the normalized reason, severity, and raw
-// provider code so the caller can log once at the right level and label the failure metric, without
-// re-deriving any of it or double-logging.
+// Thrown by a channel send when it fails. Carries the normalized reason, severity, retriability, and the
+// provider's Retry-After (when given) so the caller can log once at the right level, label metrics, and
+// decide whether to reschedule the whole invocation, without re-deriving any of it or double-logging.
 export class PushSendError extends Error {
     constructor(
         message: string,
         public readonly platform: PushPlatform,
         public readonly reason: PushFailureReason,
         public readonly level: LogEntryLevel,
-        public readonly code?: string
+        public readonly retriable: boolean,
+        public readonly code?: string,
+        public readonly retryAfterMs?: number
     ) {
         super(message)
         this.name = 'PushSendError'
@@ -55,6 +59,20 @@ const REASON_LEVEL: Record<PushFailureReason, LogEntryLevel> = {
     provider_error: 'warn',
     network_error: 'warn',
     unknown: 'error',
+}
+
+// Only transient provider/network problems are worth retrying. Config and content problems (bad
+// credentials, invalid token, rejected payload) will fail the same way on every attempt, and an
+// unregistered token is handled by pruning rather than retrying.
+const REASON_RETRIABLE: Record<PushFailureReason, boolean> = {
+    unregistered: false,
+    invalid_token: false,
+    auth_error: false,
+    rate_limited: true,
+    invalid_payload: false,
+    provider_error: true,
+    network_error: true,
+    unknown: false,
 }
 
 // The user-facing sentence for each reason. Written to guide the next action, not just state the fault.
@@ -85,6 +103,7 @@ function build(platform: PushPlatform, reason: PushFailureReason, code: string |
         reason,
         code,
         unregistered: reason === 'unregistered',
+        retriable: REASON_RETRIABLE[reason],
         level: REASON_LEVEL[reason],
         message: reasonMessage(platform, reason),
     }

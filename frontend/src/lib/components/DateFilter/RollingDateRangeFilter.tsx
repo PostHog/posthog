@@ -38,6 +38,7 @@ type RollingDateRangeFilterProps = {
     dateRangeFilterSuffixLabel?: string
     allowedDateOptions?: DateOption[]
     fullWidth?: LemonButtonProps['fullWidth']
+    size?: 'small' | 'medium'
 }
 
 export function RollingDateRangeFilter({
@@ -54,6 +55,7 @@ export function RollingDateRangeFilter({
     pageKey,
     allowedDateOptions = ['days', 'weeks', 'months', 'years'],
     fullWidth,
+    size,
 }: RollingDateRangeFilterProps): JSX.Element {
     const logicProps = { onChange, dateFrom, inUse: selected || inUse, max, pageKey }
     const { increaseCounter, decreaseCounter, setCounter, setDateOption, toggleDateOptionsSelector, select } =
@@ -119,6 +121,7 @@ export function RollingDateRangeFilter({
                 data-attr="rolling-date-range-filter"
                 onClick={select}
                 active={selected}
+                size={size}
                 fullWidth={fullWidth}
             >
                 {contents}

@@ -7,11 +7,14 @@ import { logger } from '~/common/utils/logger'
 import { normalizeSessionId } from '~/common/utils/utils'
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import { recordAnonymizeTimingSpans } from '~/ingestion/pipelines/sessionreplay/anonymize-timing-spans'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
+import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
+import { hashImageBytes, imageRef, isImageRef } from './ml-mirror-image-scrub/content-ref'
+import { PSEUDONYM_IMAGE_CONTENT_KEY, PSEUDONYM_TEAM, pseudonymize } from './ml-mirror/pseudonymize'
 import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
-import { TeamForReplay } from './shared/teams/types'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
@@ -34,6 +37,22 @@ const DLQ_REASONS = new Set([
     'received_non_snapshot_message',
 ])
 
+/** An original image the addon collected for the out-of-band scrub lane, ready to produce. */
+export interface CollectedImage {
+    /** `image:<pseudoTeam>:<hash>` — the Kafka key the scrub consumer indexes the bytes under. */
+    ref: string
+    bytes: Buffer
+}
+
+export interface ParseAndAnonymizeStepOutput extends ParseMessageStepOutput {
+    collectedImages?: CollectedImage[]
+}
+
+export interface ImageCollectionConfig {
+    /** The ML pseudonym HMAC key; only its per-team derivatives (never the key) cross the FFI. */
+    pseudonymSecret: string | Buffer
+}
+
 /**
  * Fused parse + anonymize through the native Rust addon (`@posthog/replay-anonymizer`): the
  * decompressed Kafka payload bytes go in, scrubbed JSONL block lines plus the envelope/per-event
@@ -44,9 +63,43 @@ const DLQ_REASONS = new Set([
  * unencrypted ML bucket. Failure classification matches the TS parse step so DLQ/drop behavior and
  * ingestion warnings are unchanged.
  */
-export function createParseAndAnonymizeMessageStep<
-    T extends ParseMessageStepInput & { team: TeamForReplay },
->(): ProcessingStep<T, T & ParseMessageStepOutput> {
+export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput & { team: TeamForReplay }>(
+    imageCollection?: ImageCollectionConfig
+): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
+    // Both are per-team HMACs of the same secret (domain-separated) — cache them rather than
+    // re-deriving on every message. The content key keys the image hash so the unencrypted bucket
+    // carries no unkeyed content digest; it never crosses the FFI as the raw secret.
+    interface TeamImageKeys {
+        pseudoTeam: string
+        contentKey: string
+    }
+    const teamKeysCache = new Map<number, TeamImageKeys>()
+    const teamKeysFor = (teamId: number): TeamImageKeys | undefined => {
+        if (!imageCollection) {
+            return undefined
+        }
+        let keys = teamKeysCache.get(teamId)
+        if (!keys) {
+            const pseudoTeam = pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_TEAM, String(teamId))
+            const contentKey = pseudonymize(
+                imageCollection.pseudonymSecret,
+                PSEUDONYM_IMAGE_CONTENT_KEY,
+                String(teamId)
+            )
+            // The consumer regex-validates every ref and silently drops non-matches, so a pseudonym
+            // format drift would zero the lane with no signal. Refuse to embed a ref the consumer
+            // would drop — those messages fall back to the inline blur, loudly.
+            if (!isImageRef(imageRef(pseudoTeam, hashImageBytes(contentKey, Buffer.alloc(0))))) {
+                logger.error('🖼️', 'ml_image_scrub_pseudo_team_shape_invalid', { teamId })
+                SessionRecordingIngesterMetrics.incrementMlImagePseudoTeamInvalid()
+                return undefined
+            }
+            keys = { pseudoTeam, contentKey }
+            teamKeysCache.set(teamId, keys)
+        }
+        return keys
+    }
+
     return async function parseAndAnonymizeMessageStep(input) {
         const { message, headers } = input
 
@@ -61,13 +114,16 @@ export function createParseAndAnonymizeMessageStep<
             contentEncoding ?? (isGzipped(message.value) ? 'gzip' : 'none')
         )
 
+        const teamKeys = teamKeysFor(input.team.teamId)
         const t0 = performance.now()
+        const callStartEpochMs = performance.timeOrigin + t0
         let result
         try {
             result = await getRustAnonymizer().anonymizeKafkaPayload(
                 message.value,
                 contentEncoding,
-                input.team.firstPartyHosts
+                teamKeys?.pseudoTeam,
+                teamKeys?.contentKey
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
@@ -76,6 +132,10 @@ export function createParseAndAnonymizeMessageStep<
             return drop('anonymize_failed')
         }
         SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', performance.now() - t0, result.route ?? '')
+        recordAnonymizeTimingSpans(callStartEpochMs, result.timings, {
+            route: result.route,
+            failureReason: result.failed ? (result.reason ?? 'anonymize_failed') : null,
+        })
 
         if (result.failed) {
             if (result.reason && DLQ_REASONS.has(result.reason)) {
@@ -169,6 +229,35 @@ export function createParseAndAnonymizeMessageStep<
             snapshot_library: meta.snapshotLibrary,
         }
 
-        return ok({ ...input, parsedMessage })
+        const collectedImages = teamKeys ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images) : undefined
+        return ok({ ...input, parsedMessage, collectedImages })
     }
+}
+
+/**
+ * Slice the addon's packed image buffer into per-image produce records. The lines already carry the
+ * refs, so a skipped slice only means that ref stays dangling (same outcome as a failed produce) —
+ * never a blocked message.
+ */
+function unpackCollectedImages(
+    pseudoTeam: string,
+    meta: AnonymizeMeta,
+    packed: Buffer | null
+): CollectedImage[] | undefined {
+    if (!meta.images?.length || !packed) {
+        return undefined
+    }
+    const images: CollectedImage[] = []
+    for (const entry of meta.images) {
+        if (entry.offset < 0 || entry.len < 0 || entry.offset + entry.len > packed.length) {
+            logger.warn('🙈', 'collected_image_entry_out_of_bounds', { ...entry, packedLength: packed.length })
+            continue
+        }
+        images.push({
+            ref: imageRef(pseudoTeam, entry.hash),
+            bytes: packed.subarray(entry.offset, entry.offset + entry.len),
+        })
+    }
+    SessionRecordingIngesterMetrics.incrementMlImagesCollected('collected', images.length)
+    return images.length > 0 ? images : undefined
 }

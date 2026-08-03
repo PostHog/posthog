@@ -16,9 +16,15 @@ from products.review_hog.backend.temporal.activities import (
     select_perspectives_activity,
     split_chunks_activity,
     sync_review_skills_activity,
+    track_review_completed_activity,
     validate_chunk_activity,
     validate_github_integration_activity,
 )
+from products.review_hog.backend.temporal.outcomes_activities import (
+    classify_team_outcomes_activity,
+    discover_outcome_teams_activity,
+)
+from products.review_hog.backend.temporal.outcomes_workflow import ClassifyFindingOutcomesWorkflow
 from products.review_hog.backend.temporal.workflow import (
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
@@ -29,6 +35,7 @@ WORKFLOWS = [
     ReviewPRWorkflow,
     ReviewPerspectivesWorkflow,
     ValidateIssuesWorkflow,
+    ClassifyFindingOutcomesWorkflow,
 ]
 
 ACTIVITIES = [
@@ -50,5 +57,8 @@ ACTIVITIES = [
     post_status_comment_activity,
     finalize_status_comment_activity,
     fail_status_comment_activity,
+    track_review_completed_activity,
     append_code_review_artefact_activity,
+    discover_outcome_teams_activity,
+    classify_team_outcomes_activity,
 ]

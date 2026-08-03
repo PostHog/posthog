@@ -16,6 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
@@ -32,6 +33,7 @@ from posthog.hogql_queries.ai.utils import merge_heavy_properties
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 SESSION_TRACE_FIELDS_MAPPING: dict[str, str] = {
     "id": "id",
@@ -82,7 +84,10 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             tag_queries(ai_query_source="dedicated_table")
             query_result = self.paginator.execute_hogql_query(
                 query=query,
-                placeholders={"filter_conditions": rewrite_expr_for_ai_events_table(self._get_session_filter())},
+                placeholders={
+                    "session_filter_conditions": rewrite_expr_for_ai_events_table(self._get_session_filter()),
+                    "trace_filter_conditions": rewrite_expr_for_ai_events_table(self._get_trace_filter()),
+                },
                 team=self.team,
                 user=self.user,
                 query_type=NodeKind.SESSION_QUERY,
@@ -92,24 +97,30 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             )
 
         if not query_result.results:
-            fallback_filter = self._get_events_fallback_filter()
-            if fallback_filter is None:
+            fallback_filters = self._get_events_fallback_filters()
+            if fallback_filters is None:
                 return self._response_from_query_result(query_result, [])
 
+            fallback_session_filter, fallback_trace_filter = fallback_filters
             with (
                 self.timings.measure("session_query_events_fallback_execute"),
                 tags_context(product=Product.LLM_ANALYTICS),
             ):
                 tag_queries(ai_query_source="shared_table_fallback")
+                events_schema = use_new_events_schema(self.team.pk)
                 query_result = self.paginator.execute_hogql_query(
                     query=rewrite_query_for_events_table(query),
-                    placeholders={"filter_conditions": rewrite_expr_for_events_table(fallback_filter)},
+                    placeholders={
+                        "session_filter_conditions": rewrite_expr_for_events_table(fallback_session_filter),
+                        "trace_filter_conditions": rewrite_expr_for_events_table(fallback_trace_filter),
+                    },
                     team=self.team,
                     user=self.user,
                     query_type="SessionQueryEventsFallback",
                     timings=self.timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
+                    context=HogQLContext(team_id=self.team.pk, user=self.user, use_new_events_schema=events_schema),
                 )
 
         columns: list[str] = query_result.columns or []
@@ -235,7 +246,12 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
-              AND {filter_conditions}
+              AND {trace_filter_conditions}
+              AND trace_id IN (
+                  SELECT trace_id
+                  FROM posthog.ai_events AS ai_events
+                  WHERE {session_filter_conditions}
+              )
             GROUP BY trace_id
             ORDER BY first_timestamp DESC
             """,
@@ -261,7 +277,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
     def _has_fallback_date_range(self) -> bool:
         return bool(self.query.dateRange and self.query.dateRange.date_from)
 
-    def _get_session_filter(self) -> ast.Expr:
+    def _get_trace_filter(self) -> ast.Expr:
         return ast.And(
             exprs=[
                 ast.Call(name="isNotNull", args=[ast.Field(chain=["ai_events", "trace_id"])]),
@@ -270,6 +286,13 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     left=ast.Field(chain=["ai_events", "trace_id"]),
                     right=ast.Constant(value=""),
                 ),
+            ]
+        )
+
+    def _get_session_filter(self) -> ast.Expr:
+        return ast.And(
+            exprs=[
+                self._get_trace_filter(),
                 ast.Call(name="isNotNull", args=[ast.Field(chain=["ai_events", "session_id"])]),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
@@ -279,13 +302,12 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             ]
         )
 
-    def _get_events_fallback_filter(self) -> ast.Expr | None:
+    def _get_events_fallback_filters(self) -> tuple[ast.Expr, ast.Expr] | None:
         if not self._has_fallback_date_range():
             return None
 
-        return ast.And(
+        date_filter = ast.And(
             exprs=[
-                self._get_session_filter(),
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
                     left=ast.Field(chain=["ai_events", "timestamp"]),
@@ -296,7 +318,11 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     left=ast.Field(chain=["ai_events", "timestamp"]),
                     right=self._date_range.date_to_as_hogql(),
                 ),
-            ]
+            ],
+        )
+        return (
+            ast.And(exprs=[self._get_session_filter(), date_filter]),
+            ast.And(exprs=[self._get_trace_filter(), date_filter]),
         )
 
     def _response_from_query_result(self, query_result: Any, results: list[LLMTrace]) -> SessionQueryResponse:

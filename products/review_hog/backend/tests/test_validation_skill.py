@@ -24,9 +24,9 @@ from products.skills.backend.models.skills import LLMSkill
 _CUSTOM_VALIDATOR = f"{REVIEW_HOG_VALIDATION_PREFIX}strict"
 
 
-def _author_validator_skill(team, name: str) -> LLMSkill:
+def _author_validator_skill(team, name: str, created_by: User | None = None) -> LLMSkill:
     return LLMSkill.objects.create(
-        team=team, name=name, description="custom", body="x" * 250, version=1, is_latest=True
+        team=team, name=name, description="custom", body="x" * 250, version=1, is_latest=True, created_by=created_by
     )
 
 
@@ -127,7 +127,7 @@ class TestLoadValidationSkillForRun(BaseTest):
         # The core "author a custom validator and run it" path: with the custom selected (canonical
         # off), the run resolves the custom validator, not the canonical default.
         sync_canonical_validation(self.team)
-        _author_validator_skill(self.team, _CUSTOM_VALIDATOR)
+        _author_validator_skill(self.team, _CUSTOM_VALIDATOR, created_by=self.user)
         register_missing_validation_config(self.team.id, self.user.id)
         configs = ReviewSkillConfig.objects.for_team(self.team.id)
         configs.filter(user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME).update(enabled=False)
@@ -136,6 +136,21 @@ class TestLoadValidationSkillForRun(BaseTest):
         loaded = load_validation_skill_for_run(self.team.id, self.user.id)
 
         assert loaded.skill_name == _CUSTOM_VALIDATOR
+
+    def test_falls_back_to_canonical_when_the_selected_skill_was_authored_by_another_user(self) -> None:
+        # A leftover selection of a teammate's custom validator (from before visibility became
+        # author-only) must fall back to the canonical, not silently validate with an invisible bar.
+        sync_canonical_validation(self.team)
+        teammate = User.objects.create(email="teammate-validation-loader@example.com")
+        _author_validator_skill(self.team, _CUSTOM_VALIDATOR, created_by=teammate)
+        register_missing_validation_config(self.team.id, self.user.id)
+        configs = ReviewSkillConfig.objects.for_team(self.team.id)
+        configs.filter(user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME).update(enabled=False)
+        configs.create(team_id=self.team.id, user_id=self.user.id, skill_name=_CUSTOM_VALIDATOR, enabled=True)
+
+        loaded = load_validation_skill_for_run(self.team.id, self.user.id)
+
+        assert loaded.skill_name == REVIEW_HOG_VALIDATION_SKILL_NAME
 
     def test_falls_back_to_canonical_when_none_enabled(self) -> None:
         # No min-1 floor: if the user has no enabled validator row at all, the loader resolves the
@@ -171,7 +186,7 @@ class TestLoadValidationSkillForRun(BaseTest):
     def test_selection_is_per_user(self) -> None:
         # Selecting a custom validator for one user must not affect another user's run.
         sync_canonical_validation(self.team)
-        _author_validator_skill(self.team, _CUSTOM_VALIDATOR)
+        _author_validator_skill(self.team, _CUSTOM_VALIDATOR, created_by=self.user)
         other = User.objects.create(email="other-validator@example.com")
         configs = ReviewSkillConfig.objects.for_team(self.team.id)
         register_missing_validation_config(self.team.id, self.user.id)

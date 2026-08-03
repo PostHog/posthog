@@ -3,13 +3,20 @@ import logging
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
-from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    GitHubAuthenticationError,
+    OAuthTokenError,
+    TaskNotFoundError,
+)
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
@@ -21,11 +28,13 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxTemplate,
     parse_sandbox_repo_mount_map,
 )
+from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_session
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_snapshot_restore, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
+    ai_gateway_env_vars,
     get_git_identity_env_vars,
     get_sandbox_api_url,
     get_sandbox_github_token,
@@ -46,6 +55,7 @@ def _get_image_source_label(
     provider: str | None,
     resume_snapshot_external_id: str | None,
     snapshot: SandboxSnapshot | None,
+    custom_image_name: str | None = None,
 ) -> str:
     if resume_snapshot_external_id:
         return f"resume snapshot {resume_snapshot_external_id}"
@@ -53,6 +63,9 @@ def _get_image_source_label(
     if snapshot is not None:
         external_id = snapshot.external_id or str(snapshot.id)
         return f"repository snapshot {external_id}"
+
+    if custom_image_name:
+        return f"custom base image {custom_image_name}"
 
     if provider == "docker":
         return "local Docker sandbox image"
@@ -124,7 +137,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         snapshot_source = "none"
         snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
         snapshot_mount_path: str | None = None
-        if has_repo and github_integration_id is not None:
+        # Repo-setup snapshots come from default-base sandboxes; restoring one would drop the custom image.
+        if has_repo and github_integration_id is not None and not ctx.custom_image_name:
             assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(github_integration_id, [repository])
@@ -171,6 +185,12 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                         repository=repository,
                     )
                     or ""
+                )
+            except ReauthorizationRequired as e:
+                raise CredentialUnavailableError(
+                    "GitHub user integration for this run requires reauthorization",
+                    {"github_integration_id": github_integration_id, "task_id": ctx.task_id},
+                    cause=e,
                 )
             except Exception as e:
                 raise GitHubAuthenticationError(
@@ -221,6 +241,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+        environment_variables.update(ai_gateway_env_vars())
+
         environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
         run_state = parse_run_state(ctx.state)
@@ -249,11 +271,14 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
+        use_vm_sandbox = ctx.use_modal_vm_sandbox
+        custom_image_name = ctx.custom_image_name if use_vm_sandbox else None
         image_source_label = _get_image_source_label(
             has_repo=has_repo,
             provider=provider,
             resume_snapshot_external_id=resume_snapshot_ext_id,
             snapshot=snapshot if not resume_snapshot_ext_id else None,
+            custom_image_name=custom_image_name,
         )
 
         if resume_snapshot_ext_id:
@@ -267,7 +292,9 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
-            template=SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            custom_image_name=custom_image_name,
+            vm_runtime=use_vm_sandbox,
             environment_variables=environment_variables,
             snapshot_external_id=resume_snapshot_ext_id,
             snapshot_kind=snapshot_kind,
@@ -285,8 +312,17 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         )
         with StepTimer("sandbox_creation", used_snapshot=used_snapshot) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
+            # The provider's TTL clock starts here — the usage ledger anchors its
+            # kill deadline on this boundary, not on when the row is opened below.
+            sandbox_created_at = timezone.now()
             used_snapshot = bool((resume_snapshot_ext_id or snapshot) and sandbox.config.snapshot_restored)
             sandbox_creation_timer.set_used_snapshot(used_snapshot)
+        if sandbox.config.image_fallback:
+            emit_agent_log(ctx.run_id, "warn", f"Sandbox image downgraded: {sandbox.config.image_fallback}")
+        if sandbox.launch_dev_stack_bootstrap():
+            emit_agent_log(
+                ctx.run_id, "debug", "Warming the prebaked dev stack in the background (compose host aliases + dockerd)"
+            )
         snapshot_outcome = "used" if used_snapshot else "fresh" if snapshot_source == "none" else "fallback"
         metrics_snapshot_kind = snapshot_kind if snapshot_source != "none" else "none"
         increment_snapshot_usage(used_snapshot, snapshot_source=snapshot_source, snapshot_kind=metrics_snapshot_kind)
@@ -350,14 +386,28 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
 
         credentials = sandbox.get_connect_credentials()
 
-        sandbox_state = {
-            "sandbox_id": sandbox.id,
-            "sandbox_url": credentials.url,
-            SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
-        }
-        if credentials.token:
-            sandbox_state["sandbox_connect_token"] = credentials.token
-        TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+        try:
+            sandbox_state = {
+                "sandbox_id": sandbox.id,
+                "sandbox_url": credentials.url,
+                SANDBOX_JWT_STATE_KID_KEY: get_primary_sandbox_jwt_kid(),
+            }
+            if credentials.token:
+                sandbox_state["sandbox_connect_token"] = credentials.token
+            TaskRun.update_state_atomic(ctx.run_id, updates=sandbox_state)
+            open_sandbox_session(
+                run_id=ctx.run_id,
+                sandbox_id=sandbox.id,
+                config=sandbox.config,
+                sandbox_created_at=sandbox_created_at,
+                required=ctx.task_runtime == "pi",
+            )
+        except Exception:
+            try:
+                sandbox.destroy()
+            finally:
+                TaskRun.clear_sandbox_connection_state_atomic(ctx.run_id, sandbox.id)
+            raise
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
 

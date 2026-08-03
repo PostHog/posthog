@@ -6,12 +6,8 @@ from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import effective_priority
-from products.review_hog.backend.reviewer.diff_position import (
-    build_diff_line_map,
-    find_diff_position,
-    format_line_ranges,
-)
+from products.review_hog.backend.reviewer.constants import effective_priority, published_priorities_for
+from products.review_hog.backend.reviewer.diff_position import build_diff_line_map, find_diff_position
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
@@ -19,6 +15,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
     github_api_request,
+    is_app_bot_author,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +55,7 @@ def publish_persisted_review(
     repo: str,
     pr_number: int,
     token: str,
-    published_priorities: set[IssuePriority],
+    urgency_threshold: IssuePriority,
     installation_id: str | None = None,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
@@ -68,7 +65,11 @@ def publish_persisted_review(
     already published (so a re-trigger / re-run can't double-post or re-fire the one-time promo),
     rebuilds the inline comments from this run's valid findings against the snapshot diff, and records
     the published-head watermark only on a real post (a no-op turn must not block a later publish at
-    the same head). Reads the DB, so callers run it off the event loop.
+    the same head). `urgency_threshold` gates which findings publish and is snapshotted on the report
+    under this turn's `run_index`, so outcome classification later reconstructs the published set from
+    the threshold that actually gated each turn, not the user's live setting and not whichever
+    threshold happened to be in force at the last publish. Reads the DB, so callers run it off the
+    event loop.
     """
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     if report.published_head_sha == head_sha:
@@ -88,12 +89,40 @@ def publish_persisted_review(
         head_sha=head_sha,
         # The alpha promo comment is posted once per report (first real publish), not every turn.
         post_promo=report.published_head_sha is None,
-        published_priorities=published_priorities,
+        published_priorities=published_priorities_for(urgency_threshold),
         installation_id=installation_id,
     )
     if outcome.posted:
+        if report.outcomes_emitted_at is not None:
+            # Outcome idempotency is report-scoped: the sweep skips any report already stamped
+            # emitted, so this turn's findings will never be classified. Only reachable by
+            # re-triggering a review on a PR that already merged and was already classified, at a
+            # head it had not been published to before. Logged rather than handled because making
+            # the sweep publish-scoped would mean re-deciding outcomes per publish.
+            logger.warning(
+                "Report %s re-published at %s after its outcomes were emitted; this turn's findings "
+                "will not be classified",
+                report_id,
+                head_sha,
+            )
         report.published_head_sha = head_sha
-        report.save(update_fields=["published_head_sha", "updated_at"])
+        # Recorded per turn, never overwritten: this turn posted only its own findings, so an
+        # earlier turn's threshold stays the truth about what that turn put on the PR.
+        report.published_urgency_thresholds = {
+            **(report.published_urgency_thresholds or {}),
+            str(run_index): urgency_threshold.value,
+        }
+        # The base a later sweep compares this turn's findings against. Without it every finding is
+        # compared from the newest publish, so a fix landing between two turns falls outside the diff.
+        report.published_head_shas = {**(report.published_head_shas or {}), str(run_index): head_sha}
+        report.save(
+            update_fields=[
+                "published_head_sha",
+                "published_urgency_thresholds",
+                "published_head_shas",
+                "updated_at",
+            ]
+        )
     return outcome
 
 
@@ -180,20 +209,58 @@ def publish_review(
     return PublishOutcome(posted=True, review_url=review_url)
 
 
-def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
-    """Format a finding + its verdict as an inline comment body."""
-    formatted_lines = format_line_ranges(finding.lines)
-    priority = effective_priority(finding.priority, verdict.adjusted_priority)
+# Severity badge (label, shields.io hex color) per priority. The badge is a shields.io image, so its
+# alt text is the raw enum value: the priority still reads in email digests and when images are
+# blocked, and screen readers announce it. Colors track a red → orange → blue calm-down scale.
+_PRIORITY_BADGE: dict[IssuePriority, tuple[str, str]] = {
+    IssuePriority.MUST_FIX: ("must fix", "D1242F"),
+    IssuePriority.SHOULD_FIX: ("should fix", "E36209"),
+    IssuePriority.CONSIDER: ("consider", "0969DA"),
+}
+# Neutral grey for the category chip — it's context, not severity, so it shouldn't compete for color.
+_CATEGORY_BADGE_COLOR = "656D76"
 
-    meta_parts = [f"**Priority:** {priority.value}"]
-    if verdict.category:
-        meta_parts.append(f"**Category:** {verdict.category}")
-    meta_parts.append(f"**Lines:** {formatted_lines}")
+
+def _shields_badge(label: str, color: str, *, alt: str) -> str:
+    """One shields.io badge as a markdown image. A literal space in `label` is encoded as `_` (shields
+    renders `_` back as a space); `alt` is what shows when the image can't load (email, blocked, a11y).
+    """
+    return f"![{alt}](https://img.shields.io/badge/{label.replace(' ', '_')}-{color})"
+
+
+def _finding_badge_line(priority: IssuePriority, category: str | None) -> str:
+    """The colored severity (+ optional category) badge line leading an inline finding comment."""
+    label, color = _PRIORITY_BADGE[priority]
+    badges = [_shields_badge(label, color, alt=priority.value)]
+    if category:
+        # `code_quality` renders as "code quality" — shields already turns a single `_` into a space.
+        badges.append(_shields_badge(category, _CATEGORY_BADGE_COLOR, alt=category))
+    return " ".join(badges)
+
+
+def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
+    """Format a finding + its verdict as an inline comment body.
+
+    Leads with the title, then a line of colored severity/category badges (replacing the old
+    `Priority | Category | Lines` text meta); four collapsed sections follow, the validator's verdict
+    first — it is the human-facing evidence, so the reading order is claim (title) → why it's real
+    (validation) → description / fix / AI prompt for whoever wants more. Line refs are omitted from
+    the top — the comment is anchored inline and the lines live in the AI prompt.
+    """
+    priority = effective_priority(finding.priority, verdict.adjusted_priority)
 
     lines = [
         f"### {finding.title}",
         "",
-        " | ".join(meta_parts),
+        _finding_badge_line(priority, verdict.category),
+        "",
+        "<details>",
+        "<summary><strong>Why we think it's a valid issue</strong></summary>",
+        "<br>",
+        "",
+        verdict.argumentation,
+        "",
+        "</details>",
         "",
         "<details>",
         "<summary><strong>Issue description</strong></summary>",
@@ -212,15 +279,7 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
         "</details>",
         "",
         "<details>",
-        ("<summary><strong>Why we think it's a valid issue</strong></summary>"),
-        "<br>",
-        "",
-        verdict.argumentation,
-        "",
-        "</details>",
-        "",
-        "<details>",
-        ("<summary><strong>Prompt to fix with AI (copy-paste)</strong></summary>"),
+        "<summary><strong>Prompt to fix with AI (copy-paste)</strong></summary>",
         "<br>",
         "",
         "```",
@@ -303,11 +362,14 @@ def _review_already_posted(
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
     Best-effort idempotency backstop: if the readback fails we proceed to post rather than silently
-    drop the review — the `published_head_sha` watermark still guards the common retry path.
+    drop the review — the `published_head_sha` watermark still guards the common retry path. Only
+    our own app-bot's reviews count (`is_app_bot_author`, shared with the status comment's marker
+    scan): on a public repo anyone can paste the marker, and a spoofed match would silently
+    suppress the publish.
     """
     try:
         return any(
-            marker in (review.get("body") or "")
+            is_app_bot_author(review.get("user")) and marker in (review.get("body") or "")
             for review in github_api_get_paginated(
                 f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
                 token=token,

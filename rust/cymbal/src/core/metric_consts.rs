@@ -65,6 +65,14 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
     1_073_741_824.0, // 1 GiB
 ];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORED: &str =
+    "cymbal_issue_created_event_properties_stored";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_FAILED: &str =
+    "cymbal_issue_created_event_properties_store_failed";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_STORE_SKIPPED: &str =
+    "cymbal_issue_created_event_properties_store_skipped";
+pub const ISSUE_CREATED_EVENT_PROPERTIES_BYTES: &str =
+    "cymbal_issue_created_event_properties_bytes";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
@@ -98,15 +106,9 @@ pub const SPIKE_INCREMENT_ISSUE_BUCKETS_TIME: &str = "cymbal_spike_increment_iss
 pub const SPIKE_INCREMENT_TEAM_BUCKETS_TIME: &str = "cymbal_spike_increment_team_buckets_time";
 pub const SPIKE_GET_SPIKING_ISSUES_TIME: &str = "cymbal_spike_get_spiking_issues_time";
 pub const SPIKE_ACQUIRE_LOCKS_TIME: &str = "cymbal_spike_acquire_locks_time";
-pub const SPIKE_EMIT_EVENTS_TIME: &str = "cymbal_spike_emit_events_time";
 pub const SPIKE_ISSUES_CHECKED: &str = "cymbal_spike_issues_checked";
 pub const SPIKE_ISSUES_SPIKING: &str = "cymbal_spike_issues_spiking";
 pub const SPIKE_ISSUES_BLOCKED_BY_COOLDOWN: &str = "cymbal_spike_issues_blocked_by_cooldown";
-
-// Signal metrics
-pub const SIGNAL_EMITTED: &str = "cymbal_signal_emitted";
-pub const SIGNAL_EMIT_FAILED: &str = "cymbal_signal_emit_failed";
-pub const SIGNAL_EMIT_RESPONSE: &str = "cymbal_signal_emit_response";
 
 // Stages Name.
 // We want to keep previous value for comparison, can be changed later on
@@ -127,7 +129,6 @@ pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 // Operators
 pub const FRAME_RESOLVER_OPERATOR: &str = "cymbal_frame_batch_time";
 pub const EXCEPTION_RESOLVER_OPERATOR: &str = "cymbal_exception_exception_resolver_operator";
-pub const PROPERTIES_RESOLVER_OPERATOR: &str = "cymbal_exception_properties_resolver_operator";
 pub const LEGACY_ORDER_RESOLVER_OPERATOR: &str = "cymbal_exception_legacy_order_resolver_operator";
 pub const LEGACY_ORDER_RESOLVE_FAILED: &str = "cymbal_exception_legacy_order_resolve_failed";
 pub const FINGERPRINT_LEGACY_VERSION_USED: &str = "cymbal_fingerprint_legacy_version_used";

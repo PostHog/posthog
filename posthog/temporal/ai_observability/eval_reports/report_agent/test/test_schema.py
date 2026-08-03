@@ -8,6 +8,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     MIN_REPORT_SECTIONS,
     Citation,
     EvalReportContent,
+    EvalReportGenerationStatus,
     EvalReportMetrics,
     ReportSection,
 )
@@ -214,10 +215,13 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertEqual(len(c.sections), 2)
         self.assertEqual(c.sections[1].content, "C2")
         self.assertEqual(c.citations[0].reason, "r")
+        self.assertIsNotNone(c.metrics)
+        assert c.metrics is not None
         self.assertEqual(c.metrics.total_runs, 10)
 
     def test_roundtrip(self):
         original = EvalReportContent(
+            evaluation_target="trace",
             title="T",
             sections=[ReportSection(title="S", content="C")],
             citations=[Citation(generation_id="g", trace_id="t", reason="r")],
@@ -229,6 +233,26 @@ class TestEvalReportContent(SimpleTestCase):
         self.assertEqual(roundtripped.sections[0], original.sections[0])
         self.assertEqual(roundtripped.citations[0], original.citations[0])
         self.assertEqual(roundtripped.metrics, original.metrics)
+        self.assertEqual(roundtripped.evaluation_target, "trace")
+
+    def test_metrics_unavailable_roundtrip_has_no_placeholder_metrics(self):
+        original = EvalReportContent(
+            generation_status=EvalReportGenerationStatus.METRICS_UNAVAILABLE,
+            metrics=None,
+        )
+
+        roundtripped = EvalReportContent.from_dict(original.to_dict())
+
+        self.assertEqual(roundtripped.generation_status, EvalReportGenerationStatus.METRICS_UNAVAILABLE)
+        self.assertIsNone(roundtripped.metrics)
+
+    def test_historical_content_defaults_to_completed(self):
+        content = EvalReportContent.from_dict({"metrics": {"total_runs": 5}})
+
+        self.assertEqual(content.generation_status, EvalReportGenerationStatus.COMPLETED)
+        self.assertIsNotNone(content.metrics)
+        assert content.metrics is not None
+        self.assertEqual(content.metrics.total_runs, 5)
 
 
 class TestSectionBounds(SimpleTestCase):

@@ -15,7 +15,7 @@ use crate::metric_consts::{
     SPIKE_ISSUES_SPIKING,
 };
 use crate::modes::processing::rules::spike::SpikeDetectionConfig;
-use crate::types::OutputErrProps;
+use crate::types::ProcessedExceptionProperties;
 
 const ISSUE_BUCKET_TTL_SECONDS: usize = 60 * 60;
 const ISSUE_BUCKET_INTERVAL_MINUTES: i64 = 5;
@@ -42,9 +42,18 @@ fn cooldown_key(issue_id: &Uuid) -> String {
 #[derive(Debug, Clone)]
 pub struct SpikingIssue {
     pub issue: Issue,
-    pub props: OutputErrProps,
+    pub props: ProcessedExceptionProperties,
+    pub event_uuid: Uuid,
+    pub event_timestamp: String,
     pub computed_baseline: f64,
     pub current_bucket_value: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SpikeSample {
+    pub props: ProcessedExceptionProperties,
+    pub event_uuid: Uuid,
+    pub event_timestamp: String,
 }
 
 /// Bucket data for a single issue
@@ -168,7 +177,7 @@ async fn try_increment_team_buckets(
 pub async fn do_spike_detection(
     context: Arc<AppContext>,
     issues_by_id: HashMap<Uuid, Issue>,
-    issue_props_by_id: HashMap<Uuid, OutputErrProps>,
+    issue_samples_by_id: HashMap<Uuid, SpikeSample>,
     issue_counts: HashMap<Uuid, u32>,
 ) -> Result<(), UnhandledError> {
     if issue_counts.is_empty() {
@@ -218,7 +227,7 @@ pub async fn do_spike_detection(
     let spiking = get_spiking_issues(
         &*context.issue_buckets_redis_client,
         &issues_by_id,
-        &issue_props_by_id,
+        &issue_samples_by_id,
         &team_configs,
     )
     .await;
@@ -306,6 +315,8 @@ async fn emit_spiking_events(
             context,
             &spike.issue,
             spike.props.clone(),
+            spike.event_uuid,
+            &spike.event_timestamp,
             spike.computed_baseline,
             spike.current_bucket_value as f64,
         )
@@ -379,7 +390,7 @@ fn is_spiking(current_value: i64, baseline: f64, config: &SpikeDetectionConfig) 
 async fn get_spiking_issues(
     redis: &(dyn Client + Send + Sync),
     issues_by_id: &HashMap<Uuid, Issue>,
-    issue_props_by_id: &HashMap<Uuid, OutputErrProps>,
+    issue_samples_by_id: &HashMap<Uuid, SpikeSample>,
     team_configs: &HashMap<i32, SpikeDetectionConfig>,
 ) -> Result<Vec<SpikingIssue>, UnhandledError> {
     if issues_by_id.is_empty() {
@@ -419,12 +430,20 @@ async fn get_spiking_issues(
         })?;
 
         if is_spiking(current_value, baseline, config) {
+            let sample = issue_samples_by_id
+                .get(&bucket.issue_id)
+                .cloned()
+                .ok_or_else(|| {
+                    UnhandledError::Other(format!(
+                        "No processed exception properties for issue {}",
+                        bucket.issue_id
+                    ))
+                })?;
             spiking.push(SpikingIssue {
                 issue: issue.clone(),
-                props: issue_props_by_id
-                    .get(&bucket.issue_id)
-                    .cloned()
-                    .unwrap_or_default(),
+                props: sample.props,
+                event_uuid: sample.event_uuid,
+                event_timestamp: sample.event_timestamp,
                 computed_baseline: baseline,
                 current_bucket_value: current_value,
             });
@@ -529,6 +548,29 @@ mod tests {
         v.to_string().into_bytes()
     }
 
+    fn processed_properties(issue_id: Uuid) -> ProcessedExceptionProperties {
+        serde_json::from_value(serde_json::json!({
+            "$exception_list": [{"type": "Error", "value": "boom"}],
+            "$exception_fingerprint": "test-fingerprint",
+            "$exception_fingerprint_record": [{"type": "manual"}],
+            "$exception_issue_id": issue_id,
+            "$exception_handled": false,
+            "$exception_types": ["Error"],
+            "$exception_values": ["boom"],
+            "$exception_sources": [],
+            "$exception_functions": [],
+        }))
+        .unwrap()
+    }
+
+    fn spike_sample(issue_id: Uuid) -> SpikeSample {
+        SpikeSample {
+            props: processed_properties(issue_id),
+            event_uuid: Uuid::now_v7(),
+            event_timestamp: Utc::now().to_rfc3339(),
+        }
+    }
+
     struct TestContext {
         redis: MockRedisClient,
         issue_id: Uuid,
@@ -604,8 +646,8 @@ mod tests {
 
         async fn get_spiking(&self) -> Vec<SpikingIssue> {
             let configs = HashMap::from([(self.team_id, SpikeDetectionConfig::default())]);
-            let empty_props = HashMap::new();
-            get_spiking_issues(&self.redis, &self.issues_by_id(), &empty_props, &configs)
+            let samples = HashMap::from([(self.issue_id, spike_sample(self.issue_id))]);
+            get_spiking_issues(&self.redis, &self.issues_by_id(), &samples, &configs)
                 .await
                 .unwrap()
         }
@@ -1033,8 +1075,11 @@ mod tests {
             (team_1, SpikeDetectionConfig::default()),
             (team_2, SpikeDetectionConfig::default()),
         ]);
-        let empty_props = HashMap::new();
-        let result = get_spiking_issues(&redis, &issues_by_id, &empty_props, &configs)
+        let samples = issues_by_id
+            .keys()
+            .map(|issue_id| (*issue_id, spike_sample(*issue_id)))
+            .collect();
+        let result = get_spiking_issues(&redis, &issues_by_id, &samples, &configs)
             .await
             .unwrap();
 

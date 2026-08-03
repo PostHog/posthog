@@ -146,12 +146,13 @@ async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
 
 @pytest.mark.parametrize(
     "data_interval_start",
-    [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=24)],
+    # Use 72 hours so that with 10 randomly sampled persons the probability of none landing
+    # more than 12 hours before the end is negligible ((12/72)^10 ≈ 1 in 60 million).
+    [dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0) - dt.timedelta(hours=72)],
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
-@pytest.mark.flaky(reruns=2)
 async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
     clickhouse_client,
     minio_client,

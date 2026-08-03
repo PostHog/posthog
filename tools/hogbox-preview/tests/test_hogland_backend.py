@@ -317,5 +317,64 @@ class CreateRetriesTransient5xxTest(unittest.TestCase):
         self.assertEqual(attempts["n"], 1)
 
 
+@unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
+class CreateFailsFastOnNoCapacityTest(unittest.TestCase):
+    """A capacity 503 already cost ~4 minutes server-side (auction retry
+    budget) before hogland gave up, so it must raise on the first attempt
+    instead of burning 3x that in runner time. Every other 5xx keeps
+    retrying — see CreateRetriesTransient5xxTest."""
+
+    def _stub_ssh(self):
+        from hogbox_preview import hogland_backend
+
+        return unittest.mock.patch.object(
+            hogland_backend, "_ephemeral_ssh_pubkey", return_value="ssh-ed25519 AAAA fake"
+        )
+
+    def test_capacity_503_raises_immediately(self):
+        from hogbox_preview import hogland_backend
+        from hogland import ServerError
+
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            raise ServerError(
+                "no hogd has capacity: scale-up did not produce a willing hogd within 5m0s",
+                status_code=503,
+            )
+
+        client = _FakeClient(create=create)
+        backend = _make_backend(client)
+
+        with self._stub_ssh(), unittest.mock.patch.object(hogland_backend.time, "sleep") as sleep:
+            with self.assertRaises(ServerError) as ctx:
+                backend._restore_fresh()
+
+        self.assertEqual(attempts["n"], 1)
+        sleep.assert_not_called()
+        self.assertIn("no capacity", str(ctx.exception))
+        self.assertIn("retry", str(ctx.exception))
+
+    def test_generic_5xx_still_retries_three_times(self):
+        from hogbox_preview import hogland_backend
+        from hogland import ServerError
+
+        attempts = {"n": 0}
+
+        def create(**_kwargs):
+            attempts["n"] += 1
+            raise ServerError("placement failed: place: EOF", status_code=500)
+
+        client = _FakeClient(create=create)
+        backend = _make_backend(client)
+
+        with self._stub_ssh(), unittest.mock.patch.object(hogland_backend.time, "sleep"):
+            with self.assertRaises(ServerError):
+                backend._restore_fresh()
+
+        self.assertEqual(attempts["n"], hogland_backend._CREATE_5XX_ATTEMPTS)
+
+
 if __name__ == "__main__":
     unittest.main()

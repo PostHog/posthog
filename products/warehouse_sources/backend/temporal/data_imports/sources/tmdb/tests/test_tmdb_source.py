@@ -4,7 +4,7 @@ from unittest import mock
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import TMDbSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tmdb import TMDbSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.source import TMDbSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tmdb.tmdb import TMDbResumeConfig

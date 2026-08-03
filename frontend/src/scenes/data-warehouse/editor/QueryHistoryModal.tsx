@@ -15,6 +15,7 @@ import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { editorSceneLogic } from './editorSceneLogic'
+import { InsightHistory } from './InsightHistory'
 import { queryHistoryLogic } from './queryHistoryLogic'
 
 function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
@@ -138,14 +139,23 @@ function QueryHistoryLog({ id }: { id?: number | string }): JSX.Element {
 }
 
 export function QueryHistoryModal(): JSX.Element {
-    const { editingView, isHistoryModalOpen } = useValues(editorSceneLogic)
+    const { editingView, editingInsight, insightLoading, isHistoryModalOpen } = useValues(editorSceneLogic)
     const { closeHistoryModal } = useActions(editorSceneLogic)
 
     return (
-        <LemonModal title="View history" isOpen={isHistoryModalOpen} onClose={closeHistoryModal} width={800}>
-            <div className="ActivityLog">
-                <QueryHistoryLog id={editingView?.id} />
-            </div>
+        <LemonModal
+            title={editingView ? 'View history' : 'Insight history'}
+            isOpen={isHistoryModalOpen}
+            onClose={closeHistoryModal}
+            width={800}
+        >
+            {editingView ? (
+                <div className="ActivityLog">
+                    <QueryHistoryLog id={editingView.id} />
+                </div>
+            ) : editingInsight || insightLoading ? (
+                <InsightHistory insight={editingInsight ?? null} />
+            ) : null}
         </LemonModal>
     )
 }

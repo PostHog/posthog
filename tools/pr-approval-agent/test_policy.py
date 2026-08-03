@@ -153,7 +153,7 @@ OLD_ALLOW_PATH_PATTERNS = [
 OLD_MAX_LINES = 800
 OLD_MAX_FILES = 30
 OLD_DISMISS_TEST_RE = "(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\\.py$|_test\\.(py|go)$|\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$|(?:^|/)conftest\\.py$"
-OLD_DISMISS_GENERATED_RE = "(?:^|/)generated/.*\\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|\\.gen\\.(ts|tsx|js|jsx)$|\\.generated\\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/"
+OLD_DISMISS_GENERATED_RE = "(?:^|/)generated/.*\\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|^services/mcp/src/api/generated\\.ts$|\\.gen\\.(ts|tsx|js|jsx)$|\\.generated\\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/"
 
 # ── 1. Equality snapshot: loaded policy matches pre-extraction literals ──
 
@@ -266,6 +266,17 @@ def test_malformed_policy_hard_fails(tmp_path: Path, mutate) -> None:
     bad.write_text(yaml.safe_dump(data))
     with pytest.raises(PolicyError):
         load_policy(bad, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+
+def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> None:
+    # The hosted server declares a `digest:` top-level section it parses itself; the engine must
+    # tolerate (not require, not read) it, or any repo with a digest channel crashes every review.
+    data = _valid_policy_dict()
+    data["digest"] = {"channel": "eng-merges"}
+    path = tmp_path / "policy.yml"
+    path.write_text(yaml.safe_dump(data))
+    loaded = load_policy(path, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert loaded.version == 1
 
 
 # ── 3. Folder-override resolution ──

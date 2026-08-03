@@ -27,7 +27,13 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_github_tables
-from products.engineering_analytics.backend.logic.views import job_costs, pull_requests, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views import (
+    job_costs,
+    pull_requests,
+    team_members,
+    workflow_jobs,
+    workflow_runs,
+)
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -84,13 +90,24 @@ class CuratedGitHubSource:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
-        return f"({workflow_runs.build_query(self._tables.workflow_runs, started_floor=started_floor)})"
+        query = workflow_runs.build_query(
+            self._tables.workflow_runs,
+            pull_requests_table=self._tables.pull_requests,
+            started_floor=started_floor,
+        )
+        return f"({query})"
 
     def jobs_source(self) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced."""
         if not self._tables.workflow_jobs:
             return None
         return f"({workflow_jobs.build_query(self._tables.workflow_jobs)})"
+
+    def members_source(self) -> str | None:
+        """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
+        if not self._tables.team_members:
+            return None
+        return f"({team_members.build_query(self._tables.team_members)})"
 
     def job_cost_source(self) -> str | None:
         """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``

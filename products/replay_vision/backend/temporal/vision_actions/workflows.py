@@ -96,6 +96,12 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                     # final_status stays SKIPPED; record why so the run isn't an unexplained skip.
                     error_info = {"skip_reason": alert.status.value}
                     return
+                if alert.status == AlertStatus.RECOVERED:
+                    # The recovery bookend is visible run history but not a notification: complete the
+                    # run without delivering. Replay-safe unguarded: the branch is decided by recorded
+                    # activity output, and no pre-RECOVERED history contains this status.
+                    final_status = VisionActionRunStatus.COMPLETED.value
+                    return
             else:
                 synth = await wf.execute_activity(
                     synthesize_group_summary_activity,
@@ -140,8 +146,8 @@ class ProcessVisionActionWorkflow(PostHogWorkflow):
                     # If the body already succeeded, the delivery event was emitted (Slack post happened);
                     # a failed bookkeeping update must not flip the workflow to FAILED — re-running would
                     # double-post. Log loudly and let the workflow finish; the run row may stay RUNNING
-                    # (cosmetic, a post-MVP reconciler can resolve it). If the body failed, the original
-                    # error still re-raises below — the update failure must not mask it.
+                    # (reap_stuck_vision_action_runs_activity fails it once provably stuck). If the body
+                    # failed, the original error still re-raises below — the update failure must not mask it.
                     wf.logger.exception(
                         "vision_action.update_run_failed", vision_action_id=str(inputs.vision_action_id)
                     )

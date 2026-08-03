@@ -161,10 +161,10 @@ describe('useTooltipLifecycle', () => {
             },
         ],
         [
-            'click outside',
+            'pointer-down outside',
             () => {
                 jest.runAllTimers()
-                document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+                document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
             },
         ],
     ])('clears pinned tooltip on %s', (_name, trigger) => {
@@ -190,7 +190,7 @@ describe('useTooltipLifecycle', () => {
         expect(result.current.tooltipCtx!.isPinned).toBe(true)
     })
 
-    it('does not clear pinned tooltip on click inside the wrapper', () => {
+    it('does not clear pinned tooltip on pointer-down inside the wrapper', () => {
         const { result } = renderLifecycle()
         pinFromHover(result)
         act(() => {
@@ -198,11 +198,35 @@ describe('useTooltipLifecycle', () => {
         })
 
         act(() => {
-            refs.wrapperRef.current!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+            refs.wrapperRef.current!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
         })
 
         expect(result.current.tooltipCtx).not.toBeNull()
         expect(result.current.tooltipCtx!.isPinned).toBe(true)
+    })
+
+    it('survives a text-selection drag that starts inside the tooltip and releases outside', () => {
+        const { result } = renderLifecycle()
+        pinFromHover(result)
+        act(() => {
+            jest.runAllTimers()
+        })
+
+        const tooltipEl = document.createElement('div')
+        tooltipEl.setAttribute('data-hog-charts-tooltip', '')
+        document.body.appendChild(tooltipEl)
+
+        // Selecting text: press starts inside the tooltip, release lands outside — the browser
+        // then fires `click` on the common ancestor (body). Neither event may dismiss the pin,
+        // or the selection is wiped mid-copy.
+        act(() => {
+            tooltipEl.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }))
+            document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+        })
+
+        expect(result.current.tooltipCtx).not.toBeNull()
+        expect(result.current.tooltipCtx!.isPinned).toBe(true)
+        document.body.removeChild(tooltipEl)
     })
 
     it('does not clear pinned tooltip on scroll inside the tooltip element', () => {

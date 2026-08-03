@@ -258,7 +258,12 @@ function SentimentEvaluationOnboarding(): JSX.Element {
             <LemonButton
                 type="primary"
                 icon={<IconPlus />}
-                to={combineUrl(urls.aiObservabilityEvaluation('new'), { type: 'sentiment' }).url}
+                to={
+                    combineUrl(urls.aiObservabilityEvaluation('new'), {
+                        type: 'sentiment',
+                        returnTo: urls.aiObservabilitySentiment(),
+                    }).url
+                }
                 data-attr="llma-sentiment-create-evaluation"
             >
                 Create sentiment evaluation

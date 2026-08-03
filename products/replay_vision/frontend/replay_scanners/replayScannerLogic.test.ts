@@ -15,6 +15,7 @@ import {
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
+import { observationsDrilldownSearchParams } from './scannerOverviewLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
@@ -34,6 +35,11 @@ describe('replayScannerLogic', () => {
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
                 '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
+                '/api/projects/:team/vision/scanners/:id/observations/stats/': {
+                    status_counts: { total: 0, succeeded: 0, failed: 0, ineligible: 0, in_flight: 0 },
+                    coverage: { recent_sessions: 0, total_sessions: 0, recent_days: 14 },
+                    available_tags: [],
+                },
             },
             post: {
                 '/api/projects/:team/vision/scanners/': createSpy,
@@ -372,6 +378,8 @@ describe('replayScannerLogic', () => {
             observationVerdictFilter: [] as ObservationVerdictValue[],
             observationTagFilter: [] as string[],
             observationSubjectFilter: '',
+            observationDateFrom: null as string | null,
+            observationDateTo: null as string | null,
             observationsSort: null,
             scanner: null,
         }
@@ -397,6 +405,15 @@ describe('replayScannerLogic', () => {
             expect(params.triggered_by).toBe('on_demand')
             expect(params.verdict).toBe('yes,inconclusive')
             expect(params.tags).toBe('onboarding,support')
+        })
+
+        it('passes date range only when set', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationDateFrom: '-7d',
+                observationDateTo: '2026-07-01',
+            })
+            expect(params).toEqual({ date_from: '-7d', date_to: '2026-07-01' })
         })
 
         it.each<[ReplayScanner, string]>([
@@ -684,6 +701,29 @@ describe('replayScannerLogic', () => {
                 expect(persisted.values.observationsLoading).toBe(true)
             } finally {
                 persisted.unmount()
+            }
+        })
+    })
+
+    describe('observations drill-down round-trip', () => {
+        // Guards the URL contract between the Overview chart drill-down and this logic's urlToAction:
+        // a param rename on either side breaks the drill-down silently.
+        it('restores the drill-down search params into the observations table filters', async () => {
+            const sidLogic = replayScannerLogic({ id: 'sid' })
+            sidLogic.mount()
+            try {
+                const params = observationsDrilldownSearchParams({
+                    day: '2026-05-04',
+                    interval: 'day',
+                    scannerType: 'monitor',
+                })
+                router.actions.push(urls.replayVision('sid'), params!)
+                await expectLogic(sidLogic).toFinishAllListeners()
+                expect(sidLogic.values.observationDateFrom).toBe('2026-05-04')
+                expect(sidLogic.values.observationDateTo).toBe('2026-05-04')
+                expect(sidLogic.values.observationVerdictFilter).toEqual(['yes'])
+            } finally {
+                sidLogic.unmount()
             }
         })
     })

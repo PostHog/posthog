@@ -1,1 +1,1 @@
-0288_log_attributes3_distributed
+0291_add_ai_channel_type

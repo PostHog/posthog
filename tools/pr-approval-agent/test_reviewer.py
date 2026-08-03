@@ -11,8 +11,9 @@ from unittest.mock import MagicMock
 sys.modules.setdefault("claude_agent_sdk", MagicMock())
 sys.modules.setdefault("claude_agent_sdk.types", MagicMock())
 
+import policy  # noqa: E402
 from github import PRData  # noqa: E402
-from reviewer import Reviewer, _sanitize_untrusted, _truncate_inline_comments  # noqa: E402
+from reviewer import Reviewer, _load_review_guidance, _sanitize_untrusted, _truncate_inline_comments  # noqa: E402
 
 
 def _pr(**overrides: object) -> PRData:
@@ -185,6 +186,31 @@ def test_inline_truncation_keeps_unresolved_drops_resolved(
     assert line == omission
 
 
+def _fake_stamphog_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, guidance: str) -> Path:
+    monkeypatch.setattr(policy, "repo_root", lambda: tmp_path)
+    stamphog_dir = tmp_path / ".stamphog"
+    stamphog_dir.mkdir()
+    (stamphog_dir / "review-guidance.md").write_text(guidance)
+    return stamphog_dir
+
+
+def test_guidance_appends_steering_under_marked_section(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    stamphog_dir = _fake_stamphog_dir(tmp_path, monkeypatch, "norms prose\n")
+    (stamphog_dir / "steering.md").write_text("Prefer squash merges.\n")
+
+    text = _load_review_guidance()
+
+    assert text.startswith("norms prose\n")
+    assert "\n\n# Repository-specific steering\n\n" in text
+    assert text.endswith("Prefer squash merges.\n")
+
+
+def test_guidance_unchanged_without_steering(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # No steering.md must mean a byte-identical prompt — the Action's existing repos see no change.
+    _fake_stamphog_dir(tmp_path, monkeypatch, "norms prose\n")
+    assert _load_review_guidance() == "norms prose\n"
+
+
 @pytest.mark.parametrize(
     "ownership, summary, expected_head",
     [
@@ -204,3 +230,33 @@ def test_format_ownership_individual_only(ownership: dict, summary: str, expecte
     out = Reviewer(Path("."))._format_ownership(cl)
     assert out.splitlines()[0] == expected_head
     assert "NOT on the owning team" not in out
+
+
+def test_prompt_provenance_renders_only_for_self_driving_runs() -> None:
+    # The Action never sets the flag, so its prompts must stay byte-identical (absent and False both
+    # render nothing); a self-driving run gets the TRUSTED provenance block that replaces the
+    # human-author trust context the prompt normally leans on.
+    reviewer = Reviewer(Path("."))
+
+    def prompt_with(cl_extra: dict) -> str:
+        cl = {
+            "tier": "T1-agent",
+            "t1_subclass": "",
+            "breadth": "narrow",
+            "commit_type": "fix",
+            "familiarity": None,
+            "ownership": {},
+            "assurance": None,
+            **cl_extra,
+        }
+        return reviewer._build_review_prompt(_pr(), cl, {"gate_verdict": "PENDING", "gates": []}, Path("/tmp/d.patch"))
+
+    assert prompt_with({}) == prompt_with({"self_driving": False})
+    assert "Provenance:" not in prompt_with({})
+
+    self_driving_prompt = prompt_with({"self_driving": True})
+    assert "Provenance: this PR was opened by a self-driving implementation task" in self_driving_prompt
+    # The block is trust guidance, not trust itself — it must sit in the TRUSTED region, above the
+    # untrusted PR content. rindex: the anti-injection notice at the top of the prompt also quotes
+    # the marker text, so the real delimiter is the last occurrence.
+    assert self_driving_prompt.index("Provenance:") < self_driving_prompt.rindex("--- BEGIN UNTRUSTED CONTENT ---")

@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
 
@@ -30,10 +31,25 @@ const SAMPLE = {
     resource_attributes: { 'service.name': 'checkout-demo' },
 }
 
+const UNTRACED_SAMPLE = {
+    ...SAMPLE,
+    timestamp: '2026-07-09T05:47:28.132600+00:00',
+    value: 12.5,
+    trace_id: '',
+    span_id: '',
+}
+
 describe('metricsSamplesLogic', () => {
     let logic: ReturnType<typeof metricsSamplesLogic.build>
 
     beforeEach(() => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+            },
+        } as AppContext
         initKeaTests()
         mockSamplesCreate.mockReset()
         mockSamplesCreate.mockResolvedValue({ results: [SAMPLE] })
@@ -72,6 +88,23 @@ describe('metricsSamplesLogic', () => {
         expect(logic.values.samples).toEqual([])
     })
 
+    it('does not call the API without metrics viewer access', async () => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.None,
+            },
+        } as AppContext
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        expect(mockSamplesCreate).not.toHaveBeenCalled()
+        expect(logic.values.samples).toEqual([])
+    })
+
     // Regression: samples going stale when the selected metric changes while the
     // tab is open — and conversely, needless requests while the tab is hidden.
     it('refetches on metric change only while the samples tab is active', async () => {
@@ -89,5 +122,40 @@ describe('metricsSamplesLogic', () => {
         metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
         await expectLogic(logic).delay(10)
         expect(mockSamplesCreate).toHaveBeenCalledTimes(2)
+    })
+
+    // Regression: exemplar dots on the chart silently vanish if untraced emissions
+    // leak into (or traced ones are dropped from) the derived exemplar list.
+    it('derives traceExemplars from traced samples only', async () => {
+        mockSamplesCreate.mockResolvedValue({ results: [SAMPLE, UNTRACED_SAMPLE] })
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+
+        logic.actions.setActiveTab('samples')
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+
+        expect(logic.values.traceExemplars).toEqual([
+            {
+                timestamp: SAMPLE.timestamp,
+                value: SAMPLE.value,
+                traceId: SAMPLE.trace_id,
+                spanId: SAMPLE.span_id,
+            },
+        ])
+    })
+
+    // Regression: the chart's exemplar overlay starves (never fetches samples)
+    // unless the samples tab happens to be open — a chart redraw must refresh
+    // them in chart mode, and must not fire needless requests in stat mode.
+    it('refreshes samples on chart query success only in chart mode', async () => {
+        metricsViewerLogic.actions.setMetricName('demo_checkout_duration_ms')
+
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).toDispatchActions(['loadSamplesSuccess'])
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
+
+        metricsViewerLogic.actions.setViewMode('stat')
+        metricsViewerLogic.actions.fetchQueryResultsSuccess([])
+        await expectLogic(logic).delay(10)
+        expect(mockSamplesCreate).toHaveBeenCalledTimes(1)
     })
 })

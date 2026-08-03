@@ -340,7 +340,7 @@ export function extractActionId(invocation: CyclotronJobInvocation): string | nu
     return (invocation as LookupColumnSource).state?.currentAction?.id || null
 }
 
-function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
+export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
     let parsed: SerializedJobState = { state: null }
 
     if (job.state) {

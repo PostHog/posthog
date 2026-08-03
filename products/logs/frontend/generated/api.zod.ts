@@ -451,6 +451,10 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -462,10 +466,10 @@ export const LogsCountCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -552,6 +556,10 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -563,10 +571,10 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -676,6 +684,10 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -687,10 +699,10 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -702,11 +714,20 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters for the query.'),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
         })
         .describe('The facet values query to execute.'),
 })
 
 export const logsGroupByCreateBodyQueryOneGroupBySourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault = `log`
+export const logsGroupByCreateBodyQueryOneGroupBysMax = 4
+
 export const logsGroupByCreateBodyQueryOneOrderGroupsByDefault = `log_count`
 export const logsGroupByCreateBodyQueryOneLimitDefault = 100
 export const logsGroupByCreateBodyQueryOneLimitMax = 500
@@ -763,6 +784,10 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -774,10 +799,10 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -791,15 +816,39 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Property filters applied before grouping. Same shape as the query-logs endpoint.'),
             groupBy: zod
                 .string()
+                .optional()
                 .describe(
-                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\".'
+                    'The key to group logs by — an attribute key (e.g. \"session_id\", \"service.name\") or, when groupBySource is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\". Ignored when groupBys is provided.'
                 ),
             groupBySource: zod
                 .enum(['log', 'resource', 'column'])
                 .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
                 .default(logsGroupByCreateBodyQueryOneGroupBySourceDefault)
                 .describe(
-                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                    'Where the grouping key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields. Ignored when groupBys is provided.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                ),
+            groupBys: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .describe(
+                                'The key this dimension groups by — an attribute key (e.g. \"session_id\", \"service.name\") or, when source is \"column\", one of the top-level log fields: \"severity_level\", \"trace_id\", \"span_id\".'
+                            ),
+                        source: zod
+                            .enum(['log', 'resource', 'column'])
+                            .describe('\* `log` - log\n\* `resource` - resource\n\* `column` - column')
+                            .default(logsGroupByCreateBodyQueryOneGroupBysItemSourceDefault)
+                            .describe(
+                                'Where this dimension\'s key lives: \"log\" for log-level attributes, \"resource\" for resource-level attributes, \"column\" for top-level log fields.\n\n\* `log` - log\n\* `resource` - resource\n\* `column` - column'
+                            ),
+                    })
+                )
+                .min(1)
+                .max(logsGroupByCreateBodyQueryOneGroupBysMax)
+                .optional()
+                .describe(
+                    'Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy\/groupBySource; one of the two must be provided.'
                 ),
             orderGroupsBy: zod
                 .enum(['log_count', 'error_count', 'last_seen'])
@@ -816,6 +865,143 @@ export const LogsGroupByCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Maximum number of groups to return (top-N by orderGroupsBy). Defaults to 100.'),
         })
         .describe('The group-by query to execute.'),
+})
+
+export const logsMetricRulesCreateBodyNameMax = 255
+
+export const logsMetricRulesCreateBodyMetricNameMax = 200
+
+export const logsMetricRulesCreateBodyEnabledDefault = false
+export const logsMetricRulesCreateBodyValueAttributeMax = 512
+
+export const logsMetricRulesCreateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsMetricRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesCreateBodyMetricNameMax)
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesCreateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesCreateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesCreateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+})
+
+export const logsMetricRulesUpdateBodyNameMax = 255
+
+export const logsMetricRulesUpdateBodyMetricNameMax = 200
+
+export const logsMetricRulesUpdateBodyEnabledDefault = false
+export const logsMetricRulesUpdateBodyValueAttributeMax = 512
+
+export const logsMetricRulesUpdateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsMetricRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesUpdateBodyMetricNameMax)
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesUpdateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesUpdateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesUpdateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
+})
+
+export const logsMetricRulesPartialUpdateBodyNameMax = 255
+
+export const logsMetricRulesPartialUpdateBodyMetricNameMax = 200
+
+export const logsMetricRulesPartialUpdateBodyEnabledDefault = false
+export const logsMetricRulesPartialUpdateBodyValueAttributeMax = 512
+
+export const logsMetricRulesPartialUpdateBodyGroupByItemMax = 512
+
+export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('User-visible label for this rule.'),
+    metric_name: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyMetricNameMax)
+        .optional()
+        .describe(
+            'Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.'
+        ),
+    enabled: zod
+        .boolean()
+        .default(logsMetricRulesPartialUpdateBodyEnabledDefault)
+        .describe(
+            'When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project.'
+        ),
+    filter_group: zod
+        .unknown()
+        .optional()
+        .describe(
+            'PropertyGroupFilter JSON (AND\/OR tree of property predicates) selecting which log records feed the metric, e.g. `{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\",\"type\":\"log_attribute\"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match.'
+        ),
+    value_attribute: zod
+        .string()
+        .max(logsMetricRulesPartialUpdateBodyValueAttributeMax)
+        .nullish()
+        .describe(
+            'Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.'
+        ),
+    group_by: zod
+        .array(zod.string().max(logsMetricRulesPartialUpdateBodyGroupByItemMax))
+        .optional()
+        .describe(
+            'Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` \/ `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.'
+        ),
 })
 
 export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
@@ -870,6 +1056,10 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -881,10 +1071,10 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -952,6 +1142,10 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -963,10 +1157,10 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -1068,6 +1262,10 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -1079,10 +1277,10 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -1108,8 +1306,105 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field."
                 ),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
+                ),
         })
         .describe('The logs query to execute.'),
+})
+
+export const logsRetentionRulesCreateBodyNameMax = 255
+
+export const logsRetentionRulesCreateBodyEnabledDefault = false
+export const logsRetentionRulesCreateBodyPriorityMin = 0
+
+export const LogsRetentionRulesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsRetentionRulesCreateBodyNameMax).describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(logsRetentionRulesCreateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(logsRetentionRulesCreateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    config: zod
+        .unknown()
+        .describe(
+            'Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND\/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{\"retention_days\":30,\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}}`. Logs matching no enabled rule keep the environment\'s default retention.'
+        ),
+})
+
+export const logsRetentionRulesUpdateBodyNameMax = 255
+
+export const logsRetentionRulesUpdateBodyEnabledDefault = false
+export const logsRetentionRulesUpdateBodyPriorityMin = 0
+
+export const LogsRetentionRulesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(logsRetentionRulesUpdateBodyNameMax).describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(logsRetentionRulesUpdateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(logsRetentionRulesUpdateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    config: zod
+        .unknown()
+        .describe(
+            'Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND\/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{\"retention_days\":30,\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}}`. Logs matching no enabled rule keep the environment\'s default retention.'
+        ),
+})
+
+export const logsRetentionRulesPartialUpdateBodyNameMax = 255
+
+export const logsRetentionRulesPartialUpdateBodyEnabledDefault = false
+export const logsRetentionRulesPartialUpdateBodyPriorityMin = 0
+
+export const LogsRetentionRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(logsRetentionRulesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('User-visible label for this rule.'),
+    enabled: zod
+        .boolean()
+        .default(logsRetentionRulesPartialUpdateBodyEnabledDefault)
+        .describe('When false, the rule is ignored by ingestion and listing UIs that show active rules only.'),
+    priority: zod
+        .number()
+        .min(logsRetentionRulesPartialUpdateBodyPriorityMin)
+        .nullish()
+        .describe(
+            'Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.'
+        ),
+    config: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND\/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{\"retention_days\":30,\"filter_group\":{\"type\":\"AND\",\"values\":[{\"type\":\"AND\",\"values\":[{\"key\":\"service.name\",\"operator\":\"exact\",\"value\":\"api\"}]}]}}`. Logs matching no enabled rule keep the environment\'s default retention.'
+        ),
+})
+
+/**
+ * Atomically reassign priorities so the given ID order maps to ascending priorities (0..n-1).
+ */
+export const LogsRetentionRulesReorderCreateBody = /* @__PURE__ */ zod.object({
+    ordered_ids: zod
+        .array(zod.uuid())
+        .describe(
+            'Rule IDs in the desired evaluation order (first element is highest priority \/ lowest order index).'
+        ),
 })
 
 export const logsSamplingRulesCreateBodyNameMax = 255
@@ -1343,6 +1638,10 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -1354,10 +1653,10 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -1432,6 +1731,10 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not',
                                 'icontains',
                                 'not_icontains',
+                                'starts_with',
+                                'not_starts_with',
+                                'ends_with',
+                                'not_ends_with',
                                 'regex',
                                 'not_regex',
                                 'gt',
@@ -1443,10 +1746,10 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                                 'is_not_set',
                             ])
                             .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             )
                             .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
                             ),
                         value: zod
                             .unknown()
@@ -1464,6 +1767,12 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe(
                     'Break down sparkline by \"severity\" (default) or \"service\".\n\n\* `severity` - severity\n\* `service` - service'
+                ),
+            personId: zod
+                .string()
+                .optional()
+                .describe(
+                    "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys."
                 ),
         })
         .describe('The sparkline query to execute.'),

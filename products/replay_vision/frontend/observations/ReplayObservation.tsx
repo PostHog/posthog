@@ -10,14 +10,12 @@ import {
     IconExpand,
     IconGear,
     IconInfo,
-    IconRefresh,
     IconSparkles,
     IconThoughtBubble,
     IconVideoCamera,
 } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -26,6 +24,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
+import { appLogic } from 'scenes/appLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import {
@@ -37,7 +36,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BooleanTag } from '../components/BooleanTag'
 import { CardHeader } from '../components/CardHeader'
@@ -50,8 +48,10 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { replayScannerLogic } from '../replay_scanners/replayScannerLogic'
 import {
     type ClassifierScannerConfig,
     type MonitorScannerConfig,
@@ -113,8 +113,8 @@ function AutoSeekToTime({
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
     const [recordingExpanded, setRecordingExpanded] = useState(false)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
@@ -128,8 +128,16 @@ export function ReplayObservationSceneComponent(): JSX.Element {
 
     const { observation, observationLoading, retrying } = useValues(observationLogic)
     const { retryObservation } = useActions(observationLogic)
+    // Hooks can't follow the early returns below, and the scanner id isn't known until `observation`
+    // loads — 'new' is the sentinel replayScannerLogic already uses to skip its fetch, so this is a
+    // harmless placeholder until the real id is available and the logic remounts keyed on it.
+    const { scanner } = useValues(replayScannerLogic({ id: observation?.scanner_id ?? 'new' }))
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
+        if (!receivedFeatureFlags && !featureFlagsTimedOut) {
+            return <SpinnerOverlay sceneLevel />
+        }
         return <NotFound object="page" />
     }
 
@@ -344,21 +352,16 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 </LabeledRow>
                             )}
                             <div>
-                                <AccessControlAction
-                                    resourceType={AccessControlResourceType.SessionRecording}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                >
-                                    <LemonButton
-                                        type="primary"
-                                        size="small"
-                                        icon={<IconRefresh />}
-                                        onClick={() => retryObservation()}
-                                        loading={retrying}
-                                        data-attr="vision-observation-detail-retry"
-                                    >
-                                        Retry scan
-                                    </LemonButton>
-                                </AccessControlAction>
+                                <ObservationRetryButton
+                                    status={observation.status}
+                                    errorReason={observation.error_reason}
+                                    onRetry={() => retryObservation()}
+                                    loading={retrying}
+                                    userAccessLevel={scanner?.user_access_level}
+                                    emphasis="primary"
+                                    size="small"
+                                    dataAttr="vision-observation-detail-retry"
+                                />
                             </div>
                         </div>
                     )}
@@ -382,6 +385,17 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <p className="text-sm text-default m-0 leading-snug">{ineligibleMessage}</p>
                                 </LabeledRow>
                             )}
+                            <div>
+                                <ObservationRetryButton
+                                    status={observation.status}
+                                    errorReason={observation.error_reason}
+                                    onRetry={() => retryObservation()}
+                                    loading={retrying}
+                                    userAccessLevel={scanner?.user_access_level}
+                                    size="small"
+                                    dataAttr="vision-observation-detail-retry"
+                                />
+                            </div>
                         </div>
                     )}
 
@@ -402,6 +416,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     observation={observation}
                                     showPrompt={false}
                                     onSeek={seekEmbeddedPlayer}
+                                    copyable
                                 />
                             </LabeledRow>
                             {observation.completed_at && (
@@ -411,12 +426,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     </Link>
                                 </LabeledRow>
                             )}
-                            {qualityEnabled && (
-                                <ObservationLabelControl
-                                    observationId={observation.id}
-                                    initialLabel={observation.label}
-                                />
-                            )}
+                            <ObservationLabelControl observationId={observation.id} initialLabel={observation.label} />
                         </div>
                     )}
 
@@ -456,7 +466,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <CardHeader icon={<IconInfo />} title="Observation details" />
                     <div className="flex flex-col gap-3 text-sm">
                         <LabeledRow label="Status">
-                            <ObservationStatusTag status={observation.status} />
+                            <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
                         </LabeledRow>
                         {result && typeof result.confidence === 'number' && (
                             <LabeledRow label="Confidence">
@@ -486,7 +496,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                 {observation.session_id}
                             </Link>
                         </LabeledRow>
-                        <LabeledRow label="Recording subject">
+                        <LabeledRow label="Person">
                             {observation.distinct_id ? (
                                 <Link to={urls.personByDistinctId(observation.distinct_id)}>
                                     {observation.recording_subject_email ?? observation.distinct_id}

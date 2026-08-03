@@ -5,6 +5,7 @@ from posthog.models.utils import UUIDModel
 
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
+    FindingOutcomeArtefact,
     ReviewArtefactContent,
     ReviewIssueFinding,
     ReviewLogArtefactContent,
@@ -45,6 +46,11 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     acting_user = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
+    # The PR author's GitHub login, refreshed from the fetched metadata every turn. Powers the
+    # "For you" scope's authored-PRs match (compared case-insensitively against the viewer's linked
+    # GitHub login) — a teammate-triggered review of your PR lands under THEIR acting_user, so
+    # without this the findings would be invisible to you. Null until a post-column turn stamps it.
+    author_login = models.CharField(max_length=255, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     run_count = models.IntegerField(default=0)
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -54,10 +60,35 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # turn START. Read paths pairing stats/links with the completed turn's findings anchor here, so an
     # in-flight or crashed turn's metadata never splices onto the previous turn's findings.
     completed_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # The urgency threshold the last COMPLETED turn's body/publish gated on — stamped at finalize
+    # (alongside `run_count` / `completed_head_sha`) from the same resolve snapshot both consumed,
+    # so the detail view buckets published vs held-back findings truthfully even when the acting
+    # user's settings later change. Null for pre-column turns (readers fall back to the viewer's
+    # own setting as an approximation).
+    run_urgency_threshold = models.CharField(max_length=20, null=True, blank=True)
     # Idempotency watermark — the head the review was last *published* to GitHub for (distinct from
     # `head_sha`, what was reviewed). Publishing skips when this equals the current head, so an
     # activity retry / re-trigger can't double-post the review or the one-time alpha promo comment.
     published_head_sha = models.CharField(max_length=64, null=True, blank=True)
+    # The urgency threshold in force at each publish, keyed by the `run_index` that published, as
+    # `{"1": "consider", "2": "must_fix"}`. Outcome classification reconstructs the published finding
+    # set from this, since the user's live setting can change after publish. Keyed per turn rather
+    # than held as one scalar because a report republishes as new commits land and the acting user
+    # may change their threshold in between: each turn posts only its own findings, so a later
+    # tightened threshold must not retroactively hide what an earlier, looser turn already posted.
+    published_urgency_thresholds = models.JSONField(null=True, blank=True)
+    # The head each turn published at, keyed by `run_index` like the thresholds above, as
+    # `{"1": "abc123", "2": "def456"}`. Outcome classification compares a finding against the head its
+    # own turn was published at: a fix can land between two turns, and comparing every finding against
+    # only the latest published head hides those commits entirely, marking a finding that was fixed as
+    # ignored. Kept beside the thresholds rather than merged into one map because that one already
+    # shipped; both are written together at publish.
+    published_head_shas = models.JSONField(null=True, blank=True)
+    # Set once this report's finding-outcome events have been flushed to capture — the outcome
+    # sweep's completion marker. Distinct from the `finding_outcome` artefacts (the decided
+    # classification, persisted first): a crash between persist and flush leaves this NULL, so the
+    # next sweep re-emits from the stored artefacts instead of re-deciding the outcomes.
+    outcomes_emitted_at = models.DateTimeField(null=True, blank=True)
     last_seen_comment_id = models.BigIntegerField(null=True, blank=True)
     # The PR's live "review in progress" status comment (publish path only): the GitHub comment id we
     # edit in place, and the last-edit watermark that debounces refreshes across concurrent activities.
@@ -69,7 +100,7 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     # signals side (the signals-side `code_review` artefact is API-deletable; this row is the durable
     # link). Filled once, never overwritten by later turns from another trigger.
     signal_report_id = models.UUIDField(null=True, blank=True)
-    # Which trigger created this report ("label" / "inbox" / "manual"); stamped on create only.
+    # Which trigger created this report ("label" / "inbox" / "manual" / "ui"); stamped on create only.
     trigger_source = models.CharField(max_length=20, default="manual")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -94,6 +125,19 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
             models.Index(fields=["team", "acting_user", "-last_run_at"], name="reviewhog_rpt_recent_idx"),
             # Same API's everyone scope: the whole project's reports, newest completed turn first.
             models.Index(fields=["team", "-last_run_at"], name="reviewhog_rpt_team_recent_idx"),
+            # The outcome sweep's backlog: published, PR-bound, not yet stamped emitted. The whole
+            # predicate lives in the condition, so the index holds only the working set and shrinks
+            # as reports are classified; `team` leads it because the cross-team discovery reads
+            # DISTINCT team_id off this index and the per-team read filters on team first.
+            # `-updated_at` trails it so the per-team read's newest-first slice is an index scan
+            # rather than a sort over every pending row.
+            models.Index(
+                fields=["team", "-updated_at"],
+                name="reviewhog_rpt_unclassified_idx",
+                condition=models.Q(
+                    published_head_sha__isnull=False, pr_number__isnull=False, outcomes_emitted_at__isnull=True
+                ),
+            ),
         ]
 
 
@@ -108,6 +152,9 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     class ArtefactType(models.TextChoices):
         ISSUE_FINDING = "issue_finding"
         VALIDATION_VERDICT = "validation_verdict"
+        # The classified fate of a published finding, written by the outcome-telemetry batch after
+        # the PR merged (one per finding); its presence marks the finding already classified.
+        FINDING_OUTCOME = "finding_outcome"
         TASK_RUN = "task_run"
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
@@ -207,6 +254,17 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
 
     @classmethod
+    def add_finding_outcome(
+        cls, *, team_id: int, report_id: str, content: FindingOutcomeArtefact, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append a `finding_outcome` (one per published finding; the durable classification record).
+
+        Presence means the finding's outcome is decided and must never be re-decided; the report is
+        only *done* once `ReviewReport.outcomes_emitted_at` is stamped after its events flushed.
+        """
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
     def add_log(
         cls, *, team_id: int, report_id: str, content: ReviewLogArtefactContent, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
@@ -274,6 +332,10 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     to a run at acting-user resolution, so mid-run edits don't flip gates between body and publish.
     `review_inbox_prs` is the inbox trigger's opt-in (default off — the budget gate for 100%-coverage
     cost): checked cheaply at the TaskRun-completion receiver and re-checked off the resolve snapshot.
+    `stamphog_review_inbox_prs` is the same opt-in for hosted Stamphog (approve-first review with a
+    real GitHub approval) on those same inbox PRs. It is a cross-product preference kept here so both
+    toggles live on one row, and it only takes effect for teams with a synced, enabled
+    StamphogRepoConfig covering the PR's repository.
     """
 
     class UrgencyThreshold(models.TextChoices):
@@ -287,12 +349,13 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
+    stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
     urgency_threshold = models.CharField(
         max_length=20,
         choices=UrgencyThreshold.choices,
-        default=UrgencyThreshold.SHOULD_FIX,
-        db_default=UrgencyThreshold.SHOULD_FIX.value,
+        default=UrgencyThreshold.CONSIDER,
+        db_default=UrgencyThreshold.CONSIDER.value,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -307,3 +370,9 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
         """The user's settings row, or an unsaved instance carrying the defaults when none exists."""
         row = cls.objects.for_team(team_id).filter(user_id=user_id).first()
         return row if row is not None else cls(team_id=team_id, user_id=user_id)
+
+    @classmethod
+    def load_many(cls, team_id: int, user_ids: list[int]) -> dict[int, "ReviewUserSettings"]:
+        """`load` for several users in one query; users with no row get the same defaults."""
+        rows = {row.user_id: row for row in cls.objects.for_team(team_id).filter(user_id__in=user_ids)}
+        return {user_id: rows.get(user_id) or cls(team_id=team_id, user_id=user_id) for user_id in user_ids}

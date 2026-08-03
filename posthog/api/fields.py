@@ -5,6 +5,7 @@ reuse them instead of redefining local copies.
 """
 
 import json
+from typing import Any
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -25,6 +26,20 @@ class JSONStringFilterField(serializers.JSONField):
     """JSONField exposed as a JSON-encoded string in the schema (for query string clients)."""
 
     pass
+
+
+class RepeatedOrCommaSeparatedListField(serializers.ListField):
+    """ListField for query params that accepts values either as repeated keys
+    (?ids=1&ids=2) or as a single comma-separated value (?ids=1,2). The latter is how our
+    generated TS client (and plain URLSearchParams) serializes a number[] query param, so
+    without this a caller using the generated client gets a validation error.
+    """
+
+    def get_value(self, dictionary: Any) -> Any:
+        value = super().get_value(dictionary)
+        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str) and "," in value[0]:
+            return value[0].split(",")
+        return value
 
 
 class JSONTolerantListField(serializers.ListField):
@@ -48,3 +63,40 @@ class JSONTolerantListField(serializers.ListField):
                 if isinstance(parsed, list):
                     return parsed
         return value
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string", "minLength": 1},
+            {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+        ]
+    }
+)
+class CoercedStringListField(serializers.Field):
+    """A single string or a non-empty list of non-empty strings, normalized to ``list[str]``.
+
+    Blank strings and non-string items are rejected. ``max_items`` bounds the list length.
+    Override ``error_messages["invalid"]`` for an endpoint-specific message. Subclass with
+    ``@extend_schema_field`` to add endpoint-specific schema bounds (e.g. ``maxItems``).
+    """
+
+    default_error_messages = {
+        "invalid": "Provide a string or a non-empty list of non-empty strings.",
+        "max_items": "Ensure this field has no more than {max_items} elements.",
+    }
+
+    def __init__(self, *, max_items: int | None = None, **kwargs: Any) -> None:
+        self.max_items = max_items
+        super().__init__(**kwargs)
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+    def to_internal_value(self, data: Any) -> list[str]:
+        items = [data] if isinstance(data, str) else data
+        if not isinstance(items, list) or not items or not all(isinstance(item, str) and item for item in items):
+            self.fail("invalid")
+        if self.max_items is not None and len(items) > self.max_items:
+            self.fail("max_items", max_items=self.max_items)
+        return items

@@ -7,14 +7,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pyarrow as pa
 from deltalake import DeltaTable, write_deltalake
 from parameterized import parameterized
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_OP_COLUMN,
+    SCD2_VALID_TO_COLUMN,
+    TOAST_OMITTED_COLUMN,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
+    _enrich_cdc_rows,
     _get_write_type,
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _trigger_post_import_workflow,
     process_message,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
@@ -223,6 +231,7 @@ class TestProcessMessageOwnershipGate:
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
     @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.Scd2DeltaWriter")
     @patch(f"{_PROCESSOR}.DeltaTableHelper")
     @patch(f"{_PROCESSOR}.ExternalDataJob")
     @patch(f"{_PROCESSOR}.s3fs")
@@ -233,6 +242,7 @@ class TestProcessMessageOwnershipGate:
         _s3fs: MagicMock,
         mock_job_model: MagicMock,
         mock_helper_cls: MagicMock,
+        mock_scd2_cls: MagicMock,
         _already: MagicMock,
         _read: MagicMock,
         _analytics: MagicMock,
@@ -240,7 +250,6 @@ class TestProcessMessageOwnershipGate:
         helper = mock_helper_cls.return_value
         helper.get_delta_table = AsyncMock(return_value=None)
         helper.write_to_deltalake = AsyncMock()
-        helper.write_scd2_to_deltalake = AsyncMock()
         mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
 
         def verify_ownership() -> None:
@@ -250,7 +259,7 @@ class TestProcessMessageOwnershipGate:
             process_message(_message(), verify_ownership=verify_ownership)
 
         helper.write_to_deltalake.assert_not_called()
-        helper.write_scd2_to_deltalake.assert_not_called()
+        mock_scd2_cls.return_value.write.assert_not_called()
 
     @patch(f"{_PROCESSOR}.posthoganalytics")
     @patch(f"{_PROCESSOR}._mark_job_completed")
@@ -457,7 +466,298 @@ class TestMarkJobCompleted:
         mock_release.assert_not_called()
 
 
+class TestPostImportTrigger:
+    """The V3 hand-off to `data-import-post-import`: without it the load-dependent
+    post-import steps (signals, enrichment, statistics, table size, DuckLake copy)
+    never run for V3 syncs."""
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}.mark_batch_as_processed")
+    @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
+    @patch(f"{_PROCESSOR}._trigger_ducklake_register_data_imports")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value="folder")
+    @patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]}))
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_final_batch_triggers_post_import_once(
+        self,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        mock_helper_cls: MagicMock,
+        _already: MagicMock,
+        _read: MagicMock,
+        _post_load: AsyncMock,
+        mock_mark_completed: MagicMock,
+        _ducklake: MagicMock,
+        mock_trigger: MagicMock,
+        _mark_processed: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        helper = mock_helper_cls.return_value
+        helper.get_delta_table = AsyncMock(return_value=None)
+        helper.write_to_deltalake = AsyncMock(return_value=delta_table)
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(is_final_batch=True))
+
+        mock_mark_completed.assert_called_once()
+        mock_trigger.assert_called_once()
+
+    @patch(f"{_PROCESSOR}.posthoganalytics")
+    @patch(f"{_PROCESSOR}._trigger_post_import_workflow")
+    @patch(f"{_PROCESSOR}._mark_job_completed")
+    @patch(f"{_PROCESSOR}._run_post_load_for_already_processed_batch", return_value=None)
+    @patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=True)
+    @patch(f"{_PROCESSOR}.DeltaTableHelper")
+    @patch(f"{_PROCESSOR}.ExternalDataJob")
+    @patch(f"{_PROCESSOR}.s3fs")
+    def test_redelivered_final_batch_triggers_post_import(
+        self,
+        _s3fs: MagicMock,
+        mock_job_model: MagicMock,
+        _helper_cls: MagicMock,
+        _already: MagicMock,
+        _post_load: MagicMock,
+        _mark_completed: MagicMock,
+        mock_trigger: MagicMock,
+        _analytics: MagicMock,
+    ) -> None:
+        # A writer crash between the final batch's Delta commit and the trigger means the
+        # redelivery is the only chance to hand off — the trigger must fire on this path too.
+        mock_job_model.objects.prefetch_related.return_value.get.return_value = MagicMock()
+
+        process_message(_message(is_final_batch=True))
+
+        mock_trigger.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("cdc_sync_type", "cdc", None),
+            ("scd2_companion_write", "incremental", "scd2_append"),
+        ]
+    )
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_cdc_finals_do_not_trigger_post_import(
+        self, _case: str, sync_type: str, cdc_write_mode: str | None, mock_connect: AsyncMock
+    ) -> None:
+        # CDC finals land once per flush tick; triggering per tick would spam the fan-out.
+        signal = MagicMock()
+        signal.sync_type = sync_type
+        signal.cdc_write_mode = cdc_write_mode
+
+        _trigger_post_import_workflow(signal)
+
+        mock_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # Any start failure (e.g. no Temporal env vars on the load deployment) must
+            # not fail the load; it is logged and captured.
+            ("start_failure_is_captured", RuntimeError("no temporal"), True),
+            # An id collision means a prior delivery already started this job's run.
+            ("already_started_is_benign", WorkflowAlreadyStartedError("wf-id", "wf-type"), False),
+        ]
+    )
+    @patch(f"{_PROCESSOR}.capture_exception")
+    @patch("posthog.temporal.common.client.async_connect", new_callable=AsyncMock)
+    def test_trigger_failures_never_fail_the_load(
+        self,
+        _case: str,
+        error: Exception,
+        expect_captured: bool,
+        mock_connect: AsyncMock,
+        mock_capture: MagicMock,
+    ) -> None:
+        client = MagicMock()
+        client.start_workflow = AsyncMock(side_effect=error)
+        mock_connect.return_value = client
+
+        signal = MagicMock()
+        signal.sync_type = "incremental"
+        signal.cdc_write_mode = None
+        signal.team_id = 1
+        signal.job_id = "job-1"
+        signal.schema_id = "schema-1"
+        signal.source_id = "source-1"
+
+        _trigger_post_import_workflow(signal)
+
+        assert mock_capture.called is expect_captured
+
+
 # Regression guard for #70476: pyarrow 21+ string_view broke delta pushdown on string PKs.
+class TestEnrichCdcRows:
+    """Cross-batch CDC enrichment against a real local Delta table."""
+
+    @staticmethod
+    def _batch(rows: list[dict[str, Any]]) -> pa.Table:
+        return pa.table(
+            {
+                "id": pa.array([r["id"] for r in rows], pa.int64()),
+                "name": pa.array([r.get("name") for r in rows], pa.string()),
+                "big": pa.array([r.get("big") for r in rows], pa.string()),
+                CDC_OP_COLUMN: pa.array([r["op"] for r in rows], pa.string()),
+                TOAST_OMITTED_COLUMN: pa.array([r.get("omitted") for r in rows], pa.list_(pa.string())),
+            }
+        )
+
+    def test_fills_toast_and_delete_rows_from_delta_state_and_drops_marker(self):
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1, 2], pa.int64()),
+                        "name": pa.array(["one", "two"], pa.string()),
+                        "big": pa.array(["toasted-1", "toasted-2"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = self._batch(
+                [
+                    {"id": 1, "op": "U", "name": "renamed", "omitted": ["big"]},
+                    {"id": 2, "op": "D"},
+                ]
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            # The unchanged-TOAST column keeps its persisted value instead of
+            # merging NULL over it; the DELETE row is enriched as before.
+            assert result.column("big").to_pylist() == ["toasted-1", "toasted-2"]
+            assert result.column("name").to_pylist() == ["renamed", "two"]
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+
+    def test_scd2_fill_uses_current_row_not_history(self):
+        with tempfile.TemporaryDirectory() as path:
+            ts = pa.timestamp("us", tz="UTC")
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1, 1], pa.int64()),
+                        "name": pa.array(["v1", "v2"], pa.string()),
+                        "big": pa.array(["old-toast", "current-toast"], pa.string()),
+                        SCD2_VALID_TO_COLUMN: pa.array([1_000_000, None], ts),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = self._batch([{"id": 1, "op": "U", "name": "v3", "omitted": ["big"]}])
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id"],
+                cdc_write_mode="scd2_append",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert result.column("big").to_pylist() == ["current-toast"]
+
+    def test_composite_pk_delete_enrichment_with_no_matching_existing_row(self):
+        # Existing row shares the first PK component ("id") with the incoming DELETE
+        # but not the full composite key, so `match_indices` narrows to empty. This
+        # used to crash with ArrowNotImplementedError: `Table.take([])` infers a
+        # null-typed indices array, and pyarrow has no take kernel for (string, null).
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1], pa.int64()),
+                        "tenant": pa.array(["a"], pa.string()),
+                        "name": pa.array(["existing"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "tenant": pa.array(["z"], pa.string()),
+                    "name": pa.array([None], pa.string()),
+                    CDC_OP_COLUMN: pa.array(["D"], pa.string()),
+                    TOAST_OMITTED_COLUMN: pa.array([None], pa.list_(pa.string())),
+                }
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id", "tenant"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+            assert result.column("name").to_pylist() == [None]
+
+    def test_composite_pk_delete_enrichment_when_existing_table_lacks_a_pk_column(self):
+        # The existing Delta table predates a composite key gaining a second PK
+        # column ("tenant"), so it can't be exactly matched. Same bug as above but
+        # via the `else` branch, which also called `.take([])` unconditionally.
+        with tempfile.TemporaryDirectory() as path:
+            write_deltalake(
+                path,
+                pa.table(
+                    {
+                        "id": pa.array([1], pa.int64()),
+                        "name": pa.array(["existing"], pa.string()),
+                    }
+                ),
+                mode="overwrite",
+            )
+
+            batch = pa.table(
+                {
+                    "id": pa.array([1], pa.int64()),
+                    "tenant": pa.array(["z"], pa.string()),
+                    "name": pa.array([None], pa.string()),
+                    CDC_OP_COLUMN: pa.array(["D"], pa.string()),
+                    TOAST_OMITTED_COLUMN: pa.array([None], pa.list_(pa.string())),
+                }
+            )
+            result = _enrich_cdc_rows(
+                batch,
+                primary_keys=["id", "tenant"],
+                cdc_write_mode="incremental_merge",
+                existing_delta_table=DeltaTable(path),
+                batch_index=0,
+            )
+
+            assert TOAST_OMITTED_COLUMN not in result.column_names
+            assert result.column("name").to_pylist() == [None]
+
+    def test_marker_dropped_when_enrichment_cannot_run(self):
+        # First-ever CDC batch: no existing Delta table to fill from. The value is
+        # unknowable (stays null) but the transport marker must never reach the write.
+        batch = self._batch([{"id": 1, "op": "U", "name": "renamed", "omitted": ["big"]}])
+        result = _enrich_cdc_rows(
+            batch,
+            primary_keys=["id"],
+            cdc_write_mode="incremental_merge",
+            existing_delta_table=None,
+            batch_index=0,
+        )
+
+        assert TOAST_OMITTED_COLUMN not in result.column_names
+        assert result.column("big").to_pylist() == [None]
+
+
 class TestReadExistingRowsByFirstPk:
     @staticmethod
     def _string_view_table(path: str) -> DeltaTable:

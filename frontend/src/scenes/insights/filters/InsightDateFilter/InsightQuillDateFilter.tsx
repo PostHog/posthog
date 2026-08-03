@@ -23,15 +23,21 @@ import { selectionKeyOf, type DateRangeSelection } from 'lib/components/DateFilt
 import { dateRangeForSelection, selectionForDateRange } from 'lib/components/DateFilter/dateRangeSelection'
 import { QuillDateFilter } from 'lib/components/DateFilter/QuillDateFilter'
 import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { computeDaysOfWeekUpdate, getExcludedDaysOfWeek, type IsoDayOfWeek } from './daysOfWeekFilterUtils'
+import {
+    computeDaysOfWeekUpdate,
+    getExcludedDaysOfWeek,
+    querySupportsDaysOfWeek,
+    type IsoDayOfWeek,
+} from './daysOfWeekFilterUtils'
 
 // Chip labels double as dateMapping keys; filter at module load so a renamed chip can never
 // silently produce the wrong range.
-const NAMED_CHIPS = ['Today', 'Yesterday', 'This week', 'This month', 'Year to date', 'All time'].filter((name) =>
+const NAMED_CHIPS = ['Today', 'Yesterday', 'This week', 'This month', 'This year', 'All time'].filter((name) =>
     dateMapping.some(({ key }) => key === name)
 )
 
@@ -47,8 +53,9 @@ type InsightQuillDateFilterProps = {
 
 export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, trendsFilter, isTrends, isRetention } = useValues(insightVizDataLogic(insightProps))
+    const { dateRange, trendsFilter, isTrends, isRetention, querySource } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
+    const { reportInsightDatePickerOpened } = useActions(eventUsageLogic)
     const { weekStartDay } = useValues(teamLogic)
     const [open, setOpen] = useState(false)
 
@@ -70,12 +77,13 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
     const excludedDays = getExcludedDaysOfWeek(dateRange)
     // The backend rejects daysOfWeek together with smoothing, so don't offer it
     const smoothingActive = isTrends && (trendsFilter?.smoothingIntervals ?? 1) > 1
-    const showExcludedDays = isTrends && !smoothingActive
+    const showExcludedDays = querySupportsDaysOfWeek(querySource) && !smoothingActive
     const showIncompletePeriod = !isRetention
 
-    // Hiding the exclusions control (smoothing turned on, or the insight type changed away from
-    // trends) must also clear any daysOfWeek already on the query — otherwise it lingers with no
-    // UI left to remove it, and the backend rejects daysOfWeek alongside smoothing.
+    // Hiding the exclusions control (smoothing turned on, or the insight changed to an
+    // unsupported kind) must also clear any daysOfWeek already on the query — otherwise it
+    // lingers with no UI left to remove it, and the backend rejects daysOfWeek alongside
+    // smoothing.
     useEffect(() => {
         if (!showExcludedDays && dateRange?.daysOfWeek?.length) {
             updateQuerySource(computeDaysOfWeekUpdate([], dateRange))
@@ -83,11 +91,11 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [showExcludedDays])
     const exclusions: DateFilterExclusions = {
-        days: isTrends ? excludedDays.map(String) : [],
+        days: showExcludedDays ? excludedDays.map(String) : [],
         incomplete: !isRetention && !!dateRange?.excludeIncompletePeriods,
     }
     const handleExclusionsChange = (next: DateFilterExclusions): void => {
-        if (isTrends && next.days.join(',') !== exclusions.days.join(',')) {
+        if (showExcludedDays && next.days.join(',') !== exclusions.days.join(',')) {
             updateQuerySource(computeDaysOfWeekUpdate(next.days.map(Number) as IsoDayOfWeek[], dateRange))
         }
         if (!isRetention && next.incomplete !== exclusions.incomplete) {
@@ -98,7 +106,15 @@ export function InsightQuillDateFilter({ disabled }: InsightQuillDateFilterProps
     const exclusionParts = dateFilterExclusionParts(exclusions)
 
     return (
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover
+            open={open}
+            onOpenChange={(next) => {
+                if (next && !open) {
+                    reportInsightDatePickerOpened(querySource?.kind)
+                }
+                setOpen(next)
+            }}
+        >
             <PopoverTrigger
                 render={
                     <Button

@@ -20,8 +20,8 @@ Holds the cross-script vocabulary:
 - **Backend probe** — `_probe_backend` fails fast on an unusable
   `--oracle` / `--candidate`.
 
-Importing this module pulls `posthog.hogql.*` — callers must have run
-`django.setup()` first (every script here does, before its imports).
+Importing this module pulls in the HogQL parser and AST layer only, which
+run without Django — no `django.setup()` required.
 """
 
 from __future__ import annotations

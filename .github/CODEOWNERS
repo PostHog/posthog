@@ -64,3 +64,9 @@ posthog/temporal/data_modeling/run_workflow.py @PostHog/team-data-modeling
 
 # Dev sandbox provides important protection in local dev
 bin/dev-sandbox* @PostHog/team-security
+
+# The MCP store catalog is a fleet-wide trust decision, not ordinary code: a merged entry
+# becomes (probe permitting) an active server template in every environment on the next
+# deploy — installable by all tenants and feeding tool results into their LLM agents. The
+# probe only verifies liveness, so PR review is the vendor-identity gate.
+products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3

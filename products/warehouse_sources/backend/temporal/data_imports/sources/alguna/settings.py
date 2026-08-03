@@ -33,4 +33,6 @@ ALGUNA_ENDPOINTS: dict[str, AlgunaEndpointConfig] = {
 
 ENDPOINTS = tuple(ALGUNA_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in ALGUNA_ENDPOINTS}
+# Empty: no endpoint exposes an incremental watermark (see the note above), so every stream is full
+# refresh. `build_endpoint_schemas` treats a missing entry — not an empty list — as non-incremental.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

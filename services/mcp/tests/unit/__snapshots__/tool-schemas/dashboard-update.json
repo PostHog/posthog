@@ -57,6 +57,10 @@
             "description": "A unique integer value identifying this dashboard.",
             "type": "number"
         },
+        "include_dashboards": {
+            "description": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
+            "type": "boolean"
+        },
         "name": {
             "anyOf": [
                 {
@@ -207,6 +211,10 @@
                                                                         "is_not",
                                                                         "icontains",
                                                                         "not_icontains",
+                                                                        "starts_with",
+                                                                        "not_starts_with",
+                                                                        "ends_with",
+                                                                        "not_ends_with",
                                                                         "regex",
                                                                         "not_regex",
                                                                         "gt",
@@ -307,6 +315,10 @@
                                                                         "is_not",
                                                                         "icontains",
                                                                         "not_icontains",
+                                                                        "starts_with",
+                                                                        "not_starts_with",
+                                                                        "ends_with",
+                                                                        "not_ends_with",
                                                                         "regex",
                                                                         "not_regex",
                                                                         "gt",
@@ -506,6 +518,10 @@
                                                                         "is_not",
                                                                         "icontains",
                                                                         "not_icontains",
+                                                                        "starts_with",
+                                                                        "not_starts_with",
+                                                                        "ends_with",
+                                                                        "not_ends_with",
                                                                         "regex",
                                                                         "not_regex",
                                                                         "gt",
@@ -693,6 +709,10 @@
                                                                         "is_not",
                                                                         "icontains",
                                                                         "not_icontains",
+                                                                        "starts_with",
+                                                                        "not_starts_with",
+                                                                        "ends_with",
+                                                                        "not_ends_with",
                                                                         "regex",
                                                                         "not_regex",
                                                                         "gt",

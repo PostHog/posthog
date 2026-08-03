@@ -41,9 +41,11 @@ import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 export function SceneTitlePanelButton({
     maxToolProps,
     buttonClassName = 'size-[33px]',
+    maxButtonLabel,
 }: {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     buttonClassName?: string
+    maxButtonLabel?: string
 }): JSX.Element | null {
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -66,7 +68,7 @@ export function SceneTitlePanelButton({
         <>
             {!sceneMenuBarEnabled && (
                 <ButtonPrimitive
-                    className={buttonClassName}
+                    className={cn(buttonClassName, maxButtonLabel && 'w-auto px-2')}
                     onClick={(e) => {
                         e.stopPropagation()
                         e.preventDefault()
@@ -92,7 +94,7 @@ export function SceneTitlePanelButton({
                     }
                     tooltipPlacement="bottom-end"
                     tooltipCloseDelayMs={0}
-                    iconOnly
+                    iconOnly={!maxButtonLabel}
                     data-attr="open-context-panel-ai-button"
                 >
                     <div className="relative">
@@ -101,6 +103,7 @@ export function SceneTitlePanelButton({
                             <IconBrackets className="absolute size-2.5 top-0 -right-1 text-black dark:text-white" />
                         )}
                     </div>
+                    {maxButtonLabel}
                 </ButtonPrimitive>
             )}
             {/* Size to mimic lemon button small */}
@@ -216,6 +219,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Optional label for the PostHog AI button. */
+    maxButtonLabel?: string
     /** Max character length for the description field */
     descriptionMaxLength?: number
 }
@@ -241,6 +246,7 @@ export function SceneTitleSection({
     onGenerateMetadata,
     isGeneratingMetadata,
     maxToolProps,
+    maxButtonLabel,
     descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -390,7 +396,7 @@ export function SceneTitleSection({
                             )}
                         >
                             {effectiveActions}
-                            <SceneTitlePanelButton maxToolProps={maxToolProps} />
+                            <SceneTitlePanelButton maxToolProps={maxToolProps} maxButtonLabel={maxButtonLabel} />
                         </div>
                     )}
                 </div>
@@ -443,9 +449,17 @@ export function SceneName({
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [prevInitialName, setPrevInitialName] = useState(initialName)
+    // Mirror of the value currently held in the local field. Lets us tell a genuine
+    // external update (loading a resource, an AI-generated name) apart from an echo of
+    // the user's own edit arriving back through the form, so the render-phase
+    // reconciliation below can't overwrite a keystroke that hasn't round-tripped yet.
+    const latestNameRef = useRef(initialName)
     if (initialName !== prevInitialName) {
         setPrevInitialName(initialName)
-        setName(initialName)
+        if (initialName !== latestNameRef.current) {
+            setName(initialName)
+            latestNameRef.current = initialName
+        }
     }
 
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -484,6 +498,10 @@ export function SceneName({
         }
         if (saveOnBlur && !isGeneratingMetadata && name !== initialName) {
             debouncedOnBlurSave(name || '')
+        } else if (!saveOnBlur) {
+            // Commit any pending debounced change synchronously so a submit or
+            // validation that immediately follows blur reads the value the user sees.
+            debouncedOnChange.flush()
         }
         if (!forceEdit) {
             setIsEditing(false)
@@ -503,6 +521,7 @@ export function SceneName({
                             value={name || ''}
                             readOnly={isGeneratingMetadata}
                             onChange={(e) => {
+                                latestNameRef.current = e.target.value
                                 setName(e.target.value)
                                 if (forceEdit && !saveOnBlur) {
                                     onChange?.(e.target.value)
@@ -644,9 +663,14 @@ function SceneDescription({
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
+    // See SceneName: keep external updates from clobbering an in-flight local edit.
+    const latestDescriptionRef = useRef(initialDescription)
     if (initialDescription !== prevInitialDescription) {
         setPrevInitialDescription(initialDescription)
-        setDescription(initialDescription)
+        if (initialDescription !== latestDescriptionRef.current) {
+            setDescription(initialDescription)
+            latestDescriptionRef.current = initialDescription
+        }
     }
 
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -681,6 +705,8 @@ function SceneDescription({
     const handleBlur = (): void => {
         if (saveOnBlur && !isGeneratingMetadata && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
+        } else if (!saveOnBlur) {
+            debouncedOnDescriptionChange.flush()
         }
         if (!forceEdit) {
             setIsEditing(false)
@@ -698,6 +724,7 @@ function SceneDescription({
                         maxLength={maxLength}
                         readOnly={isGeneratingMetadata}
                         onChange={(e) => {
+                            latestDescriptionRef.current = e.target.value
                             setDescription(e.target.value)
                             if (forceEdit && !saveOnBlur) {
                                 onChange?.(e.target.value)

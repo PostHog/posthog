@@ -30,6 +30,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    AnyPropertyFilter,
     ChartDisplayType,
     Experiment,
     ExperimentMetricGoal,
@@ -214,10 +215,35 @@ function seriesToFilter(series: AnyEntityNode | ExperimentMetricSource): Univers
     return null
 }
 
+/**
+ * Mirrors the backend's exposure semantics (`build_common_exposure_conditions`, also behind the
+ * replay player's experiment session context): the variant property must be IN the experiment's
+ * variant keys. Matching only on the event would include sessions of users who evaluated the flag
+ * but were never enrolled, e.g. `$feature_flag_called` with a `false` response on a partial rollout.
+ */
+function variantPropertyFilter(propertyKey: string, variantKeys: string[]): AnyPropertyFilter {
+    if (variantKeys.length === 0) {
+        // Variants unknown (flag not loaded) — the variant property being stamped at all is the
+        // closest available enrollment marker.
+        return {
+            key: propertyKey,
+            type: PropertyFilterType.Event,
+            value: PropertyOperator.IsSet,
+            operator: PropertyOperator.IsSet,
+        }
+    }
+    return {
+        key: propertyKey,
+        type: PropertyFilterType.Event,
+        value: variantKeys,
+        operator: PropertyOperator.Exact,
+    }
+}
+
 function createExposureFilter(
     exposureConfig: ExperimentExposureConfig,
     featureFlagKey: string,
-    variantKey: string
+    variantKeys: string[]
 ): UniversalFiltersGroupValue {
     const isEvent = isEventExposureConfig(exposureConfig)
     return {
@@ -226,13 +252,83 @@ function createExposureFilter(
         type: isEvent ? 'events' : 'actions',
         properties: [
             ...(exposureConfig.properties || []),
-            {
-                key: featureFlagVariantProperty(featureFlagKey),
-                type: PropertyFilterType.Event,
-                value: [variantKey],
-                operator: PropertyOperator.Exact,
-            },
+            variantPropertyFilter(featureFlagVariantProperty(featureFlagKey), variantKeys),
         ],
+    }
+}
+
+/**
+ * Exposure filter for an experiment's recordings: one variant, or every enrolled session (variant
+ * property IN the experiment's variants) when `variantKey` is omitted. Exposure-only — metric
+ * steps are never added, so a metric event captured without a `$session_id` can't zero out the
+ * result.
+ */
+export function getViewRecordingFiltersForVariant(
+    experiment: Experiment,
+    variantKey?: string
+): UniversalFiltersGroupValue[] {
+    const variantKeys =
+        variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        return [createExposureFilter(exposureConfig, experiment.feature_flag_key, variantKeys)]
+    }
+
+    return [
+        {
+            id: EXPOSURE_DEFAULT_EVENT,
+            name: EXPOSURE_DEFAULT_EVENT,
+            type: 'events',
+            properties: [
+                variantPropertyFilter(EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY, variantKeys),
+                {
+                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
+                    type: PropertyFilterType.Event,
+                    value: experiment.feature_flag_key,
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        },
+    ]
+}
+
+/**
+ * Stand-in exposure filter for when the default `$feature_flag_called` exposure event is captured
+ * server-side and can never match a session. `posthog-js` stamps `$feature/<flag_key>` on every
+ * client-side event captured after flags load, so this property filter matches sessions where the
+ * flag was active regardless of where the flag was evaluated. It is an approximation of exposure,
+ * not the real thing: the property reflects the flag's value on each event, not the enrollment
+ * moment. Custom exposure criteria carry semantics (a specific event plus its property filters)
+ * that a flag-value filter can't stand in for, so those return null and keep the
+ * blank-with-explanation behavior.
+ */
+export function getExposureFallbackFilter(
+    experiment: Experiment,
+    variantKey?: string
+): UniversalFiltersGroupValue | null {
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        return null
+    }
+    const variantKeys =
+        variantKey !== undefined ? [variantKey] : getExperimentVariants(experiment).map((variant) => variant.key)
+    const propertyKey = featureFlagVariantProperty(experiment.feature_flag_key)
+    // Typed as an event property, not PropertyFilterType.Feature: the recordings query backend
+    // only routes event-typed filters through its events subquery (see `is_event_property` in
+    // posthog/session_recordings/queries/utils.py) and treats feature-typed ones as unexpected.
+    if (variantKeys.length === 0) {
+        return {
+            key: propertyKey,
+            type: PropertyFilterType.Event,
+            value: PropertyOperator.IsSet,
+            operator: PropertyOperator.IsSet,
+        }
+    }
+    return {
+        key: propertyKey,
+        type: PropertyFilterType.Event,
+        value: variantKeys,
+        operator: PropertyOperator.Exact,
     }
 }
 
@@ -247,37 +343,10 @@ export function getViewRecordingFilters(
     metric: ExperimentMetric,
     variantKey: string
 ): UniversalFiltersGroupValue[] {
-    const filters: UniversalFiltersGroupValue[] = []
     /**
-     * We need to check the exposure criteria as the first on the filter chain.
+     * The exposure criteria is always the first link in the filter chain.
      */
-    const exposureCriteria = experiment.exposure_criteria?.exposure_config
-    if (
-        exposureCriteria &&
-        !(isEventExposureConfig(exposureCriteria) && exposureCriteria.event === EXPOSURE_DEFAULT_EVENT)
-    ) {
-        filters.push(createExposureFilter(exposureCriteria, experiment.feature_flag_key, variantKey))
-    } else {
-        filters.push({
-            id: EXPOSURE_DEFAULT_EVENT,
-            name: EXPOSURE_DEFAULT_EVENT,
-            type: 'events',
-            properties: [
-                {
-                    key: EXPOSURE_FEATURE_FLAG_RESPONSE_PROPERTY,
-                    type: PropertyFilterType.Event,
-                    value: [variantKey],
-                    operator: PropertyOperator.Exact,
-                },
-                {
-                    key: EXPOSURE_FEATURE_FLAG_PROPERTY,
-                    type: PropertyFilterType.Event,
-                    value: experiment.feature_flag_key,
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        })
-    }
+    const filters: UniversalFiltersGroupValue[] = getViewRecordingFiltersForVariant(experiment, variantKey)
 
     /**
      * for mean metrics, we add the single action/event to the filters
@@ -320,6 +389,131 @@ export function getViewRecordingFilters(
     }
 
     return filters
+}
+
+/**
+ * Event/action filters for one metric's sources — the "session reached this metric" part of a
+ * recordings query. Data-warehouse sources have no session events and are skipped, so a metric
+ * whose every source is a data-warehouse node (or a retention metric, whose steps the recordings
+ * surfaces don't enumerate) yields no filters.
+ */
+export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFiltersGroupValue[] {
+    const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
+        ? [metric.source]
+        : isExperimentFunnelMetric(metric)
+          ? metric.series
+          : isExperimentRatioMetric(metric)
+            ? [metric.numerator, metric.denominator]
+            : []
+    return sources
+        .filter((source) => source.kind === NodeKind.EventsNode || source.kind === NodeKind.ActionsNode)
+        .map((source) => seriesToFilter(source))
+        .filter((filter): filter is UniversalFiltersGroupValue => filter !== null)
+}
+
+/**
+ * Whether a recordings event filter can only match zero sessions: the project has never seen the
+ * event with a `$session_id` (e.g. it is captured server-side). Action and data warehouse filters
+ * pass through unchecked, matching the replay playlist's own posture.
+ */
+export function isUnlinkableEventFilter(
+    filter: UniversalFiltersGroupValue,
+    unlinkableEventNames: Set<string>
+): boolean {
+    return (
+        'type' in filter &&
+        filter.type === 'events' &&
+        'name' in filter &&
+        typeof filter.name === 'string' &&
+        unlinkableEventNames.has(filter.name)
+    )
+}
+
+/**
+ * Event names whose session-linkability must be checked before building "View recordings" links:
+ * the exposure event plus every plain-event metric step across primary, secondary and shared
+ * metrics, mirroring how `getViewRecordingFilters` enumerates them. Action and data warehouse
+ * steps pass through unchecked (same as the replay playlist's own check), as do "all events"
+ * steps, which have no event name.
+ */
+export function getSessionLinkabilityEventNames(experiment: Experiment): string[] {
+    const eventNames = new Set<string>()
+
+    const exposureConfig = experiment.exposure_criteria?.exposure_config
+    if (exposureConfig && !(isEventExposureConfig(exposureConfig) && exposureConfig.event === EXPOSURE_DEFAULT_EVENT)) {
+        if (isEventExposureConfig(exposureConfig) && exposureConfig.event) {
+            eventNames.add(exposureConfig.event)
+        }
+    } else {
+        eventNames.add(EXPOSURE_DEFAULT_EVENT)
+    }
+
+    const metrics = [
+        ...(experiment.metrics || []),
+        ...(experiment.metrics_secondary || []),
+        ...(experiment.saved_metrics || []).map((savedMetric: { query?: ExperimentMetric }) => savedMetric?.query),
+    ].filter((metric): metric is ExperimentMetric => metric?.kind === NodeKind.ExperimentMetric)
+
+    for (const metric of metrics) {
+        const sources: (ExperimentMetricSource | ExperimentFunnelMetricStep)[] = isExperimentMeanMetric(metric)
+            ? [metric.source]
+            : isExperimentFunnelMetric(metric)
+              ? metric.series
+              : isExperimentRatioMetric(metric)
+                ? [metric.numerator, metric.denominator]
+                : []
+        for (const source of sources) {
+            if (source.kind === NodeKind.EventsNode && source.event) {
+                eventNames.add(source.event)
+            }
+        }
+    }
+
+    return Array.from(eventNames)
+}
+
+/**
+ * Post-filters `getViewRecordingFilters` output. Recordings are matched through events carrying
+ * a `$session_id`, so an event filter the project has never seen with that property (e.g. one
+ * captured server-side) would zero out the whole AND-combined recordings query. The exposure
+ * filter is always first. When it is itself unlinkable, `exposureFallbackFilter` (see
+ * `getExposureFallbackFilter`) takes its place with `usedExposureFallback: true`, so callers can
+ * label the result as "flag was active" rather than "exposed"; without a fallback there are no
+ * recordings to show at all.
+ */
+export function applySessionLinkability(
+    filters: UniversalFiltersGroupValue[],
+    unlinkableEventNames: Set<string>,
+    exposureFallbackFilter: UniversalFiltersGroupValue | null = null
+): {
+    filters: UniversalFiltersGroupValue[]
+    droppedMetricEventCount: number
+    exposureUnlinkable: boolean
+    usedExposureFallback: boolean
+} {
+    const isUnlinkable = (filter: UniversalFiltersGroupValue): boolean =>
+        isUnlinkableEventFilter(filter, unlinkableEventNames)
+
+    if (filters.length === 0) {
+        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: false, usedExposureFallback: false }
+    }
+
+    const [exposureFilter, ...metricFilters] = filters
+    const exposureIsUnlinkable = isUnlinkable(exposureFilter)
+    if (exposureIsUnlinkable && !exposureFallbackFilter) {
+        return { filters: [], droppedMetricEventCount: 0, exposureUnlinkable: true, usedExposureFallback: false }
+    }
+
+    const keptMetricFilters = metricFilters.filter((filter) => !isUnlinkable(filter))
+    return {
+        filters: [
+            exposureIsUnlinkable && exposureFallbackFilter ? exposureFallbackFilter : exposureFilter,
+            ...keptMetricFilters,
+        ],
+        droppedMetricEventCount: metricFilters.length - keptMetricFilters.length,
+        exposureUnlinkable: false,
+        usedExposureFallback: exposureIsUnlinkable,
+    }
 }
 
 export function getViewRecordingFiltersLegacy(

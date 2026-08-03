@@ -18,7 +18,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -34,14 +34,16 @@ OutputFn = Callable[[str], object] | None
 POLL_INTERVAL_SECONDS = 10
 MAX_POLL_SECONDS = 30 * 60  # default per-turn budget; callers with longer turns pass max_poll_seconds
 MAX_CONSECUTIVE_STORAGE_ERRORS = 3
-# Continuous log silence required before salvaging a dropped-finalization turn — one SSE read window
-# (SSE_READ_TIMEOUT_SECONDS). The null-cost finalization fingerprint (_ended_on_pending_finalization)
-# is the real safety gate; this floor only rules out salvaging a turn caught mid-stream. It must sit
-# well below the 1800s poll budget: a floor near the budget would only salvage turns that fell silent
-# in the first few minutes and reject a turn that does real work late and *then* drops end_turn — the
-# exact case this path exists to recover. The relay's true continuous-silence ceiling is
-# 6 × SSE_READ_TIMEOUT_SECONDS = 1800s, which can't be fully observed inside the 1800s budget; keying
-# salvage off a real terminal signal instead of the poll deadline stays the layer-2 follow-up.
+# Turn-relevant log silence required before salvaging a dropped-finalization turn, sized to one SSE
+# read window (SSE_READ_TIMEOUT_SECONDS): if the turn produced no real output for a whole read window,
+# a live stream would have. The poll loop measures this silence over turn-relevant lines only, because
+# the relay keeps appending transient side-channels (network audits, credential refreshes, stdout)
+# after a turn goes quiet; counting those would keep resetting the timer so the floor never clears and
+# a finished-but-noisy turn is never salvaged (the observed dominant failure mode). The null-cost
+# finalization fingerprint (_ended_on_pending_finalization) is the real safety gate; this floor only
+# rules out salvaging a turn caught mid-stream. It must stay well below the per-turn poll budget (the
+# Signals scout passes 900s): a floor near the budget would salvage only turns that fell silent early
+# and reject one that works late and then drops end_turn, the exact case this path exists to recover.
 STALE_TURN_SALVAGE_SECONDS = 300
 
 # Notification method the sandbox agent emits on a terminal failure. The agent
@@ -69,6 +71,11 @@ TRANSIENT_SIDE_CHANNEL_METHODS = frozenset(
 # reaches its terminal state. A salvage reread that lands in that window must not skip past it to an
 # earlier finalization fingerprint and report a bogus success, so a failed progress line stays decisive.
 FAILED_PROGRESS_STATUS = "failed"
+
+# The relay echoes the user's own prompt into the turn log as these `session/update` kinds. They are
+# input, not agent output, so the turn-relevant growth counting discounts them like the transient
+# side-channels above.
+_PROMPT_ECHO_UPDATES = frozenset({"user_message", "user_message_chunk"})
 
 
 @dataclass(frozen=True)
@@ -114,6 +121,69 @@ class CustomPromptSandboxContext:
     SandboxConfig defaults (4 cores / 16 GB)."""
     sandbox_timeout_seconds: int | None = None
     """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
+    github_read_access: bool = False
+    """Inject a READ-ONLY GitHub token (``GH_TOKEN``/``GITHUB_TOKEN``) into a repo-less sandbox so
+    the agent can gather evidence via ``gh`` (commit history, PR metadata) without any write
+    capability. Only meaningful when ``repository`` is None — a task with a repository already gets
+    the full-permission credential path. Best-effort: if no team GitHub integration exists or the
+    mint fails, the sandbox starts without a token."""
+
+
+class TurnPollTimeout(RuntimeError):
+    """The per-turn poll budget ran out with no `end_turn` and nothing salvageable.
+
+    Carries what the turn log looked like at the wall, because the message alone cannot tell
+    apart failures that need opposite fixes: a turn that never produced a single turn-relevant
+    line (the sandbox agent never got going — waiting longer would change nothing), one that
+    worked and then went silent past the salvage window (a dropped stream mid-run), and one
+    still emitting when the budget expired (the budget is the binding constraint, not the
+    agent). Callers surface `diagnostics()` as analytics properties so the fleet's timeout rate
+    is splittable by cause instead of collapsing into one signature.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        stage: str,
+        elapsed: int,
+        stale_seconds: int,
+        total_lines: int,
+        turn_relevant_lines: int,
+    ):
+        super().__init__(message)
+        self.stage = stage
+        self.elapsed = elapsed
+        self.stale_seconds = stale_seconds
+        self.total_lines = total_lines
+        self.turn_relevant_lines = turn_relevant_lines
+
+    def diagnostics(self) -> dict[str, Any]:
+        return {
+            "poll_timeout_stage": self.stage,
+            "poll_elapsed_seconds": self.elapsed,
+            "poll_stale_seconds": self.stale_seconds,
+            "turn_log_total_lines": self.total_lines,
+            "turn_log_relevant_lines": self.turn_relevant_lines,
+        }
+
+
+# `TurnPollTimeout.stage` values. Low-cardinality on purpose: the numbers ride in the other
+# diagnostic properties, so this stays usable as a breakdown key.
+POLL_TIMEOUT_NO_TURN_OUTPUT = "no_turn_output"
+POLL_TIMEOUT_STALLED_AFTER_OUTPUT = "stalled_after_output"
+POLL_TIMEOUT_ACTIVE_AT_BUDGET = "active_at_budget"
+
+
+def _classify_poll_timeout(*, turn_relevant_lines: int, stale_seconds: int) -> str:
+    if turn_relevant_lines == 0:
+        return POLL_TIMEOUT_NO_TURN_OUTPUT
+    # Past the salvage floor the stream is provably not live (the floor is one SSE read window),
+    # and salvage has already declined, so the turn died mid-flight. Below it, the turn was still
+    # producing turn-relevant output when the budget ran out.
+    if stale_seconds >= STALE_TURN_SALVAGE_SECONDS:
+        return POLL_TIMEOUT_STALLED_AFTER_OUTPUT
+    return POLL_TIMEOUT_ACTIVE_AT_BUDGET
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -135,6 +205,7 @@ async def create_task_and_trigger(
     ai_stage: str | None = None,
     internal: bool = False,
     workflow_id_prefix: str | None = None,
+    mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
 ):
     title = f"[sandbox_prompt:{step_name}] {description[:80]}" if step_name else description[:100]
     team = await sync_to_async(Team.objects.get)(id=context.team_id)
@@ -165,6 +236,8 @@ async def create_task_and_trigger(
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
         workflow_id_prefix=workflow_id_prefix,
+        github_read_access=context.github_read_access,
+        mcp_builtin_agent_key=mcp_builtin_agent_key,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()
@@ -227,6 +300,10 @@ async def poll_for_turn(
     consecutive_storage_errors = 0
     # Elapsed time when we last saw new log lines
     last_new_lines_at = 0
+    # Running tally of turn-relevant lines this turn produced. Zero at the wall means the agent
+    # never got going at all, which `last_new_lines_at` alone can't distinguish from "went quiet
+    # on the very first poll" — see `_classify_poll_timeout`.
+    turn_relevant_lines = 0
     # Remember assistant text, as the agent message and end_message could arrive in different poll slices
     latest_assistant_text: str | None = None
     # Cursor at start of this turn — passed to _drain_final_log so the terminal-status drain can
@@ -262,9 +339,18 @@ async def poll_for_turn(
                 raise
             continue
         consecutive_storage_errors = 0
-        # Track the timings
+        # Advance the silence marker only on turn-relevant growth. Transient relay side-channels
+        # (network audits, credential refreshes, stdout) keep arriving after a turn goes quiet, so
+        # counting them here would keep resetting the marker and STALE_TURN_SALVAGE_SECONDS would
+        # never clear, starving the dropped-finalization salvage of the silence window it needs. This
+        # mirrors the side-channel discounting the tail check already does in
+        # _ended_on_pending_finalization.
         if total_lines > skip_lines:
-            last_new_lines_at = elapsed
+            new_lines = (full_log or "").strip().split("\n")[skip_lines:]
+            relevant_growth = (total_lines - skip_lines) - _transient_growth(new_lines)
+            if relevant_growth > 0:
+                turn_relevant_lines += relevant_growth
+                last_new_lines_at = elapsed
         stale_seconds = elapsed - last_new_lines_at
         # Warn once per minute of silence (not every poll) so stalls surface without flooding logs.
         if stale_seconds >= 60 and stale_seconds % 60 < POLL_INTERVAL_SECONDS:
@@ -366,7 +452,27 @@ async def poll_for_turn(
         )
         if salvaged is not None:
             return salvaged
-    raise RuntimeError(f"custom_prompt - poll_for_turn: timed out after {elapsed}s")
+    stage = _classify_poll_timeout(turn_relevant_lines=turn_relevant_lines, stale_seconds=stale_seconds)
+    logger.warning(
+        "custom_prompt - poll_for_turn: timed out after %ds, run=%s, stage=%s, stale_for=%ds, "
+        "total_lines=%d, turn_relevant_lines=%d",
+        elapsed,
+        task_run.id,
+        stage,
+        stale_seconds,
+        skip_lines,
+        turn_relevant_lines,
+    )
+    # `stage` is in the message as well as the diagnostics so the cause survives everywhere the
+    # error string is the only thing that gets persisted (TaskRun.error_message, Temporal).
+    raise TurnPollTimeout(
+        f"custom_prompt - poll_for_turn: timed out after {elapsed}s (stage={stage})",
+        stage=stage,
+        elapsed=elapsed,
+        stale_seconds=stale_seconds,
+        total_lines=skip_lines,
+        turn_relevant_lines=turn_relevant_lines,
+    )
 
 
 async def _read_turn_log_with_retry(
@@ -678,9 +784,12 @@ def _is_failed_progress(notification: dict) -> bool:
 
 
 def _transient_growth(lines: list[str]) -> int:
-    """Count how many of `lines` are transient relay side-channel notifications (network audits,
-    credential refreshes, sandbox stdout, informational progress). A failed progress line is not
-    transient — it must count as real activity so the growth check can't discount a failure away."""
+    """Count how many of `lines` carry no agent turn-state: transient relay side-channels (network
+    audits, credential refreshes, sandbox stdout, informational progress) and echoed prompts. The
+    relay echoes the user's own message into the turn log, so without discounting it every turn
+    counts at least one "turn-relevant" line and the `no_turn_output` timeout classification —
+    the agent never got going at all — could never fire. A failed progress line is not transient —
+    it must count as real activity so the growth check can't discount a failure away."""
     count = 0
     for line in lines:
         line = line.strip()
@@ -690,7 +799,15 @@ def _transient_growth(lines: list[str]) -> int:
             notification = json.loads(line).get("notification")
         except json.JSONDecodeError:
             continue
-        if not isinstance(notification, dict) or notification.get("method") not in TRANSIENT_SIDE_CHANNEL_METHODS:
+        if not isinstance(notification, dict):
+            continue
+        method = notification.get("method")
+        if method == "session/update":
+            update = (notification.get("params") or {}).get("update")
+            if isinstance(update, dict) and update.get("sessionUpdate") in _PROMPT_ECHO_UPDATES:
+                count += 1
+            continue
+        if method not in TRANSIENT_SIDE_CHANNEL_METHODS:
             continue
         if _is_failed_progress(notification):
             continue

@@ -1,4 +1,4 @@
-// Pure helpers for the duration-histogram sparkline (JON-36). The list sorted by duration pairs
+// Pure helpers for the duration-histogram sparkline. The list sorted by duration pairs
 // with a histogram of trace counts per logarithmic duration bucket; everything here is pure so it
 // can be unit-tested without the kea logic's import graph.
 
@@ -15,10 +15,13 @@ export interface TracingDurationHistogramData {
     labels: string[]
 }
 
-export interface VisibleDurationRange {
+/** A `[minNs, maxNs)` duration range in nanoseconds — the shared currency of selection and filtering. */
+export interface DurationRange {
     minNs: number
     maxNs: number
 }
+
+export type VisibleDurationRange = DurationRange
 
 const BUCKET_MANTISSAS = [1, 2, 5]
 
@@ -112,11 +115,62 @@ export function pivotDurationHistogram(
     return { data, bucketsNs, labels: bucketsNs.map(formatBucketLabel) }
 }
 
+export interface LatencyHeatmapRow {
+    time: string
+    bucket_ns: number
+    count: number
+}
+
+export interface TracingLatencyHeatmapData {
+    /** ISO start of every time bucket in the window, in order — the heatmap's x axis. */
+    timeBuckets: string[]
+    /** Filled 1-2-5 series, ascending — the heatmap's y axis, bottom row first. */
+    bucketsNs: number[]
+    labels: string[]
+    /** cells[rowIndex][colIndex] counts, aligned with bucketsNs × timeBuckets. */
+    cells: number[][]
+}
+
+/**
+ * Pivot latency-heatmap rows into the quill Heatmap grid shape. The backend enumerates every
+ * time bucket (empty ones as a {time, bucket_ns: 0, count: 0} sentinel), so the x axis comes
+ * straight from the response; the y axis fills gaps along the 1-2-5 series like the histogram.
+ */
+export function pivotLatencyHeatmap(rows: LatencyHeatmapRow[]): TracingLatencyHeatmapData {
+    const timeBuckets: string[] = []
+    const timeIndex = new Map<string, number>()
+    for (const row of rows) {
+        if (!timeIndex.has(row.time)) {
+            timeIndex.set(row.time, timeBuckets.length)
+            timeBuckets.push(row.time)
+        }
+    }
+
+    const dataRows = rows.filter((row) => row.count > 0)
+    if (!dataRows.length) {
+        return { timeBuckets, bucketsNs: [], labels: [], cells: [] }
+    }
+
+    const minBucket = Math.min(...dataRows.map((row) => row.bucket_ns))
+    const maxBucket = Math.max(...dataRows.map((row) => row.bucket_ns))
+    const bucketsNs = fillBucketSeries(minBucket, maxBucket)
+    const bucketIndex = new Map(bucketsNs.map((bucket, index) => [bucket, index]))
+
+    const cells = bucketsNs.map(() => timeBuckets.map(() => 0))
+    for (const row of dataRows) {
+        const rowIndex = bucketIndex.get(row.bucket_ns)
+        const colIndex = timeIndex.get(row.time)
+        if (rowIndex !== undefined && colIndex !== undefined) {
+            cells[rowIndex][colIndex] += row.count
+        }
+    }
+
+    return { timeBuckets, bucketsNs, labels: bucketsNs.map(formatBucketLabel), cells }
+}
+
 /** Exclusive upper edge of a 1-2-5 bucket — the next bucket on the series (1→2, 2→5, 5→10). */
 export function bucketUpperBound(bucketNs: number): number {
-    const decade = Math.pow(10, Math.floor(Math.log10(Math.max(bucketNs, 1))))
-    const mantissa = bucketNs / decade
-    return Math.round(mantissa < 2 ? 2 * decade : mantissa < 5 ? 5 * decade : 10 * decade)
+    return fillBucketSeries(bucketNs, bucketNs * 10)[1]
 }
 
 /**
@@ -128,7 +182,7 @@ export function selectionToDurationRange(
     bucketsNs: number[],
     startIndex: number,
     endIndex: number
-): { minNs: number; maxNs: number } | null {
+): DurationRange | null {
     if (bucketsNs.length === 0) {
         return null
     }

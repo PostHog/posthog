@@ -8,6 +8,7 @@ from django.conf import settings
 # Once we make all envs match, we can remove the _US check
 _US = settings.CLOUD_DEPLOYMENT == "US"
 CONSUMER_GROUP_EVENTS_JSON = "clickhouse_events_json" if _US else "group1"
+CONSUMER_GROUP_EVENTS_JSON_NATIVE_JSON = "clickhouse_events_json_native_json"
 # DEPRECATED: see posthog/models/app_metrics/sql.py for context. Kept only for the
 # deprecated `kafka_app_metrics` table DDL.
 CONSUMER_GROUP_APP_METRICS = "clickhouse_app_metrics" if _US else "group1"

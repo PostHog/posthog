@@ -115,10 +115,9 @@ Kafka publish happens on `transaction.on_commit` — won't fire if the transacti
 ## Adding a new notification type
 
 1. Add enum value in `products/notifications/backend/facade/enums.py`
-2. Add icon mapping in `frontend/src/lib/components/NotificationsMenu/NotificationRow.tsx` (`NOTIFICATION_TYPE_ICONS`)
-3. Add the same icon in the toast handler in `frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx` (`iconMap`)
-4. Add sample data in `SAMPLE_NOTIFICATIONS` in `products/notifications/backend/presentation/views.py`
-5. Run `python manage.py makemigrations notifications`
+2. Add icon mapping in `frontend/src/lib/components/NotificationsMenu/notificationToasts.tsx` (`NOTIFICATION_TYPE_ICONS`) — the single icon source, read by `getNotificationIcon`, which only `NotificationRow` calls; the side panel gets the icon by rendering that row
+3. Add a label + description entry in `frontend/src/lib/components/NotificationsMenu/NotificationRow.tsx` (`REALTIME_NOTIFICATION_TYPE_META`) — drives the per-type notification preferences UI
+4. Run `python manage.py makemigrations notifications`
 
 ## Testing
 

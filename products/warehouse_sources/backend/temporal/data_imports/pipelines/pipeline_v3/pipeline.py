@@ -36,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     person_property_sink_clear_chunks,
     reset_rows_synced_if_needed,
     resolve_primary_keys,
-    run_pre_write_defensive_compact,
     setup_row_tracking_with_billing_check,
     should_check_shutdown,
     stage_chunk_for_person_property_sink,
@@ -45,22 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
     validate_incremental_sync,
     write_chunk_for_cdp_producer,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.person_property_row_sink import (
-    PersonPropertyRowSink,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.pipeline import async_iterate
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    PipelineResult,
-    ResumableData,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
     evolve_pyarrow_schema,
@@ -69,7 +53,17 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     observe_and_project_table,
     source_uses_delta_write_column_selection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
+    PersonPropertyRowSink,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -85,6 +79,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    ResumableData,
+    SourceResponse,
+)
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
 
@@ -219,6 +217,9 @@ class PipelineV3(Generic[ResumableData]):
             self._logger,
             chunk_size=source_response.chunk_size,
             chunk_size_bytes=source_response.chunk_size_bytes,
+            source_type=self._source.source_type if self._source else None,
+            team_id=self._job.team_id,
+            schema_name=self._schema.name,
         )
         self._internal_schema = HogQLSchema()
         self._cdp_producer = CDPProducer(
@@ -310,16 +311,23 @@ class PipelineV3(Generic[ResumableData]):
             if is_fresh_sync:
                 self._pg_producer.is_first_ever_sync = True
 
-            # Defensive pre-write compaction. See `extract.run_pre_write_defensive_compact`
-            # for rationale; shared with the v2 pipeline so the threshold + error handling
-            # stay in lockstep.
+            # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
+            # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
             if not is_fresh_sync:
-                await run_pre_write_defensive_compact(
-                    self._delta_table_helper, self._schema, self._resource, self._logger
+                await DeltaMaintenance(self._delta_table_helper).run_scheduled(
+                    self._schema, partition_count_fallback=self._resource.partition_count
                 )
 
             async for item in async_iterate(self._resource.items()):
                 py_table = None
+
+                record_source_item_stats(
+                    item,
+                    source_type=source_type,
+                    logger=self._logger,
+                    team_id=self._job.team_id,
+                    schema_name=self._schema.name,
+                )
 
                 self._batcher.batch(item)
 
@@ -516,9 +524,7 @@ class PipelineV3(Generic[ResumableData]):
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
-        if not self._schema.initial_sync_complete:
-            await self._logger.adebug("V3 Pipeline: Setting initial_sync_complete on schema")
-            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
+        # initial_sync_complete is set by the loader's post-load after data lands in Delta.
 
         await self._logger.ainfo(
             f"V3 Pipeline: Extraction complete",

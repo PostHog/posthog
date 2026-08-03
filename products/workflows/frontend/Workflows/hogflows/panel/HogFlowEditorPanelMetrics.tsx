@@ -14,7 +14,7 @@ import { urls } from 'scenes/urls'
 
 import { EXIT_NODE_ID, TRIGGER_NODE_ID } from '../../workflowLogic'
 import { WORKFLOW_METRICS_INFO } from '../../WorkflowMetrics'
-import { WORKFLOW_EMAIL_METRICS } from '../../workflowMetricsSummaryLogic'
+import { WORKFLOW_EMAIL_METRICS, WORKFLOW_PUSH_METRICS } from '../../workflowMetricsSummaryLogic'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 
 export function HogFlowEditorPanelMetrics(): JSX.Element | null {
@@ -31,6 +31,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
 
     const selectedAction = workflow.actions.find((action) => action.id === actionId)
     const isEmailAction = selectedAction?.type === 'function_email'
+    const isPushAction = selectedAction?.type === 'function_push'
 
     const metricName = useMemo(() => {
         return actionId === TRIGGER_NODE_ID
@@ -39,8 +40,10 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
               ? ['succeeded', 'failed']
               : isEmailAction
                 ? (Object.keys(WORKFLOW_EMAIL_METRICS) as string[])
-                : undefined
-    }, [actionId, isEmailAction])
+                : isPushAction
+                  ? (Object.keys(WORKFLOW_PUSH_METRICS) as string[])
+                  : undefined
+    }, [actionId, isEmailAction, isPushAction])
 
     const logic = appMetricsLogic({
         logicKey,
@@ -61,17 +64,16 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
         if (!appMetricsTrends) {
             return undefined
         }
-        const colorSource = (isEmailAction ? WORKFLOW_EMAIL_METRICS : WORKFLOW_METRICS_INFO) as Record<
-            string,
-            { name: string; color: string }
-        >
+        const colorSource = (
+            isEmailAction ? WORKFLOW_EMAIL_METRICS : isPushAction ? WORKFLOW_PUSH_METRICS : WORKFLOW_METRICS_INFO
+        ) as Record<string, { name: string; color: string }>
         return Object.fromEntries(
             appMetricsTrends.series.map((x): [string, AppMetricsSeriesOverride] => [
                 x.name,
                 { label: colorSource[x.name]?.name, color: colorSource[x.name]?.color },
             ])
         )
-    }, [appMetricsTrends, isEmailAction])
+    }, [appMetricsTrends, isEmailAction, isPushAction])
 
     useEffect(() => {
         if (!shouldShowActionLevelMetrics) {

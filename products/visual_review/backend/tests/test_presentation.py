@@ -624,6 +624,28 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class TestMalformedUuidReturns400(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    # 13 hex chars in the final group — the shape that reached us from an MCP client.
+    BAD_UUID = "4c4e61e7-192b-44cd-a0bf-c9ee996998625"
+
+    @parameterized.expand(
+        [
+            ("run_retrieve", "runs/{bad}/"),
+            ("run_snapshots", "runs/{bad}/snapshots/"),
+            ("repo_retrieve", "repos/{bad}/"),
+            # Parent path segment (parents_query_dict) rather than pk.
+            ("repo_nested_runs", "repos/{bad}/runs/"),
+        ]
+    )
+    def test_malformed_uuid_returns_400_not_500(self, _name: str, path: str) -> None:
+        suffix = path.format(bad=self.BAD_UUID)
+        response = self.client.get(f"/api/projects/{self.team.id}/visual_review/{suffix}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
 class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
     CONFIG_AUTO_LOGIN = False

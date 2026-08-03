@@ -5,9 +5,13 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from django_otp.plugins.otp_totp.models import TOTPDevice
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.authentication import CodeBasedVerificationSerializer
 from posthog.helpers.email_utils import ESPSuppressionResult
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
 
@@ -82,6 +86,16 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
             self.assertEqual(self.client.post(VERIFY_URL, {"code": code}).status_code, status.HTTP_200_OK)
 
     @pytest.mark.disable_mock_code_based_verifier
+    def test_correct_code_pasted_with_whitespace_still_verifies(self):
+        # Wiring guard: the endpoint must route the submitted code through the serializer's
+        # digit-normalization, so a code copy-pasted with surrounding whitespace logs in.
+        with enable_code_sending() as mock_send:
+            code = self._trigger(mock_send)
+            response = self.client.post(VERIFY_URL, {"code": f"  {code}\n"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual(response.json(), {"success": True})
+
+    @pytest.mark.disable_mock_code_based_verifier
     def test_locks_out_after_max_attempts_even_with_correct_code(self):
         with enable_code_sending() as mock_send:
             code = self._trigger(mock_send)
@@ -154,3 +168,38 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
             response = self.client.post(VERIFY_URL, {"code": fresh_code})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
             self.assertEqual(response.json()["code"], "too_many_attempts")
+
+
+class TestCodeBasedVerificationSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("trailing_newline", "123456\n"),
+            ("leading_and_trailing_spaces", "  123456  "),
+            ("embedded_space", "123 456"),
+            ("grouped_with_spaces", "12 34 56"),
+            ("hyphen_grouped", "123-456"),
+            ("non_breaking_space", "\xa0123456\xa0"),
+            ("zero_width_space", "123456\u200b"),
+            ("word_joiner", "123456\u2060"),
+            ("byte_order_mark", "\ufeff123456"),
+            ("soft_hyphen", "123\u00ad456"),
+            ("fullwidth_digits", "\uff11\uff12\uff13\uff14\uff15\uff16"),
+        ]
+    )
+    def test_strips_noise_so_pasted_codes_normalize(self, _name, raw):
+        serializer = CodeBasedVerificationSerializer(data={"code": raw})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["code"] == "123456"
+
+    @parameterized.expand(
+        [
+            ("letters_around_digits", "abc123456xyz"),
+            ("digits_embedded_in_text", "your code is 123456!"),
+            ("too_short", "12345"),
+            ("too_long", "1234567"),
+        ]
+    )
+    def test_rejects_anything_that_is_not_six_digits(self, _name, raw):
+        serializer = CodeBasedVerificationSerializer(data={"code": raw})
+        assert not serializer.is_valid()
+        assert "code" in serializer.errors

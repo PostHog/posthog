@@ -4,6 +4,13 @@ import express from 'ultimate-express'
 import { ModifiedRequest } from '~/common/api/router'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT, delay } from '~/common/utils/utils'
+import { LogRecord } from '~/logs/log-record-avro'
+import {
+    DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS,
+    buildLogRecordGlobals,
+    executeLogTransformation,
+    resolveLogTransformationInputs,
+} from '~/logs/transformations/hog-log-exec'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -56,6 +63,7 @@ import {
     sanitizeLogMessage,
 } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
+import { JWT, PosthogJwtAudience } from './utils/jwt-utils'
 
 // Allowlist of safe content types for webhook responses to prevent XSS
 const SAFE_CONTENT_TYPES = new Set([
@@ -124,6 +132,10 @@ export class CdpApi {
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
+    // Scoped auth for the reschedule_parked route (exempted from the shared internal-secret
+    // middleware): Django mints per-call JWTs pinned to a team + workflow. Null when the key
+    // isn't provisioned — the route then fails closed.
+    private rescheduleJwt: JWT | null
 
     constructor(
         private config: PluginsServerConfig,
@@ -158,8 +170,8 @@ export class CdpApi {
             services.hogFunctionMonitoringService,
             services.capturedEventsService,
             services.teamWorkflowsConfigService,
-            services.recipientsManager,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            services.emailSuppressionService
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
@@ -172,6 +184,9 @@ export class CdpApi {
             this.invocationResultsService
         )
         this.batchResolverProducer = batchResolverProducer
+        this.rescheduleJwt = config.WORKFLOWS_RESCHEDULE_JWT_SECRET
+            ? new JWT(config.WORKFLOWS_RESCHEDULE_JWT_SECRET)
+            : null
     }
 
     public get service(): PluginServerService {
@@ -239,6 +254,10 @@ export class CdpApi {
         )
         router.post('/api/projects/:team_id/hog_flows/:id/rerun', asyncHandler(this.postRerunInvocations('hog_flow')))
         router.get('/api/projects/:team_id/hog_flows/:id/in_flight_count', asyncHandler(this.getHogFlowInFlightCount))
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/reschedule_parked',
+            asyncHandler(this.postHogFlowRescheduleParked)
+        )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -392,7 +411,15 @@ export class CdpApi {
                 ? convertToHogFunctionInvocationGlobals(clickhouse_event, team, this.config.SITE_URL)
                 : globals
 
-            if (!globals || !globals.event) {
+            const functionType: string | undefined = configuration?.type ?? hogFunction?.type
+
+            if (functionType === 'transformation_log') {
+                // Log transformations run against a log record, not an event
+                if (!globals?.record || typeof globals.record !== 'object' || Array.isArray(globals.record)) {
+                    res.status(400).json({ error: 'Missing record' })
+                    return
+                }
+            } else if (!globals || !globals.event) {
                 res.status(400).json({ error: 'Missing event' })
                 return
             }
@@ -515,6 +542,101 @@ export class CdpApi {
                 res.json({
                     result: result,
                     status: errors.length > 0 ? 'error' : wasSkipped ? 'skipped' : 'success',
+                    errors: errors.map((e) => String(e)),
+                    logs: logs,
+                })
+            } else if (compoundConfiguration.type === 'transformation_log') {
+                const mock = globals.record as Record<string, unknown>
+
+                const toStringMap = (value: unknown): Record<string, string> => {
+                    const map: Record<string, string> = {}
+                    if (value && typeof value === 'object' && !Array.isArray(value)) {
+                        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+                            if (entry !== null && entry !== undefined) {
+                                map[key] = typeof entry === 'string' ? entry : JSON.stringify(entry)
+                            }
+                        }
+                    }
+                    return map
+                }
+
+                // Mock log record from the request; trace/span ids stay null (they are
+                // read-only in transformations and not meaningful for a test run).
+                const record: LogRecord = {
+                    uuid: invocationID,
+                    trace_id: null,
+                    span_id: null,
+                    trace_flags: null,
+                    timestamp: typeof mock.timestamp === 'number' ? mock.timestamp : DateTime.now().toMillis() * 1e6,
+                    observed_timestamp: typeof mock.observed_timestamp === 'number' ? mock.observed_timestamp : null,
+                    body: typeof mock.body === 'string' ? mock.body : null,
+                    severity_text: typeof mock.severity_text === 'string' ? mock.severity_text : null,
+                    severity_number: typeof mock.severity_number === 'number' ? mock.severity_number : null,
+                    service_name: typeof mock.service_name === 'string' ? mock.service_name : null,
+                    resource_attributes: toStringMap(mock.resource_attributes),
+                    instrumentation_scope:
+                        typeof mock.instrumentation_scope === 'string' ? mock.instrumentation_scope : null,
+                    event_name: typeof mock.event_name === 'string' ? mock.event_name : null,
+                    attributes: toStringMap(mock.attributes),
+                    bytes_uncompressed: null,
+                }
+
+                const hogGlobals = buildLogRecordGlobals(record, triggerGlobals.project, {})
+
+                try {
+                    hogGlobals.inputs = resolveLogTransformationInputs(
+                        compoundConfiguration,
+                        hogGlobals,
+                        DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS
+                    ).inputs
+                } catch (e) {
+                    return res.json({
+                        result: null,
+                        status: 'error',
+                        errors: [String(e)],
+                        logs,
+                    })
+                }
+
+                // Derive from the resolved inputs (which merge inputs + encrypted_inputs) like the
+                // destination test path does — Django resolves stored secrets into `inputs`, so
+                // collecting from `encrypted_inputs` alone would leave them unredacted in test logs.
+                const sensitiveValues = this.hogExecutor.getSensitiveValues(
+                    compoundConfiguration,
+                    (hogGlobals.inputs ?? {}) as Record<string, any>
+                )
+
+                const outcome = executeLogTransformation(compoundConfiguration.bytecode, record, hogGlobals, {
+                    sensitiveValues,
+                })
+
+                logs = logs.concat(
+                    outcome.logs.map((message) => ({
+                        level: 'info' as const,
+                        timestamp: DateTime.now(),
+                        message,
+                    }))
+                )
+
+                if (outcome.status === 'failed') {
+                    errors.push(outcome.error)
+                } else if (outcome.status === 'dropped') {
+                    logs.push({
+                        level: 'info',
+                        timestamp: DateTime.now(),
+                        message: 'Record dropped by transformation.',
+                    })
+                }
+
+                // Same record shape the function saw (hex ids, string maps) — null when dropped
+                result =
+                    outcome.status === 'dropped'
+                        ? null
+                        : buildLogRecordGlobals(record, triggerGlobals.project, {}).record
+
+                res.json({
+                    result: result,
+                    status: errors.length > 0 ? 'error' : 'success',
                     errors: errors.map((e) => String(e)),
                     logs: logs,
                 })
@@ -649,7 +771,14 @@ export class CdpApi {
                 })
             }
 
-            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            // Redact the flow's decrypted secret inputs from the mocked async-function logs, so a test
+            // run can't echo a stored credential (e.g. an Authorization header) back to the caller.
+            const sensitiveValues = await this.hogFlowExecutor.getSensitiveValues(compoundConfiguration)
+            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(
+                mock_async_functions,
+                logs,
+                sensitiveValues
+            )
             options.sendEmailsInline = true
             const result = await this.hogFlowExecutor.executeCurrentAction(invocation, { hogExecutorOptions: options })
 
@@ -831,10 +960,106 @@ export class CdpApi {
                 return res.status(404).json({ error: 'Workflow not found' })
             }
 
-            const count = await this.batchResolverProducer.countInFlightJobs(team.id, id)
-            return res.json({ count })
+            const counts = await this.batchResolverProducer.countInFlightJobs(team.id, id)
+            return res.json({
+                count: counts.count,
+                by_action: counts.byAction,
+                position_unknown: counts.positionUnknown,
+            })
         } catch (e) {
             logger.error('Error counting in-flight hog flow jobs', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Pull forward the wake times of this workflow's parked jobs after a timing edit. Django
+    // calls this (via a Celery task) when a published/saved change shortened a delay or moved a
+    // wait window; one call is one slice, and the caller loops with the returned bounds until
+    // `done`. See CyclotronV2Manager.rescheduleParkedJobs for the sweep semantics.
+    //
+    // Auth: a scoped JWT minted by Django per call, pinned to this team + workflow — NOT the
+    // fleet-wide internal secret (the route is exempted from that middleware). Fails closed when
+    // the key isn't provisioned.
+    private postHogFlowRescheduleParked = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.rescheduleJwt) {
+                return res.status(503).json({
+                    error: 'Reschedule auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                })
+            }
+
+            const { team_id, id } = req.params
+
+            const authHeader = req.headers['authorization']
+            const token =
+                typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
+            const claims = token
+                ? (this.rescheduleJwt.verify(token, PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED, {
+                      ignoreVerificationErrors: true,
+                  }) as { team_id?: number; hog_flow_id?: string } | undefined)
+                : undefined
+            // The claims pin the token to one team + workflow, so a leaked token can't sweep anything else.
+            if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
+                return res.status(401).json({ error: 'Unauthorized: Invalid reschedule token' })
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            const hogFlow = await this.hogFlowManager.getHogFlow(id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return res.status(404).json({ error: 'Workflow not found' })
+            }
+
+            const body = req.body ?? {}
+            const actionIds = body.action_ids
+            if (
+                !Array.isArray(actionIds) ||
+                actionIds.length === 0 ||
+                actionIds.length > 100 ||
+                !actionIds.every((a: unknown) => typeof a === 'string' && a.length > 0)
+            ) {
+                return res.status(400).json({ error: 'action_ids must be a non-empty array of up to 100 strings' })
+            }
+            const sweepFloor = body.sweep_floor ? new Date(body.sweep_floor) : undefined
+            const sweepUntil = body.sweep_until ? new Date(body.sweep_until) : undefined
+            if ((sweepFloor && isNaN(sweepFloor.getTime())) || (sweepUntil && isNaN(sweepUntil.getTime()))) {
+                return res.status(400).json({ error: 'sweep_floor and sweep_until must be ISO datetimes' })
+            }
+            if (
+                (sweepFloor === undefined) !== (sweepUntil === undefined) ||
+                (sweepFloor && sweepUntil && sweepFloor >= sweepUntil)
+            ) {
+                return res
+                    .status(400)
+                    .json({ error: 'sweep_floor and sweep_until must be passed together, with floor before until' })
+            }
+
+            const result = await this.batchResolverProducer.rescheduleParkedJobs({
+                teamId: team.id,
+                functionId: id,
+                actionIds,
+                sweepFloor,
+                sweepUntil,
+            })
+            return res.json({
+                swept: result.swept,
+                remaining: result.remaining,
+                done: result.done,
+                sweep_floor: result.sweepFloor.toISOString(),
+                sweep_until: result.sweepUntil.toISOString(),
+            })
+        } catch (e) {
+            logger.error('Error rescheduling parked hog flow jobs', {
                 error: e instanceof Error ? e.message : String(e),
             })
             return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
@@ -875,8 +1100,13 @@ export class CdpApi {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
                 filters: {
-                    properties: hogFlow.trigger.filters.properties || [],
-                    filter_test_accounts: req.body.filters?.filter_test_accounts || false,
+                    // Prefer the audience snapshot validated at dispatch time - re-reading the live
+                    // trigger here would let an edit landing after the confirm check widen the send.
+                    // Fallback covers callers that predate the snapshot.
+                    properties: req.body.filters?.properties ?? (hogFlow.trigger.filters.properties || []),
+                    filter_test_accounts:
+                        req.body.filters?.filter_test_accounts ??
+                        (hogFlow.trigger.filters.filter_test_accounts || false),
                 },
                 variables: req.body.variables ?? {},
                 groupTypeIndex: typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,

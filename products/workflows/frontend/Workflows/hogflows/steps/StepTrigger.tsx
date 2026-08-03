@@ -45,7 +45,7 @@ import 'products/workflows/frontend/Workflows/hogflows/registry/triggers'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
-import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
+import { TriggerFrequencyOption, getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { batchTriggerLogic, getAudienceDedupeKey } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
@@ -204,7 +204,7 @@ function TriggerTypeDropdownItem({
 }
 
 export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }): JSX.Element {
-    const { setWorkflowActionConfig } = useActions(workflowLogic)
+    const { setWorkflowActionConfig, setWorkflowValue } = useActions(workflowLogic)
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -281,6 +281,11 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const registeredMatch = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
 
     const handleSelect = (value: string): void => {
+        // The frequency hash lives on the workflow, not the trigger config, and hashes are
+        // trigger-specific ({person.id} vs event-keyed) — a stale one silently disables masking.
+        if (value !== displayType) {
+            setWorkflowValue('trigger_masking', null)
+        }
         const registered = getRegisteredTriggerTypes().find((t) => t.value === value)
         if (registered) {
             setWorkflowActionConfig(node.id, registered.buildConfig())
@@ -332,7 +337,18 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 {type === 'schedule' && <ScheduleStatusBadge />}
             </div>
             {registeredMatch?.ConfigComponent ? (
-                <registeredMatch.ConfigComponent node={node} />
+                <>
+                    <registeredMatch.ConfigComponent node={node} />
+                    {registeredMatch.frequencyOptions ? (
+                        <>
+                            <LemonDivider />
+                            <FrequencySection
+                                options={registeredMatch.frequencyOptions}
+                                description={registeredMatch.frequencyDescription}
+                            />
+                        </>
+                    ) : null}
+                </>
             ) : node.data.config.type === 'event' ? (
                 <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'webhook' ? (
@@ -687,10 +703,10 @@ function StepTriggerConfigurationTrackingPixel({
 const MASKING_HASH_PER_PERSON_PER_DAY = "{concat(toString(person.id), '-', formatDateTime(now(), '%Y-%m-%d'))}"
 const CALENDAR_DAY_TTL = 24 * 60 * 60
 
-const FREQUENCY_OPTIONS = [
+const FREQUENCY_OPTIONS: TriggerFrequencyOption[] = [
     { value: null, label: 'Every time the trigger fires' },
     { value: '{person.id}', label: 'One time' },
-    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day' },
+    { value: MASKING_HASH_PER_PERSON_PER_DAY, label: 'Once per calendar day', fixedTtl: CALENDAR_DAY_TTL },
 ]
 
 const TTL_OPTIONS = [
@@ -726,9 +742,17 @@ function TTLSelect({
     )
 }
 
-function FrequencySection(): JSX.Element {
+function FrequencySection({
+    options = FREQUENCY_OPTIONS,
+    description = 'Limit how often users can enter this workflow',
+}: {
+    options?: TriggerFrequencyOption[]
+    description?: string
+}): JSX.Element {
     const { setWorkflowValue } = useActions(workflowLogic)
     const { workflow } = useValues(workflowLogic)
+
+    const selectedOption = options.find((option) => option.value === (workflow.trigger_masking?.hash ?? null))
 
     return (
         <div className="flex flex-col w-full py-2">
@@ -736,30 +760,27 @@ function FrequencySection(): JSX.Element {
                 <IconClock className="text-lg" />
                 <span className="text-md font-semibold">Frequency</span>
             </span>
-            <p>Limit how often users can enter this workflow</p>
+            <p>{description}</p>
 
             <LemonField.Pure>
                 <div className="flex flex-wrap gap-1 items-center">
                     <LemonSelect
-                        options={FREQUENCY_OPTIONS}
+                        options={options.map(({ value, label }) => ({ value, label }))}
                         value={workflow.trigger_masking?.hash ?? null}
-                        onChange={(val) =>
+                        onChange={(val) => {
+                            const option = options.find((candidate) => candidate.value === val)
                             setWorkflowValue(
                                 'trigger_masking',
                                 val
                                     ? {
                                           hash: val,
-                                          ttl:
-                                              val === MASKING_HASH_PER_PERSON_PER_DAY
-                                                  ? CALENDAR_DAY_TTL
-                                                  : (workflow.trigger_masking?.ttl ?? 60 * 30),
+                                          ttl: option?.fixedTtl ?? workflow.trigger_masking?.ttl ?? 60 * 30,
                                       }
                                     : null
                             )
-                        }
+                        }}
                     />
-                    {workflow.trigger_masking?.hash &&
-                    workflow.trigger_masking.hash !== MASKING_HASH_PER_PERSON_PER_DAY ? (
+                    {workflow.trigger_masking?.hash && !selectedOption?.fixedTtl ? (
                         <TTLSelect
                             value={workflow.trigger_masking.ttl}
                             onChange={(val) =>

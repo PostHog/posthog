@@ -51,10 +51,13 @@ from posthog.temporal.messaging.constants import (
     REALTIME_COHORT_CALCULATION_P95_P99_SCHEDULE_ID,
     REALTIME_COHORT_CALCULATION_P99_P100_SCHEDULE_ID,
     REALTIME_COHORT_CALCULATION_SCHEDULE_ID,
+    RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID,
+    RECONCILE_PRECALCULATED_DATA_WORKFLOW_NAME,
 )
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
 )
+from posthog.temporal.messaging.reconcile_precalculated_data_workflow import ReconcilePrecalculatedDataWorkflowInputs
 
 # Default configuration for realtime cohort calculation coordinator
 DEFAULT_COORDINATOR_PARALLELISM = 6
@@ -204,8 +207,37 @@ async def create_realtime_cohort_calculation_schedule_with_id(
         )
 
 
+async def create_reconcile_precalculated_data_schedule(client: Client):
+    """Create or update the schedule that repairs precalculated_events rows after person merges."""
+    from posthog.settings.schedules import RECONCILE_PRECALCULATED_DATA_INTERVAL_MINUTES
+
+    schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            RECONCILE_PRECALCULATED_DATA_WORKFLOW_NAME,
+            asdict(ReconcilePrecalculatedDataWorkflowInputs()),
+            id=RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID,
+            task_queue=settings.MESSAGING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            intervals=[ScheduleIntervalSpec(every=timedelta(minutes=RECONCILE_PRECALCULATED_DATA_INTERVAL_MINUTES))]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID):
+        await a_update_schedule(client, RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID, schedule)
+    else:
+        await a_create_schedule(client, RECONCILE_PRECALCULATED_DATA_SCHEDULE_ID, schedule, trigger_immediately=False)
+
+
 async def create_all_realtime_cohort_calculation_schedules(client: Client):
-    """Create or update all six percentile-based schedules for realtime cohort calculation.
+    """Create or update the active percentile-based schedules for realtime cohort calculation.
+
+    Only the p0-p80 tiers (p0-p50, p50-p80) are active. The p80-p100 tiers (p80-p90, p90-p95,
+    p95-p99, p99-p100) are intentionally disabled for now — they cover the slowest, most expensive
+    cohorts — so their schedules are deleted here if they exist. Re-enabling is a matter of
+    re-adding the create calls below and dropping the corresponding deletes; the per-tier
+    create_* helpers, settings, and schedule-ID constants are kept in place for that.
 
     Note: This migration is non-atomic. Between creating new schedules and deleting the old one,
     both schedules may fire simultaneously. The old schedule processes ALL cohorts while the new
@@ -214,13 +246,19 @@ async def create_all_realtime_cohort_calculation_schedules(client: Client):
     """
     from posthog.temporal.common.schedule import a_delete_schedule, a_schedule_exists
 
-    # First ensure all new percentile-based schedules are in place
+    # First ensure the active p0-p80 percentile-based schedules are in place
     await create_realtime_cohort_calculation_p0_p50_schedule(client)
     await create_realtime_cohort_calculation_p50_p80_schedule(client)
-    await create_realtime_cohort_calculation_p80_p90_schedule(client)
-    await create_realtime_cohort_calculation_p90_p95_schedule(client)
-    await create_realtime_cohort_calculation_p95_p99_schedule(client)
-    await create_realtime_cohort_calculation_p99_p100_schedule(client)
+
+    # Delete the disabled p80-p100 tiers so any previously registered schedules stop firing
+    for disabled_schedule_id in (
+        REALTIME_COHORT_CALCULATION_P80_P90_SCHEDULE_ID,
+        REALTIME_COHORT_CALCULATION_P90_P95_SCHEDULE_ID,
+        REALTIME_COHORT_CALCULATION_P95_P99_SCHEDULE_ID,
+        REALTIME_COHORT_CALCULATION_P99_P100_SCHEDULE_ID,
+    ):
+        if await a_schedule_exists(client, disabled_schedule_id):
+            await a_delete_schedule(client, disabled_schedule_id)
 
     # Then clean up the legacy schedules if they exist to prevent duplicate runs
     if await a_schedule_exists(client, REALTIME_COHORT_CALCULATION_SCHEDULE_ID):

@@ -8,10 +8,11 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 class RetentlyEndpointConfig:
     name: str
     path: str
-    # Key the record array is nested under. Most endpoints wrap it in the `data` object
-    # (e.g. {"data": {"responses": [...]}}), but campaigns/templates document the array at the
-    # top level and /reports returns a bare list under `data` — the transport handles all three.
-    data_key: str
+    # jsonpath to the record array in the response. Most endpoints nest it under the `data` object
+    # (e.g. {"data": {"responses": [...]}} -> "data.responses"), campaigns/templates document the
+    # array at the top level ("campaigns"/"templates"), and /reports returns a bare list under
+    # `data` ("data").
+    data_selector: str
     primary_keys: Optional[list[str]] = None
     # Whether the endpoint accepts `page`/`limit` query params. Campaigns, templates and reports
     # are documented without pagination and return the full collection in one response.
@@ -46,7 +47,7 @@ RETENTLY_ENDPOINTS: dict[str, RetentlyEndpointConfig] = {
     "customers": RetentlyEndpointConfig(
         name="customers",
         path="/customers",
-        data_key="subscribers",
+        data_selector="data.subscribers",
         primary_keys=["id"],
         sort_param="createdDate",
         partition_key="createdDate",
@@ -54,7 +55,7 @@ RETENTLY_ENDPOINTS: dict[str, RetentlyEndpointConfig] = {
     "companies": RetentlyEndpointConfig(
         name="companies",
         path="/companies",
-        data_key="companies",
+        data_selector="data.companies",
         primary_keys=["id"],
         sort_param="createdDate",
         partition_key="createdDate",
@@ -62,7 +63,7 @@ RETENTLY_ENDPOINTS: dict[str, RetentlyEndpointConfig] = {
     "feedback": RetentlyEndpointConfig(
         name="feedback",
         path="/feedback",
-        data_key="responses",
+        data_selector="data.responses",
         primary_keys=["id"],
         sort_param="createdDate",
         incremental_fields=_created_date_incremental_field(),
@@ -71,28 +72,28 @@ RETENTLY_ENDPOINTS: dict[str, RetentlyEndpointConfig] = {
     "outbox": RetentlyEndpointConfig(
         name="outbox",
         path="/outbox",
-        data_key="surveys",
+        data_selector="data.surveys",
         primary_keys=None,
         sort_param="surveyCreatedDate",
     ),
     "campaigns": RetentlyEndpointConfig(
         name="campaigns",
         path="/campaigns",
-        data_key="campaigns",
+        data_selector="campaigns",
         primary_keys=["id"],
         paginated=False,
     ),
     "templates": RetentlyEndpointConfig(
         name="templates",
         path="/templates",
-        data_key="templates",
+        data_selector="templates",
         primary_keys=["id"],
         paginated=False,
     ),
     "reports": RetentlyEndpointConfig(
         name="reports",
         path="/reports",
-        data_key="data",
+        data_selector="data",
         primary_keys=["campaignId"],
         paginated=False,
     ),

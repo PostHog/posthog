@@ -99,7 +99,7 @@ tools:
                      {"type": "divider"},
                      {"type": "actions", "elements": [
                        {"type": "button", "text": {"type": "plain_text", "text": "View Issue"},
-                        "url": "{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
+                        "url": "{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack"}
                      ]}
                    ]}
                  }
@@ -109,8 +109,7 @@ tools:
                `Issue reopened: {event.properties.name}`.
 
                For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to
-               `📈 Issue spiking`, drop the `fingerprint`/`timestamp` params from the button URL (spiking
-               events do not carry them), and add a context line referencing
+               `📈 Issue spiking` and add a context line referencing
                `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. The
                exact block layout is in the `authoring-error-tracking-alerts` skill references.
 
@@ -123,13 +122,13 @@ tools:
 
 
             Event property reference — common across all three events: `event.properties.name` (issue title),
-            `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link).
-            `created`/`reopened` additionally expose `event.properties.status`, `event.properties.fingerprint`,
-            `event.properties.exception_timestamp`, and the originating exception's properties (e.g. `$exception_types`,
-            `$exception_issue_id`). Spiking events instead expose `event.properties.current_bucket_value` and
-            `event.properties.computed_baseline` — no status, fingerprint, or exception properties. Project context is
-            available as `{project.url}` (already includes `/project/<team_id>`), `{project.name}`, and the alert's own
-            metadata as `{source.url}` and `{source.name}`.
+            `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link),
+            `event.properties.fingerprint`, and `event.properties.exception_timestamp`. `created`/`reopened`
+            additionally expose `event.properties.status` and the originating exception's properties (e.g.
+            `$exception_types`, `$exception_issue_id`). Spiking events instead expose
+            `event.properties.current_bucket_value` and `event.properties.computed_baseline` — no status or exception
+            properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`),
+            `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.
         exclude_params:
             - _create_in_folder
             - batch_export_id

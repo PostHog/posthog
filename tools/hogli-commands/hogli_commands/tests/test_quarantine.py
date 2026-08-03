@@ -75,10 +75,38 @@ def raw_entry(**overrides: Any) -> dict[str, Any]:
         ("product:batch-exports", "posthog/api/test/test_foo.py::test_x", False),
         # unrelated paths
         ("posthog/api/test/test_foo.py", "posthog/api/test/test_food.py::test_x", False),
+        # jest ids: file::<space-joined test name>; a file selector covers every test in it
+        ("frontend/src/x.test.ts", "frontend/src/x.test.ts::MyLogic loads data", True),
+        # describe-block prefix matches via the space boundary
+        ("frontend/src/x.test.ts::MyLogic", "frontend/src/x.test.ts::MyLogic loads data", True),
+        # exact full test name
+        ("frontend/src/x.test.ts::MyLogic loads data", "frontend/src/x.test.ts::MyLogic loads data", True),
+        # a partial describe word never matches (space, not substring)
+        ("frontend/src/x.test.ts::MyLog", "frontend/src/x.test.ts::MyLogic loads data", False),
     ],
 )
 def test_selector_matches(selector: str, test_id: str, expected: bool) -> None:
     assert core.selector_matches(selector, test_id) is expected
+
+
+@pytest.mark.parametrize(
+    "selector, runner, valid",
+    [
+        ("frontend/src/x.test.ts", "jest", True),
+        ("frontend/src/x.test.ts::MyLogic loads data", "jest", True),  # spaces allowed after ::
+        ("frontend/src", "jest", True),
+        ("product:batch-exports", "jest", True),  # product rule shared with pytest
+        ("/abs/x.test.ts", "jest", False),  # absolute path
+        ("frontend/src/x test.ts::name", "jest", False),  # whitespace in the path part
+        ("::name-only", "jest", False),  # missing file path before ::
+        ("product:batch_exports", "jest", False),  # underscored product form
+        ("playwright/e2e/login.spec.ts::Login redirects home", "playwright", True),  # spaces allowed after ::
+        ("playwright/e2e/login file.spec.ts::Login", "playwright", False),  # whitespace in the path part
+        ("anything at all", "some-future-runner", True),  # unadapted runner: not validated
+    ],
+)
+def test_validate_selector_by_runner(selector: str, runner: str, valid: bool) -> None:
+    assert (core.validate_selector(selector, runner) is None) is valid
 
 
 @pytest.mark.parametrize(
@@ -261,6 +289,16 @@ def test_add_creates_canonical_file(runner: CliRunner, tmp_path: Path) -> None:
     assert date.fromisoformat(entry["expires"]) - date.fromisoformat(entry["added"]) == timedelta(days=14)
 
 
+def test_add_records_jest_runner(runner: CliRunner, tmp_path: Path) -> None:
+    path = tmp_path / "q.json"
+    result = cli(
+        runner, path, "add", "frontend/src/x.test.ts", "--runner", "jest", "--reason", "flaky", "--owner", "@web"
+    )
+    assert result.exit_code == 0, result.output
+    entry = json.loads(path.read_text())["entries"][0]
+    assert (entry["runner"], entry["id"]) == ("jest", "frontend/src/x.test.ts")
+
+
 def test_add_replaces_existing_entry_with_same_id(runner: CliRunner, tmp_path: Path) -> None:
     path = write_file(tmp_path / "q.json", [raw_entry(reason="old")])
     result = cli(runner, path, "add", raw_entry()["id"], "--reason", "new", "--owner", "@x", "--mode", "skip")
@@ -370,8 +408,24 @@ def test_list_shows_status(runner: CliRunner, tmp_path: Path) -> None:
             0,
             "remove today — grace period ends",
         ),
-        # forward compat: unknown runner and unknown field warn but pass
-        ([raw_entry(runner="jest", future_field="x")], 0, "no enforcement adapter"),
+        # forward compat: a runner without an adapter (and an unknown field) warn but pass
+        ([raw_entry(runner="some-future-runner", future_field="x")], 0, "no enforcement adapter"),
+        # a hand-edited future-dated entry must fail check, not sit active for years
+        (
+            [
+                raw_entry(
+                    runner="playwright",
+                    id="playwright/e2e/x.spec.ts",
+                    added=(core.today_utc() + timedelta(days=365)).isoformat(),
+                    expires=(core.today_utc() + timedelta(days=395)).isoformat(),
+                )
+            ],
+            1,
+            "is in the future",
+        ),
+        # jest and playwright have enforcement adapters; valid entries pass clean
+        ([raw_entry(runner="jest", id="frontend/src/x.test.ts")], 0, "OK"),
+        ([raw_entry(runner="playwright", id="playwright/e2e/login.spec.ts::Login redirects home")], 0, "OK"),
         # known-product selector passes; unknown product fails
         ([raw_entry(id="product:batch-exports")], 0, "OK"),
         ([raw_entry(id="product:batch_exports")], 1, "dashed product name"),

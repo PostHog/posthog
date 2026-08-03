@@ -7,6 +7,7 @@ class DirectPostgresTable(DirectSQLTable):
     postgres_catalog: str | None = None
     postgres_schema: str
     postgres_table_name: str
+    source_type: str | None = None
 
     def to_printed_postgres(self, context) -> str:
         parts = []
