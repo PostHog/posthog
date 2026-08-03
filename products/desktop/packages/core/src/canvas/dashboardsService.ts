@@ -257,9 +257,10 @@ export class DashboardsService {
 
   // The canvas's version history, newest first (metadata only).
   async listVersions(id: string): Promise<CanvasVersion[]> {
-    const rows = await this.api.json<ApiVersion[]>(
+    const rows = await this.api.listPaginated<ApiVersion>(
       `canvases/${encodeURIComponent(id)}/versions/`,
       "list canvas versions",
+      { limit: 100 },
     );
     return rows.map((row) => ({
       id: row.id,
