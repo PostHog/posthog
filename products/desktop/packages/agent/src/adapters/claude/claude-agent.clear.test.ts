@@ -299,24 +299,45 @@ describe("ClaudeAcpAgent /clear", () => {
     ).toBeDefined();
   });
 
-  it("carries the live permission mode into the fresh session, not the creation-time one", async () => {
-    // A mode change updates the running query; queryOptions keeps the mode the session
-    // was created with. Rebuilding from it silently hands back permissions the user had
-    // since narrowed, and nothing on screen says the mode moved.
-    const { agent } = makeAgent();
-    const { session } = installFakeSession(agent, "s-mode");
-    await (
-      agent as unknown as { applySessionMode: (m: string) => Promise<void> }
-    ).applySessionMode("default");
+  // A mode change updates the running query; queryOptions keeps the mode the session
+  // was created with. Rebuilding from it silently hands back permissions the user had
+  // since narrowed, and nothing on screen says the mode moved. Both paths that move
+  // the mode have to keep queryOptions in step — setSessionMode and the plan-mode hook.
+  it.each([
+    {
+      path: "applySessionMode",
+      mode: "default",
+      apply: (agent: Agent, mode: string) =>
+        (
+          agent as unknown as { applySessionMode: (m: string) => Promise<void> }
+        ).applySessionMode(mode),
+    },
+    {
+      path: "onModeChange",
+      mode: "plan",
+      apply: (agent: Agent, mode: string) =>
+        (
+          agent as unknown as {
+            createOnModeChange: () => (m: string) => Promise<void>;
+          }
+        ).createOnModeChange()(mode),
+    },
+  ])(
+    "carries the live permission mode into the fresh session via $path, not the creation-time one",
+    async ({ mode, apply }) => {
+      const { agent } = makeAgent();
+      const { session } = installFakeSession(agent, "s-mode");
+      await apply(agent, mode);
 
-    await agent.prompt({
-      sessionId: "s-mode",
-      prompt: [{ type: "text", text: "/clear" }],
-    });
+      await agent.prompt({
+        sessionId: "s-mode",
+        prompt: [{ type: "text", text: "/clear" }],
+      });
 
-    expect(lastQueryCall.options?.permissionMode).toBe("default");
-    expect(session.queryOptions.permissionMode).toBe("default");
-  });
+      expect(lastQueryCall.options?.permissionMode).toBe(mode);
+      expect(session.queryOptions.permissionMode).toBe(mode);
+    },
+  );
 
   it("deletes the stale local jsonl for the stable ACP id after a successful clear", async () => {
     // A cold reconnect hydrates by the stable ACP id (clients never learn the

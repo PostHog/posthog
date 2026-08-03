@@ -2709,6 +2709,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       if (this.session) {
         const previousMode = this.session.permissionMode;
         this.session.permissionMode = newMode;
+        // Same reason as applySessionMode: queryOptions seeds every later
+        // rebuild, and this path (the EnterPlanMode hook) moves the mode too.
+        this.session.queryOptions.permissionMode = toSdkPermissionMode(newMode);
         if (newMode === "plan" && previousMode !== "plan") {
           this.session.modeBeforePlan = previousMode;
         }
