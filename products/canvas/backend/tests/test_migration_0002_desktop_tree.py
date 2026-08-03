@@ -11,7 +11,7 @@ class MigrateDesktopTreeHomeCanvasTest(NonAtomicTestMigrations):
     """
 
     migrate_from = "0001_initial"
-    migrate_to = "0002_migrate_desktop_tree"
+    migrate_to = "0003_migrate_desktop_tree"
 
     CLASS_DATA_LEVEL_SETUP = False
 

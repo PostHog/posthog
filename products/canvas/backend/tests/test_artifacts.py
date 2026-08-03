@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from posthog.models.scoping import team_scope
 
+from products.canvas.backend import artifacts
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
-from products.canvas.backend.presentation import artifacts
 from products.tasks.backend.models import Channel
 
 CONTENT = b"<html>hi</html>"

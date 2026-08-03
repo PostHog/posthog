@@ -11,11 +11,10 @@ The desktop "file system" conflated four things that now have real homes:
 - folder instructions / context-generation markers → their channel-scoped
   equivalents;
 - shortcuts → ``ChannelStar`` rows, and ``task`` filings → a ``Task.channel``
-  backfill.
+  backfill. Physical cleanup is intentionally deferred to a later deployment.
 
 Loop ``context_target`` payloads are rewritten from ``folder_id`` (a desktop
-folder) to ``channel_id``. One-way: the desktop tree is deleted by the
-follow-up posthog migration.
+folder) to ``channel_id``.
 """
 
 import re
@@ -246,7 +245,7 @@ def migrate_desktop_tree(apps, schema_editor):
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("canvas", "0001_initial"),
+        ("canvas", "0002_source_version_required"),
         ("tasks", "0076_channelcontextgeneration_channelinstructions_and_more"),
         ("posthog", "1265_delete_duckgresserverteam"),
     ]

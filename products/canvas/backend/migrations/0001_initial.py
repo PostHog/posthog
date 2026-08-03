@@ -190,6 +190,7 @@ class Migration(migrations.Migration):
             model_name="canvasbuild",
             name="source_version",
             field=models.ForeignKey(
+                null=True,
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="builds",
                 to="canvas.canvassourceversion",
