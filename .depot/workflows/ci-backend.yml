@@ -499,12 +499,13 @@ jobs:
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
                       exit 0
                   fi
-                  # Consumers replay the routed labels from the checked-out copy of this file, so a
-                  # PR that edits routing lines up with no master dump, the merge-base one included.
-                  # Both keys drop out so migrations run from scratch.
-                  ROUTING_BASE=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml)
-                  ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml)
-                  if [ "$ROUTING_BASE" != "$ROUTING_HEAD" ]; then
+                  # Routing decides which app labels reach the dump, and the consumers replay them
+                  # from the checked-out copy, so it belongs in the key below. A PR that edits it
+                  # matches no master dump, the merge-base one included: drop both keys and let
+                  # migrations run from scratch.
+                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml)
+                  DB_ROUTING_HEAD=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml)
+                  if [ "$DB_ROUTING" != "$DB_ROUTING_HEAD" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::products/db_routing.yaml differs from the merge base, so the schema cache is skipped"
@@ -521,8 +522,6 @@ jobs:
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
                       | LC_ALL=C sort) || true
-                  # Routing decides which app labels are in the dump, and ci-mcp replays them from the PR's copy of this file, so it belongs in the key.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" -- products/db_routing.yaml)
                   PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   if [ -z "$MIG_FILES" ]; then
