@@ -28,6 +28,10 @@ describe('isStoredCrashFirst', () => {
         // events after the deploy moment on rollout day are stored canonical
         ['posthog-go', '2026-07-09T20:00:00Z', false],
         ['posthog-go', '2026-07-09T12:00:00Z', true],
+        // API timestamp forms that do not sort lexically against the cutoff
+        ['posthog-go', '2026-07-09T16:10:00.500000+00:00', false],
+        ['posthog-go', '2026-07-09T12:00:00.123456+00:00', true],
+        ['posthog-go', 'not-a-date', false],
         ['posthog-python', '2026-07-01T00:00:00Z', false], // python frames were always bottom-up
         ['web', '2026-07-01T00:00:00Z', false],
         [undefined, '2026-07-01T00:00:00Z', false],

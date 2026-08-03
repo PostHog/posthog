@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import { ErrorTrackingStackFrame } from './types'
 
 /**
@@ -45,5 +47,8 @@ export function isStoredCrashFirst(lib: string | undefined, timestamp: string | 
     if (!lib || !timestamp || !CRASH_FIRST_LIBS.has(lib)) {
         return false
     }
-    return timestamp < WIRE_ORDER_NORMALIZATION_DATE
+    // parse rather than string-compare: event timestamps arrive in several ISO
+    // forms (fractional seconds, +00:00 offsets) that do not sort lexically
+    const parsed = dayjs(timestamp)
+    return parsed.isValid() && parsed.isBefore(WIRE_ORDER_NORMALIZATION_DATE)
 }
