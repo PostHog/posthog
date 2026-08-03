@@ -25,6 +25,7 @@ from posthog.llm.gateway_client import get_llm_client
 
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
+    ai_processing_approved,
     classify_payload,
     get_active_config,
     is_unknown_output,
@@ -123,6 +124,7 @@ class Command(BaseCommand):
             "attempted": 0,
             "succeeded": 0,
             "skipped_existing": 0,
+            "skipped_no_ai_consent": 0,
             "unknown": 0,
             "failures": 0,
             "prompt_tokens": 0,
@@ -174,6 +176,10 @@ class Command(BaseCommand):
                 if _result_exists(fetch, live_label):
                     with counts_lock:
                         counts["skipped_existing"] += 1
+                    return
+                if not ai_processing_approved(fetch.organization_id):
+                    with counts_lock:
+                        counts["skipped_no_ai_consent"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
                 output = classify_payload(config, fetch.payload, signup_domain, client)
@@ -288,13 +294,15 @@ class Command(BaseCommand):
         # succeeded/tried rather than a raw count: an alert can fire on the ratio, and on a run
         # that attempted nothing at all, which is what a silently broken input source looks like.
         # "tried" excludes aborted items so a circuit-broken run doesn't dilute the ratio with
-        # work that was queued but never actually attempted.
-        tried = counts["attempted"] - counts["aborted"]
+        # work that was queued but never actually attempted, and consent skips for the same
+        # reason: an archive of orgs that all declined is a correct empty run, not a failed one.
+        tried = counts["attempted"] - counts["aborted"] - counts["skipped_no_ai_consent"]
         success_rate = counts["succeeded"] / tried if tried else None
         elapsed_seconds = time.monotonic() - started_at
         summary = (
             f"attempted {counts['attempted']}, succeeded {counts['succeeded']}, "
-            f"skipped_existing {counts['skipped_existing']}, unknown {counts['unknown']}, "
+            f"skipped_existing {counts['skipped_existing']}, "
+            f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
             f"failures {counts['failures']}, aborted {counts['aborted']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
@@ -312,7 +320,7 @@ class Command(BaseCommand):
         self.stdout.write(summary)
         if circuit_open.is_set():
             raise CommandError(f"aborted after {max_failures} consecutive failures ({summary})")
-        if counts["attempted"] > 0 and counts["succeeded"] == 0:
+        if tried > 0 and counts["succeeded"] == 0:
             raise CommandError(f"every attempted org failed ({summary})")
         if success_rate is not None and success_rate < min_success_rate:
             raise CommandError(

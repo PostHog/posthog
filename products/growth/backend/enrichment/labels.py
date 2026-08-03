@@ -446,6 +446,18 @@ def classify_payload(
 _HOSTNAME_RE = re.compile(r"[a-z0-9.-]+\.[a-z]{2,}")
 
 
+def ai_processing_approved(organization_id: Any) -> bool:
+    """Whether this org allows its data to be sent to an LLM, read fresh rather than off an
+    Organization loaded earlier.
+
+    A full-archive run spans hours, so an admin revoking consent partway through must be honored
+    for every org still queued, not just the ones enumerated after the change. Only an explicit
+    True approves: the column is nullable, and the rest of the codebase treats unset as unapproved
+    (posthog/temporal/ai/sync_vectors.py, session_replay/summarization_sweep/activities.py).
+    """
+    return Organization.objects.filter(pk=organization_id, is_ai_data_processing_approved=True).exists()
+
+
 def signup_domain_for_organization(organization: Organization) -> str | None:
     """Earliest member's email domain, standing in for the signup company identity."""
     membership = (

@@ -424,3 +424,99 @@ class TestDryRunFixes(BaseTest):
         with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
             with self.assertRaises(CommandError):
                 call_command("enrichment_label_dry_run", label="test_label", sample=1)
+
+
+class TestAiProcessingConsent(_BatchCommandTestCase):
+    def test_a_declined_org_is_never_sent_to_the_llm(self):
+        self._config()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        client.chat.completions.create.assert_not_called()
+        assert EnrichmentLabelResult.objects.count() == 0
+
+    def test_no_row_is_written_so_a_later_re_approval_is_picked_up(self):
+        # Storing a skip row would occupy the (org, label, version, fetch) slot and make the
+        # decision permanent: re-approving would never reclassify.
+        self._config()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        assert EnrichmentLabelResult.objects.count() == 1
+
+    def test_revoking_mid_run_is_honored_for_orgs_still_queued(self):
+        # The guard reads the DB rather than the Organization loaded during enumeration, so a
+        # revocation partway through a multi-hour run stops the orgs that haven't been reached.
+        self._config()
+        first_org = self.organization
+        second_org = Organization.objects.create(name="Second")
+        self._fetch(organization=first_org)
+        self._fetch(organization=second_org)
+        client = _mock_llm_client()
+
+        def _revoke_after_first(*args: Any, **kwargs: Any):
+            Organization.objects.filter(pk=second_org.pk).update(is_ai_data_processing_approved=False)
+            return client.chat.completions.create.return_value
+
+        client.chat.completions.create.side_effect = _revoke_after_first
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        assert client.chat.completions.create.call_count == 1
+        assert EnrichmentLabelResult.objects.count() == 1
+
+    def test_an_unset_consent_column_counts_as_not_approved(self):
+        # The column is nullable; the rest of the repo treats unset as unapproved.
+        self._config()
+        Organization.objects.filter(pk=self.organization.pk).update(is_ai_data_processing_approved=None)
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        client.chat.completions.create.assert_not_called()
+
+    def test_the_skip_is_counted_in_the_summary(self):
+        self._config()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self._fetch()
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert "skipped_no_ai_consent 1" in out.getvalue()
+
+    def test_the_dry_run_prints_a_skip_row_rather_than_an_error(self):
+        self._config()
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self._fetch()
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
+
+        output = out.getvalue()
+        assert "SKIPPED: no AI consent" in output
+        assert "errors 0" in output
+        client.chat.completions.create.assert_not_called()

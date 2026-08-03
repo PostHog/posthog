@@ -14,6 +14,7 @@ from posthog.llm.gateway_client import get_llm_client
 from products.growth.backend.enrichment.labels import (
     UNKNOWN,
     PromptConfigError,
+    ai_processing_approved,
     classify_payload,
     get_active_config,
     recent_latest_fetches_qs,
@@ -121,8 +122,16 @@ class Command(BaseCommand):
         self.stdout.write(f"Prompt version: {display_version}")
         self.stdout.write(row_fmt.format(*headers))
 
-        classified = unknown = errors = 0
+        classified = unknown = errors = skipped = 0
         for fetch in ordered_fetches:
+            # Its own branch rather than an ERROR row: a declined org is a correct outcome, and
+            # counting it as an error would trip the every-row-failed check below.
+            if not ai_processing_approved(fetch.organization_id):
+                skipped += 1
+                row = [_truncate(fetch.organization.name, _COMPANY_WIDTH), _MISSING, "SKIPPED: no AI consent"]
+                row += [_MISSING] * (len(headers) - len(row))
+                self.stdout.write(row_fmt.format(*row))
+                continue
             try:
                 # Inside the guard too: an archived payload that isn't a dict (classify_payload
                 # already tolerates this) must print one ERROR row, not kill the whole sample.
@@ -165,7 +174,8 @@ class Command(BaseCommand):
                 ]
             self.stdout.write(row_fmt.format(*row))
 
-        summary = f"classified {classified}, unknown {unknown}, errors {errors}"
+        summary = f"classified {classified}, unknown {unknown}, errors {errors}, skipped_no_ai_consent {skipped}"
         self.stdout.write(self.style.SUCCESS(summary) if errors == 0 else self.style.WARNING(summary))
-        if ordered_fetches and errors == len(ordered_fetches):
+        attempted = len(ordered_fetches) - skipped
+        if attempted and errors == attempted:
             raise CommandError(f"every sampled row errored ({summary})")
