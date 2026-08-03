@@ -104,6 +104,9 @@ When you want a scout to behave differently, climb this ladder from cheapest to 
    Right for: _when and whether_ it runs, not _what it looks at_ — slow a chatty scout (`run_interval_minutes`), pause one (`enabled=false`), dry-run a risky one (`emit=false`), grant external reach (`network_access=full`), or exempt a deliberately quiet watchdog from auto-pause (`auto_pause_exempt=true`).
 4. **Edit the skill body, or author a new scout** (via `authoring-scouts`).
    Right for: permanent policy — a disqualifier, a threshold, a scope change, a new surface.
+   For a **custom scout** this is the strongest steer there is: the skill body is yours, edit it freely — it's where recurring notes and repeated dismissal reasons should end up.
+   For a **canonical scout** the same edit **forks it**: your team's copy is marked diverged, PostHog's canonical sync leaves it alone from then on, and you stop receiving upstream improvements to that scout — you maintain it yourself.
+   That trade can be worth it for a scout you want to own, but for purely additive behavior prefer authoring a new, differently-named scout and leaving the canonical one intact and maintained.
 
 **Promote steers that repeat.** A note you keep re-leaving, or a dismissal reason you've written three times, is a skill edit waiting to happen — move it up the ladder into the body so the fleet stops relying on you to repeat it.
 The reverse also holds: try a nudge as a note before committing it as an edit.
