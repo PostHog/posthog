@@ -50,6 +50,9 @@ jobs:
             - name: Test-timings reporter tests (Python)
               run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
 
+            - name: Scene/product split guard tests (Python)
+              run: python -m pytest .github/scripts/test_check_scene_product_split.py -v -c /dev/null -p no:cacheprovider --noconftest
+
             # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
             - name: Schema-impact tests (Node)
               run: node --test .github/scripts/schema-impact.test.js
