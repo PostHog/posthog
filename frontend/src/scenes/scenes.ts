@@ -701,7 +701,7 @@ export const redirects: Record<
     // The scene lives at /feature_flags (underscore); catch the hyphenated variant so it doesn't 404
     '/feature-flags': urls.featureFlags(),
     '/feature-flags/:id': ({ id }) => urls.featureFlag(id),
-    // The Groups scene needs a group type index; land on the first one rather than 404ing
+    // Bare /groups (no group type index) has no route; land on the first group type instead of 404ing
     '/groups': () => urls.groups(0),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
