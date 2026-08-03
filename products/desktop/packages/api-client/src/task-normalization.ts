@@ -29,6 +29,7 @@ type TaskResponseDTO = Partial<
   json_schema?: unknown | null;
   latest_run?: Record<string, unknown> | null;
   runtime?: unknown;
+  repositories?: string[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -185,6 +186,7 @@ export function normalizeTaskResponse(
     ...(dto.created_by === undefined ? {} : { created_by: dto.created_by }),
     origin_product: dto.origin_product ?? "",
     ...(dto.repository === undefined ? {} : { repository: dto.repository }),
+    repositories: dto.repositories ?? (dto.repository ? [dto.repository] : []),
     ...(dto.github_integration === undefined
       ? {}
       : { github_integration: dto.github_integration }),
