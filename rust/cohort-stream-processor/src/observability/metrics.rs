@@ -534,13 +534,17 @@ pub const SEED_IDLE_PROBE_DURATION_SECONDS: &str = "cohort_seed_idle_probe_durat
 /// staleness** — quiet partitions' fences and the live-lag gate both stall when the probe stops.
 pub const SEED_IDLE_PROBE_LAST_PASS_TIMESTAMP_SECONDS: &str =
     "cohort_seed_idle_probe_last_pass_timestamp_seconds";
-/// Reconcile jobs admitted to partition-local queues (counter).
+/// Reconcile jobs admitted to partition-local queues, labelled by `kind` — the tile's shape-hash
+/// kind, `behavioral` or `person_property` (counter).
 pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_total";
-/// Reconcile jobs that emitted their completion marker and released their seed floor (counter).
+/// Reconcile jobs that emitted their completion marker and released their seed floor, labelled by
+/// `kind` (counter). Balances against the enqueued/discarded/superseded series per kind, which is
+/// how a run left short a marker becomes visible.
 pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_completed_total";
-/// Queued jobs replaced by a higher Kafka offset for the same team and cohort (counter).
+/// Queued jobs replaced by a higher Kafka offset for the same team, cohort, and `kind` (counter).
 pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
-/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` (counter).
+/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` and `kind`
+/// (counter).
 pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
 /// Stage 2 rows read by reconcile and durably settled, counted once per committed page (counter). A
 /// page that fails its produce or commit and retries is not double-counted.
@@ -550,7 +554,7 @@ pub const RECONCILE_ROWS_SCANNED_TOTAL: &str = "cohort_reconcile_rows_scanned_to
 pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
 /// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
 pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
-/// Reconcile completion markers acknowledged by Kafka (counter).
+/// Reconcile completion markers acknowledged by Kafka, labelled by `kind` (counter).
 pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emitted_total";
 /// Partition-local reconcile queue depth, labelled by `partition` (gauge).
 pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
