@@ -137,9 +137,7 @@ function isMasterBurst(item) {
 }
 
 function selectReportCandidates(items) {
-    return collapseClusters(
-        items.filter((item) => item.runner === REPORT_RUNNER && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
-    )
+    return items.filter((item) => item.runner === REPORT_RUNNER && !isMasterBurst(item)).slice(0, CANDIDATE_POOL)
 }
 
 // Product suites run from their product dir, so a selector path may be repo- or
@@ -277,10 +275,9 @@ async function enrich(items, runHogql = hogql) {
 // rows would have to carry an identical node id to collide.
 const TRUNK_QUARANTINED_QUERY = `
     SELECT concat(file, '::', if(cls = '', '', concat(cls, '::')), name) AS nodeid,
-        quarantined_at,
-        quarantine_setting
+        quarantined_at
     FROM (
-        SELECT file, name, quarantined_at, quarantine_setting,
+        SELECT file, name, quarantined_at,
             replaceAll(substring(file, 1, length(file) - 3), '/', '.') AS module,
             if(startsWith(classname, concat(module, '.')),
                replaceAll(substring(classname, length(module) + 2, length(classname)), '.', '::'),
@@ -307,11 +304,11 @@ async function fetchTrunkQuarantined(runHogql = hogql, enabled = TRUNK_UPLOADS_O
         return none
     }
     const byVariant = new Map()
-    for (const [nodeid, quarantinedAt, setting] of rows) {
+    for (const [nodeid, quarantinedAt] of rows) {
         // Trunk reports repo-relative paths while a product suite's selector is product-relative,
         // so index both forms and look the selector up under both.
         for (const variant of selectorVariants(nodeid)) {
-            byVariant.set(variant, { quarantinedAt, setting })
+            byVariant.set(variant, { quarantinedAt })
         }
     }
     return (item) =>
@@ -331,6 +328,14 @@ function partitionParked(items, trunkFor, masksCi = TRUNK_MASKS_CI) {
         queue: items.filter((item) => !trunkFor(item)),
         parked: items.filter((item) => trunkFor(item)).map((item) => ({ ...item, trunk: trunkFor(item) })),
     }
+}
+
+// Parking has to happen before clustering: a cluster's selector is a bare file path, which can
+// never match a Trunk node id, so collapsing first buries quarantined tests in a row that then
+// ranks as if CI still failed on them.
+function buildQueue(items, trunkFor, masksCi = TRUNK_MASKS_CI) {
+    const { queue, parked } = partitionParked(selectReportCandidates(items), trunkFor, masksCi)
+    return { queue: collapseClusters(queue), parked }
 }
 
 // 5+ co-failing tests in one file are one shared-fixture incident, not N flakes.
@@ -389,7 +394,7 @@ function tableRows(items, ownerFor, extrasFor, trunkFor = () => null) {
             : cell(name)
         const quarantined =
             item.classification === 'quarantined' || item.quarantined_failed_run_count > 0 ? ' (quarantined)' : ''
-        // Only reachable with masking off, which moves these rows out of the table entirely.
+        // Only reachable with masking off: masking on moves these rows out of the table entirely.
         // Trunk marked the test, but CI still fails on it, so it stays ranked.
         const trunkFlagged = trunkFor(item) ? ' (Trunk flagged)' : ''
         const logLinks = evidence.map(({ runId, jobId }, index) => ({
@@ -494,10 +499,9 @@ async function main() {
     }
     const now = new Date()
     const result = await fetchFlakyTests()
-    const pool = selectReportCandidates(result.items || [])
-    const extrasFor = await enrich(pool.filter((item) => !item.cluster_size))
     const trunkFor = await fetchTrunkQuarantined()
-    const { queue, parked } = partitionParked(pool, trunkFor)
+    const { queue, parked } = buildQueue(result.items || [], trunkFor)
+    const extrasFor = await enrich(queue.filter((item) => !item.cluster_size))
     // Rescued runs first (the strongest per-test signal), clusters and the rest by volume.
     const flaky = queue
         .sort(
@@ -530,4 +534,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     })
 }
 
-export { buildBlocks, enrich, fetchTrunkQuarantined, flakyTestsUrl, partitionParked, selectReportCandidates, tableRows }
+export {
+    buildBlocks,
+    buildQueue,
+    CLUSTER_MIN_TESTS,
+    enrich,
+    fetchTrunkQuarantined,
+    flakyTestsUrl,
+    selectReportCandidates,
+    tableRows,
+}

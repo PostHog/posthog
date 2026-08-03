@@ -3,10 +3,11 @@ import { describe, it } from 'node:test'
 
 import {
     buildBlocks,
+    buildQueue,
+    CLUSTER_MIN_TESTS,
     enrich,
     fetchTrunkQuarantined,
     flakyTestsUrl,
-    partitionParked,
     selectReportCandidates,
     tableRows,
 } from './weekly-flaky-report.mjs'
@@ -171,15 +172,15 @@ describe('weekly flaky report', () => {
 
     it('parks Trunk-quarantined tests only while masking is on, and labels them otherwise', () => {
         const items = [
-            { selector: 'masked.py::test_masked', failed_run_count: 9 },
-            { selector: 'plain.py::test_plain', failed_run_count: 1 },
+            { runner: 'pytest', selector: 'masked.py::test_masked', failed_run_count: 9, failed_pr_count: 9 },
+            { runner: 'pytest', selector: 'plain.py::test_plain', failed_run_count: 1, failed_pr_count: 1 },
         ]
         const trunkFor = (item) =>
             item.selector === 'masked.py::test_masked' ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
         const selectors = (list) => list.map((item) => item.selector)
 
-        const masked = partitionParked(items, trunkFor, true)
-        const unmasked = partitionParked(items, trunkFor, false)
+        const masked = buildQueue(items, trunkFor, true)
+        const unmasked = buildQueue(items, trunkFor, false)
 
         assert.deepEqual(selectors(masked.queue), ['plain.py::test_plain'])
         assert.deepEqual(selectors(masked.parked), ['masked.py::test_masked'])
@@ -195,18 +196,38 @@ describe('weekly flaky report', () => {
         assert.equal(ownerCell.text, 'devex (Trunk flagged)')
     })
 
+    it('parks a quarantined test that would otherwise be buried in a collapsed cluster', () => {
+        // A cluster's selector is a bare file path, so it can never match a Trunk node id.
+        const items = Array.from({ length: CLUSTER_MIN_TESTS }, (_, index) => ({
+            runner: 'pytest',
+            selector: `shared.py::test_${index}`,
+            failed_run_count: 2,
+            failed_pr_count: 2,
+        }))
+
+        const { queue, parked } = buildQueue(items, () => ({ quarantinedAt: '2026-07-13T17:12:22.000Z' }), true)
+
+        assert.deepEqual(queue, [])
+        assert.equal(parked.length, CLUSTER_MIN_TESTS)
+    })
+
     it('keeps parked tests visible below the table instead of dropping them', () => {
         const blocks = buildBlocks(
             new Date('2026-07-27T00:00:00Z'),
             [],
             [{ selector: 'masked.py::test_masked', trunk: { quarantinedAt: '2026-07-13T17:12:22.000Z' } }]
         )
+        // Actions always sets GITHUB_WORKFLOW_REF, which appends a block after the parked note,
+        // so find the note by content rather than by position.
+        const note = blocks
+            .filter((block) => block.type === 'context')
+            .map((block) => block.elements[0].text)
+            .find((text) => text.includes('quarantined in Trunk'))
 
         assert.equal(
             blocks.find((block) => block.type === 'table'),
             undefined
         )
-        const note = blocks.at(-1).elements[0].text
         assert.match(note, /1 test is quarantined in Trunk/)
         assert.match(note, /test_masked/)
         assert.match(note, /Oldest parked 2026-07-13\./)
