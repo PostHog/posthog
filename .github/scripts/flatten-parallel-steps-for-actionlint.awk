@@ -1,5 +1,6 @@
 /^[ ]*- parallel:[ ]*$/ {
     parallel_indent = match($0, /[^ ]/) - 1
+    dedent = 0
     in_parallel = 1
     next
 }
@@ -17,7 +18,10 @@ in_parallel {
         next
     }
 
-    print substr($0, 7)
+    if (!dedent) {
+        dedent = indent - parallel_indent
+    }
+    print substr($0, dedent + 1)
     next
 }
 
