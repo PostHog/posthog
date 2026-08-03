@@ -629,4 +629,63 @@ describe('hogFlowEditorLogic', () => {
             expect(branchJoinDropzones()).toEqual(expected)
         })
     })
+
+    describe('selectedNodeCopyOrMoveDisabledReason', () => {
+        const makeNode = (id: string, type: string): HogFlowActionNode =>
+            ({
+                id,
+                type: 'action',
+                data: { id, type, name: id, description: '', config: {} } as unknown as HogFlowAction,
+                position: { x: 0, y: 0 },
+                handles: [],
+            }) as HogFlowActionNode
+
+        const makeEdge = (from: string, to: string): HogFlowActionEdge => ({
+            id: `${from}->${to}`,
+            source: from,
+            target: to,
+            type: 'smart',
+            sourceHandle: `continue_${from}`,
+            targetHandle: `target_${to}`,
+            data: { edge: { from, to, type: 'continue' } },
+        })
+
+        it.each([
+            {
+                name: 'a regular step with a single outgoing path',
+                nodes: [makeNode('trigger', 'trigger'), makeNode('a', 'function'), makeNode('exit', 'exit')],
+                edges: [makeEdge('trigger', 'a'), makeEdge('a', 'exit')],
+                selectedNodeId: 'a',
+                expected: null,
+            },
+            {
+                name: 'a branching step',
+                nodes: [
+                    makeNode('trigger', 'trigger'),
+                    makeNode('cond', 'conditional_branch'),
+                    makeNode('exit', 'exit'),
+                ],
+                edges: [makeEdge('trigger', 'cond'), makeEdge('cond', 'exit')],
+                selectedNodeId: 'cond',
+                expected: "Branching steps can't be copied or moved yet",
+            },
+            {
+                name: 'a non-branching step sitting above a fan-out whose paths do not converge',
+                nodes: [
+                    makeNode('trigger', 'trigger'),
+                    makeNode('a', 'function'),
+                    makeNode('exit1', 'exit'),
+                    makeNode('exit2', 'exit'),
+                ],
+                edges: [makeEdge('trigger', 'a'), makeEdge('a', 'exit1'), makeEdge('a', 'exit2')],
+                selectedNodeId: 'a',
+                expected: 'Clean up branching steps first',
+            },
+        ])('returns $expected for $name', ({ nodes, edges, selectedNodeId, expected }) => {
+            logic.actions.setNodesRaw(nodes)
+            logic.actions.setEdges(edges)
+            logic.actions.setSelectedNodeId(selectedNodeId)
+            expect(logic.values.selectedNodeCopyOrMoveDisabledReason).toBe(expected)
+        })
+    })
 })

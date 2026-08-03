@@ -180,8 +180,8 @@ export interface hogFlowEditorLogicValues {
     reactFlowInstance: ReactFlowInstance<Node, Edge> | null
     reactFlowWrapper: RefObject<HTMLDivElement> | null
     selectedNode: HogFlowActionNode | null
-    selectedNodeCanBeCopiedOrMoved: boolean
     selectedNodeCanBeDeleted: boolean
+    selectedNodeCopyOrMoveDisabledReason: string | null
     selectedNodeId: string | null
 }
 
@@ -1919,10 +1919,10 @@ export interface hogFlowEditorLogicMeta {
             nodes: HogFlowActionNode[],
             edges: HogFlowActionEdge[]
         ) => boolean
-        selectedNodeCanBeCopiedOrMoved: (
+        selectedNodeCopyOrMoveDisabledReason: (
             selectedNode: HogFlowActionNode | null,
             selectedNodeCanBeDeleted: boolean
-        ) => boolean
+        ) => string | null
     }
 }
 
@@ -2111,15 +2111,19 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 return new Set(outgoingNodes.map((node) => node.id)).size === 1
             },
         ],
-        selectedNodeCanBeCopiedOrMoved: [
+        selectedNodeCopyOrMoveDisabledReason: [
             (s) => [s.selectedNode, s.selectedNodeCanBeDeleted],
-            (selectedNode: HogFlowActionNode | null, selectedNodeCanBeDeleted: boolean) => {
-                if (!selectedNodeCanBeDeleted) {
-                    return false
+            (selectedNode: HogFlowActionNode | null, selectedNodeCanBeDeleted: boolean): string | null => {
+                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
+                if (branchingTypes.includes(selectedNode?.data.type ?? '')) {
+                    return "Branching steps can't be copied or moved yet"
                 }
 
-                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
-                return !branchingTypes.includes(selectedNode?.data.type ?? '')
+                if (!selectedNodeCanBeDeleted) {
+                    return 'Clean up branching steps first'
+                }
+
+                return null
             },
         ],
     }),

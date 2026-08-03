@@ -25,7 +25,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
         mode,
         nodesById,
         selectedNodeCanBeDeleted,
-        selectedNodeCanBeCopiedOrMoved,
+        selectedNodeCopyOrMoveDisabledReason,
         animatingEdgePair,
         workflow,
     } = useValues(hogFlowEditorLogic)
@@ -204,22 +204,20 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     <div className="absolute top-0.5 right-0.5" onClick={(e) => e.stopPropagation()}>
                         <LemonMenu
                             items={[
-                                selectedNodeCanBeCopiedOrMoved
-                                    ? {
-                                          label: 'Copy',
-                                          icon: <IconCopy />,
-                                          status: 'default',
-                                          onClick: () => startCopyingNode(node),
-                                      }
-                                    : null,
-                                selectedNodeCanBeCopiedOrMoved
-                                    ? {
-                                          label: 'Move',
-                                          icon: <IconDrag />,
-                                          status: 'default',
-                                          onClick: () => startMovingNode(node),
-                                      }
-                                    : null,
+                                {
+                                    label: 'Copy',
+                                    icon: <IconCopy />,
+                                    status: 'default',
+                                    onClick: () => startCopyingNode(node),
+                                    disabledReason: selectedNodeCopyOrMoveDisabledReason ?? undefined,
+                                },
+                                {
+                                    label: 'Move',
+                                    icon: <IconDrag />,
+                                    status: 'default',
+                                    onClick: () => startMovingNode(node),
+                                    disabledReason: selectedNodeCopyOrMoveDisabledReason ?? undefined,
+                                },
                                 {
                                     label: 'Delete',
                                     status: 'danger',
