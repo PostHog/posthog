@@ -24,7 +24,6 @@
 ## Automatic notifications
 
 - [ ] Publish to changelog?
-- [ ] Alert Sales and Marketing teams?
 
 ## Docs update
 
