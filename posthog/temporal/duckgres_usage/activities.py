@@ -35,7 +35,7 @@ import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
-from posthog.ducklake.models import DuckgresUsageCursor
+from products.managed_warehouse.backend.models import DuckgresUsageCursor
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater

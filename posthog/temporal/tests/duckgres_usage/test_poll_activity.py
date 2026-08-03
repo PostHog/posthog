@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 
-from posthog.ducklake.models import DuckgresDailyStorageUsage, DuckgresDailyUsage, DuckgresUsageCursor
+from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage, DuckgresUsageCursor
 from posthog.models import Organization, Team
 from posthog.temporal.duckgres_usage.activities import ack_duckgres_usage, poll_duckgres_usage
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow

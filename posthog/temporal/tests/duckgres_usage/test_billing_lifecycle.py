@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import sync_to_async
 
-from posthog.ducklake.models import DuckgresDailyUsage
+from products.managed_warehouse.backend.models import DuckgresDailyUsage
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.tasks.usage_report import get_teams_with_managed_warehouse_compute_seconds_in_period

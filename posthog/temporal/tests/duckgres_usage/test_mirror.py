@@ -19,7 +19,7 @@ from decimal import Decimal
 
 import pytest
 
-from posthog.ducklake.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
+from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from posthog.temporal.duckgres_usage.client import StorageRow, UsageResponse, UsageRow
 from posthog.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
 

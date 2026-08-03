@@ -25,6 +25,7 @@ class PlanetScaleSource(SimpleSource[PlanetScaleSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.PLANET_SCALE,
             category=DataWarehouseSourceCategory.DATABASES,
+            keywords=["sql", "mysql"],
             label="PlanetScale",
             iconPath="/static/services/planetscale.svg",
             fields=cast(list[FieldType], []),

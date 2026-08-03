@@ -311,6 +311,7 @@ class TestConvexRetryPolicy:
             ("cf_522_connection_timed_out", 522, True),
             ("cf_523_origin_unreachable", 523, True),
             ("cf_524_timeout", 524, True),
+            ("cf_530_dns_error", 530, True),
             # Standard transient codes inherited from DEFAULT_RETRY must still be retried.
             ("rate_limited_429", 429, True),
             ("internal_500", 500, True),
