@@ -23,6 +23,8 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 
 from products.cohorts.backend.backfill.finalize import finalize_backfill_runs
+from products.cohorts.backend.backfill.runs import create_backfill_run_for_cohort, create_person_backfill_run_for_cohort
+from products.cohorts.backend.models.backfill import CohortBackfillKind
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
@@ -835,6 +837,49 @@ def collect_cohort_query_stats(
             cohort_id=cohort_id,
             history_id=history_id,
             error=str(e),
+        )
+        raise
+
+
+@shared_task(ignore_result=True, max_retries=3)
+def trigger_cohort_backfill_run_task(team_id: int, cohort_id: int, trigger_kind: str, backfill_kind: str) -> None:
+    """Create the run a debounced cohort save asked for, reading the cohort's current definition.
+
+    The creators re-check eligibility under a row lock, so a cohort that was edited again, deleted,
+    or made static during the debounce window returns None here. That is a normal outcome, not a
+    failure, and must not raise: a raise burns the task's retries re-deciding the same refusal.
+    """
+    try:
+        if backfill_kind == CohortBackfillKind.PERSON_PROPERTY:
+            run = create_person_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        else:
+            run = create_backfill_run_for_cohort(team_id, cohort_id, trigger_kind)
+        if run is None:
+            logger.info(
+                "skipping_cohort_backfill_run_task",
+                cohort_id=cohort_id,
+                team_id=team_id,
+                trigger_kind=trigger_kind,
+                backfill_kind=backfill_kind,
+            )
+            return
+        logger.info(
+            "created_cohort_backfill_run",
+            run_id=str(run.id),
+            cohort_id=cohort_id,
+            team_id=team_id,
+            trigger_kind=trigger_kind,
+            backfill_kind=backfill_kind,
+            status=run.status,
+        )
+    except Exception as error:
+        logger.exception(
+            "failed_to_trigger_cohort_backfill_run_task",
+            cohort_id=cohort_id,
+            team_id=team_id,
+            trigger_kind=trigger_kind,
+            backfill_kind=backfill_kind,
+            error=str(error),
         )
         raise
 

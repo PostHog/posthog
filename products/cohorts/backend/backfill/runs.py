@@ -70,12 +70,12 @@ def check_person_run_preconditions(*, requires_sizing_attestation: bool) -> tupl
     return preconditions, missing
 
 
-def _has_behavioral_filters(cohort: Cohort) -> bool:
+def has_behavioral_filters(cohort: Cohort) -> bool:
     properties = (cohort.filters or {}).get("properties")
     return any(leaf.get("type") == "behavioral" for leaf in walk_filter_leaves(properties))
 
 
-def _has_pinnable_person_filters(cohort: Cohort) -> bool:
+def has_pinnable_person_filters(cohort: Cohort) -> bool:
     properties = (cohort.filters or {}).get("properties")
     return any(
         leaf.get("type") == "person" and leaf.get("conditionHash") is not None
@@ -97,7 +97,7 @@ def _person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
         return "deleted"
     if _contains_person_metadata_leaf(cohort):
         return "contains person_metadata filters"
-    if not _has_pinnable_person_filters(cohort):
+    if not has_pinnable_person_filters(cohort):
         return "has no person filter with a condition hash"
     return None
 
@@ -143,7 +143,7 @@ def create_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: s
             or cohort.cohort_type != CohortType.REALTIME
             or cohort.is_static
             or cohort.deleted
-            or not _has_behavioral_filters(cohort)
+            or not has_behavioral_filters(cohort)
         ):
             return None
         if _active_participation_cohort_ids(team_id, [cohort_id], kind=CohortBackfillKind.BEHAVIORAL):
@@ -212,7 +212,7 @@ def create_team_backfill_run(
         )
         if requested_ids is not None:
             queryset = queryset.filter(id__in=requested_ids)
-        cohorts = [cohort for cohort in queryset.order_by("id") if _has_behavioral_filters(cohort)]
+        cohorts = [cohort for cohort in queryset.order_by("id") if has_behavioral_filters(cohort)]
         if requested_ids is not None and {cohort.id for cohort in cohorts} != requested_ids:
             invalid_ids = sorted(requested_ids - {cohort.id for cohort in cohorts})
             raise ValueError(f"Cohorts are not eligible realtime behavioral cohorts: {invalid_ids}")
@@ -267,11 +267,12 @@ def create_person_backfill_run_for_cohort(
     *,
     person_horizon_days: int | None = None,
 ) -> CohortBackfillRun | None:
-    """Create one cohort's person-property run, on a best-effort caller's contract.
+    """Create one cohort's person-property run, on the signal path's contract.
 
-    Unlike ``create_person_team_backfill_run`` this never raises and never touches ClickHouse, so a
-    caller that has to warn and return on a refusal rather than fail can use it. That is also why the
-    horizon defaults from settings here but is required on the operator-driven team creator.
+    Unlike ``create_person_team_backfill_run`` this never raises and never touches ClickHouse: it is
+    the target of ``cohort_person_shape_changed_backfill``, where a refusal has to warn and return
+    rather than fail the Celery task. That is also why the horizon defaults from settings here but is
+    required on the operator-driven team creator.
     """
     if not is_realtime_cohort_team(team_id):
         return None

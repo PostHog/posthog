@@ -5,6 +5,14 @@ from posthog.settings.utils import get_from_env, str_to_bool
 # Off by default ("none"); enable per environment via the env override
 # A set-but-empty value survives as "", which the parser reads as "all teams".
 REALTIME_COHORT_TEAM_ALLOWLIST: str = os.getenv("REALTIME_COHORT_TEAM_ALLOWLIST", "none")
+# Teams whose cohort saves enqueue a backfill run for rust/cohort-seeder to claim. Same grammar and
+# same set-but-empty hazard as the allowlist above, but deliberately a separate setting: replaying a
+# team's history costs ClickHouse scans and seed-topic bytes, so it stays an explicit operator
+# decision rather than something a team inherits by having realtime membership switched on. The
+# person list is split from the behavioral one because person runs additionally need the operator
+# attestations in `check_person_run_preconditions`, and without them every save parks a BLOCKED run.
+COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST: str = os.getenv("COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST", "none")
+COHORT_PERSON_BACKFILL_TRIGGER_TEAM_ALLOWLIST: str = os.getenv("COHORT_PERSON_BACKFILL_TRIGGER_TEAM_ALLOWLIST", "none")
 BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_MERGE_GATE_ATTESTED", False, type_cast=str_to_bool
 )

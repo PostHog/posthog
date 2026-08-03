@@ -21,18 +21,13 @@ from products.cohorts.backend.backfill.runs import (
     check_run_preconditions,
     create_person_team_backfill_run,
     create_team_backfill_run,
+    has_behavioral_filters,
 )
 from products.cohorts.backend.backfill.sizing import estimate_person_seed_topic_bytes
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRunCohort, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
-
-
-def _has_behavioral_filters(cohort: Cohort) -> bool:
-    return any(
-        leaf.get("type") == "behavioral" for leaf in walk_filter_leaves((cohort.filters or {}).get("properties"))
-    )
 
 
 def _parse_boundary_at(value: str | None) -> datetime | None:
@@ -111,7 +106,7 @@ class Command(BaseCommand):
             )
             if cohort_ids is not None:
                 queryset = queryset.filter(id__in=cohort_ids)
-            cohorts = [cohort for cohort in queryset.order_by("id") if _has_behavioral_filters(cohort)]
+            cohorts = [cohort for cohort in queryset.order_by("id") if has_behavioral_filters(cohort)]
             if cohort_ids is not None and {cohort.id for cohort in cohorts} != set(cohort_ids):
                 raise CommandError("One or more --cohort-ids are not eligible realtime behavioral cohorts")
             pinned, event_names = pin_conditions_for_cohorts(cohorts)

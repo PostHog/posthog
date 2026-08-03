@@ -13,12 +13,16 @@ from rest_framework.exceptions import ValidationError
 from structlog import get_logger
 
 from posthog.models.team.team import Team
+from posthog.redis import get_client as get_redis_client
 
-from products.cohorts.backend.models.backfill import CohortBackfillKind
-from products.cohorts.backend.models.cohort import Cohort, is_cohort_recalculation_only_save
+from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
+from products.cohorts.backend.models.cohort import Cohort, CohortType, is_cohort_recalculation_only_save
+from products.cohorts.backend.realtime_teams import is_cohort_backfill_trigger_team, is_person_backfill_trigger_team
 
 logger = get_logger(__name__)
 DEPENDENCY_CACHE_TIMEOUT = 7 * 24 * 60 * 60  # 1 week
+COHORT_BACKFILL_DEBOUNCE_SECONDS = 300  # 5 minutes
+COHORT_BACKFILL_REDIS_TTL_SECONDS = 300  # matches countdown; task reads fresh state at execution time
 
 # Prometheus metrics for cache hit/miss tracking
 COHORT_DEPENDENCY_CACHE_COUNTER = Counter(
@@ -308,6 +312,85 @@ def _on_cohort_changed(cohort: Cohort, always_invalidate: bool = False):
     warm_team_cohort_dependency_cache(cohort.team_id)
 
 
+def _has_backfillable_filters(cohort: Cohort, kind: CohortBackfillKind) -> bool:
+    from products.cohorts.backend.backfill.runs import (  # noqa: PLC0415 — avoids a model-load cycle
+        has_behavioral_filters,
+        has_pinnable_person_filters,
+    )
+
+    if kind == CohortBackfillKind.PERSON_PROPERTY:
+        return has_pinnable_person_filters(cohort)
+    return has_behavioral_filters(cohort)
+
+
+def _trigger_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBackfillKind) -> None:
+    """Enqueue one debounced run-creation task, at most one per cohort and kind per window.
+
+    The Redis TTL matching the countdown is what closes the window: the key expires exactly when the
+    task fires, so a save arriving after that schedules the next task instead of being swallowed.
+    """
+    try:
+        from posthog.tasks.calculate_cohort import (
+            trigger_cohort_backfill_run_task,  # noqa: PLC0415 — avoids a task import during model loading
+        )
+
+        redis_client = get_redis_client()
+        lock_key = f"cohort_backfill_{kind}_pending:{cohort.pk}"
+        if not redis_client.set(lock_key, 1, nx=True, ex=COHORT_BACKFILL_REDIS_TTL_SECONDS):
+            logger.info(
+                "cohort_backfill_already_pending",
+                cohort_id=cohort.pk,
+                team_id=cohort.team_id,
+                backfill_kind=kind,
+            )
+            return
+
+        logger.info(
+            "triggering_cohort_backfill",
+            cohort_id=cohort.pk,
+            team_id=cohort.team_id,
+            backfill_kind=kind,
+            trigger_kind=trigger_kind,
+            debounce_seconds=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+        )
+        try:
+            trigger_cohort_backfill_run_task.apply_async(
+                args=[cohort.team_id, cohort.pk, trigger_kind, kind],
+                countdown=COHORT_BACKFILL_DEBOUNCE_SECONDS,
+            )
+        except Exception:
+            # Release the lock so the next save can retry scheduling.
+            redis_client.delete(lock_key)
+            raise
+    except Exception as error:
+        logger.exception(
+            "failed_to_trigger_cohort_backfill",
+            cohort_id=cohort.pk,
+            team_id=cohort.team_id,
+            backfill_kind=kind,
+            error=str(error),
+        )
+
+
+def _backfill_trigger_kind(instance: Cohort, kwargs: dict, *, shape_changed: bool) -> str | None:
+    """The trigger label for a save that should enqueue a run, or None when it should not.
+
+    ``created`` has to be checked separately from ``shape_changed``, which compares against a stored
+    hash and so is always False on an insert. Guarding on the flag alone would silently drop the
+    create path.
+    """
+    if is_cohort_recalculation_only_save(kwargs):
+        return None
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "filters" not in update_fields:
+        return None
+    if instance.cohort_type != CohortType.REALTIME or instance.is_static or instance.deleted:
+        return None
+    if kwargs.get("created", False):
+        return CohortBackfillTrigger.COHORT_CREATED
+    return CohortBackfillTrigger.COHORT_EDITED if shape_changed else None
+
+
 def _supersede_cohort_backfills(cohort: Cohort, kind: CohortBackfillKind) -> None:
     try:
         from products.cohorts.backend.backfill.runs import (
@@ -376,6 +459,63 @@ def cohort_person_shape_changed_supersede(sender, instance, **kwargs):
 
     COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="person_condition_hash_changed").inc()
     transaction.on_commit(lambda: _supersede_cohort_backfills(instance, CohortBackfillKind.PERSON_PROPERTY))
+
+
+@receiver(post_save, sender=Cohort)
+def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
+    """Enqueue a behavioral backfill run when an allowlisted team creates or edits a cohort.
+
+    Separate from the supersede receiver above on purpose. Superseding an invalidated run is a
+    correctness obligation to rust/cohort-seeder that has to hold for every realtime team, while
+    creating a replacement run costs a ClickHouse history replay, so it stays behind its own
+    allowlist. Keeping them apart means the expensive half can be off while the cheap half still runs.
+    """
+    try:
+        if not is_cohort_backfill_trigger_team(instance.team_id):
+            return
+        trigger_kind = _backfill_trigger_kind(
+            instance, kwargs, shape_changed=getattr(instance, "_leaf_shape_changed", False)
+        )
+        if trigger_kind is None or not _has_backfillable_filters(instance, CohortBackfillKind.BEHAVIORAL):
+            return
+
+        transaction.on_commit(lambda: _trigger_cohort_backfill(instance, trigger_kind, CohortBackfillKind.BEHAVIORAL))
+    except Exception as error:
+        logger.exception(
+            "failed_to_handle_cohort_behavioral_shape_change",
+            cohort_id=instance.pk,
+            team_id=instance.team_id,
+            error=str(error),
+        )
+
+
+@receiver(post_save, sender=Cohort)
+def cohort_person_shape_changed_backfill(sender, instance, **kwargs):
+    """Enqueue a person-property backfill run when an allowlisted team creates or edits a cohort.
+
+    The person mirror of `cohort_behavioral_shape_changed_backfill`. A cohort carrying both leaf
+    kinds gets one run of each, on separate debounce keys, because the two seed different stores and
+    stamp different readiness columns.
+    """
+    try:
+        if not is_person_backfill_trigger_team(instance.team_id):
+            return
+        trigger_kind = _backfill_trigger_kind(
+            instance, kwargs, shape_changed=getattr(instance, "_person_shape_changed", False)
+        )
+        if trigger_kind is None or not _has_backfillable_filters(instance, CohortBackfillKind.PERSON_PROPERTY):
+            return
+
+        transaction.on_commit(
+            lambda: _trigger_cohort_backfill(instance, trigger_kind, CohortBackfillKind.PERSON_PROPERTY)
+        )
+    except Exception as error:
+        logger.exception(
+            "failed_to_handle_cohort_person_shape_change",
+            cohort_id=instance.pk,
+            team_id=instance.team_id,
+            error=str(error),
+        )
 
 
 @receiver(post_delete, sender=Cohort)

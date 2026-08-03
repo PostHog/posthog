@@ -21,9 +21,11 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
     reset_stuck_cohorts,
+    trigger_cohort_backfill_run_task,
     update_cohort_metrics,
 )
 
+from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillRun
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import count_cohort_members, list_cohort_member_ids
 
@@ -1053,6 +1055,19 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
 
 class TestCohortCalculationTasks(APIBaseTest):
+    @parameterized.expand(
+        [("behavioral", CohortBackfillKind.BEHAVIORAL), ("person", CohortBackfillKind.PERSON_PROPERTY)]
+    )
+    def test_trigger_backfill_run_task_returns_quietly_when_the_run_is_refused(
+        self, _name: str, backfill_kind: CohortBackfillKind
+    ) -> None:
+        # The cohort can be edited again, deleted, or dropped from the allowlist during the debounce
+        # window, and then the creator refuses. Raising there would spend the task's retries
+        # re-deciding the same refusal.
+        trigger_cohort_backfill_run_task(self.team.pk, MISSING_COHORT_ID, "cohort_edited", backfill_kind)
+
+        self.assertFalse(CohortBackfillRun.objects.for_team(self.team.pk).exists())
+
     def test_safe_save_cohort_state_handles_errors(self) -> None:
         cohort = Cohort.objects.create(
             team_id=self.team.pk,
