@@ -2268,8 +2268,38 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def _get_archived_responses_filter(self, survey_id: str | None = None) -> tuple[str, dict]:
         return archived_responses_filter(survey_id, self.team_id)
 
+    @extend_schema(
+        operation_id="surveys_responses_count",
+        parameters=[
+            OpenApiParameter(
+                "exclude_archived",
+                OpenApiTypes.BOOL,
+                required=False,
+                description="Optional boolean to exclude archived responses (default: false, includes archived).",
+            ),
+            OpenApiParameter(
+                "survey_ids",
+                OpenApiTypes.STR,
+                required=False,
+                description=(
+                    "Optional comma-separated list of survey IDs to filter by. Also bounds the query to only "
+                    "look back as far as these surveys' earliest start date, rather than every survey on the team."
+                ),
+            ),
+        ],
+        responses={
+            200: inline_serializer(
+                name="SurveyResponsesCountResponse",
+                fields={
+                    "survey_id": serializers.IntegerField(
+                        help_text="Response count for a survey, keyed dynamically by that survey's ID."
+                    ),
+                },
+            )
+        },
+    )
     @action(methods=["GET"], detail=False, required_scopes=["survey:read"])
-    def responses_count(self, request: request.Request, **kwargs):
+    def responses_count(self, request: request.Request, **kwargs) -> Response:
         """Get response counts for all surveys.
 
         Args:
@@ -2281,10 +2311,22 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         """
         exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
         survey_ids_param = request.query_params.get("survey_ids")
+        survey_ids = [sid.strip() for sid in survey_ids_param.split(",") if sid.strip()] if survey_ids_param else []
 
-        earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
-            Min("start_date")
-        )["start_date__min"]
+        # Scope to this team (not the whole project, which can span other teams/environments) and,
+        # when survey_ids are given, prefer bounding to just those surveys' start dates — otherwise
+        # a single old survey anywhere on the team forces a much wider scan of the events table than
+        # the requested surveys need. Fall back to the team-wide earliest date if none of the
+        # requested IDs match a survey with a start date (e.g. an archived or not-yet-launched one).
+        earliest_survey_start_date = None
+        if survey_ids:
+            earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id, id__in=survey_ids).aggregate(
+                Min("start_date")
+            )["start_date__min"]
+        if earliest_survey_start_date is None:
+            earliest_survey_start_date = Survey.objects.filter(team_id=self.team_id).aggregate(Min("start_date"))[
+                "start_date__min"
+            ]
 
         if not earliest_survey_start_date:
             # If there are no surveys or none have a start date, there can be no responses.
@@ -2308,11 +2350,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 params.update(archived_params)
 
         survey_ids_filter = ""
-        if survey_ids_param:
-            survey_ids = [sid.strip() for sid in survey_ids_param.split(",") if sid.strip()]
-            if survey_ids:
-                survey_ids_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
-                params["survey_ids"] = survey_ids
+        if survey_ids:
+            survey_ids_filter = f"AND {survey_id_expr} IN %(survey_ids)s"
+            params["survey_ids"] = survey_ids
 
         query = f"""
             SELECT
@@ -2330,7 +2370,16 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         """
 
         tag_queries(product=ProductKey.SURVEYS, feature=Feature.QUERY)
-        data = sync_execute(query, params)
+
+        try:
+            data = sync_execute(query, params)
+        except Exception as e:
+            # A slow/unbounded scan (e.g. a long-lived team with many old surveys) can hit a
+            # ClickHouse timeout. Degrade to an empty count rather than surfacing a 500 on the
+            # surveys list page — the frontend already treats a missing survey ID as "no data yet".
+            logger.exception("survey_responses_count_query_failed", error=str(e))
+            capture_exception(e)
+            return Response({})
 
         counts = {}
         for survey_id, count in data:
