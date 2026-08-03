@@ -80,15 +80,57 @@ def _category_for(toolkit: ToolkitInfo) -> str:
 
 
 def _icon_domain_for(toolkit: ToolkitInfo) -> str:
-    """Composio hands us the app's own URL, which is exactly the brand domain the logo.dev proxy
-    keys on, so Composio-backed cards render with the same icons as direct ones."""
+    """Composio hands us the app's own URL, which is close enough to the brand domain the logo.dev
+    proxy keys on that Composio-backed cards render with the same icons as direct ones. Marketing
+    subdomains are stripped because logo.dev keys on the bare brand domain."""
     if not toolkit.app_url:
         return ""
-    return normalize_mcp_icon_domain(urlparse(toolkit.app_url).netloc or toolkit.app_url)
+    host = normalize_mcp_icon_domain(urlparse(toolkit.app_url).netloc or toolkit.app_url)
+    for prefix in ("www.", "about.", "console.", "app.", "my."):
+        if host.startswith(prefix):
+            return host[len(prefix) :]
+    return host
 
 
-def _directly_served_domains() -> set[str]:
-    return {normalize_mcp_icon_domain(entry.icon_domain) for entry in MCP_SERVER_CATALOG if entry.icon_domain}
+# Toolkits PostHog already serves, which must never appear as a Composio card. Deliberately an
+# explicit list keyed on Composio's slug rather than inferred from names or domains: the two
+# vocabularies don't line up (Composio's `app_url` for Notion is notion.so while our icon domain is
+# notion.com; `jira` and `confluence` are both our single "Atlassian" entry), and a silent miss ships
+# a duplicate to every tenant. Reviewing an addition here is the same judgment as adding to
+# `catalog.py`, so it belongs in code where a reviewer sees it.
+SERVED_ELSEWHERE: dict[str, str] = {
+    # Direct MCP servers in catalog.py. These speak real MCP, so they beat a proxied tool list.
+    "bitbucket": "catalog: GitLab/Atlassian family",
+    "box": "catalog: Box",
+    "confluence": "catalog: Atlassian",
+    "figma": "catalog: Figma",
+    "gitlab": "catalog: GitLab",
+    "hubspot": "catalog: HubSpot",
+    "jira": "catalog: Atlassian",
+    "notion": "catalog: Notion",
+    "prisma": "catalog: Prisma",
+    # Composio splits Slack into a user toolkit and a bot toolkit; our direct Slack server covers
+    # both, and the name doesn't match so the safety net misses it.
+    "slackbot": "catalog: Slack",
+    # First-class PostHog integrations that already give agents tools for this app. GitHub is the
+    # load-bearing one: self-driving opens pull requests through it, so a second, Composio-mediated
+    # GitHub would split credentials across two connections for the same work.
+    "github": "integration: GitHub",
+}
+
+
+def _excluded_reason(toolkit: ToolkitInfo) -> str | None:
+    if reason := SERVED_ELSEWHERE.get(toolkit.slug):
+        return reason
+    # Safety net for catalog entries whose name matches exactly; the explicit map above is what
+    # catches the ones where names or domains diverge.
+    if toolkit.name.strip().lower() in _direct_catalog_names():
+        return "catalog: name match"
+    return None
+
+
+def _direct_catalog_names() -> set[str]:
+    return {entry.name.strip().lower() for entry in MCP_SERVER_CATALOG}
 
 
 def ensure_hub_template() -> MCPServerTemplate:
@@ -118,7 +160,6 @@ def sync_composio_toolkits(*, dry_run: bool = False) -> ComposioSyncCounts:
         return counts
 
     toolkits = list_managed_toolkits()
-    direct_domains = _directly_served_domains()
     existing = {t.url: t for t in MCPServerTemplate.objects.filter(provider="composio")}
     seen_urls = {COMPOSIO_HUB_URL}
 
@@ -126,11 +167,12 @@ def sync_composio_toolkits(*, dry_run: bool = False) -> ComposioSyncCounts:
         ensure_hub_template()
 
     for toolkit in toolkits:
-        icon_domain = _icon_domain_for(toolkit)
-        if icon_domain and icon_domain in direct_domains:
+        if reason := _excluded_reason(toolkit):
             counts.skipped_direct += 1
+            logger.debug("Skipping Composio toolkit already served", toolkit=toolkit.slug, reason=reason)
             continue
 
+        icon_domain = _icon_domain_for(toolkit)
         url = _toolkit_url(toolkit.slug)
         seen_urls.add(url)
         fields = {
