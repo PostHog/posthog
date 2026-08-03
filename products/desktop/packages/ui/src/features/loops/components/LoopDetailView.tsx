@@ -319,30 +319,19 @@ export function LoopDetailView({ loopId }: { loopId: string }) {
               >
                 Run now
               </Button>
-              <Flex
-                align="center"
-                gap="2"
-                className={`rounded-(--radius-2) border px-2.5 py-1.5 ${
-                  isEditing
-                    ? "border-(--accent-7) bg-(--accent-3)"
-                    : "border-border"
-                }`}
-              >
-                <Text className="font-medium text-[12.5px] text-gray-12">
-                  Edit mode
-                </Text>
-                <Switch
-                  checked={isEditing}
-                  aria-label="Edit mode"
-                  onCheckedChange={(checked) => {
-                    if (checked) {
-                      setIsEditing(true);
-                      return;
-                    }
+              <Button
+                variant={isEditing ? "default" : "outline"}
+                size="sm"
+                onClick={() => {
+                  if (isEditing) {
                     requestLeaveEdit("summary");
-                  }}
-                />
-              </Flex>
+                    return;
+                  }
+                  setIsEditing(true);
+                }}
+              >
+                {isEditing ? "Editing" : "Edit"}
+              </Button>
               <Button
                 variant="destructive"
                 size="sm"
