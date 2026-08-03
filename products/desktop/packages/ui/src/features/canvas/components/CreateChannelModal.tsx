@@ -62,8 +62,6 @@ export function CreateChannelModal({
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  // Repositories to link to the new space, chosen in the optional step. They
-  // must share one GitHub integration, tracked alongside the selection.
   const [repositories, setRepositories] = useState<string[]>([]);
   const [repoIntegration, setRepoIntegration] = useState<number | null>(null);
   // Create mode's step. Describe mode has no name step, so it starts past it.
@@ -93,8 +91,6 @@ export function CreateChannelModal({
 
   const busy = isCreating || isStarting || linkRepositories.isPending;
   const canAdvance = !busy && !!trimmedName && !nameError;
-  // Describe mode's "Create" seeds the plan session, so it needs a description.
-  // In create mode the description is optional (the space just skips context.md).
   const canDescribe = !busy && !!trimmedDescription;
 
   // `busy` only disables the buttons a render after the mutation starts, so a
@@ -112,10 +108,6 @@ export function CreateChannelModal({
     }
   };
 
-  // Create the channel and land in its feed — the intro (name, creation line,
-  // context.md card) and "joined" row there are derived from the channel row.
-  // Repositories link when the repositories step's "Create" is used (not
-  // "Skip"), and a non-empty description always seeds the context.md session.
   const submitCreate = async ({ withRepos }: { withRepos: boolean }) => {
     let contextId: string;
     try {
@@ -139,9 +131,6 @@ export function CreateChannelModal({
       return;
     }
 
-    // Link the chosen repositories to the fresh space. The space already
-    // exists, so a failure here only warns — the user can retry from its
-    // context page.
     if (withRepos && repositories.length > 0) {
       try {
         await linkRepositories.mutateAsync({
@@ -203,9 +192,6 @@ export function CreateChannelModal({
     });
   };
 
-  // The description step's primary action. Describe mode seeds context.md for an
-  // existing channel; create mode advances to the optional repositories step
-  // (the description is optional, so this never blocks on it).
   const submitDescribeStep = async () => {
     if (isDescribeMode) {
       if (!canDescribe) return;

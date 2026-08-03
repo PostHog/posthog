@@ -16,6 +16,8 @@ import {
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { TaskChannel } from "@posthog/shared/domain-types";
+import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
@@ -364,12 +366,11 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   );
 }
 
-// The space's connected repositories: a header row that matches the CONTEXT.md
-// header, then the shared chips + add-picker field. Reads straight from the
-// channel — the mutation applies each add/remove optimistically to the cache —
-// so there's no local mirror and no Save button.
 function SpaceRepositories({ channel }: { channel: TaskChannel }) {
   const update = useUpdateTaskChannelRepositories();
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const canEdit = currentUser?.id === channel.created_by?.id;
 
   return (
     <Flex direction="column" gap="2">
@@ -390,6 +391,7 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
       <RepositoriesField
         selected={channel.repositories ?? []}
         integrationId={channel.github_integration ?? null}
+        disabled={!canEdit || update.isPending}
         onChange={(repositories, githubIntegration) =>
           update.mutate({
             channelId: channel.id,

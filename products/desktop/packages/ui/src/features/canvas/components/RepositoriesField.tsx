@@ -13,12 +13,8 @@ import { useState } from "react";
 
 export const MAX_REPOSITORIES = 10;
 
-// Show the filter field only once the list is long enough to warrant scanning.
 const REPO_SEARCH_THRESHOLD = 10;
 
-// A single repository, rendered as a subtle tag. The leading GitHub glyph swaps
-// to an X on hover so the whole chip is the remove target — no separate delete
-// button crowding the tag (mirrors the message editor's attachments).
 function RepoChip({
   repository,
   onRemove,
@@ -27,8 +23,6 @@ function RepoChip({
   onRemove: () => void;
 }) {
   return (
-    // h-6 + rounded-md matches the sm "Add…" button beside it, so chips and the
-    // add control line up as one row.
     <span className="group/chip inline-flex h-6 items-center gap-1.5 rounded-md bg-(--gray-a3) pr-2.5 pl-2 font-medium text-(--gray-11) text-[12px] transition-colors hover:bg-(--gray-a4)">
       <button
         type="button"
@@ -48,9 +42,6 @@ function RepoChip({
   );
 }
 
-// The add-repository picker: a button that opens a popover listing the addable
-// repositories. A search field pins to the top once the list is long; only the
-// list scrolls, so there's a single scrollbar.
 function AddRepositoryPopover({
   available,
   onAdd,
@@ -131,21 +122,12 @@ function AddRepositoryPopover({
 }
 
 interface RepositoriesFieldProps {
-  /** Currently linked repositories, `organization/repo` each. */
   selected: string[];
-  /** The GitHub integration the selection belongs to, or null when empty. */
   integrationId: number | null;
-  /** Fired with the next selection + its integration on every add/remove. */
   onChange: (repositories: string[], integrationId: number | null) => void;
-  /** Freeze interaction (e.g. while a create flow is submitting). */
   disabled?: boolean;
 }
 
-// Controlled row of repository chips plus an on-demand add picker. The caller
-// owns the selection (channel-backed with autosave on the context page, local
-// state in the create-space flow); this component centralizes the single-
-// integration constraint — the add list scopes to the active integration, and
-// adding a repo adopts its integration while emptying resets it.
 export function RepositoriesField({
   selected,
   integrationId,
@@ -183,8 +165,6 @@ export function RepositoriesField({
   };
 
   const isLoadingList = isLoadingRepos && available.length === 0;
-  // When there's nothing to add, keep the button visible but disabled with a
-  // reason, rather than a dead-end "No repositories" control.
   const addDisabledReason = !hasGithubIntegration
     ? "Connect GitHub in settings to add repositories"
     : atLimit
@@ -196,11 +176,7 @@ export function RepositoriesField({
         : null;
 
   return (
-    // Tailwind gap (not Radix `gap`): this row also renders inside quill's
-    // dialog portal, which is outside the `.radix-themes` scope where the
-    // `--space-*` tokens live, so a Radix `gap` collapses to 0 there.
-    // w-fit keeps the chips + add button as one tight cluster instead of
-    // stretching across the row, so the group doesn't float in empty space.
+    // Radix spacing tokens are unavailable inside the dialog portal.
     <Flex align="center" wrap="wrap" className="min-h-7 w-fit max-w-full gap-2">
       {selected.map((repository) => (
         <RepoChip
