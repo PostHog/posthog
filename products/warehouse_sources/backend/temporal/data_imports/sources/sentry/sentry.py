@@ -959,7 +959,7 @@ def validate_credentials(
         if response.status_code == 200:
             return True, None
         if response.status_code == 401:
-            return False, "Invalid Sentry auth token"
+            return False, "Invalid Sentry auth token. Please update your token and reconnect."
         if response.status_code == 403:
             return (
                 False,
