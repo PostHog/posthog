@@ -69,6 +69,10 @@ import { CanvasGenerateHero } from "./CanvasGenerateHero";
 import { CanvasPermissionDialog } from "./CanvasPermissionDialog";
 import { CanvasSidePanel } from "./CanvasSidePanel";
 import {
+  hasCanvasSource,
+  shouldLoadCanvasHeadSource,
+} from "./canvasSourcePresentation";
+import {
   canvasVersionNavigation,
   shouldClearCanvasBrowse,
 } from "./canvasVersionNavigation";
@@ -367,11 +371,15 @@ export function FreeformCanvasView({
     setBrowseVersion,
   ]);
 
-  // Head source, fetched only when there's no published artifact to render —
-  // the pre-first-build client-render path. Keyed on the head version id so a
-  // fresh publish refetches exactly once.
+  // Head source, fetched only when there's no published artifact to render.
+  // Migrated single-file canvases have no version pointer, but the source
+  // endpoint exposes their stored code as a synthetic project.
   const headVersionId = dashboard?.currentVersionId ?? null;
-  const wantHeadSource = !!headVersionId && !!lifecycle && !publishedBuild;
+  const wantHeadSource = shouldLoadCanvasHeadSource({
+    dashboardLoaded: !!dashboard,
+    lifecycleLoaded: lifecycle !== undefined,
+    hasPublishedBuild: !!publishedBuild,
+  });
   const { source: headSource, isLoading: headSourceLoading } = useCanvasSource({
     id: wantHeadSource ? dashboardId : undefined,
     versionId: headVersionId ?? undefined,
@@ -463,7 +471,7 @@ export function FreeformCanvasView({
   // The canvas "has content" once any source version exists or a build is
   // published — the record is the always-available signal, so a canvas with
   // content never flashes the empty state while source/builds load.
-  const hasSource = !!headVersionId;
+  const hasSource = hasCanvasSource({ headVersionId, headCode });
   const hasContent = hasSource || !!pinnedArtifact;
   // `isGenerating` keys off the effective task (the optimistic bridge right after
   // submit, then the polled record) and short-circuits on a terminal run — so a
@@ -472,7 +480,12 @@ export function FreeformCanvasView({
   // until the record settles (so it doesn't flash over a canvas that has content)
   // and only when no run is in flight. After submit it floats into the panel.
   const showHero =
-    interactive && !hasContent && !effectiveTaskId && !dashboardLoading;
+    interactive &&
+    !hasContent &&
+    !effectiveTaskId &&
+    !dashboardLoading &&
+    !buildsLoading &&
+    !headSourceLoading;
   // While a generation runs on a not-yet-renderable canvas, the run's chat is
   // the only meaningful content — open the side panel by default, in view mode
   // too, instead of stranding the user on the "Generating…" spinner. Dismissal
