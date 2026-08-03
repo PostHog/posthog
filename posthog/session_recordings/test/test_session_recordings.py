@@ -1368,6 +1368,88 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         for result in results:
             assert "timestamp" in result
 
+    @parameterized.expand(
+        [
+            (
+                # The shape the experiment recordings tab sends once a metric is picked: the
+                # exposure event ANDed with the metric's event. No single event carries both
+                # names, so intersecting per-filter matches by event id finds nothing — the
+                # event filters must be unioned before the session's events are matched.
+                "disjoint_event_names",
+                [
+                    {"id": "$feature_flag_called", "type": "events", "order": 0, "name": "$feature_flag_called"},
+                    {
+                        "id": "alert creation completed",
+                        "type": "events",
+                        "order": 1,
+                        "name": "alert creation completed",
+                    },
+                ],
+                [
+                    ("$feature_flag_called", {}, True),
+                    ("an event neither filter asks for", {}, False),
+                    ("alert creation completed", {}, True),
+                ],
+            ),
+            (
+                # Two predicates that can match the same event row: the union is deliberately
+                # wider than the intersection. Every pageview is returned, not only the
+                # /checkout ones — same semantics as the client-side 'name' match path, which
+                # highlights on event name alone whatever the operand.
+                "overlapping_predicates_return_the_union",
+                [
+                    {"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"},
+                    {
+                        "id": "$pageview",
+                        "type": "events",
+                        "order": 1,
+                        "name": "$pageview",
+                        "properties": [
+                            {"key": "$current_url", "value": "/checkout", "operator": "icontains", "type": "event"}
+                        ],
+                    },
+                ],
+                [
+                    ("$pageview", {"$current_url": "https://example.com/home"}, True),
+                    ("an event neither filter asks for", {}, False),
+                    ("$pageview", {"$current_url": "https://example.com/checkout"}, True),
+                ],
+            ),
+        ]
+    )
+    def test_get_matching_events_with_two_anded_event_filters(
+        self, _name: str, event_filters: list[dict], session_events: list[tuple[str, dict, bool]]
+    ) -> None:
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        session_id = str(uuid7())
+        self.produce_replay_summary("user", session_id, base_time)
+        expected_event_ids = []
+        for seconds, (event_name, extra_properties, expected) in enumerate(session_events):
+            event_id = _create_event(
+                event=event_name,
+                properties={"$session_id": session_id, **extra_properties},
+                team=self.team,
+                distinct_id=uuid7(),
+                timestamp=base_time + timedelta(seconds=seconds + 1),
+            )
+            if expected:
+                expected_event_ids.append(event_id)
+
+        query_params = [
+            f'session_ids=["{session_id}"]',
+            f"events={json.dumps(event_filters)}",
+            "operand=AND",
+        ]
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/matching_events?{'&'.join(query_params)}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        result_uuids = sorted([r["uuid"] for r in response.json()["results"]])
+        assert result_uuids == sorted(expected_event_ids)
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_400_when_invalid_list_query(self) -> None:
         query_params = "&".join(
