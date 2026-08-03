@@ -391,6 +391,15 @@ class TestBingAdsSource:
 
         assert not any(pattern in transient_message for pattern in non_retryable_errors)
 
+    def test_transient_bad_request_is_retryable_not_disabling(self):
+        # A bare transport-level HTTP 400 on a Bing SOAP call (no coded WebFault) is a transient edge
+        # rejection: it must be recognised as retryable (kept out of error tracking) and must NOT match
+        # any non-retryable pattern, or a transient blip would disable the schema.
+        error_message = "Failed to generate ad_performance_report report: Exception: (400, 'Bad Request')"
+
+        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
+        assert not any(pattern in error_message for pattern in self.source.get_non_retryable_errors())
+
     def test_get_resumable_source_manager(self):
         """Test that get_resumable_source_manager returns a manager that round-trips BingAdsResumeConfig."""
         inputs = mock.MagicMock()
