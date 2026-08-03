@@ -664,8 +664,8 @@ class TestWidgetIdentityVerification(BaseTest):
 
     @parameterized.expand(
         [
-            # The signing secret is where this credential is moving: if the read path stops
-            # consulting it, every migrated team loses verified identity.
+            # Post-cutover state: with the legacy column gone, the signing secret alone has
+            # to verify. Not reachable in production yet, so this locks in the end state.
             ("signing_secret_only", True, None),
             # A stale row (rotation sync missed) must fall back to the legacy token rather
             # than locking the team out.
@@ -692,6 +692,20 @@ class TestWidgetIdentityVerification(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
+
+    def test_list_tickets_non_hex_identity_hash_is_rejected_not_a_server_error(self):
+        # hmac.compare_digest raises TypeError on non-ASCII str, so a 64-character non-hex
+        # hash used to reach it and surface as a 500 on a publicly reachable endpoint.
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets",
+            {
+                "identity_distinct_id": self.distinct_id,
+                "identity_hash": "é" * 64,
+            },
+            **self._get_headers(),
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_list_tickets_stale_signing_secret_cannot_resurrect_revoked_key(self):
         # Rotating and then deleting the backup revokes the old key. If a rotation sync
