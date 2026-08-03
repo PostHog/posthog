@@ -12,7 +12,7 @@ from django.db import migrations
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1266_comment_convo_content_trgm"),
+        ("posthog", "1270_untrack_provisioning_auth_columns"),
         ("canvas", "0002_migrate_desktop_tree"),
     ]
 
