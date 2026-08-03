@@ -184,6 +184,32 @@ pub struct Config {
     #[envconfig(default = "false")]
     pub seeder_person_seeds_enabled: bool,
 
+    /// Enable the person-property *reconcile* path: completion discovery widens to `person_property`
+    /// runs, so a fully-seeded one transitions `seeding -> reconciling` and produces
+    /// `reconcile_person` tiles. The orchestrator also needs `SEEDER_PERSON_SEEDS_ENABLED` before
+    /// this does anything, since there is no person seed path to reconcile without it; the CLI
+    /// reads this flag on its own and will dispatch a person run's tiles with seeds off.
+    ///
+    /// Deploy order, in this order, no overlap:
+    ///   1. Roll the processor fleet-wide with a build that decodes `reconcile_person` tiles and
+    ///      loads the person shape-hash map. An older processor routes the person kind to
+    ///      `UnknownKind` and skip-commits it without a marker, stranding the run as a shortfall.
+    ///   2. Flip `SEEDER_PERSON_SEEDS_ENABLED` and let person runs seed.
+    ///   3. Flip this once step 1 is confirmed everywhere.
+    ///   4. Flip Django's `BEHAVIORAL_BACKFILL_PERSON_READINESS_ENABLED` once both preconditions in
+    ///      its `posthog/settings/cohorts.py` docstring hold: the flags service no longer reads
+    ///      `last_backfill_person_properties_at` as proof `cohort_membership` is populated, and a
+    ///      person-leaf edit supersedes the cohort's active person runs. Until then the finalizer
+    ///      skips person runs, so they stay `reconciling` after step 3 and
+    ///      `seeder_runs_reconciling{kind="person_property"}` climbs. That is expected, not a
+    ///      stalled dispatch.
+    ///
+    /// Flipping this back off does not undo a bad rollout: a run already in `reconciling` stops
+    /// being discovered, so it never reaches `reconcile_observed_at` and never finalizes. Recovery
+    /// is an operator re-dispatch through the CLI after the fleet is upgraded.
+    #[envconfig(default = "false")]
+    pub seeder_person_reconcile_dispatch_enabled: bool,
+
     /// Person-seed produce rate, shared across concurrent person chunks and separate from
     /// `seeder_tiles_per_sec` so the two throughputs tune independently.
     #[envconfig(default = "2000")]

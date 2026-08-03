@@ -15,10 +15,17 @@ import type {
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
-    DatasetApi,
-    DatasetItemApi,
+    DatasetCreateApi,
+    DatasetItemArchiveApi,
+    DatasetItemCreateApi,
+    DatasetItemReadApi,
+    DatasetItemRestoreApi,
     DatasetItemsListParams,
+    DatasetItemsPartialUpdateBody,
+    DatasetItemsVersionsListParams,
+    DatasetReadApi,
     DatasetsListParams,
+    DatasetsRevisionsListParams,
     EvaluationApi,
     EvaluationConfigApi,
     EvaluationConfigSetActiveKeyRequestApi,
@@ -56,8 +63,9 @@ import type {
     OfflineExperimentItemsRequestApi,
     OfflineExperimentItemsResponseApi,
     PaginatedClusteringJobListApi,
-    PaginatedDatasetItemListApi,
-    PaginatedDatasetListApi,
+    PaginatedDatasetItemReadListApi,
+    PaginatedDatasetReadListApi,
+    PaginatedDatasetRevisionReadListApi,
     PaginatedEvaluationListApi,
     PaginatedEvaluationReportListApi,
     PaginatedEvaluationReportRunListApi,
@@ -71,8 +79,7 @@ import type {
     PaginatedTraceReviewListApi,
     ParserRecipeApi,
     PatchedClusteringJobApi,
-    PatchedDatasetApi,
-    PatchedDatasetItemApi,
+    PatchedDatasetUpdateApi,
     PatchedEvaluationApi,
     PatchedEvaluationReportUpdateApi,
     PatchedLLMPromptPublishApi,
@@ -154,7 +161,7 @@ export const llmAnalyticsPersonalSpendList = async (
     })
 }
 
-export const getDatasetItemsListUrl = (projectId: string, params?: DatasetItemsListParams) => {
+export const getDatasetItemsListUrl = (projectId: string, params: DatasetItemsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
@@ -170,12 +177,15 @@ export const getDatasetItemsListUrl = (projectId: string, params?: DatasetItemsL
         : `/api/projects/${projectId}/dataset_items/`
 }
 
+/**
+ * List a dataset's current items or its exact contents at a prior revision.
+ */
 export const datasetItemsList = async (
     projectId: string,
-    params?: DatasetItemsListParams,
+    params: DatasetItemsListParams,
     options?: RequestInit
-): Promise<PaginatedDatasetItemListApi> => {
-    return apiMutator<PaginatedDatasetItemListApi>(getDatasetItemsListUrl(projectId, params), {
+): Promise<PaginatedDatasetItemReadListApi> => {
+    return apiMutator<PaginatedDatasetItemReadListApi>(getDatasetItemsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -185,82 +195,139 @@ export const getDatasetItemsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/dataset_items/`
 }
 
+/**
+ * Create an item and its first immutable version. An identical external ID retry returns the existing item. If the matching item is archived, the submitted content is restored as a new active version.
+ */
 export const datasetItemsCreate = async (
     projectId: string,
-    datasetItemApi: NonReadonly<DatasetItemApi>,
+    datasetItemCreateApi: DatasetItemCreateApi,
     options?: RequestInit
-): Promise<DatasetItemApi> => {
-    return apiMutator<DatasetItemApi>(getDatasetItemsCreateUrl(projectId), {
+): Promise<DatasetItemReadApi> => {
+    return apiMutator<DatasetItemReadApi>(getDatasetItemsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetItemApi),
+        body: JSON.stringify(datasetItemCreateApi),
     })
 }
 
-export const getDatasetItemsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dataset_items/${id}/`
+export const getDatasetItemsRetrieveUrl = (projectId: string, datasetItemId: string) => {
+    return `/api/projects/${projectId}/dataset_items/${datasetItemId}/`
 }
 
+/**
+ * Retrieve the current version of an active or archived item.
+ */
 export const datasetItemsRetrieve = async (
     projectId: string,
-    id: string,
+    datasetItemId: string,
     options?: RequestInit
-): Promise<DatasetItemApi> => {
-    return apiMutator<DatasetItemApi>(getDatasetItemsRetrieveUrl(projectId, id), {
+): Promise<DatasetItemReadApi> => {
+    return apiMutator<DatasetItemReadApi>(getDatasetItemsRetrieveUrl(projectId, datasetItemId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getDatasetItemsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dataset_items/${id}/`
-}
-
-export const datasetItemsUpdate = async (
-    projectId: string,
-    id: string,
-    datasetItemApi: NonReadonly<DatasetItemApi>,
-    options?: RequestInit
-): Promise<DatasetItemApi> => {
-    return apiMutator<DatasetItemApi>(getDatasetItemsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetItemApi),
-    })
-}
-
-export const getDatasetItemsPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dataset_items/${id}/`
-}
-
-export const datasetItemsPartialUpdate = async (
-    projectId: string,
-    id: string,
-    patchedDatasetItemApi?: NonReadonly<PatchedDatasetItemApi>,
-    options?: RequestInit
-): Promise<DatasetItemApi> => {
-    return apiMutator<DatasetItemApi>(getDatasetItemsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDatasetItemApi),
-    })
-}
-
-export const getDatasetItemsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/dataset_items/${id}/`
+export const getDatasetItemsPartialUpdateUrl = (projectId: string, datasetItemId: string) => {
+    return `/api/projects/${projectId}/dataset_items/${datasetItemId}/`
 }
 
 /**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ * Create a new immutable item version from editable fields.
  */
-export const datasetItemsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getDatasetItemsDestroyUrl(projectId, id), {
+export const datasetItemsPartialUpdate = async (
+    projectId: string,
+    datasetItemId: string,
+    datasetItemsPartialUpdateBody?: DatasetItemsPartialUpdateBody,
+    options?: RequestInit
+): Promise<DatasetItemReadApi> => {
+    return apiMutator<DatasetItemReadApi>(getDatasetItemsPartialUpdateUrl(projectId, datasetItemId), {
         ...options,
-        method: 'DELETE',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(datasetItemsPartialUpdateBody),
     })
+}
+
+export const getDatasetItemsArchiveUrl = (projectId: string, datasetItemId: string) => {
+    return `/api/projects/${projectId}/dataset_items/${datasetItemId}/archive/`
+}
+
+/**
+ * Archive an active item by creating a new immutable version.
+ */
+export const datasetItemsArchive = async (
+    projectId: string,
+    datasetItemId: string,
+    datasetItemArchiveApi: DatasetItemArchiveApi,
+    options?: RequestInit
+): Promise<DatasetItemReadApi> => {
+    return apiMutator<DatasetItemReadApi>(getDatasetItemsArchiveUrl(projectId, datasetItemId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(datasetItemArchiveApi),
+    })
+}
+
+export const getDatasetItemsRestoreUrl = (projectId: string, datasetItemId: string) => {
+    return `/api/projects/${projectId}/dataset_items/${datasetItemId}/restore/`
+}
+
+/**
+ * Restore an archived item by copying content into a new immutable version.
+ */
+export const datasetItemsRestore = async (
+    projectId: string,
+    datasetItemId: string,
+    datasetItemRestoreApi: DatasetItemRestoreApi,
+    options?: RequestInit
+): Promise<DatasetItemReadApi> => {
+    return apiMutator<DatasetItemReadApi>(getDatasetItemsRestoreUrl(projectId, datasetItemId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(datasetItemRestoreApi),
+    })
+}
+
+export const getDatasetItemsVersionsListUrl = (
+    projectId: string,
+    datasetItemId: string,
+    params?: DatasetItemsVersionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dataset_items/${datasetItemId}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dataset_items/${datasetItemId}/versions/`
+}
+
+/**
+ * List every immutable version of an item, newest first.
+ */
+export const datasetItemsVersionsList = async (
+    projectId: string,
+    datasetItemId: string,
+    params?: DatasetItemsVersionsListParams,
+    options?: RequestInit
+): Promise<PaginatedDatasetItemReadListApi> => {
+    return apiMutator<PaginatedDatasetItemReadListApi>(
+        getDatasetItemsVersionsListUrl(projectId, datasetItemId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getDatasetsListUrl = (projectId: string, params?: DatasetsListParams) => {
@@ -279,12 +346,15 @@ export const getDatasetsListUrl = (projectId: string, params?: DatasetsListParam
         : `/api/projects/${projectId}/datasets/`
 }
 
+/**
+ * List active datasets by default, or archived datasets when requested.
+ */
 export const datasetsList = async (
     projectId: string,
     params?: DatasetsListParams,
     options?: RequestInit
-): Promise<PaginatedDatasetListApi> => {
-    return apiMutator<PaginatedDatasetListApi>(getDatasetsListUrl(projectId, params), {
+): Promise<PaginatedDatasetReadListApi> => {
+    return apiMutator<PaginatedDatasetReadListApi>(getDatasetsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -294,16 +364,19 @@ export const getDatasetsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/datasets/`
 }
 
+/**
+ * Create an empty dataset. Its first revision is created with its first item.
+ */
 export const datasetsCreate = async (
     projectId: string,
-    datasetApi: NonReadonly<DatasetApi>,
+    datasetCreateApi: DatasetCreateApi,
     options?: RequestInit
-): Promise<DatasetApi> => {
-    return apiMutator<DatasetApi>(getDatasetsCreateUrl(projectId), {
+): Promise<DatasetReadApi> => {
+    return apiMutator<DatasetReadApi>(getDatasetsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetApi),
+        body: JSON.stringify(datasetCreateApi),
     })
 }
 
@@ -311,28 +384,17 @@ export const getDatasetsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/`
 }
 
-export const datasetsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<DatasetApi> => {
-    return apiMutator<DatasetApi>(getDatasetsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getDatasetsUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/datasets/${id}/`
-}
-
-export const datasetsUpdate = async (
+/**
+ * Retrieve an active or archived dataset.
+ */
+export const datasetsRetrieve = async (
     projectId: string,
     id: string,
-    datasetApi: NonReadonly<DatasetApi>,
     options?: RequestInit
-): Promise<DatasetApi> => {
-    return apiMutator<DatasetApi>(getDatasetsUpdateUrl(projectId, id), {
+): Promise<DatasetReadApi> => {
+    return apiMutator<DatasetReadApi>(getDatasetsRetrieveUrl(projectId, id), {
         ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetApi),
+        method: 'GET',
     })
 }
 
@@ -340,31 +402,87 @@ export const getDatasetsPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/`
 }
 
+/**
+ * Update descriptive dataset fields without changing its revision.
+ */
 export const datasetsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDatasetApi?: NonReadonly<PatchedDatasetApi>,
+    patchedDatasetUpdateApi?: PatchedDatasetUpdateApi,
     options?: RequestInit
-): Promise<DatasetApi> => {
-    return apiMutator<DatasetApi>(getDatasetsPartialUpdateUrl(projectId, id), {
+): Promise<DatasetReadApi> => {
+    return apiMutator<DatasetReadApi>(getDatasetsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDatasetApi),
+        body: JSON.stringify(patchedDatasetUpdateApi),
     })
 }
 
-export const getDatasetsDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/datasets/${id}/`
+export const getDatasetsArchiveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/datasets/${id}/archive/`
 }
 
 /**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
+ * Archive a dataset. Archived datasets remain readable and reject item mutations.
  */
-export const datasetsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getDatasetsDestroyUrl(projectId, id), {
+export const datasetsArchive = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DatasetReadApi> => {
+    return apiMutator<DatasetReadApi>(getDatasetsArchiveUrl(projectId, id), {
         ...options,
-        method: 'DELETE',
+        method: 'POST',
+    })
+}
+
+export const getDatasetsRestoreUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/datasets/${id}/restore/`
+}
+
+/**
+ * Restore an archived dataset without changing its item states.
+ */
+export const datasetsRestore = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<DatasetReadApi> => {
+    return apiMutator<DatasetReadApi>(getDatasetsRestoreUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getDatasetsRevisionsListUrl = (projectId: string, id: string, params?: DatasetsRevisionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/datasets/${id}/revisions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/datasets/${id}/revisions/`
+}
+
+/**
+ * List immutable dataset revisions, newest first.
+ */
+export const datasetsRevisionsList = async (
+    projectId: string,
+    id: string,
+    params?: DatasetsRevisionsListParams,
+    options?: RequestInit
+): Promise<PaginatedDatasetRevisionReadListApi> => {
+    return apiMutator<PaginatedDatasetRevisionReadListApi>(getDatasetsRevisionsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -20,6 +20,7 @@ import hashlib
 import logging
 from collections.abc import Iterable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -59,7 +60,10 @@ from products.tasks.backend.logic.services.image_builder import (
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
+    ChannelContextGeneration,
     ChannelFeedMessage,
+    ChannelInstructions,
+    ChannelStar,
     CodeInvite,
     CodeInviteRedemption,
     MCPBuiltInAgentKey,
@@ -596,6 +600,10 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
+
+
+def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
+    return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
 def is_signal_report_task(task_id: str | UUID, team_id: int) -> bool:
@@ -5379,7 +5387,7 @@ def normalize_channel_name(name: str) -> str:
     return re.sub(r"\s+", "-", name.strip().lower())[:128]
 
 
-def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
+def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.ChannelDTO:
     return contracts.ChannelDTO(
         id=channel.id,
         name=channel.name,
@@ -5388,6 +5396,7 @@ def _channel_to_dto(channel: Channel) -> contracts.ChannelDTO:
         repositories=channel.repositories,
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
+        starred=starred,
     )
 
 
@@ -5423,7 +5432,7 @@ def ensure_personal_channel_id(team_id: int, user_id: int) -> UUID:
 
 def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDTO]:
     """All live public channels plus the requester's personal channel (provisioned lazily),
-    personal first, then by name."""
+    personal first, then by name. ``starred`` reflects the requester's stars."""
     channels: list[Channel] = []
     if user_id is not None:
         channels.append(_ensure_personal_channel(team_id, user_id))
@@ -5432,7 +5441,12 @@ def list_channels(team_id: int, user_id: int | None) -> list[contracts.ChannelDT
         .select_related("created_by")
         .order_by("name")
     )
-    return [_channel_to_dto(channel) for channel in channels]
+    starred_ids: set = (
+        set(ChannelStar.objects.filter(team_id=team_id, user_id=user_id).values_list("channel_id", flat=True))
+        if user_id is not None
+        else set()
+    )
+    return [_channel_to_dto(channel, starred=channel.id in starred_ids) for channel in channels]
 
 
 def _emit_channel_created(channel: Channel, user_id: int | None) -> None:
@@ -5550,15 +5564,27 @@ def _channel_feed_message_to_dto(message: ChannelFeedMessage) -> contracts.Chann
     )
 
 
+def visible_channels_q(user_id: int | None, *, relation: Literal["", "channel"] = "") -> Q:
+    """The channel-visibility rule as a queryset filter; see ``Channel.visible_to_q``
+    for the semantics. Exported for cross-product callers filtering channel-joined
+    querysets. Single-object callers use ``get_channel``."""
+    return Channel.visible_to_q(user_id, relation=relation)
+
+
+def channel_exists(team_id: int, channel_id: str | UUID, user_id: int | None) -> bool:
+    """Whether ``channel_id`` is a live channel in this team that the user may see."""
+    return Channel.objects.filter(Channel.visible_to_q(user_id), id=channel_id, team_id=team_id, deleted=False).exists()
+
+
 def _visible_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> Channel | None:
     """A channel the requester may read: any live public channel on the team, or their
     own personal channel. ``None`` when it's missing or someone else's personal channel."""
-    channel = _team_channels(team_id).filter(id=channel_id, deleted=False).first()
-    if channel is None:
-        return None
-    if channel.channel_type == Channel.ChannelType.PERSONAL and channel.created_by_id != user_id:
-        return None
-    return channel
+    return (
+        _team_channels(team_id)
+        .select_related("created_by")
+        .filter(visible_channels_q(user_id), id=channel_id, deleted=False)
+        .first()
+    )
 
 
 def list_channel_feed_messages(
@@ -5614,6 +5640,199 @@ def create_channel_feed_message(
     message = ChannelFeedMessage.objects.create(**fields)
     # Fresh row: author lazy-loads once for the DTO.
     return _channel_feed_message_to_dto(message)
+
+
+def get_channel(channel_id: str | UUID, team_id: int, user_id: int | None) -> contracts.ChannelDTO | None:
+    """One channel the requester may read, or ``None``."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    starred = user_id is not None and ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).exists()
+    return _channel_to_dto(channel, starred=starred)
+
+
+# --- Channel instructions (CONTEXT.md) ---
+
+# Generous cap on the markdown blob; channel instructions are descriptions, not documents.
+CHANNEL_INSTRUCTIONS_MAX_BYTES = 100_000
+MAX_CHANNEL_INSTRUCTIONS_VERSION = 2000
+
+
+@dataclass
+class ChannelInstructionsTooLargeError(Exception):
+    max_bytes: int
+
+
+@dataclass
+class ChannelInstructionsVersionConflictError(Exception):
+    current_version: int
+
+
+@dataclass
+class ChannelInstructionsVersionLimitError(Exception):
+    max_version: int
+
+
+def _instructions_to_dto(row: ChannelInstructions) -> contracts.ChannelInstructionsDTO:
+    return contracts.ChannelInstructionsDTO(
+        channel=row.channel_id,
+        content=row.content,
+        version=row.version,
+        created_at=row.created_at,
+        created_by=_user_basic_info(row.created_by if row.created_by_id else None),
+    )
+
+
+def _blank_instructions_dto(channel: Channel) -> contracts.ChannelInstructionsDTO:
+    """A channel with no published instructions reads as blank version 0, so
+    readers never 404 and a first publish guards on ``base_version: 0``."""
+    return contracts.ChannelInstructionsDTO(channel=channel.id, content="", version=0)
+
+
+def get_channel_instructions(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> contracts.ChannelInstructionsDTO | None:
+    """The channel's latest instructions (blank version 0 when none exist).
+    ``None`` when the channel isn't visible."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    latest = (
+        ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False, is_latest=True)
+        .select_related("created_by")
+        .first()
+    )
+    return _instructions_to_dto(latest) if latest is not None else _blank_instructions_dto(channel)
+
+
+def list_channel_instruction_versions(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> list[contracts.ChannelInstructionsDTO] | None:
+    """The channel's instruction history, newest first. ``None`` when the channel isn't visible."""
+    if _visible_channel(channel_id, team_id, user_id) is None:
+        return None
+    versions = (
+        ChannelInstructions.objects.filter(channel_id=channel_id, team_id=team_id, deleted=False)
+        .select_related("created_by")
+        .order_by("-version", "-created_at", "-id")[:200]
+    )
+    return [_instructions_to_dto(row) for row in versions]
+
+
+def publish_channel_instructions(
+    channel_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    content: str,
+    base_version: int | None = None,
+) -> contracts.ChannelInstructionsDTO | None:
+    """Publish a new instructions version, superseding the current latest.
+
+    ``base_version`` guards against lost updates: when the current latest no
+    longer matches, ``ChannelInstructionsVersionConflictError`` is raised.
+    ``None`` when the channel isn't visible. Publishing clears the channel's
+    in-progress context-generation marker.
+    """
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    if len(content.encode("utf-8")) > CHANNEL_INSTRUCTIONS_MAX_BYTES:
+        raise ChannelInstructionsTooLargeError(max_bytes=CHANNEL_INSTRUCTIONS_MAX_BYTES)
+    with transaction.atomic():
+        current_latest = (
+            ChannelInstructions.objects.select_for_update()
+            .filter(channel_id=channel.id, deleted=False, is_latest=True)
+            .order_by("-version", "-created_at", "-id")
+            .first()
+        )
+        current_version = current_latest.version if current_latest is not None else 0
+        if base_version is not None and base_version != current_version:
+            raise ChannelInstructionsVersionConflictError(current_version=current_version)
+        if current_version >= MAX_CHANNEL_INSTRUCTIONS_VERSION:
+            raise ChannelInstructionsVersionLimitError(max_version=MAX_CHANNEL_INSTRUCTIONS_VERSION)
+        if current_latest is not None:
+            ChannelInstructions.objects.filter(pk=current_latest.pk).update(is_latest=False)
+        try:
+            # Nested savepoint: a lost-update race (the select_for_update above
+            # locks no row when none exists yet, and a concurrent delete clears
+            # is_latest without adding a lockable row) makes the insert collide
+            # with the (channel, version) uniqueness. Rolling back to the
+            # savepoint keeps this transaction usable so we can read the winner.
+            with transaction.atomic():
+                published = ChannelInstructions.objects.create(
+                    team_id=team_id,
+                    channel_id=channel.id,
+                    content=content,
+                    version=current_version + 1,
+                    is_latest=True,
+                    created_by_id=user_id,
+                )
+        except IntegrityError:
+            # Surface the race as the conflict the view maps to 409, not a 500.
+            latest = (
+                ChannelInstructions.objects.filter(channel_id=channel.id, deleted=False)
+                .order_by("-version", "-created_at", "-id")
+                .first()
+            )
+            raise ChannelInstructionsVersionConflictError(current_version=latest.version if latest is not None else 0)
+        # Publishing produced a result, so drop the in-progress generation marker.
+        ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    return _instructions_to_dto(published)
+
+
+def delete_channel_instructions(channel_id: str | UUID, team_id: int, user_id: int | None) -> int | None:
+    """Soft-delete every instructions version. Returns the count, or ``None``
+    when the channel isn't visible."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return None
+    with transaction.atomic():
+        count = (
+            ChannelInstructions.objects.select_for_update()
+            .filter(channel_id=channel.id, deleted=False)
+            .update(deleted=True, is_latest=False)
+        )
+        ChannelContextGeneration.objects.filter(channel_id=channel.id).update(task_id=None)
+    return count
+
+
+def get_channel_context_generation(
+    channel_id: str | UUID, team_id: int, user_id: int | None
+) -> str | None | Literal["not_found"]:
+    """The id of the task currently generating the channel's CONTEXT.md, or ``None``."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return "not_found"
+    marker = ChannelContextGeneration.objects.filter(channel_id=channel.id).first()
+    return str(marker.task_id) if marker is not None and marker.task_id else None
+
+
+def set_channel_context_generation(
+    channel_id: str | UUID, team_id: int, user_id: int | None, *, task_id: str | UUID | None
+) -> str | None | Literal["not_found", "invalid_task"]:
+    """Set or clear the task associated with the channel's CONTEXT.md generation."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return "not_found"
+    if task_id is not None and not task_exists(task_id, team_id):
+        return "invalid_task"
+    ChannelContextGeneration.objects.update_or_create(
+        channel_id=channel.id, defaults={"team_id": team_id, "task_id": task_id}
+    )
+    return str(task_id) if task_id else None
+
+
+def star_channel(channel_id: str | UUID, team_id: int, user_id: int, *, starred: bool) -> bool:
+    """Star or unstar a channel for the requesting user. False when the channel isn't visible."""
+    channel = _visible_channel(channel_id, team_id, user_id)
+    if channel is None:
+        return False
+    if starred:
+        ChannelStar.objects.get_or_create(channel_id=channel.id, user_id=user_id, defaults={"team_id": team_id})
+    else:
+        ChannelStar.objects.filter(channel_id=channel.id, user_id=user_id).delete()
+    return True
 
 
 def _thread_message_to_dto(message: TaskThreadMessage) -> contracts.TaskThreadMessageDTO:
@@ -5955,6 +6174,11 @@ def _agent_thread_updates_enabled(creator: User | None) -> bool:
     """Fail closed: no creator to key the flag on, or a flag-service error, means no post."""
     if creator is None:
         return False
+    # Local dev rarely has the server-side flag client wired up, and failing
+    # closed there silently drops every agent thread update (PR and canvas
+    # announcements vanish from task threads with nothing in the logs).
+    if settings.DEBUG:
+        return True
     distinct_id = creator.distinct_id or f"user_{creator.id}"
     try:
         return bool(

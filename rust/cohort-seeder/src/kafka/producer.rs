@@ -274,7 +274,9 @@ mod tests {
         let tile = ReconcileTile::new(
             TeamId(2),
             CohortId(42),
-            crate::domain::BehavioralShapeHash::parse("shape").unwrap(),
+            crate::domain::ReconcileScope::Behavioral(
+                crate::domain::BehavioralShapeHash::parse("shape").unwrap(),
+            ),
             crate::domain::RunId(Uuid::nil()),
         );
 
