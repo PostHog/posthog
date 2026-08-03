@@ -34,8 +34,7 @@ from pydantic import Field
 from pydantic.dataclasses import dataclass
 
 from posthog.models import User
-from posthog.models.file_system.file_system import FileSystem
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
