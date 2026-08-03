@@ -5,6 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 
+import { captureInboxSettingsChanged } from '../inboxAnalytics'
 import type { SignalReportPriority, SignalTeamConfig } from '../types'
 
 export interface BaseBranchOverride {
@@ -249,8 +250,21 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => {
+    listeners(({ actions, values, cache }) => {
+        // The patch is applied optimistically before these listeners run, so the setting names are
+        // taken off the request rather than read back off state. A FIFO is enough to pair a
+        // success/failure with its patch: the loader serializes the requests, so they settle in send order.
+        const captureSettled = (success: boolean): void => {
+            const patch: Partial<SignalTeamConfig> | undefined = cache.pendingSettingPatches?.shift()
+            for (const [setting, newValue] of Object.entries(patch ?? {})) {
+                captureInboxSettingsChanged({ setting, newValue, success, scope: 'team' })
+            }
+        }
+
         return {
+            patchTeamConfig: ({ patch }) => {
+                ;(cache.pendingSettingPatches ??= []).push(patch)
+            },
             addBaseBranchOverride: () => {
                 if (values.addBaseBranchOverrideDisabledReason) {
                     return
@@ -280,11 +294,13 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                 actions.patchTeamConfig({ autostart_base_branches: next })
             },
             patchTeamConfigSuccess: ({ payload }) => {
+                captureSettled(true)
                 if (payload?.clearDraftOnSuccess) {
                     actions.clearDraftBaseBranch()
                 }
             },
             patchTeamConfigFailure: ({ error, errorObject }) => {
+                captureSettled(false)
                 lemonToast.error(errorObject?.detail ?? error ?? 'Failed to update team self-driving settings')
                 // The optimistic value is now a lie, and the server holds the truth about what stuck.
                 actions.loadTeamConfig()

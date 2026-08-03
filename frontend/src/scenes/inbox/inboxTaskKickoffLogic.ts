@@ -16,6 +16,7 @@ import {
     TaskExecutionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { captureInboxReportActionCompleted } from './inboxAnalytics'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
@@ -36,6 +37,15 @@ type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapte
 // pins the stronger model instead of taking the server-side default of Sonnet: the answer quality is
 // what the user is here for, and the extra cost is bounded by the length of the conversation.
 const DISCUSS_RUNTIME: ClaudeRuntimeSelection = {
+    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+    model: 'claude-opus-5',
+    reasoning_effort: ReasoningEffortEnumApi.High,
+}
+
+// Pressing "Create PR" is a strong engagement signal — the user is committing to a real
+// implementation run — so it pins the stronger model rather than taking the server-side default of
+// Sonnet, giving the change the best shot at landing.
+const CREATE_PR_RUNTIME: ClaudeRuntimeSelection = {
     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
     model: 'claude-opus-5',
     reasoning_effort: ReasoningEffortEnumApi.High,
@@ -198,6 +208,12 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             // run endpoint enforces no consent of its own.
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'discuss',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
                 actions.discussReportFailure()
                 return
             }
@@ -209,15 +225,23 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     'Discuss report',
                     DISCUSS_RUNTIME
                 )
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'success' })
                 actions.discussReportSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start discussion')
+                captureInboxReportActionCompleted({ report, actionType: 'discuss', outcome: 'failure' })
                 actions.discussReportFailure()
             }
         },
         createPrFromReport: async ({ report }) => {
             if (values.aiConsentDisabledReason) {
                 lemonToast.error(values.aiConsentDisabledReason)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'create_pr',
+                    outcome: 'blocked',
+                    blockedReason: values.aiConsentDisabledReason,
+                })
                 actions.createPrFailure()
                 return
             }
@@ -226,11 +250,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report),
-                    'Implement report fix'
+                    'Implement report fix',
+                    CREATE_PR_RUNTIME
                 )
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'success' })
                 actions.createPrSuccess()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to start PR task')
+                captureInboxReportActionCompleted({ report, actionType: 'create_pr', outcome: 'failure' })
                 actions.createPrFailure()
             }
         },

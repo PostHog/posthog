@@ -173,6 +173,51 @@ describe('buildToolResultPayload — query-trends for Claude Code', () => {
     })
 })
 
+// Inline-exec UI-app hosts (PostHog Desktop, Claude Code, Cowork) go through the exec
+// wrapper, which sets `forceUiDataToMeta` + `includeUiResponseMeta`. The app payload
+// should only move onto `_meta` when a compact formatted table takes structuredContent's
+// place for the model — otherwise it stays in the standard structuredContent field so it
+// isn't duplicated under a non-standard `_meta` key.
+describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', () => {
+    it('suppresses structuredContent and re-homes the payload onto _meta when a formatted table exists', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(/* withFormatted */ true),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            includeUiResponseMeta: true,
+            distinctId: 'd',
+        })
+
+        // Model reads the compact table, not the verbose JSON.
+        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+        expect(payload).not.toHaveProperty('structuredContent')
+        // The UI app hydrates from _meta since structuredContent was dropped.
+        expect(payload._meta?.[APP_DATA_META_KEY]).toMatchObject({ results: expect.any(Array) })
+    })
+
+    it('keeps the payload in structuredContent and never emits _meta app-data when there is no formatted table', () => {
+        // Regression guard for the duplicated-results report: without a compact table the
+        // model reads the data as text anyway, so re-homing it onto `_meta` only duplicates
+        // the full payload under a non-standard key. Keep it in structuredContent instead.
+        const payload = buildToolResultPayload({
+            handlerResult: queryTrendsHandlerResult(/* withFormatted */ false),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            includeUiResponseMeta: true,
+            distinctId: 'd',
+        })
+
+        expect(payload.structuredContent).toMatchObject({ results: expect.any(Array) })
+        expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
+        // The UI resource URI is still exposed for single-exec clients.
+        expect(payload._meta?.ui).toEqual({ resourceUri: 'ui://posthog/query-results.html' })
+    })
+})
+
 describe('buildToolResultPayload — non-query use cases', () => {
     it('preserves array handler results', () => {
         const result = [{ id: 'template-1' }]
