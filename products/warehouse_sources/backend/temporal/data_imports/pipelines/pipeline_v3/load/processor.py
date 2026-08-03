@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
@@ -38,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     pyarrow_schema_from_arrow_exportable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -468,7 +470,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
 
     try:
         from posthog.temporal.common.client import async_connect
-        from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
+
+        from products.managed_warehouse.backend.facade.temporal import (
             DuckLakeRegisterDataImportsInputs,
             DuckLakeRegisterDataImportsWorkflow,
             build_register_data_imports_workflow_id,
@@ -526,11 +529,10 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
 def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
     """Fire-and-forget start of `data-import-post-import` after a V3 final batch lands.
 
-    V2 runs the load-dependent post-import steps (signal emission, semantic enrichment,
-    column statistics, table size, DuckLake copy) inline in `external-data-job`, but on
-    V3 that workflow ends at extraction — the loaded table only exists once this
-    consumer's post-load operations and job completion finish, so the trigger lives
-    here instead. Same tolerance as `_trigger_ducklake_register_data_imports`: the
+    V2 starts the same workflow from `external-data-job` after the COMPLETED status
+    write, but on V3 that workflow ends at extraction — the loaded table only exists
+    once this consumer's post-load operations and job completion finish, so the trigger
+    lives here instead. Same tolerance as `_trigger_ducklake_register_data_imports`: the
     start only happens when this `*_load` deployment has Temporal client env vars
     configured; any failure is logged and captured without failing the load.
     """
@@ -785,7 +787,12 @@ def process_message(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
             ).time():
-                delta_table = async_to_sync(delta_table_helper.write_scd2_to_deltalake)(
+                scd2_writer = Scd2DeltaWriter(
+                    delta_table_helper,
+                    valid_from_column=SCD2_VALID_FROM_COLUMN,
+                    valid_to_column=SCD2_VALID_TO_COLUMN,
+                )
+                delta_table = async_to_sync(scd2_writer.write)(
                     data=pa_table,
                     primary_keys=primary_keys or [],
                     commit_metadata=commit_metadata,

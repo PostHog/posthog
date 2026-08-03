@@ -865,23 +865,34 @@ export interface experimentLogicActions {
         newUuid: string
         sharedMetricId: number
     }
-    endExperiment: (openCleanupPr?: boolean) => {
+    endExperiment: (
+        openCleanupPr?: boolean,
+        repository?: string | null
+    ) => {
         openCleanupPr: boolean
+        repository: string | null
     }
-    endExperimentWithoutShipping: (openCleanupPr?: boolean) => {
+    endExperimentWithoutShipping: (
+        openCleanupPr?: boolean,
+        repository?: string | null
+    ) => {
         openCleanupPr: boolean
+        repository: string | null
     }
     finishExperiment: ({
         selectedVariantKey,
         releaseToEveryone,
         openCleanupPr,
+        repository,
     }: {
         openCleanupPr?: boolean
         releaseToEveryone: boolean
+        repository?: string | null
         selectedVariantKey: string
     }) => {
         openCleanupPr: boolean
         releaseToEveryone: boolean
+        repository: string | null
         selectedVariantKey: string
     }
     freezeExposure: () => {
@@ -1514,17 +1525,30 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
-        endExperiment: (openCleanupPr: boolean = false) => ({ openCleanupPr }),
-        endExperimentWithoutShipping: (openCleanupPr: boolean = false) => ({ openCleanupPr }),
+        endExperiment: (openCleanupPr: boolean = false, repository: string | null = null) => ({
+            openCleanupPr,
+            repository,
+        }),
+        endExperimentWithoutShipping: (openCleanupPr: boolean = false, repository: string | null = null) => ({
+            openCleanupPr,
+            repository,
+        }),
         finishExperiment: ({
             selectedVariantKey,
             releaseToEveryone,
             openCleanupPr,
+            repository,
         }: {
             selectedVariantKey: string
             releaseToEveryone: boolean
             openCleanupPr?: boolean
-        }) => ({ selectedVariantKey, releaseToEveryone, openCleanupPr: openCleanupPr ?? false }),
+            repository?: string | null
+        }) => ({
+            selectedVariantKey,
+            releaseToEveryone,
+            openCleanupPr: openCleanupPr ?? false,
+            repository: repository ?? null,
+        }),
         pauseExperiment: true,
         resumeExperiment: true,
         freezeExposure: true,
@@ -2397,7 +2421,7 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
-        endExperiment: async ({ openCleanupPr }) => {
+        endExperiment: async ({ openCleanupPr, repository }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -2406,6 +2430,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
                         open_cleanup_pr: openCleanupPr,
+                        ...(repository ? { repository } : {}),
                     }
                 )
                 actions.setExperiment(response)
@@ -2416,8 +2441,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setEndExperimentLoading(false)
             }
         },
-        endExperimentWithoutShipping: async ({ openCleanupPr }) => {
-            actions.endExperiment(openCleanupPr)
+        endExperimentWithoutShipping: async ({ openCleanupPr, repository }) => {
+            actions.endExperiment(openCleanupPr, repository)
             actions.closeFinishExperimentModal()
             lemonToast.success('Experiment ended successfully')
 
@@ -2732,7 +2757,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr }) => {
+        finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr, repository }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -2743,6 +2768,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
                         open_cleanup_pr: openCleanupPr,
+                        ...(repository ? { repository } : {}),
                     }
                 )
                 actions.setExperiment(response)

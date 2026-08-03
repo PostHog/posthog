@@ -21,6 +21,8 @@ export const wizardSessionsCreateBodyPendingInputOnePromptsItemMax = 2000
 
 export const wizardSessionsCreateBodyPendingInputOnePromptsMax = 10
 
+export const wizardSessionsCreateBodyHandoffTextMax = 65536
+
 export const wizardSessionsCreateBodySessionIdMax = 255
 
 export const wizardSessionsCreateBodyWorkflowIdMax = 255
@@ -69,6 +71,13 @@ export const WizardSessionsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Populated while the wizard is blocked on a question in the terminal. Null\/absent means no input is pending; a push without it clears the previous prompt.'
+            ),
+        handoff_text: zod
+            .string()
+            .max(wizardSessionsCreateBodyHandoffTextMax)
+            .nullish()
+            .describe(
+                "Markdown handoff doc for the run (the wizard's setup report). Send it once the run has produced one; omitting it on later pushes keeps the stored value."
             ),
         session_id: zod
             .string()

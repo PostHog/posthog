@@ -21,7 +21,7 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 
 m33 = importlib.import_module("products.replay_vision.backend.migrations.0033_backfill_replayobservationusage_team_id")
 m37 = importlib.import_module("products.replay_vision.backend.migrations.0037_backfill_replayobservationusage_credits")
-m56 = importlib.import_module("products.replay_vision.backend.migrations.0056_closed_beta_launch_reset")
+m56 = importlib.import_module("products.replay_vision.backend.migrations.0057_closed_beta_launch_reset")
 
 
 class TestReceiptBackfillMigrations(APIBaseTest):

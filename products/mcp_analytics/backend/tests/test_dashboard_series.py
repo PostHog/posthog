@@ -11,6 +11,8 @@ from posthog.schema import (
     DateRange,
     EventPropertyFilter,
     IntervalType,
+    MCPToolCallBreakdownItem,
+    MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsItem,
     MCPToolCallsAndErrorsQuery,
     PropertyOperator,
@@ -20,7 +22,10 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import UserAccessControlError
 
-from products.mcp_analytics.backend.hogql_queries.dashboard_series import MCPToolCallsAndErrorsQueryRunner
+from products.mcp_analytics.backend.hogql_queries.dashboard_series import (
+    MCPToolCallBreakdownQueryRunner,
+    MCPToolCallsAndErrorsQueryRunner,
+)
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -148,40 +153,6 @@ class TestMCPToolCallsAndErrorsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cli
         assert [r.successes for r in unfiltered] == [2]
         assert [r.successes for r in filtered] == [1]
 
-    @parameterized.expand(
-        [
-            (["query:read"], 403),
-            (["mcp_analytics:read"], 403),
-            (["query:read", "mcp_analytics:read"], 200),
-        ]
-    )
-    def test_query_endpoint_scope_parity_for_api_keys(self, scopes: list[str], expected_status: int) -> None:
-        # The runner's access check reads the token owner's RBAC, not the token's granted scopes, so
-        # without an entry in _QUERY_KIND_SCOPES the generic /query/ endpoint would serve this kind
-        # to any token holding only query:read.
-        value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
-
-        response = self.client.post(
-            f"/api/projects/{self.team.pk}/query/",
-            {"query": {"kind": "MCPToolCallsAndErrorsQuery"}},
-            HTTP_AUTHORIZATION=f"Bearer {value}",
-        )
-
-        assert response.status_code == expected_status, response.json()
-
-    def test_gates_on_the_mcp_analytics_flag(self) -> None:
-        # Every other test calls calculate() with the flag already on, so a runner that lost its
-        # validate_query_runner_access override would stay green while the generic /query/ endpoint
-        # reached it ungated (the base implementation returns True).
-        runner = MCPToolCallsAndErrorsQueryRunner(query=MCPToolCallsAndErrorsQuery(), team=self.team, user=self.user)
-
-        assert runner.validate_query_runner_access(self.user) is True
-
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            with self.assertRaises(UserAccessControlError):
-                runner.validate_query_runner_access(self.user)
-
     def test_excludes_calls_without_a_tool_name(self) -> None:
         self._emit(timestamp=datetime(2026, 7, 21, 18, 0, tzinfo=UTC))
         self._emit(timestamp=datetime(2026, 7, 21, 18, 0, tzinfo=UTC), tool_name="")
@@ -191,3 +162,99 @@ class TestMCPToolCallsAndErrorsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cli
         )
 
         assert [(r.bucket, r.successes) for r in results] == [("2026-07-21 00:00:00", 1)]
+
+
+class TestMCPToolCallBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+    def _emit(self, *, timestamp: datetime, tool_name: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$mcp_tool_call",
+            distinct_id="d1",
+            timestamp=timestamp,
+            properties={"$session_id": "s1", "$mcp_tool_name": tool_name, "$mcp_is_error": False},
+        )
+
+    def _run(self, query: MCPToolCallBreakdownQuery) -> list[MCPToolCallBreakdownItem]:
+        flush_persons_and_events()
+        return MCPToolCallBreakdownQueryRunner(query=query, team=self.team).calculate().results
+
+    def test_splits_calls_by_tool_within_each_bucket(self) -> None:
+        self._emit(timestamp=datetime(2026, 7, 21, 2, 0, tzinfo=UTC), tool_name="query_run")
+        self._emit(timestamp=datetime(2026, 7, 21, 18, 0, tzinfo=UTC), tool_name="query_run")
+        self._emit(timestamp=datetime(2026, 7, 21, 19, 0, tzinfo=UTC), tool_name="dashboard_create")
+
+        results = self._run(
+            MCPToolCallBreakdownQuery(dateRange=DateRange(date_from="2026-07-19", date_to="2026-07-23"))
+        )
+
+        assert sorted((r.bucket, r.tool, r.calls) for r in results) == [
+            ("2026-07-20 00:00:00", "query_run", 1),
+            ("2026-07-21 00:00:00", "dashboard_create", 1),
+            ("2026-07-21 00:00:00", "query_run", 1),
+        ]
+
+    def test_property_filters_scope_the_series(self) -> None:
+        self._emit(timestamp=datetime(2026, 7, 21, 18, 0, tzinfo=UTC), tool_name="query_run")
+        self._emit(timestamp=datetime(2026, 7, 21, 18, 0, tzinfo=UTC), tool_name="other_tool")
+
+        results = self._run(
+            MCPToolCallBreakdownQuery(
+                dateRange=DateRange(date_from="2026-07-19", date_to="2026-07-23"),
+                properties=[
+                    EventPropertyFilter(key="$mcp_tool_name", value=["query_run"], operator=PropertyOperator.EXACT)
+                ],
+            )
+        )
+
+        assert [(r.tool, r.calls) for r in results] == [("query_run", 1)]
+
+
+class TestMCPDashboardSeriesGate(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    # Every other test here calls calculate() with the flag already on, so a runner that lost its
+    # validate_query_runner_access override would stay green while the generic /query/ endpoint
+    # reached it ungated (the base implementation returns True).
+    @parameterized.expand(
+        [
+            (MCPToolCallsAndErrorsQueryRunner, MCPToolCallsAndErrorsQuery()),
+            (MCPToolCallBreakdownQueryRunner, MCPToolCallBreakdownQuery()),
+        ]
+    )
+    def test_runner_gates_on_mcp_analytics_flag(self, runner_cls: Any, query: Any) -> None:
+        runner = runner_cls(query=query, team=self.team, user=self.user)
+
+        assert runner.validate_query_runner_access(self.user) is True
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            with self.assertRaises(UserAccessControlError):
+                runner.validate_query_runner_access(self.user)
+
+    # The runners' access check reads the token owner's RBAC, not the token's granted scopes, so a
+    # kind registered on the generic query endpoint without a _QUERY_KIND_SCOPES entry is reachable
+    # by any token holding only query:read.
+    @parameterized.expand(
+        [
+            (kind, scopes, expected_status)
+            for kind in ("MCPToolCallsAndErrorsQuery", "MCPToolCallBreakdownQuery")
+            for scopes, expected_status in (
+                (["query:read"], 403),
+                (["mcp_analytics:read"], 403),
+                (["query:read", "mcp_analytics:read"], 200),
+            )
+        ]
+    )
+    def test_query_endpoint_scope_parity_for_api_keys(self, kind: str, scopes: list[str], expected_status: int) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/query/",
+            {"query": {"kind": kind}},
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+
+        assert response.status_code == expected_status, response.json()

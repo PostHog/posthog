@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import secrets
 from typing import TypedDict, TypeVar
 
 from django.conf import settings
 from django.db import transaction
+from django.utils.text import slugify
 
 import structlog
 import posthoganalytics
@@ -167,6 +169,34 @@ _PR_DESCRIPTION_FORM_RULES = (
 )
 
 
+SELF_DRIVING_HEAD_BRANCH_PREFIX = "posthog-self-driving/"
+
+
+def _generate_self_driving_head_branch(title: str) -> str:
+    """A unique, human-readable PR head branch for an implementation run.
+
+    Generated server-side before the agent runs and stamped into PATCH-protected run state, so
+    the review carve-out can bind the opened PR back to this run through a value no team member
+    can write (see tasks' ``find_signal_implementation_run``). The slug keeps branch names
+    readable; the random suffix is only there to prevent collisions between runs off similarly
+    titled reports.
+    """
+    slug = slugify(title)
+    if len(slug) > 40:
+        # Cut at a word boundary so the name doesn't end mid-word.
+        slug = slug[:40].rsplit("-", 1)[0] if "-" in slug[:40] else slug[:40]
+    return f"{SELF_DRIVING_HEAD_BRANCH_PREFIX}{slug or 'implementation'}-{secrets.token_hex(3)}"
+
+
+def _head_branch_instruction(head_branch: str) -> str:
+    return (
+        f"\n\nWhen you push your work, create the branch named exactly `{head_branch}` and open the "
+        "PR from it. This name was pre-generated for this run: PostHog uses it to link the opened PR "
+        "back to the run for automated review, and a PR from any other branch name will not be "
+        "recognized. Do NOT choose a different branch name."
+    )
+
+
 def _build_autostart_task_description(
     *, report_id: str, team_id: int, summary: str, repository: str, priority: PriorityAssessment | None
 ) -> str:
@@ -289,6 +319,9 @@ def _create_implementation_task_if_absent(
     # Resolved outside the transaction: the flag read does network I/O and must not hold the row lock.
     agent_runtime = resolve_agent_runtime(team_id, STEP_IMPLEMENTATION)
 
+    head_branch = _generate_self_driving_head_branch(title)
+    description = description + _head_branch_instruction(head_branch)
+
     exempt_reason: str | None = None
     task_id: str | None = None
     with transaction.atomic():
@@ -323,6 +356,9 @@ def _create_implementation_task_if_absent(
             posthog_mcp_scopes="full",
             interaction_origin="signal_report",  # Makes the agent auto-push and open a draft PR
             ai_stage="implementation",
+            # The pre-generated branch the description instructs the agent to push to; stamped
+            # into protected run state so the review carve-out can verify the PR is this run's.
+            self_driving_head_branch=head_branch,
             # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
             runtime_adapter=agent_runtime.runtime_adapter,

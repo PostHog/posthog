@@ -25,6 +25,8 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
 
+ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS = 10.0
+
 ALERT_INTERNAL_EVENT_DELIVERY_FAILURES = Counter(
     "posthog_alert_internal_event_delivery_failures_total",
     "Number of alert internal events that failed delivery",

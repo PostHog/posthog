@@ -518,6 +518,18 @@ const meta: Meta = {
                             },
                         ]
                     }
+                    if (body?.query?.kind === 'MCPToolCallBreakdownQuery') {
+                        return [
+                            200,
+                            {
+                                results: TOOL_DAILY_RESULTS.map(([bucket, tool, calls]) => ({
+                                    bucket,
+                                    tool,
+                                    calls,
+                                })),
+                            },
+                        ]
+                    }
                     if (body?.query?.kind === 'MCPToolCallsAndErrorsQuery') {
                         return [
                             200,
@@ -543,9 +555,6 @@ const meta: Meta = {
                     }
                     if (query.includes('AS session_id')) {
                         return [200, { results: SESSION_RESULTS }]
-                    }
-                    if (query.includes('GROUP BY day, tool')) {
-                        return [200, { results: TOOL_DAILY_RESULTS }]
                     }
                     if (query.includes('p95_duration_ms')) {
                         return [200, { results: TOOL_RESULTS }]
