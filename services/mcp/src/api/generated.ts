@@ -13530,6 +13530,9 @@ export namespace Schemas {
       id: string;
       name: string;
       channel_type: string;
+      /** @nullable */
+      github_integration: number | null;
+      repositories: string[];
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
     }
@@ -47527,6 +47530,7 @@ export namespace Schemas {
       readonly runtime: RuntimeEnum;
       /** @nullable */
       repository: string | null;
+      repositories: string[];
       /** @nullable */
       github_integration: number | null;
       /** @nullable */
@@ -49396,15 +49400,23 @@ export namespace Schemas {
       expected_current_version_id?: string | null;
     }
 
-    /**
-     * Request body for creating (resolve-or-create) or renaming a public channel.
-     */
-    export interface PatchedChannelWrite {
+    export interface PatchedChannelUpdate {
       /**
          * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
          * @maxLength 128
          */
       name?: string;
+      /**
+         * Team GitHub integration used for repositories linked to this channel.
+         * @nullable
+         */
+      github_integration?: number | null;
+      /**
+         * GitHub repositories inherited by new tasks in this channel.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      repositories?: string[];
     }
 
     export interface PatchedClusteringJob {
@@ -55670,6 +55682,12 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
+      /**
+         * GitHub repositories available to this task, each in `organization/repo` format.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      repositories?: string[];
       /**
          * GitHub integration for this task.
          * @nullable
@@ -70464,6 +70482,12 @@ export namespace Schemas {
          */
       repository?: string | null;
       /**
+         * GitHub repositories available to this task, each in `organization/repo` format.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      repositories?: string[];
+      /**
          * GitHub integration for this task.
          * @nullable
          */
@@ -71544,6 +71568,12 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
+      /**
+         * GitHub repositories available to this task, each in `organization/repo` format.
+         * @maxItems 10
+         * @items.maxLength 255
+         */
+      repositories?: string[];
       /**
          * GitHub integration for this task.
          * @nullable
