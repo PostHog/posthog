@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
-import { SignalReport, SignalReportActionability, SignalReportPriority } from './types'
+import { SignalReport, SignalReportActionability, SignalReportPriority, SignalRunKind } from './types'
 
 /**
  * Inbox telemetry. Mirrors the desktop "Code" app's inbox analytics (event names + property
@@ -34,6 +34,7 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    RUN_OPENED: 'Inbox run opened',
 } as const
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
@@ -540,6 +541,22 @@ export function captureScoutAction(params: {
         surface: params.surface,
         skill_name: params.skillName ?? null,
         ...params.extra,
+    })
+}
+
+/**
+ * A Runs tab row was opened. Nothing was captured here before, so a run that lands on a dead or
+ * unrelated task page left no trace outside a session recording.
+ */
+export function captureInboxRunOpened(params: {
+    kind: SignalRunKind
+    status: string | null
+    hasReport: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.RUN_OPENED, {
+        run_kind: params.kind,
+        run_status: params.status,
+        has_report: params.hasReport,
     })
 }
 
