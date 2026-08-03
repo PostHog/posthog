@@ -1,5 +1,21 @@
-import { exhaustionForecast, projectQuota, quotaUx, splitProjectedPct } from './quotaProjection'
+import { exhaustionForecast, hasBillableSpend, projectQuota, quotaUx, splitProjectedPct } from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
+
+describe('hasBillableSpend', () => {
+    it.each([
+        ['null quota keeps the dollars rather than flickering', null, true],
+        ['uncapped org is metered', makeQuota({ credit_limit: null, remaining: null }), true],
+        [
+            'limit is entirely the free allocation',
+            makeQuota({ credit_limit: 2_500, free_monthly_credits: 2_500 }),
+            false,
+        ],
+        ['limit exceeds the free allocation', makeQuota({ credit_limit: 7_500, free_monthly_credits: 2_500 }), true],
+        ['zero limit cannot bill', makeQuota({ credit_limit: 0, free_monthly_credits: 2_500 }), false],
+    ])('%s', (_name, quota, expected) => {
+        expect(hasBillableSpend(quota)).toBe(expected)
+    })
+})
 
 describe('projectQuota', () => {
     it('returns the empty projection when quota is null or uncapped', () => {

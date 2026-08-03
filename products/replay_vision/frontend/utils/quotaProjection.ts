@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { VisionQuotaApi } from '../generated/api.schemas'
-import { formatCreditCount } from './credits'
+import { billableCredits, formatCreditCount } from './credits'
 
 export const QUOTA_WARN_THRESHOLD = 0.85
 
@@ -40,6 +40,18 @@ const EMPTY: QuotaProjection = {
 export function hasCreditLimit(quota: VisionQuotaApi | null): quota is VisionQuotaApi & { credit_limit: number } {
     // 0 is a real (fully blocking) limit; only null means uncapped.
     return !!quota && quota.credit_limit !== null
+}
+
+/**
+ * True when spending credits can actually produce a bill, so the `≈ $` conversions mean something.
+ * An org whose whole limit is the free allocation can never be charged — it just stops scanning at the cap —
+ * so those surfaces speak in credits only. Unknown quota keeps the dollars rather than flickering them away.
+ */
+export function hasBillableSpend(quota: VisionQuotaApi | null): boolean {
+    if (!hasCreditLimit(quota)) {
+        return true
+    }
+    return billableCredits(quota.credit_limit, quota.free_monthly_credits) > 0
 }
 
 /**

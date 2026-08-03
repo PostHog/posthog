@@ -12,8 +12,7 @@ import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { billableCredits, creditsToUsd, formatCreditCount } from '../../utils/credits'
-import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
-import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
+import { QUOTA_STATUS_STYLES, hasBillableSpend, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
 import { QuotaMeterBar, QuotaMeterLegendItem } from './QuotaMeterBar'
@@ -37,6 +36,7 @@ export function VisionMetrics(): JSX.Element {
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, projectedPct } = projection
     const hasCap = hasCreditLimit(quota)
+    const showUsd = hasBillableSpend(quota)
     const styles = QUOTA_STATUS_STYLES[status]
 
     // Memoized so a re-render (e.g. stats/quota arriving) can't churn the query and abort an in-flight load.
@@ -133,12 +133,15 @@ export function VisionMetrics(): JSX.Element {
                                     </span>
                                 )}
                             </div>
-                            <div className="text-muted text-sm tabular-nums">
-                                ≈ {creditsToUsd(billableCredits(quota.credits_used, quota.free_monthly_credits))} billed
-                                {hasCap && billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits) > 0
-                                    ? ` / ${creditsToUsd(billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits))} limit`
-                                    : ''}
-                            </div>
+                            {showUsd && (
+                                <div className="text-muted text-sm tabular-nums">
+                                    ≈ {creditsToUsd(billableCredits(quota.credits_used, quota.free_monthly_credits))}{' '}
+                                    billed
+                                    {hasCap
+                                        ? ` / ${creditsToUsd(billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits))} limit`
+                                        : ''}
+                                </div>
+                            )}
                             {quota.free_monthly_credits > 0 && (
                                 <div className="text-muted text-xs">
                                     First {formatCreditCount(quota.free_monthly_credits)} each period are free

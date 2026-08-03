@@ -9,6 +9,7 @@ import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import {
     QUOTA_STATUS_STYLES,
     type QuotaStatus,
+    hasBillableSpend,
     hasCreditLimit,
     projectQuota,
     splitProjectedPct,
@@ -100,8 +101,9 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                             ~{formatCreditCount(projectedCredits)}
                             <span className="text-sm font-normal text-muted">/month</span>{' '}
                             <span className="text-sm font-normal text-muted">
-                                (≈ {creditsToUsd(projectedCredits)}) · {(projectedObservations ?? 0).toLocaleString()}{' '}
-                                observations at {formatCreditCount(scannerEstimate?.credits_per_observation ?? 0)} each
+                                {hasBillableSpend(quota) ? `(≈ ${creditsToUsd(projectedCredits)}) · ` : ''}
+                                {(projectedObservations ?? 0).toLocaleString()} observations at{' '}
+                                {formatCreditCount(scannerEstimate?.credits_per_observation ?? 0)} each
                             </span>
                         </span>
                         {scannerEstimateLoading && (

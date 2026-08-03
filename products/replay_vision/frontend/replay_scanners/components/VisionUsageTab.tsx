@@ -18,8 +18,7 @@ import {
     formatCredits,
     formatCreditsRange,
 } from '../../utils/credits'
-import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
-import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
+import { exhaustionForecast, hasBillableSpend, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
 import { VisionInsightChart } from './VisionInsightChart'
@@ -52,9 +51,10 @@ const SPEND_CHART_SERIES = SPEND_CHART_MODEL_PRICES.map(([model]) => ({
         },
     ],
 }))
-const SPEND_CHART_FORMULA = `(${SPEND_CHART_MODEL_PRICES.map(
+const SPEND_CHART_CREDITS_FORMULA = `${SPEND_CHART_MODEL_PRICES.map(
     ([, credits], index) => `${String.fromCharCode(65 + index)}*${credits}`
-).join(' + ')}) / 100`
+).join(' + ')}`
+const SPEND_CHART_FORMULA = `(${SPEND_CHART_CREDITS_FORMULA}) / 100`
 
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
@@ -63,9 +63,25 @@ export function VisionUsageTab(): JSX.Element {
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
+    const showUsd = hasBillableSpend(quota)
     const forecastDate = quota
         ? exhaustionForecast(quota.credits_used, quota.credit_limit, quota.period_start, quota.period_end)
         : null
+
+    const spendTooltip = quota
+        ? [
+              showUsd &&
+                  `≈ ${creditsToUsd(billableCredits(quota.credits_used, quota.free_monthly_credits))} billed${
+                      hasCap
+                          ? ` of ${creditsToUsd(billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits))}`
+                          : ''
+                  }.`,
+              quota.free_monthly_credits > 0 &&
+                  `First ${formatCreditCount(quota.free_monthly_credits)} each period are free.`,
+          ]
+              .filter(Boolean)
+              .join(' ')
+        : ''
 
     const spenders = usageScanners.filter((s: ReplayScanner) => s.credits_this_month > 0)
     const zeroSpendCount = usageScanners.length - spenders.length
@@ -80,9 +96,13 @@ export function VisionUsageTab(): JSX.Element {
                 series: SPEND_CHART_SERIES,
                 trendsFilter: {
                     display: ChartDisplayType.ActionsLineGraph,
-                    // The /100 charts dollars (1 credit = $0.01).
-                    formulaNodes: [{ formula: SPEND_CHART_FORMULA, custom_name: 'Spend' }],
-                    aggregationAxisPrefix: '$',
+                    // The /100 charts dollars (1 credit = $0.01); orgs that can't be billed get raw credits.
+                    formulaNodes: [
+                        showUsd
+                            ? { formula: SPEND_CHART_FORMULA, custom_name: 'Spend' }
+                            : { formula: SPEND_CHART_CREDITS_FORMULA, custom_name: 'Credits' },
+                    ],
+                    aggregationAxisPrefix: showUsd ? '$' : undefined,
                 },
                 dateRange: {
                     date_from:
@@ -95,7 +115,7 @@ export function VisionUsageTab(): JSX.Element {
                 tags: { productKey: ProductKey.REPLAY_VISION },
             },
         }),
-        [quota?.period_start, spendChartInterval]
+        [quota?.period_start, spendChartInterval, showUsd]
     )
     const spendChartInsightProps = useMemo<InsightLogicProps>(
         () => ({
@@ -158,7 +178,9 @@ export function VisionUsageTab(): JSX.Element {
                 return (
                     <div className="flex flex-col gap-1">
                         <span className="text-sm tabular-nums flex items-baseline justify-between gap-2">
-                            {formatCredits(scanner.credits_this_month)}
+                            {showUsd
+                                ? formatCredits(scanner.credits_this_month)
+                                : formatCreditCount(scanner.credits_this_month)}
                             <span className="text-muted">{sharePct}%</span>
                         </span>
                         <LemonProgress percent={sharePct} />
@@ -175,13 +197,7 @@ export function VisionUsageTab(): JSX.Element {
                     <h3 className="text-base font-semibold m-0">Spend over time</h3>
                     <div className="flex items-center gap-3">
                         {quota && (
-                            <Tooltip
-                                title={`≈ ${creditsToUsd(billableCredits(quota.credits_used, quota.free_monthly_credits))} billed${
-                                    hasCap && billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits) > 0
-                                        ? ` of ${creditsToUsd(billableCredits(quota.credit_limit ?? 0, quota.free_monthly_credits))}`
-                                        : ''
-                                }. First ${formatCreditCount(quota.free_monthly_credits)} each period are free.`}
-                            >
+                            <Tooltip title={spendTooltip}>
                                 <span className="text-xs text-muted tabular-nums">
                                     {hasCap
                                         ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
