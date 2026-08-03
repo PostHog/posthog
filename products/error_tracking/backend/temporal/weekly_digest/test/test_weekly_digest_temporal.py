@@ -39,6 +39,7 @@ from products.error_tracking.backend.temporal.weekly_digest.types import (
 )
 from products.error_tracking.backend.temporal.weekly_digest.workflow import (
     FAILED_ORGS_ERROR_TYPE,
+    ErrorTrackingWeeklyDigestPageWorkflow,
     ErrorTrackingWeeklyDigestWorkflow,
 )
 from products.error_tracking.backend.weekly_digest import build_team_digest_data
@@ -399,7 +400,7 @@ class TestErrorTrackingWeeklyDigestWorkflow:
             async with Worker(
                 env.client,
                 task_queue=task_queue,
-                workflows=[ErrorTrackingWeeklyDigestWorkflow],
+                workflows=[ErrorTrackingWeeklyDigestWorkflow, ErrorTrackingWeeklyDigestPageWorkflow],
                 activities=activities,
                 workflow_runner=UnsandboxedWorkflowRunner(),
                 max_concurrent_activities=max_concurrent_activities,
@@ -497,7 +498,7 @@ class TestErrorTrackingWeeklyDigestWorkflow:
         assert all(i.dry_run for i in inputs_seen)
 
     @pytest.mark.asyncio
-    async def test_pages_through_all_orgs_via_continue_as_new(self):
+    async def test_pages_through_all_orgs_via_child_workflows(self):
         org_ids = sorted(f"org-{i}" for i in range(25))
         cursors_seen: list[str | None] = []
         seen: list[str] = []
@@ -516,15 +517,15 @@ class TestErrorTrackingWeeklyDigestWorkflow:
         result = await self._execute(WeeklyDigestInputs(page_size=10), [_get_orgs, _send])
 
         # One discovery call per page, each carrying the previous page's last org id as
-        # the cursor; every org is processed exactly once across the continued executions.
+        # the cursor; every org is processed exactly once across the page children.
         assert cursors_seen == [None, org_ids[9], org_ids[19]]
         assert Counter(seen) == Counter(org_ids)
         assert result == WeeklyDigestResult(orgs=25, orgs_failed=0, sent=25)
 
     @pytest.mark.asyncio
-    async def test_failure_in_early_page_is_carried_to_the_final_execution(self):
-        # Exact multiple of page_size: the chain must end via the empty trailing page
-        # without dropping carried failures or totals.
+    async def test_failure_in_early_page_is_reported_by_the_parent(self):
+        # Exact multiple of page_size: the run must end via the empty trailing page
+        # without dropping failures or totals.
         org_ids = sorted(f"org-{i}" for i in range(20))
         seen: list[str] = []
 
@@ -545,6 +546,6 @@ class TestErrorTrackingWeeklyDigestWorkflow:
 
         cause = exc_info.value.__cause__
         assert cause is not None and getattr(cause, "type", None) == FAILED_ORGS_ERROR_TYPE
-        # A failure in page 1 must not stop later pages: the chain drains fully and
-        # only the final execution reports the carried failure.
+        # A failure in page 1 must not stop later pages: every page drains and the
+        # parent reports the failure once at the end.
         assert Counter(seen) == Counter(org_ids)
