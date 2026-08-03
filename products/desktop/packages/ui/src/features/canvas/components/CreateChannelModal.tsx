@@ -5,10 +5,12 @@ import {
   DialogBody,
   DialogClose,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   Field,
+  FieldDescription,
   FieldError,
   FieldLabel,
   Input,
@@ -103,7 +105,6 @@ export function CreateChannelModal({
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [descriptionFocused, setDescriptionFocused] = useState(false);
   const [repositories, setRepositories] = useState<string[]>([]);
   const [repoIntegration, setRepoIntegration] = useState<number | null>(null);
   // Create mode's step. Describe mode has no name step, so it starts past it.
@@ -121,7 +122,6 @@ export function CreateChannelModal({
     if (open) {
       setName("");
       setDescription("");
-      setDescriptionFocused(false);
       setRepositories([]);
       setRepoIntegration(null);
       setStep("name");
@@ -250,15 +250,17 @@ export function CreateChannelModal({
       {/* In create mode the nested dialog's title asks the question, so the
           label would just repeat it. */}
       {isDescribeMode && (
-        <FieldLabel htmlFor="context-description">
-          What's this {spacesLayout ? "space" : "channel"} about?
-        </FieldLabel>
+        <>
+          <FieldLabel htmlFor="context-description">
+            What's this {spacesLayout ? "space" : "channel"} about?
+          </FieldLabel>
+          <FieldDescription id={descriptionHelperId}>
+            Tell PostHog about this {spacesLayout ? "space" : "channel"}. We'll
+            use it to create a CONTEXT.md file with relevant information for
+            future tasks.
+          </FieldDescription>
+        </>
       )}
-      <p id={descriptionHelperId} className="text-muted-foreground text-xs">
-        Tell PostHog about this {spacesLayout ? "space" : "channel"}. We'll use
-        it to create a CONTEXT.md file with relevant information for future
-        tasks.
-      </p>
       <div className="relative">
         <Textarea
           id="context-description"
@@ -267,8 +269,6 @@ export function CreateChannelModal({
           className="max-h-[40vh] overflow-y-auto"
           value={description}
           disabled={busy}
-          onFocus={() => setDescriptionFocused(true)}
-          onBlur={() => setDescriptionFocused(false)}
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={(e) => {
             // ⌘/Ctrl+Enter submits; a bare Enter stays a newline. Held down it
@@ -280,7 +280,7 @@ export function CreateChannelModal({
           }}
         />
         <RotatingDescriptionPlaceholder
-          visible={!descriptionFocused && description.length === 0 && !busy}
+          visible={description.length === 0 && !busy}
         />
       </div>
     </Field>
@@ -417,6 +417,11 @@ export function CreateChannelModal({
               <DialogTitle>
                 What's this {spacesLayout ? "space" : "channel"} about?
               </DialogTitle>
+              <DialogDescription id={descriptionHelperId}>
+                Tell PostHog about this {spacesLayout ? "space" : "channel"}.
+                We'll use it to create a CONTEXT.md file with relevant
+                information for future tasks.
+              </DialogDescription>
             </DialogHeader>
 
             <DialogBody viewportClassName="flex flex-col gap-4">
