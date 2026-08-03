@@ -245,10 +245,7 @@ export interface projectNoticeLogicMeta {
             hasReverseProxy: boolean | null,
             isProvisionedUser: boolean
         ) => ProjectNoticeVariant | null
-        projectNoticeDismissKey: (
-            projectNoticeVariant: ProjectNoticeVariant | null,
-            effectiveBillingAlert: BillingAlertConfig | null
-        ) => string | null
+        projectNoticeDismissKey: (projectNoticeVariant: ProjectNoticeVariant | null) => string | null
         projectNotice: (
             projectNoticeVariant: ProjectNoticeVariant | null,
             effectiveBillingAlert: BillingAlertConfig | null,
@@ -405,11 +402,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return 'internet_connection_issue'
                 } else if (
                     effectiveBillingAlert &&
-                    !(effectiveBillingAlert.pathName && currentLocation.pathname !== effectiveBillingAlert.pathName) &&
-                    !(
-                        effectiveBillingAlert.dismissKey &&
-                        isNoticeDismissed(`billing_alert.${effectiveBillingAlert.dismissKey}`)
-                    )
+                    !(effectiveBillingAlert.pathName && currentLocation.pathname !== effectiveBillingAlert.pathName)
+                    // billingLogic owns dismissal for this alert, scoped per org/product/period
                 ) {
                     return 'billing_alert'
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
@@ -456,13 +450,9 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
             },
         ],
         projectNoticeDismissKey: [
-            (s) => [s.projectNoticeVariant, s.effectiveBillingAlert],
-            (variant: ProjectNoticeVariant | null, effectiveBillingAlert: BillingAlertConfig | null): string | null => {
+            (s) => [s.projectNoticeVariant],
+            (variant: ProjectNoticeVariant | null): string | null => {
                 switch (variant) {
-                    case 'billing_alert':
-                        return effectiveBillingAlert?.dismissKey
-                            ? `billing_alert.${effectiveBillingAlert.dismissKey}`
-                            : null
                     case 'real_project_with_no_events':
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':

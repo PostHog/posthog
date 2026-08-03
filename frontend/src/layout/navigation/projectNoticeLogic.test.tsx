@@ -8,6 +8,7 @@ import { expectLogic } from 'kea-test-utils'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -344,6 +345,40 @@ describe('projectNoticeLogic', () => {
             expect(router.values.location.pathname).toMatch(/\/settings\/organization-proxy$/)
 
             logic.unmount()
+        })
+    })
+
+    describe('billing alert dismissal', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+        })
+
+        // Regression test: dismissing this notice used to persist a global, org/period-agnostic
+        // localStorage flag (`project-notice-dismissed.billing_alert.<dismissKey>`) that permanently
+        // hid every future billing alert sharing that dismissKey, including a fresh over-quota
+        // warning in a later billing period. billingLogic already tracks its own scoped dismissal
+        // (by org, product, and period/day), so this notice must not get a persisted dismiss key.
+        it('does not persist a dismiss key for the billing alert notice', () => {
+            billingLogic.mount()
+            billingLogic.actions.setBillingAlert({
+                status: 'error',
+                title: 'You have exceeded your usage limit.',
+                dismissKey: 'usage-limit-exceeded',
+            })
+
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            expect(logic.values.projectNoticeVariant).toEqual('billing_alert')
+            expect(logic.values.projectNoticeDismissKey).toBeNull()
+
+            logic.unmount()
+            billingLogic.unmount()
         })
     })
 })

@@ -46,6 +46,10 @@ export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
 
 const BILLING_ALERT_DISMISS_PREFIX = 'scenes.billing.billingLogic.billingAlertDismissed.'
 
+// Data is actively being dropped while a product is over its quota limit, so that alert can't be
+// silenced for the rest of the billing period like the "approaching limit" one - cap it to a day.
+const getTodayDateString = (): string => dayjs().format('YYYY-MM-DD')
+
 export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
     title: string
@@ -1413,7 +1417,7 @@ export const billingLogic = kea<billingLogicType>([
                     if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
-                    if (isBillingAlertDismissed(values.currentOrganizationId, x.type, billingPeriodEnd)) {
+                    if (isBillingAlertDismissed(values.currentOrganizationId, x.type, getTodayDateString())) {
                         return false
                     }
                     return true
@@ -1432,11 +1436,9 @@ export const billingLogic = kea<billingLogicType>([
                     message,
                     dismissKey: 'usage-limit-exceeded',
                     onClose: () => {
-                        // Store dismissal for all affected products in localStorage
-                        const billingPeriodEnd =
-                            values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
+                        // Data is still being dropped, so only silence this for the rest of today
                         for (const product of productsOverLimit) {
-                            storeBillingAlertDismissal(values.currentOrganizationId, product.type, billingPeriodEnd)
+                            storeBillingAlertDismissal(values.currentOrganizationId, product.type, getTodayDateString())
                         }
                         actions.setBillingAlert(null)
                     },
