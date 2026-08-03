@@ -215,10 +215,19 @@ def clear_workspace_profile_cache(slack_team_id: str) -> int:
 
     Called when the app is uninstalled, so a reinstall resolves users from fresh
     ``users.info`` data instead of emails cached under the previous install.
+
+    A transient database failure is logged and swallowed (returning 0): raising would
+    500 the webhook, and since Slack retries are acked without reprocessing, the event
+    would be lost — along with the cross-region fan-out that follows the clear. Rows
+    that survive a failed clear age out via the cache TTL.
     """
-    deleted, _ = SlackUserProfileCache.objects.filter(
-        integration__kind__in=SLACK_INTEGRATION_KINDS, integration__integration_id=slack_team_id
-    ).delete()
+    try:
+        deleted, _ = SlackUserProfileCache.objects.filter(
+            integration__kind__in=SLACK_INTEGRATION_KINDS, integration__integration_id=slack_team_id
+        ).delete()
+    except DatabaseError:
+        logger.warning("slack_app_uninstall_profile_cache_clear_failed", slack_team_id=slack_team_id, exc_info=True)
+        return 0
     return deleted
 
 

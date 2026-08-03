@@ -240,6 +240,25 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         assert Integration.objects.filter(id=self.posthog_code_integration.id).exists()
         assert mock_proxy.call_count == expected_proxy_calls
 
+    @patch("products.slack_app.backend.api._proxy_event_to_region")
+    @patch("products.slack_app.backend.services.slack_user_info.SlackUserProfileCache.objects.filter")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_app_uninstalled_db_failure_still_acks_and_fans_out(self, mock_filter, mock_proxy):
+        # A transient DB error during the cache clear must not raise: Slack acks
+        # retries without reprocessing, so a 500 would lose the event — and the
+        # cross-region fan-out that follows the clear would be skipped too.
+        from django.db.utils import DatabaseError
+
+        mock_filter.side_effect = DatabaseError("connection lost")
+
+        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        result = route_posthog_code_event_to_relevant_region(request, {"type": "app_uninstalled"}, "T12345")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_proxy.assert_called_once()
+
     @parameterized.expand(
         [
             (
