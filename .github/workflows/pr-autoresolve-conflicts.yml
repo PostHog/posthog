@@ -280,6 +280,7 @@ jobs:
               with:
                   python-version: 3.13.13
             - name: Set up ANTLR C++ runtime
+              if: steps.merge.outputs.skip != 'true' && steps.merge.outputs.needs_backend == 'true'
               uses: ./.github/actions/setup-antlr-runtime
 
             - name: Install Python dependencies

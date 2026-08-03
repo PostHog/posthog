@@ -1131,14 +1131,17 @@ jobs:
                   components: cargo
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
+            # Before the master checkout (ref: master, clean: false) removes this
+            # composite and its installer script from the workspace; the /usr install
+            # it performs survives the checkout.
+            - name: Set up ANTLR C++ runtime
+              uses: ./.github/actions/setup-antlr-runtime
             # First running migrations from master, to simulate the real-world scenario
             - name: Checkout master
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: master
                   clean: false
-            - name: Set up ANTLR C++ runtime
-              uses: ./.github/actions/setup-antlr-runtime
 
             - name: Install python dependencies for master
               run: |
