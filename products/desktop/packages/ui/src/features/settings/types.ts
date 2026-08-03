@@ -12,7 +12,7 @@ export type SettingsCategory =
   | "personalization"
   | "sidebar"
   | "terminal"
-  | "claude-code"
+  | "harness"
   | "shortcuts"
   | "github"
   | "slack"
@@ -35,7 +35,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "personalization",
   "sidebar",
   "terminal",
-  "claude-code",
+  "harness",
   "shortcuts",
   "github",
   "slack",

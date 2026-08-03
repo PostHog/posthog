@@ -69,7 +69,7 @@ function SettingDescription({
   );
 }
 
-export function ClaudeCodeSettings() {
+export function HarnessSettings() {
   const { allowBypassPermissions, setAllowBypassPermissions } =
     useSettingsStore();
 
@@ -104,8 +104,8 @@ export function ClaudeCodeSettings() {
 
   return (
     <Flex direction="column">
-      {/* Extensions */}
-      <Text className="mt-1 mb-2 font-medium text-sm">Extensions</Text>
+      {/* Claude Code */}
+      <Text className="mt-1 mb-2 font-medium text-sm">Claude Code</Text>
 
       <SettingRow
         label="MCP servers"
@@ -156,14 +156,68 @@ export function ClaudeCodeSettings() {
         <CopyableCommand command="claude /hooks" />
       </SettingRow>
 
+      {/* Codex */}
+      <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
+        Codex
+      </Text>
+
+      <SettingRow
+        label="MCP servers"
+        description={
+          <SettingDescription
+            text="Extend Codex's capabilities with MCP servers"
+            docsUrl="https://learn.chatgpt.com/docs/extend/mcp"
+          />
+        }
+      >
+        <CopyableCommand command="codex mcp" />
+      </SettingRow>
+
+      <SettingRow
+        label="Skills"
+        description={
+          <SettingDescription
+            text="Reusable instructions in .agents/skills/, mentioned with $skill-name"
+            docsUrl="https://learn.chatgpt.com/docs/build-skills"
+          />
+        }
+      >
+        <span />
+      </SettingRow>
+
+      <SettingRow
+        label="Memory"
+        description={
+          <SettingDescription
+            text="Persistent context stored in AGENTS.md files"
+            docsUrl="https://learn.chatgpt.com/docs/agent-configuration/agents-md"
+          />
+        }
+      >
+        <span />
+      </SettingRow>
+
+      <SettingRow
+        label="Hooks"
+        description={
+          <SettingDescription
+            text="Execute commands at specific points in Codex's lifecycle. In beta, turn on codex_hooks in config.toml to use them"
+            docsUrl="https://learn.chatgpt.com/docs/configuration"
+          />
+        }
+        noBorder
+      >
+        <span />
+      </SettingRow>
+
       {/* Permissions */}
       <Text className="mb-2 block border-gray-6 border-t pt-4 font-medium text-sm">
         Permissions
       </Text>
 
       <SettingRow
-        label="Permission rules"
-        description="Tool permissions from your Claude settings. Allowed tools run without prompting. Denied tools are always blocked"
+        label="Claude permission rules"
+        description="Tool permissions from your Claude settings. Allowed tools run without prompting. Denied tools are always blocked. Codex keeps its own rules in config.toml"
       >
         <CopyableCommand command="claude config" />
       </SettingRow>
@@ -188,10 +242,10 @@ export function ClaudeCodeSettings() {
             <Warning weight="fill" />
           </Callout.Icon>
           <Callout.Text>
-            Bypass permissions is now available in the mode menu in the prompt
-            input. Pick it per session when you want that session to run shell
-            commands, file edits and web requests without approval. Other
-            sessions are unaffected.
+            Bypass permissions, and Full access in Codex, are now available in
+            the mode menu in the prompt input. Pick one per session when you
+            want that session to run shell commands, file edits and web requests
+            without approval. Other sessions are unaffected.
           </Callout.Text>
         </Callout.Root>
       )}
