@@ -322,6 +322,11 @@ container.bind<LocalHandoffHost>(LOCAL_HANDOFF_HOST).toConstantValue({
     trpcClient.folders.getRepositoryByRemoteUrl.query(input),
   selectDirectory: () => trpcClient.os.selectDirectory.query(),
   addFolder: (input) => trpcClient.folders.addFolder.mutate(input),
+  getWorktreeLocation: () => trpcClient.os.getWorktreeLocation.query(),
+  cloneRepository: (input) => trpcClient.git.cloneRepository.mutate(input),
+  addAdditionalDirectory: async (input) => {
+    await trpcClient.additionalDirectories.addForTask.mutate(input);
+  },
 });
 container.bind(LOCAL_HANDOFF_DIALOG).toConstantValue(localHandoffDialog);
 container.bind(LOCAL_HANDOFF_NOTIFIER).toConstantValue(localHandoffNotifier);
