@@ -19,11 +19,13 @@ saves it.
 ## Resolve the target canvas
 
 - If the task names a canvas id (canvas-initiated tasks do), that is the target. Do not create another.
-- Otherwise list candidates with `canvas-list` (scope with `channel` when the request names a
-  channel — resolve the channel id first with `channel-list`) and pick the canvas the request
-  refers to.
-- Only when no existing canvas is the intended target, create one with `canvas-create` in the
-  right channel.
+- Otherwise — channel-composer tasks give the channel, not a canvas — list the channel's canvases
+  with `canvas-list` (scope with `channel`; resolve a bare channel name with `channel-list` first).
+  If one is clearly what the request refers to — an earlier iteration of the same board or tool —
+  build on it instead of creating a near-duplicate, and say so in your reply so the user knows
+  where the result landed.
+- Only when nothing existing fits, create one with `canvas-create` in the right channel, named
+  with a short descriptive title drawn from the request — never "Untitled canvas".
 
 ## Choose the least complex implementation that meets the request
 
