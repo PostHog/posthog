@@ -335,32 +335,6 @@ class Task(DeletedMetaFields, models.Model):
         marker = (self.state or {}).get(MCP_BUILT_IN_AGENT_STATE_KEY)
         return expected_key if marker == expected_key else None
 
-    @classmethod
-    def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> models.QuerySet["Task"]:
-        # Tasks live only on the desktop surface, never the web app tree.
-        if surface != DESKTOP_SURFACE:
-            return cls.objects.none()
-        base_qs = cls.objects.filter(team=team, deleted=False)
-        return cls._filter_unfiled_queryset(base_qs, team, type="task", ref_field="id", surface=surface)
-
-    def get_file_system_representation(self, folder: str | None = None) -> FileSystemRepresentation:
-        # Tasks live only on the desktop surface, never the web app tree. They land in
-        # Unfiled/Tasks/<title> on first save (via FileSystemSyncMixin) and stay there
-        # unless filed into another folder — e.g. a canvas channel.
-        return FileSystemRepresentation(
-            base_folder=folder or self._get_assigned_folder("Unfiled/Tasks"),
-            type="task",
-            ref=str(self.id),
-            name=self.title or "Untitled",
-            href=f"/tasks/{self.id}",
-            meta={
-                "created_at": str(self.created_at),
-                "created_by": self.created_by_id,
-            },
-            should_delete=bool(self.deleted),
-            surface=DESKTOP_SURFACE,
-        )
-
     def capture_event(
         self, event: str, properties: dict | None = None, capture_fn: Callable[..., None] | None = None
     ) -> None:
