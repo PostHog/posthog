@@ -2982,6 +2982,11 @@ class HogFlowViewSet(
         # extend the select_for_update row-lock hold.
         revisions_enabled = use_workflows_revisions(self.team)
 
+        # A doomed request must fail here, before the expensive render below, not under the lock.
+        # The locked section re-checks and stays authoritative if the status flips in between.
+        if self._is_mcp_request(request) and instance.status == HogFlow.State.ACTIVE and not revisions_enabled:
+            raise exceptions.ValidationError(MCP_ACTIVE_EDIT_REJECTION)
+
         # Rendering is a synchronous Unlayer HTTP call, so it also runs before the transaction,
         # against the unlocked row. Draft routing is predicted the same way the locked section
         # decides it; if the routing or the design moves before the lock, the apply conflicts.

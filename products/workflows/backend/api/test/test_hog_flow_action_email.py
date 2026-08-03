@@ -297,11 +297,20 @@ class TestHogFlowActionEmailAPI(APIBaseTest):
         assert response.json()["draft"] is not None
 
     @patch(FLAG_PATH, return_value=False)
-    def test_mcp_patch_on_active_flow_rejected_when_flag_off(self, _flag):
+    @patch(RENDER_PATH, return_value=RENDERED_HTML)
+    def test_mcp_patch_on_active_flow_rejected_when_flag_off(self, mock_render, _flag):
         flow_id = self._create_flow(status="active")
-        response = self._patch_email(flow_id, {"email_patch": {"subject": "x"}})
+        response = self._patch_email(
+            flow_id,
+            {
+                "operations": [{"op": "update_content", "id": "text_1", "patch": {"values": {"text": "x"}}}],
+                "email_patch": {"subject": "x"},
+            },
+        )
         assert response.status_code == 400, response.json()
         assert "active workflow isn't supported via MCP" in response.json()["detail"]
+        # The rejection must land before the render, or a doomed request pays the Unlayer HTTP call.
+        mock_render.assert_not_called()
 
     @patch(FLAG_PATH, return_value=True)
     @patch(RENDER_PATH, return_value=RENDERED_HTML)
