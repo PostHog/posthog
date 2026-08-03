@@ -102,6 +102,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
     Private messages are excluded from denormalized stats to prevent leaking
     to widget via last_message_text and to keep message_count accurate for customers.
+    Human team notes still emit `$conversation_message_sent` (with is_private=true).
 
     Uses transaction.on_commit() to defer work and avoid blocking the request.
     """
@@ -124,12 +125,25 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     created_by_id = _get_comment_created_by_id(instance)
 
     def do_update():
-        # Private messages don't update denormalized stats (to avoid leaking to widget)
+        author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
+
+        # Private messages don't update denormalized stats (to avoid leaking to widget),
+        # but human team notes still emit `$conversation_message_sent` (with
+        # is_private=true) so workflows can react to internal replies.
         if _is_private_message(item_context):
+            if not (created_by_id and author_type != "customer"):
+                return
+            try:
+                ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
+                author = User.objects.filter(id=created_by_id).first()
+                capture_message_sent(ticket, comment_id, content or "", author=author, is_private=True)
+            except Ticket.DoesNotExist:
+                pass
+            except Exception as e:
+                capture_exception(e, {"ticket_id": item_id})
             return
 
         # New message: update denormalized stats
-        author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
         is_team_message = (created_by_id and author_type != "customer") or (
             author_type == "AI" and not _is_private_message(item_context)
         )

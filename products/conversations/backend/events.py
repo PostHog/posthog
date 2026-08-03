@@ -528,12 +528,14 @@ def capture_message_sent(
     message_id: str,
     message_content: str,
     author: User | None = None,
+    is_private: bool = False,
 ) -> None:
     """Team member sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
+    properties["is_private"] = is_private
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
     properties.update(_get_assignment_properties(ticket))
