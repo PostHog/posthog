@@ -70,20 +70,23 @@ export function CanvasBuildStatus({
   );
   const activeId = active?.id;
 
-  // Elapsed-time ticker for the active build. Keyed on the build id so a new
-  // build restarts the clock; idle when no build is active.
-  const [now, setNow] = useState(() => Date.now());
+  // Elapsed-time ticker for the active build: the interval only forces a
+  // re-render, the label is derived from the clock during render. Keyed on the
+  // build id so a new build restarts the ticker; idle when no build is active.
+  const [, setTick] = useState(0);
   useEffect(() => {
     if (!activeId) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), ELAPSED_TICK_MS);
+    const timer = setInterval(
+      () => setTick((tick) => tick + 1),
+      ELAPSED_TICK_MS,
+    );
     return () => clearInterval(timer);
   }, [activeId]);
 
   if (!lifecycle || lifecycle.builds.length === 0) return null;
 
   if (active) {
-    const elapsed = formatElapsed(now - Date.parse(active.createdAt));
+    const elapsed = formatElapsed(Date.now() - Date.parse(active.createdAt));
     return (
       <Flex align="center" gap="1" data-testid="canvas-build-active">
         <SpinnerGapIcon size={14} className="animate-spin text-gray-9" />
