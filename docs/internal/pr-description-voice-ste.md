@@ -2,7 +2,7 @@
 
 Two of our own merged PRs, rewritten in ASD-STE100, next to what actually shipped.
 The point is to see the difference and judge whether it reads better.
-This is the reasoning behind `/writing-pr-descriptions`, which ships in the same change. Nothing here is enforced by a check.
+This is the reasoning behind the style rules in the PR template. Nothing here is enforced by a check.
 
 ## The standard, in short
 
@@ -179,21 +179,20 @@ What changed, and what it cost:
 
 ## How much would actually change
 
-From the 60 most recent PRs merged by one author.
-Figures come from `docs/internal/pr-description-voice-ste-measure.py`; the passive and `-ing` counts are regex heuristics.
+From the 60 most recent PRs merged by one author, with the script in the appendix.
+The passive and `-ing` counts are regex heuristics, so read them as scale rather than exact counts.
 
 | Measure                                              | Value                          |
 | ---------------------------------------------------- | ------------------------------ |
-| Prose sentences                                      | 930                            |
-| Mean words per sentence                              | 12.6                           |
-| Over the 20-word procedural limit                    | 142 (15%)                      |
+| Prose sentences                                      | 938                            |
+| Mean words per sentence                              | 12.5                           |
+| Over the 20-word procedural limit                    | 143 (15%)                      |
 | Over the 25-word descriptive limit                   | 63 (7%)                        |
-| Passive-voice hits                                   | 78                             |
-| `-ing` verb forms                                    | 318, across 153 distinct words |
-| PRs already clean on length, voice and `-ing`        | 1 of 60                        |
+| Passive-voice hits                                   | 77                             |
+| `-ing` verb forms                                    | 320, across 154 distinct words |
 | Share of body text that is prose, not tables or code | 77%                            |
 
-The sentence-length rule is nearly free: the mean is 12.6 words, and only 7% of sentences pass the descriptive limit.
+The sentence-length rule is nearly free: the mean is 12.5 words, and only 7% of sentences pass the descriptive limit.
 The `-ing` rule is where almost every PR fails, on ordinary words: "failing" 30 times, "existing" 27, "writing" 15.
 Removing those costs little meaning, which says the rule is cheap to follow and, on its own, low value.
 
@@ -221,18 +220,65 @@ STE is the strictest way to get there, and the only one that also forbids the vo
 
 ## What shipped with this document
 
-Guidance, not a check. Three files, using the mechanism this repo already used to fix verbose agent-written code comments:
+Guidance, not a check, and no new skill. The rules live where an agent already looks before it opens a PR:
 
-- `.agents/skills/writing-pr-descriptions/SKILL.md`: eight rules, how they apply per template section, a worked before/after, and what the style costs.
-- `.github/pull_request_template.md`: the authoring rules now point at the skill. This replaced the paragraph asking for "a crisp, direct Silicon Valley communication style" and a tone that is "light but substantive". STE has no tone, so the two could not both stay. An agent follows whichever it read last.
-- `AGENTS.md`: the skill is listed under "Always invoke", and the PR descriptions section names it.
+- `.github/pull_request_template.md`: the authoring rules now carry the style. This replaced the paragraph asking for "a crisp, direct Silicon Valley communication style" and a tone that is "light but substantive". STE has no tone, so the two could not both stay. An agent follows whichever it read last.
+- `AGENTS.md`: the PR descriptions section states the style in one line and links here.
 
-The rule that matters more than the other eight: apply this to prose only, and leave the tables, diagrams and links alone.
-The dictionary is not part of it. Vocabulary stays a judgment call, because the word list cannot be redistributed and a hand-maintained subset would drift.
+Two rules matter more than the rest:
 
-## Reproducing the figures
+- Apply this to prose. Leave the tables, diagrams and links alone, and never dissolve one back into prose.
+- No PR needs every element. A one-file fix is a few bullets. A change to a flow earns a diagram. Form follows content.
+
+The dictionary is not part of this. Vocabulary stays a judgment call, because the word list cannot be redistributed and a hand-maintained subset would drift.
+
+## Appendix: reproducing the figures
 
 ```bash
-gh pr list --author @me --state merged --limit 60 --json number,title,url,body > prs.json
-python3 docs/internal/pr-description-voice-ste-measure.py prs.json
+gh pr list --author @me --state merged --limit 60 --json number,title,body > prs.json
+python3 measure.py   # the script below
+```
+
+```python
+import json, re, statistics
+from collections import Counter
+
+STRIP = [re.compile(p, f) for p, f in (
+    ("`{3}.*?`{3}", re.S), (r"<!--.*?-->", re.S), (r"^\s*\|.*\|\s*$", re.M),
+    (r"^#{1,6} .*$", re.M), (r"^\s*-\s*\[[ x]\].*$", re.M), (r"^>\s*\[!\w+\]\s*$", re.M),
+)]
+PASSIVE = re.compile(r"\b(is|are|was|were|be|been|being|gets?|got)\s+(\w+ed|written|run|done|kept|built|sent|made|taken|given|shown|known|found)\b", re.I)
+ING = re.compile(r"\b(\w{4,}ing)\b", re.I)
+ALLOWED = {"during", "everything", "nothing", "something", "string", "strings", "warning",
+           "warnings", "setting", "settings", "timing", "logging", "tracing", "sharding",
+           "engineering", "reporting", "meaning", "sibling", "siblings", "ceiling", "thing", "things"}
+WORD = re.compile(r"[A-Za-z][A-Za-z'\-]*")
+
+prs = json.load(open("prs.json"))
+lengths, passive, ings = [], 0, []
+chars = code = tables = 0
+
+for pr in prs:
+    body = pr["body"]
+    chars += len(body)
+    code += sum(len(m) for m in re.findall("`{3}.*?`{3}", body, re.S))
+    tables += sum(len(m) for m in re.findall(r"^\s*\|.*\|\s*$", body, re.M))
+    text = body
+    for pattern in STRIP:
+        text = pattern.sub("", text)
+    text = re.sub(r"`[^`]*`", "CODE", re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text))
+    for line in filter(None, (line.strip() for line in text.split("\n"))):
+        for sentence in re.split(r"(?<=[.!?])\s+(?=[A-Z\"'`(])", line):
+            if len(sentence.split()) < 3:
+                continue
+            n = len(WORD.findall(sentence))
+            lengths.append(n)
+            passive += len(PASSIVE.findall(sentence))
+            ings += [w for w in ING.findall(sentence) if w.lower() not in ALLOWED]
+
+print(f"sentences {len(lengths)}  mean {statistics.mean(lengths):.1f}")
+print(f"over 20 {sum(n > 20 for n in lengths)}  over 25 {sum(n > 25 for n in lengths)}")
+print(f"passive {passive}  -ing {len(ings)} ({len(set(w.lower() for w in ings))} distinct)")
+print(f"code {100 * code / chars:.0f}%  tables {100 * tables / chars:.0f}%")
+print(Counter(w.lower() for w in ings).most_common(3))
 ```

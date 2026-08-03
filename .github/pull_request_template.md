@@ -71,7 +71,7 @@
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
 - GitHub PR descriptions render markdown, not fixed-width text. Do not hard-wrap prose at a column width or use space-aligned tables — use real markdown tables, headings, and fenced code blocks, and let GitHub flow the text.
-- Use GitHub's rich markdown when it makes review faster, never as decoration:
+- Use GitHub's rich markdown when it makes review faster, never as decoration. No PR needs every element: a one-file fix is a few bullets and nothing else, while a change to a flow earns a diagram.
   - If the change alters a flow or topology (CI wiring, pipelines, state machines, request paths), include before/after mermaid diagrams as two separate `flowchart` blocks, before first. Pick `TD` (tall pipelines) or `LR` (wide paths). Keep them simple; a syntax error renders as an error block. Skip for trivial changes.
     - Brand the nodes with PostHog colors: use the hex directly (mermaid can't read CSS vars), and pair every `fill` with a text `color` so nodes stay legible in GitHub light and dark.
       ```
@@ -85,7 +85,9 @@
   - If you have to include long supporting content (test output, logs), collapse it in `<details>` blocks.
   - Use fenced `diff` code blocks for config before/after.
   - Line-range permalinks to code in this repo render as embedded snippets: prefer them over pasting existing code.
-- Style: run `/writing-pr-descriptions` before writing the body. One fact per bullet, sentences under 25 words, active voice, simple tenses, no jargon and no idioms. Name the same thing the same way every time. This applies to prose only: leave tables, diagrams, code blocks and links alone. No em-dashes, only en-dashes if needed. Spare use of inline code. Limited use of the colon and semicolon.
+- Style: one fact per bullet, sentences under 25 words, active voice, no idioms and no tone. A reviewer scans, stops, checks one claim, moves on, so a sentence that packs four facts into three clauses costs them. Split it. This governs prose only: a table cell is not a sentence. No em-dashes, only en-dashes if needed. Spare use of inline code. Limited use of the colon and semicolon. Before/after:
+  - ❌ When the signals job's artifact glob matches one artifact (every selective-mode run), `download-artifact` extracts it flat, so spans get `job_key ...:None` and re-run recovery joins miss.
+  - ✅ In selective mode the glob matches one artifact. / `download-artifact` then extracts the files flat. / The span gets the job key `...:None`. / The re-run recovery cannot join on that key. (four bullets)
 - Write from a first person perspective of the author of a human-driven PR. Although if something was done by an agent (i.e. you), make that clear with something like "I (or, actually Claude/Codex/etc.) did blah".
 - For titles, headings, or bolded parts use "Sentence case" rather than "Title Case" (i.e. only capitalize the first word of the title/heading/bold text).
 -->
