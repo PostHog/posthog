@@ -10,7 +10,13 @@ export const POSTHOG_DEV_CLIENT_ID = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ";
 // seeded with ["@default", "llm_gateway:read"]. Bump OAUTH_SCOPE_VERSION on any change.
 export const OAUTH_SCOPES = ["*"];
 
-export const OAUTH_SCOPE_VERSION = 5;
+// v6: the server grew the `canvas` scope (PostHog/posthog#73874). On apps with a seeded
+// scope ceiling, /oauth/authorize narrows a `*` request to the ceiling ENUMERATED AT GRANT
+// TIME and refresh never widens it — so sessions granted before the scope existed 403 on
+// /canvases/ forever. Bumping forces one re-auth, whose fresh grant includes it. The same
+// applies to every future server-side scope addition the app relies on, even when
+// OAUTH_SCOPES itself is unchanged.
+export const OAUTH_SCOPE_VERSION = 6;
 
 // Token refresh settings
 export const TOKEN_REFRESH_BUFFER_MS = 30 * 60 * 1000; // 30 minutes before expiry
