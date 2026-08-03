@@ -457,9 +457,9 @@ snapshots:
     components-errors-error-display--anonymous-error-with-stack-trace--light:
         hash: v1.k794b7964.e725c3f057e808e9cebb8e4905abccdf1af21582fb68afdb72753bf4d3164f48.-5vgTKr7_dsRxM5h9OVJATk8w2PAPI-phCJA5_es5kY
     components-errors-error-display--chained-error-stack--dark:
-        hash: v1.k794b7964.8418da84f5e34fa56edf0fb158156a2a5faa3d55205ce8acea9fe8c85a2d7299.QRWFXUofb4d8XPA9tUtYYZwVibS_5XUGuoFffBG_Dto
+        hash: v1.k794b7964.dad0d00450121f8f50767413ff834fd382a05afd05392663b0c910d2802b3d22.D1jV1cedAP1lG1E2h_o3qd8LM8U0b013-7mKz4ydi98
     components-errors-error-display--chained-error-stack--light:
-        hash: v1.k794b7964.86daa2e8e24b4f13955dea2a4c1578bbaba88d317d1b8150110b1c8e46b96455.i_5LODOdC8-3BYW711fQcXlpL4O_-RLsxGkCbVPPtCM
+        hash: v1.k794b7964.d1002164c8607be2f02711a200cb79f1c766e50e0ad362dc04264bce825a3ffa.Nvnem6W-hhJcoH_gttR-O-oXc6PVQcDOAsS8RCKPjcw
     components-errors-error-display--legacy-event-properties--dark:
         hash: v1.k794b7964.4f6a5cb9144e8c9311c6ec872ef8a46cc8064bdf6d933b311fe77ceb28d22409.iYaDNDzgSgEhgnOqNjYAkD61vbGwk4-rAI7ROU1jEfE
     components-errors-error-display--legacy-event-properties--light:
@@ -2101,17 +2101,17 @@ snapshots:
     errortracking-contextdisplay--context-display-with-stacktrace--light:
         hash: v1.k794b7964.2f60cfda48c4da83267fbafd7551aa3391b84ee1eac3eb91c4b0bf3f3b001a86.-wGXL7sLZx5P7cIM7CdrmxqC-CtckBVdIZSwGJmH8zs
     errortracking-exceptioncard--exception-card-all-events--dark:
-        hash: v1.k794b7964.de40114d26c2f1931196ee2117b91b38d4e7d8474ec5af5b852b54f90a3695a0.Oe9uoLHGO9jqUQumKb3SZfylEGReUv2RKIBVlm4uX7o
+        hash: v1.k794b7964.cc2ffc00b6662295bcc7e0e130e0c09dec8e7c4e56ea5b06af9bd1387625eebb.y0VkhGYELgCJFaZQtoTmycNpXh76Ivf0ISgeC7UgUYs
     errortracking-exceptioncard--exception-card-all-events--light:
-        hash: v1.k794b7964.a3d91d06f1ada270369e8d2f67d8cbdfae9cc10e351354f6cd34b218e3a0b75a.-844YtvmwCkPhwW5C_q5Qf_ST3WOKGEaX2vbgvaV3iY
+        hash: v1.k794b7964.45d4bae4202a9fbc5dee5870ba3ec730b7761a522a9539f8745ba66402a25596.2UvtppPFR4_UssIT94gQiF6QhXCROTnUBVjN3QN0Xpc
     errortracking-exceptioncard--exception-card-base--dark:
         hash: v1.k794b7964.ff03b4c4fdbf319431047031580393a81fac15d227964f99474c7e2b469f245a.5BBLG7jy0ZopdWyyAWtY4GTcXi7p9iVlLxUWFs3u-ow
     errortracking-exceptioncard--exception-card-base--light:
         hash: v1.k794b7964.fe21533eaec36e38b0c52d716a4dbb27f4571d0736626f61da117c29f14f17df.zflE6pdzGHEDkBYCO8xbBByLNR4nYg9pY0OzY6pQ180
     errortracking-exceptioncard--exception-card-no-in-app--dark:
-        hash: v1.k794b7964.8b1e1a8df22919fc8ef2ad640ac6b1ee6f7a76b8b10a8aacb8d159eb9b21ca7c.Vjz5_PI7V4ldmexWSEMcQdpA7HphOvDgutkMvaLu7Hc
+        hash: v1.k794b7964.149f590d97a6d374a2d66d7e5a408262658fbad1ba654e210d067fdee137cdc0.Fi0zeXrPfhm2NAWoMnY7HoOLoglc8Ex2Fr_lYeurv_c
     errortracking-exceptioncard--exception-card-no-in-app--light:
-        hash: v1.k794b7964.c4d33d5696f4a1024963da45663ac1b5e71539ddaa9b2acf0407b440435367b4.89Olbefc4LT4CjpXqF0p6dZSdN-5yFKJQmjioMNi4Bk
+        hash: v1.k794b7964.fc43207e0162cadb5fc008f9e046870993b65dd21ba37df14d2adeeef344400a.sDRvIKCTPq0JSGTYKEE1fquPNWeYnr4nrq00NsNzvxs
     errortracking-exceptioncard--exception-card-no-session-with-steps--dark:
         hash: v1.k794b7964.88f8b36cfc329078062eade9b0b893b7c445972de112b4d81622d4fe5f0a9463.38XUwR7Kpqy46eD0WsJu7h2_3atcRlk0XMem4k6TIOU
     errortracking-exceptioncard--exception-card-no-session-with-steps--light:
@@ -2161,33 +2161,33 @@ snapshots:
     errortracking-stacktracedisplay--generic-display-empty--light:
         hash: v1.k794b7964.d67123551ed76b2260993be90dcafc5e78fba7d9b9db36b8552e9d9b73c1f129.BG7JUOeO8gKTYqFGvTCpyo2WHd65r14wwkEJbW5FiEM
     errortracking-stacktracedisplay--generic-display-properties-loading--dark:
-        hash: v1.k794b7964.1a0001322516b2d2ed65b8d0af9eea555ffc67e711f77e80fa54aee53e8fe075.rCx-PvIRS13o9LcYTzF-wv-HZ4hQT-FNqw-GUUVpi_8
+        hash: v1.k794b7964.5698bd9bf3c5fd65b1e9337aff9c3ae218403e485699f4e5d79951ae894d1fda.8yjqi7tOvCjT98eYkOKZ73HhViT0skdLHXR0xbCg-VA
     errortracking-stacktracedisplay--generic-display-properties-loading--light:
-        hash: v1.k794b7964.2141565dbd01bd29020a664aa551ca5158c71b1685d420c4b4b256bcda416d64.QKHWdzqiTyP_A-hBryW7vzX8zHCcPIaFuy9lKFPZWEo
+        hash: v1.k794b7964.3087066ad231ed5fc2808decd7270db8f450f3f2c53975ab2723b7716b0c19fe.8p1cKs-6BV_wdVd8_nErlLCXo9iGkw25-iQ8D9ZNGYo
     errortracking-stacktracedisplay--generic-display-with-javascript-script-error--dark:
         hash: v1.k794b7964.2abb4229eea307abcebd3f5e37567be573ebeb91e1b389865c61f7161585d181._M1UXJzJ23HpdmQD0k26hqJMjl5lZ4OdccnFuhl2Hjk
     errortracking-stacktracedisplay--generic-display-with-javascript-script-error--light:
         hash: v1.k794b7964.1bcf2623ff169d2855c95939f7530083911bf58321c8b72fd5a565f84b1e5614.PkCuwqrj4lz0pxx2mczgBNfC4u6_AQTV5aA_C05-IVw
     errortracking-stacktracedisplay--generic-display-with-long-frames--dark:
-        hash: v1.k794b7964.880be1efbacb942dbf1068bed07e5f992cfdd82b50d6cec1b9135a6473d62312.TR_2QZo9b8OMco4sAQR2rp7DxthfmtqER8Oers2sExI
+        hash: v1.k794b7964.e2609812c044f6f6ab30dae7af57af5e403b80c2a515a8b907c7d60e5f388851.49E1bPrMOv3OhxKZlGn7_jr3g2h_9bUob5u3TG5B0zA
     errortracking-stacktracedisplay--generic-display-with-long-frames--light:
-        hash: v1.k794b7964.19b8a22d169a7f58c173be67a27f33cf014e78fd9012c7fcf448adf156421d4b.929INkq4ZR-TpWO8beKsLcnyuAkKROUKLNKWc1D8h84
+        hash: v1.k794b7964.d7e09b28efb98330f9a93727cd960723db9e143a2c0ea3f9b2809f5351cd55e9.kZgdpQ65toT2TyPmvWhrbcePj9-zbsac2zxGVyyxCYU
     errortracking-stacktracedisplay--generic-display-with-minified-react-error--dark:
         hash: v1.k794b7964.90b087b972d5d5c1c6ee89ce6d61dc673b5dabb1dd82aaa0759b528c66188141.nGy79Z1VQ4v03GQSrPyNky2dSz4rfjR_QUggOvMMNmY
     errortracking-stacktracedisplay--generic-display-with-minified-react-error--light:
         hash: v1.k794b7964.033a61543a980d901a5081ae81988f832e7586d9a8f6f14f7ca1fe1a856e65c4.Qq7Rp8vqAyWiBZ1riVaRWTsaaC4L7O1jHj_zuEaWFtY
     errortracking-stacktracedisplay--generic-display-with-nested-exceptions--dark:
-        hash: v1.k794b7964.566faa410135029051f97d557dc63dedb799eed6b1a40a2f57bf8aaf345f0894.RGCvi4syizwUQ4kI-PLse1KywLCaRo9Ak8I9RrCzFyI
+        hash: v1.k794b7964.2c0521854ab7c97c7dc3572d3794619b8ba7ad98c2c940f0e25969403d305093.WfveLkCVdOTKQOH7nvgBIOHw5X7aJ0ZvmxBzb2muRWw
     errortracking-stacktracedisplay--generic-display-with-nested-exceptions--light:
-        hash: v1.k794b7964.e7e7419aea14ed26f08145b6d2ee2b011f49b484eb853b14c3bebfa4cb0ecdd3.SO2DxIWhIjBZzlbomDGFtc1kJOKC362FMLPjMqojF6w
+        hash: v1.k794b7964.2b61b009badbadce6cec67954dd182bbf7e63f52cbacb6d6fa470296e41a3d85.FlTGOkr9H0sMCU960CrYXBbCl9EHTWu4rFbq9nR_Cyk
     errortracking-stacktracedisplay--generic-display-with-non-error-promise-rejection--dark:
         hash: v1.k794b7964.d0f76a0c15eeb322c6d2cf2e52328f3921e6b08e473d0acd2dbacad2149d73e7.NQDhtmDR9_MV2kis6li9qRji-mi-HCtvRNvM_DBUJbQ
     errortracking-stacktracedisplay--generic-display-with-non-error-promise-rejection--light:
         hash: v1.k794b7964.5c4d9c618ac6567c96b6190d482e3f9b00ecd4dbf71f51ae863587252c009e17.wB8uTzoxxcXVSe7r4h5JfBg1FZHb5ZFqFoDOFWUIeIc
     errortracking-stacktracedisplay--generic-display-with-stacktrace--dark:
-        hash: v1.k794b7964.ac0f98d28e8613f48f8422c846a7217fb3d649ecca6cd28edb1596dfd3824fe6.XTkNICPI_AdlaarBpYllQu-oenYPwoI6I5ViWCYn01A
+        hash: v1.k794b7964.6dcea439b4b051c60815a1bb8ec368148793eb8096b33ebc2edd1092cf51afcb.IfjxyES-AtuWXTviPJckcMo2geVZspb0zY0beJjfyqo
     errortracking-stacktracedisplay--generic-display-with-stacktrace--light:
-        hash: v1.k794b7964.50c60a5fbeb149ffe2944b31bb7a595379d6f073a56a42971779c8730a73bdf5.PGR-n1ZcW8GHEgv70UJTL-exNoNIMufM8-fn9elh584
+        hash: v1.k794b7964.05119a0123d4c4570cc2450a2dffabba28073b128bbe6f0fa388d6d093189fa7.oksbZSwxAUvqQYG1-I7Dk2SQ3bQCgyfIuiS9KDw-Eo8
     errortracking-volumesparkline--compact-issues-list--dark:
         hash: v1.k794b7964.561577f67d28a4a75e1fe28f400edc4dbf60e34c17651da440a4d7737960f4b9.qKEotlvPBIlaPDR7a4CAykgaup3QugCHyTYOFRNvUmk
     errortracking-volumesparkline--compact-issues-list--light:
