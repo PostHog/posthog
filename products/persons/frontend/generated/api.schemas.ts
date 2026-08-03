@@ -257,7 +257,7 @@ export interface MessageAssetApi {
     function_name: string
     /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
     parent_run_id: string
-    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoint currently returns only 'email'. */
+    /** Message channel this asset was sent on: 'email' or 'push'. The per-person endpoints return one channel each. */
     kind: string
     /** The recipient's distinct_id. */
     distinct_id: string
@@ -510,13 +510,13 @@ export type PersonsEmailsListParams = {
     before?: string
     format?: PersonsEmailsListFormat
     /**
-     * Maximum number of emails to return (1-500, default 50).
+     * Maximum number of assets to return (1-500, default 50).
      * @minimum 1
      * @maximum 500
      */
     limit?: number
     /**
-     * Number of emails to skip, for pagination.
+     * Number of assets to skip, for pagination.
      * @minimum 0
      */
     offset?: number
@@ -537,6 +537,39 @@ export type PersonsPropertiesTimelineRetrieveFormat =
     (typeof PersonsPropertiesTimelineRetrieveFormat)[keyof typeof PersonsPropertiesTimelineRetrieveFormat]
 
 export const PersonsPropertiesTimelineRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type PersonsPushNotificationsListParams = {
+    /**
+     * Start of the time range, matched on sent time. Relative ('-30d', '-24h') or ISO 8601. Defaults to -30d (the retention window) — bounds the ClickHouse partition scan.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range, matched on sent time. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    format?: PersonsPushNotificationsListFormat
+    /**
+     * Maximum number of assets to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of assets to skip, for pagination.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type PersonsPushNotificationsListFormat =
+    (typeof PersonsPushNotificationsListFormat)[keyof typeof PersonsPushNotificationsListFormat]
+
+export const PersonsPushNotificationsListFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

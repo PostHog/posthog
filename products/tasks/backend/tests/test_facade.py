@@ -1,6 +1,7 @@
 import importlib
 from datetime import timedelta
 from typing import ClassVar
+from uuid import uuid4
 
 from unittest.mock import patch
 
@@ -17,7 +18,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import Channel, SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
 
 FACADE_MODULES = [
@@ -586,6 +587,64 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state["pending_dispatch"]["create_pr"], False)
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "full")
         self.assertEqual(run.state["pending_dispatch"]["user_id"], self.user.id)
+
+    def _make_channel(self, **kwargs) -> Channel:
+        # unscoped: no ambient team_scope in these tests, and the fail-closed manager
+        # raises on a bare write just as it does on a bare read.
+        defaults = {
+            "team": self.team,
+            "name": "engineering",
+            "channel_type": Channel.ChannelType.PUBLIC,
+            "created_by": self.user,
+        }
+        return Channel.objects.unscoped().create(**{**defaults, **kwargs})
+
+    def _make_teammates_personal_channel(self) -> Channel:
+        teammate = User.objects.create(email="teammate@test.com", distinct_id="teammate")
+        return self._make_channel(
+            name=Channel.PERSONAL_CHANNEL_NAME,
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=teammate,
+        )
+
+    @parameterized.expand(
+        [
+            ("public", lambda self: self._make_channel().id, True),
+            ("unknown", lambda _self: uuid4(), False),
+            # Someone else's "#me" is private: filing into it would leak the task into
+            # their personal feed, so it must be dropped like an unknown id.
+            ("other_users_personal", lambda self: self._make_teammates_personal_channel().id, False),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_task_files_into_channel(self, _name, make_channel_id, expect_filed, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        channel_id = make_channel_id(self)
+
+        created = facade.create_and_run_task(
+            team=self.team,
+            title="Created via facade",
+            description="desc",
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            user_id=self.user.id,
+            repository="posthog/posthog",
+            channel_id=channel_id,
+        )
+        self.assertEqual(Task.objects.get(id=created.task_id).channel_id, channel_id if expect_filed else None)
+
+    def test_ensure_personal_channel_id_idempotent_outside_request_scope(self):
+        # No ambient team_scope here, like a Temporal activity — guards the for_team scoping.
+        first = facade.ensure_personal_channel_id(self.team.id, self.user.id)
+        second = facade.ensure_personal_channel_id(self.team.id, self.user.id)
+        self.assertEqual(first, second)
+        self.assertEqual(
+            list(
+                Channel.objects.unscoped()
+                .filter(team=self.team, channel_type=Channel.ChannelType.PERSONAL, deleted=False)
+                .values_list("id", flat=True)
+            ),
+            [first],
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):

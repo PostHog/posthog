@@ -38,7 +38,7 @@ import type {
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
-    PatchedChannelWriteApi,
+    PatchedChannelUpdateApi,
     PatchedLoopWriteApi,
     PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
@@ -88,6 +88,8 @@ import type {
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
+    TaskRunLivingArtifactChartRequestApi,
+    TaskRunLivingArtifactChartResponseApi,
     TaskRunLivingArtifactCreateRequestApi,
     TaskRunLivingArtifactEditRequestApi,
     TaskRunLivingArtifactOpenResponseApi,
@@ -932,14 +934,14 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
 export const taskChannelsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedChannelWriteApi?: PatchedChannelWriteApi,
+    patchedChannelUpdateApi?: PatchedChannelUpdateApi,
     options?: RequestInit
 ): Promise<ChannelDTOApi> => {
     return apiMutator<ChannelDTOApi>(getTaskChannelsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedChannelWriteApi),
+        body: JSON.stringify(patchedChannelUpdateApi),
     })
 }
 
@@ -1883,6 +1885,32 @@ export const tasksRunsLivingArtifactsEdit = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(taskRunLivingArtifactEditRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsChartUrl = (projectId: string, taskId: string, runId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/chart/`
+}
+
+/**
+ * Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers it as a slack_file living artifact in one call. Blocks until the render finishes.
+ * @summary Render an insight chart and attach it as a living artifact
+ */
+export const tasksRunsLivingArtifactsChart = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    taskRunLivingArtifactChartRequestApi: TaskRunLivingArtifactChartRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactChartResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactChartResponseApi>(
+        getTasksRunsLivingArtifactsChartUrl(projectId, taskId, runId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunLivingArtifactChartRequestApi),
         }
     )
 }

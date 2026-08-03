@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
+import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
 
 import { RelationshipRow, RelationshipStatusFilter, relationshipsLogic } from '../relationshipsLogic'
 
@@ -40,9 +43,11 @@ function TableRefCell({ table, refKey }: { table: string; refKey: string }): JSX
 }
 
 export function RelationshipsTab(): JSX.Element {
-    const { filteredRows, proposalsLoading, joinsLoading, statusFilter, actionsInFlight } =
+    const { filteredRows, proposalsLoading, joinsLoading, statusFilter, actionsInFlight, joinsById } =
         useValues(relationshipsLogic)
-    const { setStatusFilter, acceptProposal, rejectProposal, loadProposals, loadJoins } = useActions(relationshipsLogic)
+    const { setStatusFilter, acceptProposal, rejectProposal, loadProposals, loadJoins, deleteJoin } =
+        useActions(relationshipsLogic)
+    const { toggleNewJoinModal, toggleEditJoinModal } = useActions(viewLinkLogic)
 
     const confirmReject = (row: RelationshipRow): void => {
         if (!row.proposalId) {
@@ -105,6 +110,23 @@ export function RelationshipsTab(): JSX.Element {
             key: 'actions',
             width: 0,
             render: (_, row) => {
+                const join = row.joinId ? joinsById[row.joinId] : null
+                if (row.rowStatus === 'active' && join) {
+                    return (
+                        <More
+                            overlay={
+                                <>
+                                    <LemonButton fullWidth onClick={() => toggleEditJoinModal(join)}>
+                                        Edit
+                                    </LemonButton>
+                                    <LemonButton status="danger" fullWidth onClick={() => deleteJoin(join)}>
+                                        Delete
+                                    </LemonButton>
+                                </>
+                            }
+                        />
+                    )
+                }
                 if (row.rowStatus !== 'pending' || !row.proposalId) {
                     return null
                 }
@@ -143,18 +165,29 @@ export function RelationshipsTab(): JSX.Element {
                     options={STATUS_FILTER_OPTIONS}
                     size="small"
                 />
-                <LemonButton
-                    type="secondary"
-                    icon={<IconRefresh />}
-                    size="small"
-                    loading={proposalsLoading || joinsLoading}
-                    onClick={() => {
-                        loadProposals()
-                        loadJoins()
-                    }}
-                >
-                    Reload
-                </LemonButton>
+                <div className="flex gap-2">
+                    <LemonButton
+                        type="secondary"
+                        icon={<IconRefresh />}
+                        size="small"
+                        loading={proposalsLoading || joinsLoading}
+                        onClick={() => {
+                            loadProposals()
+                            loadJoins()
+                        }}
+                    >
+                        Reload
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        size="small"
+                        data-attr="data-catalog-new-join"
+                        onClick={() => toggleNewJoinModal()}
+                    >
+                        New join
+                    </LemonButton>
+                </div>
             </div>
             <LemonTable
                 data-attr="data-catalog-relationships-table"
@@ -170,6 +203,7 @@ export function RelationshipsTab(): JSX.Element {
                     expandedRowRender: (row) => <RelationshipDetail row={row} />,
                 }}
             />
+            <ViewLinkModal />
         </div>
     )
 }

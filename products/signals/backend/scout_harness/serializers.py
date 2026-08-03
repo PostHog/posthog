@@ -13,12 +13,15 @@ from datetime import UTC, datetime
 
 from django.utils import timezone
 
+import structlog
+import posthoganalytics
 from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.permissions import get_authenticator_scopes
 
@@ -44,6 +47,8 @@ from products.skills.backend.api.skill_serializers import (
     validate_skill_name_value,
 )
 from products.skills.backend.models.skills import LLMSkill
+
+logger = structlog.get_logger(__name__)
 
 # --- Run history -----------------------------------------------------------
 
@@ -1958,6 +1963,25 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "about once a day; a successful retry resumes it, and so does setting `enabled=true`."
         ),
     )
+    status_changed_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When `status` last changed. For `pending_pause` this is when the warning was issued "
+            "(an `ignored` warning pauses about a week later unless someone acts on the scout's "
+            "reports; a `no_output` warning only flags the scout); for the paused statuses it is "
+            "when the scout was paused. Null if the status never changed."
+        ),
+    )
+    auto_pause_exempt = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` "
+            "pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is "
+            "staying quiet. Also set automatically when someone re-enables a scout the inactivity "
+            "sweep paused, so the sweep never overrules a person twice."
+        ),
+    )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -1989,6 +2013,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "output_destinations",
             "last_run_at",
             "consecutive_failure_count",
+            "status_changed_at",
+            "auto_pause_exempt",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
@@ -2017,6 +2043,44 @@ def _validate_run_cron_schedule(value: str) -> str:
             "Scheduled runs must be at least 30 minutes apart (the same floor as run_interval_minutes)."
         )
     return expr
+
+
+def _capture_auto_pause_reverted(
+    config: SignalScoutConfig,
+    *,
+    reason: str | None,
+    paused_at: datetime | None,
+) -> None:
+    """Emit the sweep's false-positive signal: a human re-enabled an inactivity-paused scout.
+
+    `hours_since_pause` is the number to watch — a re-enable within a day of the pause means
+    the sweep paused something someone still wanted, no complaint required. Companion to the
+    `signals_scout_auto_paused` event the sweep itself emits.
+    """
+    try:
+        organization = config.team.organization
+        hours_since_pause = (
+            round((timezone.now() - paused_at).total_seconds() / 3600, 1) if paused_at is not None else None
+        )
+        posthoganalytics.capture(
+            event="signals_scout_auto_pause_reverted",
+            distinct_id=str(organization.id),
+            properties={
+                "team_id": config.team_id,
+                "organization_id": str(organization.id),
+                "skill_name": config.skill_name,
+                "pause_reason": reason,
+                "hours_since_pause": hours_since_pause,
+                "reverted_within_24h": hours_since_pause is not None and hours_since_pause <= 24,
+            },
+            groups=groups(organization=organization),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture auto-pause revert analytics event",
+            team_id=config.team_id,
+            skill_name=config.skill_name,
+        )
 
 
 class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
@@ -2056,6 +2120,13 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     output_destinations = SignalScoutOutputDestinationsSerializer(
         required=False,
         help_text="Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
+    )
+    auto_pause_exempt = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the "
+            "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
+        ),
     )
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
@@ -2098,6 +2169,18 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             target = SignalScoutConfig.Status.ACTIVE
         else:
             target = None
+        # A re-enable of an inactivity pause is a human overruling the sweep, and the sweep must
+        # never overrule them back: the same quiet fortnight that triggered the pause would
+        # otherwise re-qualify the scout the moment its fresh grace window lapses. Marking it
+        # exempt (unless the caller set the flag explicitly in the same request) makes the
+        # exemption visible and reversible where a hidden marker would not be.
+        reverted_reason = instance.pause_reason
+        reverted_paused_at = instance.status_changed_at
+        resumed_from_inactivity_pause = (
+            target == SignalScoutConfig.Status.ACTIVE
+            and instance.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+            and instance.pause_reason in SignalScoutConfig.INACTIVITY_PAUSE_REASONS
+        )
         if target is not None and target != instance.status:
             request = self.context.get("request")
             validated_data["status"] = target
@@ -2108,11 +2191,25 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
                 # Same rule as `transition_status_by_system`: a resume starts with a clean
                 # failure streak, or the next failed run re-trips the breaker off stale evidence.
                 validated_data["consecutive_failure_count"] = 0
-        return super().update(instance, validated_data)
+            if resumed_from_inactivity_pause:
+                validated_data.setdefault("auto_pause_exempt", True)
+        updated = super().update(instance, validated_data)
+        if resumed_from_inactivity_pause:
+            # The false-positive metric for the sweep: a re-enable soon after the pause means the
+            # rule paused something someone still wanted. Best-effort — never fail the resume.
+            _capture_auto_pause_reverted(updated, reason=reverted_reason, paused_at=reverted_paused_at)
+        return updated
 
     class Meta:
         model = SignalScoutConfig
-        fields = ["enabled", "emit", "run_interval_minutes", "run_cron_schedule", "output_destinations"]
+        fields = [
+            "enabled",
+            "emit",
+            "run_interval_minutes",
+            "run_cron_schedule",
+            "output_destinations",
+            "auto_pause_exempt",
+        ]
 
 
 class SignalScoutConfigOptionsSerializer(serializers.Serializer):
@@ -2138,6 +2235,14 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
     output_destinations = SignalScoutOutputDestinationsSerializer(
         required=False,
         help_text="Destinations that receive each finding or report this scout emits. Empty by default.",
+    )
+    auto_pause_exempt = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Exempt this scout from the inactivity pause, which otherwise switches off a scout that "
+            "goes a fortnight without surfacing anything anyone engages with. Set it on watchdog "
+            "scouts whose value is staying quiet. Defaults to false."
+        ),
     )
     run_cron_schedule = serializers.CharField(
         required=False,

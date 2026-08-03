@@ -97,7 +97,11 @@ from products.feature_flags.backend.tasks import (
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
-from products.signals.backend.tasks import refresh_signal_repository_activity, sync_pending_signals_refund_credits
+from products.signals.backend.tasks import (
+    pause_inactive_signal_scouts,
+    refresh_signal_repository_activity,
+    sync_pending_signals_refund_credits,
+)
 from products.stamphog.backend.facade.tasks import DAILY_DIGEST_CRONTAB, send_daily_digests
 from products.streamlit_apps.backend.facade.api import (
     auto_restart_crashed_streamlit_sandboxes,
@@ -309,6 +313,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="25"),
         sync_pending_signals_refund_credits.s(),
         name="sync pending signals refund credits",
+    )
+
+    # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
+    sender.add_periodic_task(
+        crontab(hour="6", minute="15"),
+        pause_inactive_signal_scouts.s(),
+        name="pause inactive signals scouts",
     )
 
     # Keep the signals repository area-activity cache warm - weekly, Monday early morning
