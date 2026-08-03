@@ -104,7 +104,7 @@ export function LoopForm({
   // Open when editing a loop that already pins a model, so the pinned value
   // is visible without hunting for it.
   const [showAdvanced, setShowAdvanced] = useState(
-    () => isEmbedded || !!(loop && (loop.model || loop.reasoning_effort)),
+    () => !!(loop && (loop.model || loop.reasoning_effort)),
   );
 
   useEffect(() => {
@@ -413,35 +413,54 @@ export function LoopForm({
 
         <Divider />
 
-        <Step
-          title="Advanced"
-          description="Behavior, model, and reasoning settings."
-        >
-          <Field label="Behavior">
-            <LoopBehaviorFields
-              behaviors={values.behaviors}
-              disabled={isSubmitting}
-              onChange={(behaviors) => patch({ behaviors })}
+        <Flex direction="column" gap="4">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((open) => !open)}
+            className="flex items-center gap-1.5 text-left"
+          >
+            <CaretRight
+              size={12}
+              className={`text-gray-10 transition-transform ${
+                showAdvanced ? "rotate-90" : ""
+              }`}
             />
-          </Field>
-          <LoopModelFields
-            adapter={values.runtimeAdapter}
-            model={values.model}
-            reasoningEffort={values.reasoningEffort}
-            disabled={isSubmitting}
-            onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
-            onModelChange={(model) => patch({ model })}
-            onReasoningEffortChange={(reasoningEffort) =>
-              patch({ reasoningEffort })
-            }
-          />
-        </Step>
+            <Text className="font-medium text-[15px] text-gray-12">
+              Advanced
+            </Text>
+            <Text className="text-[12px] text-gray-9">
+              Behavior, model, and reasoning
+            </Text>
+          </button>
+          {showAdvanced ? (
+            <Flex direction="column" gap="4">
+              <Field label="Behavior">
+                <LoopBehaviorFields
+                  behaviors={values.behaviors}
+                  disabled={isSubmitting}
+                  onChange={(behaviors) => patch({ behaviors })}
+                />
+              </Field>
+              <LoopModelFields
+                adapter={values.runtimeAdapter}
+                model={values.model}
+                reasoningEffort={values.reasoningEffort}
+                disabled={isSubmitting}
+                onAdapterChange={(runtimeAdapter) => patch({ runtimeAdapter })}
+                onModelChange={(model) => patch({ model })}
+                onReasoningEffortChange={(reasoningEffort) =>
+                  patch({ reasoningEffort })
+                }
+              />
+            </Flex>
+          ) : null}
+        </Flex>
 
         <Flex
           align="center"
           justify="end"
           gap="2"
-          className="border-border border-t pt-4"
+          className="sticky bottom-0 z-10 border-border border-t bg-(--color-panel-solid) pt-4"
         >
           <Button
             variant="soft"
