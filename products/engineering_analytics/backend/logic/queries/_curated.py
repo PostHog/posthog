@@ -14,6 +14,7 @@ into these fragments.
 """
 
 import math
+from functools import cached_property
 from typing import TYPE_CHECKING
 
 from posthog.schema import HogQLQueryResponse
@@ -60,8 +61,6 @@ class CuratedGitHubSource:
         self._team = team
         self._tables = tables
         self._user_access_control = user_access_control
-        self._trunk_io_tables: TrunkIoTables | None = None
-        self._trunk_io_resolved = False
 
     @property
     def team(self) -> Team:
@@ -121,17 +120,18 @@ class CuratedGitHubSource:
         """Curated Trunk.io unhealthy-tests ``SELECT`` subquery, or None when no Trunk.io source is
         connected for this handle's repository.
 
-        Resolved lazily and cached on first call, so only the reads that annotate with Trunk.io pay
-        the resolution queries; every other endpoint stays untouched by the source existing or not.
+        Resolved lazily and cached, so only the reads that annotate with Trunk.io pay the
+        resolution queries; every other endpoint stays untouched by the source existing or not.
         """
-        if not self._trunk_io_resolved:
-            self._trunk_io_resolved = True
-            self._trunk_io_tables = resolve_trunk_io_tables(
-                team=self._team, repository=self.repository, user_access_control=self._user_access_control
-            )
         if self._trunk_io_tables is None:
             return None
         return f"({trunk_io_unhealthy_tests.build_query(self._trunk_io_tables.unhealthy_tests)})"
+
+    @cached_property
+    def _trunk_io_tables(self) -> TrunkIoTables | None:
+        return resolve_trunk_io_tables(
+            team=self._team, repository=self.repository, user_access_control=self._user_access_control
+        )
 
     def job_cost_source(self) -> str | None:
         """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``

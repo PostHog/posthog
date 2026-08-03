@@ -101,7 +101,7 @@ def query_flaky_tests(
         # trace_spans lives on the LOGS ClickHouse cluster, not the warehouse default.
         workload=Workload.LOGS,
     )
-    rows = (response.results or [])[: limit + 1]
+    rows = response.results or []
     page = rows[:limit]
 
     # Advisory Trunk.io enrichment for the page, when the optional source is connected. Fetched

@@ -1,5 +1,4 @@
 import json
-import zlib
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -431,7 +430,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         variant: str = "",
     ) -> dict:
         return {
-            "id": f"trunk-{zlib.crc32(f'{name}{variant}'.encode())}",
+            "id": f"trunk-{name}:{variant}",
             "name": name,
             "parent": parent,
             "classname": classname,
