@@ -25,7 +25,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findCurrentURL,
+    findNewEvents,
+    findSegmentForTimestamp,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -228,6 +233,30 @@ describe('findSegmentForTimestamp', () => {
         expect(result?.windowId).toBe(undefined)
         expect(result?.startTimestamp).toBe(3000)
         expect(result?.endTimestamp).toBe(2001)
+    })
+})
+
+describe('findCurrentURL', () => {
+    // window 1 stays on /endpoints while window 2 has already navigated to /feature_flags
+    const urls = [
+        { timestamp: 1000, url: '/project/1/endpoints', windowId: 1 },
+        { timestamp: 4000, url: '/project/1/feature_flags', windowId: 2 },
+    ]
+
+    it('returns the URL from the currently active window, not the most recently emitted one', () => {
+        expect(findCurrentURL(urls, 1, 5000, '/start')).toBe('/project/1/endpoints')
+    })
+
+    it('does not leak a URL from a different window when the active window has none yet', () => {
+        expect(findCurrentURL(urls, 3, 5000, '/start')).toBe('/start')
+    })
+
+    it('falls back to start_url when the playhead is before any URL in the active window', () => {
+        expect(findCurrentURL(urls, 1, 500, '/start')).toBe('/start')
+    })
+
+    it('falls back to start_url when windowId is undefined', () => {
+        expect(findCurrentURL(urls, undefined, 5000, '/start')).toBe('/start')
     })
 })
 

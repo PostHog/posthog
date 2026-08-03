@@ -127,6 +127,7 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     urls: {
         timestamp: number
         url: string
+        windowId: number
     }[]
     windowIdForTimestamp: (timestamp: number) => number | undefined
     windowIds: number[]
@@ -348,6 +349,7 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
         urls: (snapshots: import('@posthog/replay-shared').RecordingSnapshot[]) => {
             timestamp: number
             url: string
+            windowId: number
         }[]
         windowsHaveFullSnapshot: (snapshotsByWindowId: Record<number, eventWithTime[]>) => Record<string, boolean>
         snapshotsInvalid: (
@@ -783,7 +785,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         urls: [
             (s) => [s.snapshots],
-            (snapshots: RecordingSnapshot[]): { url: string; timestamp: number }[] => {
+            (snapshots: RecordingSnapshot[]): { url: string; timestamp: number; windowId: number }[] => {
                 return (
                     snapshots
                         .filter((snapshot) => getHrefFromSnapshot(snapshot))
@@ -791,6 +793,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                             return {
                                 url: getHrefFromSnapshot(snapshot) as string,
                                 timestamp: snapshot.timestamp,
+                                windowId: snapshot.windowId,
                             }
                         }) ?? []
                 )

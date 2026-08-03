@@ -321,6 +321,29 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
     return null
 }
 
+export function findCurrentURL(
+    urls: { timestamp: number; url: string; windowId: number }[],
+    windowId: number | undefined,
+    currentTimestamp: number | undefined,
+    startUrl: string | undefined
+): string | undefined {
+    const windowUrls = windowId !== undefined ? urls.filter((u) => u.windowId === windowId) : []
+
+    if (!windowUrls.length || !currentTimestamp) {
+        return startUrl
+    }
+
+    // Go through the events in reverse to find the latest pageview for the currently active window
+    for (let i = windowUrls.length - 1; i >= 0; i--) {
+        const urlTimestamp = windowUrls[i]
+        if (urlTimestamp.timestamp < currentTimestamp) {
+            return urlTimestamp.url
+        }
+    }
+
+    return startUrl
+}
+
 function isUserActivity(snapshot: eventWithTime): boolean {
     return (
         snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
@@ -535,6 +558,7 @@ export interface sessionRecordingPlayerLogicValues {
     urls: {
         timestamp: number
         url: string
+        windowId: number
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
@@ -1080,9 +1104,11 @@ export interface sessionRecordingPlayerLogicMeta {
             urls: {
                 timestamp: number
                 url: string
+                windowId: number
             }[],
             sessionPlayerMetaData: SessionRecordingType | null,
-            currentTimestamp: number | undefined
+            currentTimestamp: number | undefined,
+            currentSegment: null | import('@posthog/replay-shared').RecordingSegment
         ) => string | undefined
         resolution: (
             sessionPlayerData: SessionPlayerData,
@@ -1887,26 +1913,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
 
         currentURL: [
-            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp],
+            (s) => [s.urls, s.sessionPlayerMetaData, s.currentTimestamp, s.currentSegment],
             (
                 urls: {
                     timestamp: number
                     url: string
+                    windowId: number
                 }[],
                 sessionPlayerMetaData: null | import('~/types').SessionRecordingType,
-                currentTimestamp: number | undefined
+                currentTimestamp: number | undefined,
+                currentSegment: RecordingSegment | null
             ): string | undefined => {
-                if (!urls.length || !currentTimestamp) {
-                    return sessionPlayerMetaData?.start_url ?? undefined
-                }
-
-                // Go through the events in reverse to find the latest pageview
-                for (let i = urls.length - 1; i >= 0; i--) {
-                    const urlTimestamp = urls[i]
-                    if (i === 0 || urlTimestamp.timestamp < currentTimestamp) {
-                        return urlTimestamp.url
-                    }
-                }
+                return findCurrentURL(
+                    urls,
+                    currentSegment?.windowId,
+                    currentTimestamp,
+                    sessionPlayerMetaData?.start_url ?? undefined
+                )
             },
         ],
         resolution: [
