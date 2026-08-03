@@ -135,12 +135,12 @@ export function ToolPermissionList({
           <Flex gap="2">
             {counts.approved ? (
               <Badge color="green" variant="soft" size="1">
-                {counts.approved} approved
+                {counts.approved} Always Allow
               </Badge>
             ) : null}
             {counts.needs_approval ? (
               <Badge color="amber" variant="soft" size="1">
-                {counts.needs_approval} need approval
+                {counts.needs_approval} Needs Approval
               </Badge>
             ) : null}
             {counts.do_not_use ? (
@@ -169,7 +169,9 @@ export function ToolPermissionList({
                 Set all:
               </Text>
               <Tooltip
-                content={toolSearch ? "Approve filtered" : "Approve all"}
+                content={
+                  toolSearch ? "Always Allow filtered" : "Always Allow all"
+                }
               >
                 <IconButton
                   variant="soft"
@@ -184,8 +186,8 @@ export function ToolPermissionList({
               <Tooltip
                 content={
                   toolSearch
-                    ? "Require approval for filtered"
-                    : "Require approval for all"
+                    ? "Set filtered to Needs Approval"
+                    : "Set all to Needs Approval"
                 }
               >
                 <IconButton

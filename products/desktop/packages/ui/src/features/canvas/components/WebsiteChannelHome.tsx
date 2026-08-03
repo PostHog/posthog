@@ -44,7 +44,7 @@ import { track } from "@posthog/ui/shell/analytics";
 import { Heading, Text } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 // A channel: a Slack-style multiplayer feed. Each member message kicks off a
 // task rendered as a card everyone in the channel sees; the composer stays
@@ -134,6 +134,19 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
   );
   const openThread = useThreadPanelStore((s) => s.openThread);
   const closeThread = useThreadPanelStore((s) => s.closeThread);
+
+  // The open thread outlives the thread view, so the feed showing itself is
+  // the only signal an inherited thread is gone. Suppress it in render (an
+  // effect alone would paint the sidebar for a frame first) and clear the
+  // store; threads opened from this feed instance paint normally.
+  const [inheritedThreadTaskId] = useState(
+    () => useThreadPanelStore.getState().openByChannel[channelId] ?? null,
+  );
+  useEffect(() => {
+    if (inheritedThreadTaskId) {
+      useThreadPanelStore.getState().closeThread(channelId);
+    }
+  }, [channelId, inheritedThreadTaskId]);
 
   const handleSuggestionSelect = useCallback(
     (prompt: string, mode?: string) => {
@@ -317,7 +330,7 @@ export function WebsiteChannelHome({ channelId }: { channelId: string }) {
         </div>
       </div>
 
-      {threadTaskId && (
+      {threadTaskId && threadTaskId !== inheritedThreadTaskId && (
         <ThreadSidebar
           taskId={threadTaskId}
           channelId={channelId}

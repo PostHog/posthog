@@ -81,7 +81,7 @@ export function SignalSlackNotificationsSettings({
           </Text>
           <Text className="text-(--gray-11) text-[13px]">
             Get pinged in your own channel when you're a suggested reviewer on a
-            new inbox item.
+            new report.
           </Text>
         </Flex>
         <Button

@@ -323,7 +323,7 @@ export function ReportCard(props: ReportCardProps) {
         >
           <LightningIcon size={11} />
           <span className="tabular-nums">
-            {report.signal_count} finding
+            {report.signal_count} signal
             {report.signal_count !== 1 ? "s" : ""}
           </span>
         </Flex>

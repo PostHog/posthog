@@ -1,21 +1,31 @@
-import { CaretDown, CaretRight } from "@phosphor-icons/react";
+import { CaretDown, CaretRight, Lock } from "@phosphor-icons/react";
 import type {
   McpApprovalState,
   McpInstallationTool,
 } from "@posthog/api-client/posthog-client";
+import { isPolicyStateAllowedByCeiling } from "@posthog/core/mcp-gateway/gatewayServers";
 import { Badge, Flex, Text } from "@radix-ui/themes";
 import { useState } from "react";
 import { ToolPolicyToggle } from "./ToolPolicyToggle";
 
 interface ToolRowProps {
   tool: McpInstallationTool;
+  teamScope?: boolean;
   onChange: (approval_state: McpApprovalState) => void;
 }
 
-export function ToolRow({ tool, onChange }: ToolRowProps) {
+export function ToolRow({ tool, teamScope = false, onChange }: ToolRowProps) {
   const [open, setOpen] = useState(false);
   const hasDescription = !!tool.description?.trim();
   const removed = !!tool.removed_at;
+  const setByTeamAdmin =
+    !teamScope && (tool.decided_by === "team" || tool.decided_by === "preset");
+  const disabledStates: Partial<Record<McpApprovalState, string>> = {};
+  for (const state of ["approved", "needs_approval", "do_not_use"] as const) {
+    if (!teamScope && !isPolicyStateAllowedByCeiling(state, tool.team_state)) {
+      disabledStates[state] = "Unavailable because of the team admin ceiling";
+    }
+  }
 
   return (
     <div className={`rounded border border-border bg-gray-1 transition-colors`}>
@@ -65,13 +75,19 @@ export function ToolRow({ tool, onChange }: ToolRowProps) {
             </Text>
           </div>
         </button>
-        <div className="shrink-0">
+        <Flex align="center" gap="2" className="shrink-0">
+          {setByTeamAdmin && (
+            <Badge color="gray" variant="soft" size="1">
+              <Lock size={11} /> Set by team admin
+            </Badge>
+          )}
           <ToolPolicyToggle
             value={tool.approval_state ?? "needs_approval"}
             onChange={onChange}
-            disabled={removed}
+            disabled={removed || tool.locked}
+            disabledStates={disabledStates}
           />
-        </div>
+        </Flex>
       </div>
       {open && (
         <div className="border-gray-5 border-t bg-gray-2 px-3 py-3">

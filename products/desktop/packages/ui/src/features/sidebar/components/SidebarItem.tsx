@@ -64,7 +64,6 @@ export function SidebarItem({
       type="button"
       className={cn(
         "group flex w-full cursor-default text-left text-[13px] leading-snug transition-colors",
-        "focus-visible:-outline-offset-2 focus-visible:outline-2 focus-visible:outline-accent-8",
         "disabled:opacity-100 data-active:bg-fill-selected data-selected:bg-(--gray-3)",
         isDimmed && "opacity-50",
       )}
@@ -74,7 +73,7 @@ export function SidebarItem({
       onDragStart={onDragStart}
       style={{
         paddingLeft: getSidebarItemPaddingLeft(depth),
-        paddingRight: "8px",
+        paddingRight: "4px",
       }}
       onClick={onClick}
       onDoubleClick={onDoubleClick}

@@ -6,10 +6,10 @@ packages:
 catalog:
   '@hono/node-server': ^1.13.7
   '@hono/trpc-server': ^0.3.4
-  '@earendil-works/pi-agent-core': 0.82.1
-  '@earendil-works/pi-ai': 0.82.1
-  '@earendil-works/pi-coding-agent': 0.82.1
-  '@earendil-works/pi-tui': 0.82.1
+  '@earendil-works/pi-agent-core': 0.83.0
+  '@earendil-works/pi-ai': 0.83.0
+  '@earendil-works/pi-coding-agent': 0.83.0
+  '@earendil-works/pi-tui': 0.83.0
   '@parcel/watcher': ^2.5.6
   '@phosphor-icons/react': ^2.1.10
   '@posthog/quill': 0.3.0-beta.24

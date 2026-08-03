@@ -13,6 +13,7 @@ export default defineConfig({
     "src/extensions/posthog-provider/index.ts",
     "src/extensions/posthog-provider/provider.ts",
     "src/extensions/posthog-provider/models.ts",
+    "src/extensions/posthog-provider/model-catalog.ts",
     "src/extensions/posthog-provider/oauth.ts",
     "src/extensions/posthog-provider/gateway.ts",
     "src/extensions/posthog-provider/gateway-auth.ts",

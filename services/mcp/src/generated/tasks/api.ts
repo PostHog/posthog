@@ -818,6 +818,10 @@ export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
 
+export const tasksCreateBodyRepositoriesItemMax = 255
+
+export const tasksCreateBodyRepositoriesMax = 10
+
 export const tasksCreateBodySignalReportTaskRelationshipMax = 200
 
 export const tasksCreateBodyBranchMax = 255
@@ -872,6 +876,11 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .max(tasksCreateBodyRepositoryMax)
             .nullish()
             .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        repositories: zod
+            .array(zod.string().max(tasksCreateBodyRepositoriesItemMax))
+            .max(tasksCreateBodyRepositoriesMax)
+            .optional()
+            .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
         github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
         github_user_integration: zod
             .string()

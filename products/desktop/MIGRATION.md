@@ -6,8 +6,8 @@ monorepo; anything else that differs from the source at the pinned SHA is drift 
 be treated as a bug in the sync.
 
 - Source: https://github.com/PostHog/code
-- Pinned SHA: `5ac5892a2f566b18125b2be89e8e11f17a7218e8` (main)
-- Imported: 2026-07-20; resynced: 2026-07-30
+- Pinned SHA: `fc991d3eea2d1ac649e2502c0197b0fda9b19f58` (main)
+- Imported: 2026-07-20; resynced: 2026-08-01
 
 ## Resync protocol (for a human or an agent)
 
@@ -31,6 +31,9 @@ be treated as a bug in the sync.
 The tree is a verbatim copy of the source at the pinned SHA except:
 
 - `.github/` is not imported (see workflow mapping below).
+- `.stamphog/` is not imported: it is the policy for the source repo's stamphog PR-approval
+  merge gate, whose workflow is dropped here (the monorepo runs its own pr-approval-agent
+  on all PRs). Delete it on resync.
 - `MIGRATION.md` (this file), `POST-MIGRATION.md` (the post-merge runbook) and
   `docs/plan.md` (the migration plan) exist only in the monorepo; restore all three on a
   resync.
@@ -45,14 +48,20 @@ The tree is a verbatim copy of the source at the pinned SHA except:
   `packages/ui/src/features/inbox/CLAUDE.md` renamed to `AGENTS.md` plus a symlink, and
   symlinks added in `packages/ui/src/features/{browser-tabs,canvas}/`. Upstream these to
   PostHog/code so resyncs do not reintroduce the violations.
+- `docs/testing.md`: the "Storybook Visual Regression" CI paragraphs are replaced with a
+  note that the storybook CI was removed post-merge (see `POST-MIGRATION.md` step 6). The
+  source still documents its own storybook workflow; reapply on resync.
 - Local security patches (reapply on resync until the pin includes the upstream fix):
   `apps/code/src/main/utils/encryption.ts` passes `{ authTagLength: 16 }` to
   `createDecipheriv` (semgrep `gcm-no-tag-length`, ERROR). For the simple-git 3.36 RCE fix,
-  `packages/git/src/client.ts` opts into `unsafe.{allowUnsafeFsMonitor,allowUnsafeEditor,
-  allowUnsafePager}` (3.36's block-unsafe plugin otherwise rejects the hardcoded
-  core.fsmonitor perf flag and inherited GIT_EDITOR/PAGER), and `packages/git/src/queries.ts`
-  runs `git worktree list` through raw `execFile` instead of simple-git. All upstreamed to
-  PostHog/code (#4030).
+  `packages/git/package.json` bumps `simple-git` to `^3.36.0` (the source is on `^3.30.0`,
+  so the nested lockfile diverges there too), `packages/git/src/client.ts` opts into
+  `unsafe.{allowUnsafeFsMonitor,allowUnsafeEditor,allowUnsafePager}` (3.36's block-unsafe
+  plugin otherwise rejects the hardcoded core.fsmonitor perf flag and inherited
+  GIT_EDITOR/PAGER), and `packages/git/src/queries.ts` runs `git worktree list` through raw
+  `execFile` instead of simple-git. The upstream attempt (PostHog/code#4030) was closed
+  unmerged, so these stay local patches; restoring the four files from the previous
+  monorepo commit and refreshing the nested lockfile is the reapply.
 
 The nested workspace is intentional: `products/desktop/` keeps its own `pnpm-workspace.yaml`,
 lockfile, Biome config and Node 22, and is NOT in the root `pnpm-workspace.yaml` globs.

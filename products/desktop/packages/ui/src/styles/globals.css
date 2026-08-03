@@ -418,6 +418,37 @@ body:has(.rt-DialogOverlay[data-state="open"]) [data-quill-portal] {
   animation: ph-dots-frame 800ms step-end infinite;
 }
 
+/* Dot-ring spinner: eight dots on a 3x3 grid, one keyframe per dot with a
+   staggered delay so a highlight travels the ring. Only `opacity` animates, so
+   this composites without repainting — and unlike the braille spinner it isn't
+   a font glyph, so it stays circular at any size and in any typeface.
+   `ph-dot-ring 900ms` must stay in step with RING_DURATION_MS in
+   primitives/DotRingSpinner.tsx, which spaces the delays. */
+@keyframes ph-dot-ring {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  12% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}
+
+.ph-dot-ring {
+  animation: ph-dot-ring 900ms linear infinite;
+}
+
+/* Hold a legible, evenly dimmed ring rather than dropping the signal. */
+@media (prefers-reduced-motion: reduce) {
+  .ph-dot-ring {
+    animation: none;
+    opacity: 0.55;
+  }
+}
+
 /* Pulse animation for generating indicator */
 @keyframes ph-pulse {
   0%,

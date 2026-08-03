@@ -95,10 +95,10 @@ export function RunsTab() {
             </EmptyMedia>
             <EmptyTitle>
               {scope === INBOX_SCOPE_FOR_YOU
-                ? "No Responders are working on something for you right now"
+                ? "No agents are working on something for you right now"
                 : scope === INBOX_SCOPE_ENTIRE_PROJECT
-                  ? "No Responders are working on anything in the project right now"
-                  : "No Responders are working on something for this reviewer right now"}
+                  ? "No agents are working on anything in the project right now"
+                  : "No agents are working on something for this reviewer right now"}
             </EmptyTitle>
             <EmptyDescription>
               When Self-driving kicks one off, you'll see the live run land here

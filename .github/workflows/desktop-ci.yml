@@ -54,3 +54,33 @@ jobs:
             POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY }}
             POSTHOG_CODE_E2E_GATEWAY_URL: ${{ secrets.POSTHOG_CODE_E2E_GATEWAY_URL }}
             TRUNK_API_TOKEN: ${{ secrets.TRUNK_API_TOKEN }}
+
+    # Umbrella gate for the whole desktop suite: the one check name to require in
+    # the master ruleset. Adding or removing a suite only changes this needs list,
+    # not branch protection.
+    tests-pass:
+        name: Desktop Tests Pass
+        needs: [build, quality, typecheck, test]
+        if: always()
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Check results
+              run: |
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "Desktop build did not succeed (result: ${{ needs.build.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.quality.result }}" != "success" && "${{ needs.quality.result }}" != "skipped" ]]; then
+                    echo "Desktop quality did not succeed (result: ${{ needs.quality.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.typecheck.result }}" != "success" && "${{ needs.typecheck.result }}" != "skipped" ]]; then
+                    echo "Desktop typecheck did not succeed (result: ${{ needs.typecheck.result }})."
+                    exit 1
+                  fi
+                  if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
+                    echo "Desktop tests did not succeed (result: ${{ needs.test.result }})."
+                    exit 1
+                  fi
+                  echo "All desktop suites passed or were skipped."

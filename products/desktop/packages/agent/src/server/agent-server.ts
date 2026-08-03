@@ -380,6 +380,7 @@ export class AgentServer {
   private suppressAdapterTurnComplete = false;
   private runUsage = new RunUsageAccumulator();
   private detectedPrUrl: string | null = null;
+  private taskRepositories: string[] = [];
   // Reset per session. `evaluatedPrUrls` dedupes per URL; `prAttributionChain` serializes
   // attributions so the most recently created PR in a run wins.
   private readonly evaluatedPrUrls = new Set<string>();
@@ -1574,6 +1575,9 @@ export class AgentServer {
         return null;
       }),
     ]);
+    this.taskRepositories =
+      preTask?.repositories ??
+      (preTask?.repository ? [preTask.repository] : []);
 
     this.prewarmedRun =
       (preTaskRun?.state as Record<string, unknown> | undefined)?.prewarmed ===
@@ -3625,6 +3629,10 @@ Optimize for the fewest shell round trips.
 - Read multiple files at once.
 - Never rerun a command solely to reproduce output you already have.`;
 
+    const artifactInstructions = `
+## Delivering non-code files (artifacts)
+When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
+
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
     const prMentionSafetyInstruction = `   - **Never guess a GitHub identity.** Do NOT \`@\`-mention, tag, assign, request review from, or attribute the PR to a person (in the title, description, commit message, or reviewers) using a name or handle taken from Slack or this thread. A Slack display name or handle is NOT a GitHub username. Finding a similar-looking handle in the repo's git history, CODEOWNERS, or existing PRs/issues does NOT confirm it belongs to this person: repository presence proves the handle exists, not that it is the person you mean, so treating it as a match still \`@\`-tags an unrelated account (e.g. Slack "Ross" is not necessarily GitHub \`@ross\`, even if some \`@ross\` has committed to the repo). Only \`@\`-mention a GitHub \`@handle\` the user gave you explicitly in this thread. Otherwise refer to people by plain-text name, or omit the mention entirely.`;
@@ -3639,6 +3647,13 @@ Optimize for the fewest shell round trips.
       : inboxReportUrl
         ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
         : `*${createdWith}*`;
+    const repositoryWorkspaceInstructions =
+      this.taskRepositories.length > 1
+        ? `The task workspace contains these repositories:
+${this.taskRepositories.map((repository) => `- ${repository}: /tmp/workspace/repos/${repository.toLowerCase()}`).join("\n")}
+
+Apply the repository workflow below separately in every repository you change. Keep branches, commits, diffs, and pull requests repository-specific.`
+        : "";
 
     if (prUrl) {
       if (!shouldAutoCreatePr) {
@@ -3652,7 +3667,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
       }
 
@@ -3673,11 +3688,11 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
-    if (!this.config.repositoryPath) {
+    if (!this.config.repositoryPath && this.taskRepositories.length === 0) {
       const publishInstructions =
         this.config.createPr === false
           ? `
@@ -3725,13 +3740,15 @@ ${publishInstructions}
 
 Important:
 - Prefer using MCP tools to answer questions with real data over giving generic advice.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
     if (!shouldAutoCreatePr) {
       return `${identityInstructions}
 # Cloud Task Execution
+
+${repositoryWorkspaceInstructions}
 
 Do the requested work, but stop with local changes ready for review.
 
@@ -3743,12 +3760,14 @@ ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
 - Always create the PR as a draft.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
     }
 
     return `${identityInstructions}
 # Cloud Task Execution
+
+${repositoryWorkspaceInstructions}
 
 If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
 
@@ -3771,7 +3790,7 @@ ${prFooter}
 
 Important:
 - Always create the PR as a draft. Do not ask for confirmation.
-${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
+${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}
 `;
   }
 
@@ -3971,9 +3990,12 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
       openaiCustomHeaders = buildGatewayPropertiesHeaderRecord(properties);
     } else {
       customHeaders = buildGatewayPropertyHeaders(gatewayProperties);
+      // No $ai_session_id on the Go-gateway path above: it strips $-prefixed
+      // blob keys, so the session id would be silently dropped there.
       openaiCustomHeaders = buildGatewayPropertyHeaderRecord({
         ...gatewayProperties,
         team_id: projectId,
+        $ai_session_id: taskId,
       });
     }
 
@@ -4670,7 +4692,7 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
   private async captureCheckpointState(
     localGitState?: HandoffLocalGitState,
   ): Promise<void> {
-    if (!this.session || !this.config.repositoryPath) {
+    if (!this.session) {
       return;
     }
     if (!this.posthogAPI) {
@@ -4679,38 +4701,57 @@ ${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}
       );
       return;
     }
+    const session = this.session;
 
-    const tracker = new HandoffCheckpointTracker({
-      repositoryPath: this.config.repositoryPath ?? "/tmp/workspace",
-      taskId: this.session.payload.task_id,
-      runId: this.session.payload.run_id,
-      apiClient: this.posthogAPI,
-      logger: this.logger.child("HandoffCheckpoint"),
-    });
+    const repositories =
+      this.taskRepositories.length > 1
+        ? this.taskRepositories.map((repository) => ({
+            repository,
+            path: `/tmp/workspace/repos/${repository.toLowerCase()}`,
+          }))
+        : this.config.repositoryPath
+          ? [
+              {
+                repository: this.taskRepositories[0],
+                path: this.config.repositoryPath,
+              },
+            ]
+          : [];
 
-    const checkpoint = await tracker.captureForHandoff(localGitState);
-    if (!checkpoint) return;
+    await Promise.all(
+      repositories.map(async ({ repository, path }) => {
+        const tracker = new HandoffCheckpointTracker({
+          repositoryPath: path,
+          taskId: session.payload.task_id,
+          runId: session.payload.run_id,
+          apiClient: this.posthogAPI,
+          logger: this.logger.child("HandoffCheckpoint"),
+        });
+        const checkpoint = await tracker.captureForHandoff(
+          repositories.length === 1 ? localGitState : undefined,
+        );
+        if (!checkpoint) return;
 
-    const checkpointWithDevice: GitCheckpointEvent = {
-      ...checkpoint,
-      device: this.session.deviceInfo,
-    };
-
-    const notification = {
-      jsonrpc: "2.0" as const,
-      method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
-      params: checkpointWithDevice,
-    };
-
-    this.broadcastEvent({
-      type: "notification",
-      timestamp: new Date().toISOString(),
-      notification,
-    });
-
-    this.session.logWriter.appendRawLine(
-      this.session.payload.run_id,
-      JSON.stringify(notification),
+        const checkpointWithDevice: GitCheckpointEvent = {
+          ...checkpoint,
+          repository,
+          device: session.deviceInfo,
+        };
+        const notification = {
+          jsonrpc: "2.0" as const,
+          method: POSTHOG_NOTIFICATIONS.GIT_CHECKPOINT,
+          params: checkpointWithDevice,
+        };
+        this.broadcastEvent({
+          type: "notification",
+          timestamp: new Date().toISOString(),
+          notification,
+        });
+        session.logWriter.appendRawLine(
+          session.payload.run_id,
+          JSON.stringify(notification),
+        );
+      }),
     );
   }
 

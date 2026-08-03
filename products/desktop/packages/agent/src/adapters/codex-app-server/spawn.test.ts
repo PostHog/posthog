@@ -57,6 +57,18 @@ describe("buildAppServerArgs", () => {
     );
   });
 
+  it("quotes $-prefixed posthog property header keys in the TOML table", () => {
+    const args = buildAppServerArgs({
+      binaryPath: "/bundle/codex",
+      apiBaseUrl: "https://gateway.example/v1",
+      httpHeaders: { "x-posthog-property-$ai_session_id": "task-123" },
+    });
+
+    expect(args).toContain(
+      'model_providers.posthog.http_headers={ "x-posthog-property-$ai_session_id" = "task-123" }',
+    );
+  });
+
   it("omits http_headers when none are provided or the provider is unset", () => {
     const withoutHeaders = buildAppServerArgs({
       binaryPath: "/bundle/codex",

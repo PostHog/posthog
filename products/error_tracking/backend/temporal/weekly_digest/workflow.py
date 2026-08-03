@@ -29,8 +29,8 @@ GET_ORGS_TIMEOUT = timedelta(minutes=5)
 
 SEND_ORG_START_TO_CLOSE_TIMEOUT = timedelta(minutes=30)
 SEND_ORG_HEARTBEAT_TIMEOUT = timedelta(minutes=5)
-SEND_ORG_INITIAL_RETRY_INTERVAL = timedelta(seconds=30)
-SEND_ORG_MAXIMUM_RETRY_INTERVAL = timedelta(minutes=5)
+SEND_ORG_INITIAL_RETRY_INTERVAL = timedelta(seconds=1)
+SEND_ORG_MAXIMUM_RETRY_INTERVAL = timedelta(seconds=30)
 
 
 def _sent_from_error(error: BaseException) -> int:
