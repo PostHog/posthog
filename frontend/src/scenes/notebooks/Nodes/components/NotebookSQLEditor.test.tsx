@@ -10,7 +10,7 @@ jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
 }))
 
 import { act, render, waitFor } from '@testing-library/react'
-import { actions, kea, key, path, props, reducers } from 'kea'
+import { actions, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
@@ -53,8 +53,9 @@ function OutputTabSyncHarness({
     return null
 }
 
-// Stands in for sqlEditorLogic: the code sync only reads `queryInput`/`sourceQuery` and writes
-// them back, and the connection selector's only contract with it is `setSourceQuery`.
+// Stands in for sqlEditorLogic: the code sync reads `queryInput` plus the connection selectors,
+// and the connection selector's only contract with it is `setSourceQuery`. The two selectors
+// mirror the real ones so the stub can't quietly diverge on the raw-mode rule.
 const stubSqlEditorLogic = kea<any>([
     path(['test', 'stubSqlEditorLogic']),
     props({} as { tabId: string }),
@@ -73,6 +74,17 @@ const stubSqlEditorLogic = kea<any>([
                 display: ChartDisplayType.ActionsTable,
             } as DataVisualizationNode,
             { setSourceQuery: (_: any, { sourceQuery }: any) => sourceQuery },
+        ],
+    }),
+    selectors({
+        selectedConnectionId: [
+            (s: any) => [s.sourceQuery],
+            (sourceQuery: DataVisualizationNode) => sourceQuery.source.connectionId,
+        ],
+        sendRawQueryEnabled: [
+            (s: any) => [s.sourceQuery, s.selectedConnectionId],
+            (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined) =>
+                !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
         ],
     }),
 ])

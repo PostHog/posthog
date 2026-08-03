@@ -1130,17 +1130,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Only SQL nodes carry a connection; python always runs in the kernel against PostHog.
         connection_id = serializer.validated_data["connection_id"] if node_type != "python" else None
         send_raw_query = bool(serializer.validated_data["send_raw_query"]) and connection_id is not None
-        if connection_id is not None:
-            # Resolve up front so a stale or unreachable connection fails the dispatch with a
-            # clear message, rather than surfacing later as an opaque failed run.
-            source = get_direct_connection_source(
+        if connection_id is not None and (
+            # Resolve up front so a stale or unreachable connection fails the dispatch with the
+            # shared message, rather than surfacing later as an opaque failed run.
+            get_direct_connection_source(
                 self.team,
                 str(connection_id),
                 user=user if isinstance(user, User) else None,
                 require_pure_direct=send_raw_query,
             )
-            if source is None:
-                return Response({"detail": INVALID_CONNECTION_ID_ERROR}, status=400)
+            is None
+        ):
+            return Response({"detail": INVALID_CONNECTION_ID_ERROR}, status=400)
 
         # Resolve each referenced hogql node to its last-run query (not its live editor text),
         # so a join recomputes against the definitions that produced the results on screen.

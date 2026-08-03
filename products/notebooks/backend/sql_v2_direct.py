@@ -68,21 +68,32 @@ def notebook_direct_query_id(run_id: str) -> str:
     ).hexdigest()
 
 
-def _wrap_hogql_page_query(query: str, limit: int, offset: int) -> str:
+def _strip_statement_terminator(query: str) -> str:
+    """Drop a trailing ``;``, which parses cleanly but breaks once a LIMIT is appended or the
+    query is wrapped as a subquery. Both HogQL and the direct engines are single-statement
+    here, so this only ever removes the terminator, never a second statement."""
+    query = query.rstrip()
+    return query[:-1].rstrip() if query.endswith(";") else query
+
+
+def _wrap_page_query(query: str, limit: int, offset: int) -> str:
     """Cap a page by wrapping the query in an outer ``select * from (...) limit/offset``.
 
     The fallback for shapes where setting the bound on the query itself would change its
     meaning: a paged offset or a query with its own OFFSET (both need result-set pagination
     over the query's output), a set query (no single outer LIMIT), or a non-constant LIMIT.
     The outer LIMIT does not push into an aggregated view, so prefer `apply_page_bounds`,
-    which does.
+    which does. Raw (engine-dialect) queries have no pushdown analysis available and always
+    land here.
 
-    The inner query is validated HogQL and the wrapper is re-parsed as HogQL downstream, so
-    there is no raw-SQL injection; limit/offset are int()-cast. The newline before the closing
-    paren keeps a trailing line comment (`-- …`) in the user's query from swallowing the wrapper.
+    The derived table is aliased because Postgres and MySQL reject an unaliased subquery in
+    FROM; HogQL accepts the alias and ignores it. The inner query is either validated HogQL
+    re-parsed downstream, or engine SQL the connection's own raw-SQL guard still vets, so
+    there is no injection; limit/offset are int()-cast. The newline before the closing paren
+    keeps a trailing line comment (`-- …`) in the user's query from swallowing the wrapper.
     """
     # nosemgrep: semgrep.rules.security.hogql-fstring-audit
-    return f"select * from ({query}\n) limit {int(limit)} offset {int(offset)}"
+    return f"select * from ({query}\n) as posthog_notebook_page limit {int(limit)} offset {int(offset)}"
 
 
 def apply_page_bounds(query: str, limit: int, offset: int) -> str:
@@ -95,21 +106,16 @@ def apply_page_bounds(query: str, limit: int, offset: int) -> str:
     re-print a parsed AST, which drops table-function arguments (`numbers(50001)`); a trailing
     `;` is stripped first, since it parses but breaks once a LIMIT is appended or wrapped.
 
-    Everything else falls back to `_wrap_hogql_page_query`: a query with its own LIMIT already
+    Everything else falls back to `_wrap_page_query`: a query with its own LIMIT already
     pushes down through the wrapper's inner subquery, and a paged offset, a query with its own
     OFFSET, a set query, or an unparseable query all need the wrapper's outer bound.
     """
-    # A trailing `;` parses cleanly but breaks once we append LIMIT (or wrap the query as a
-    # subquery), so normalize it away for both lanes. HogQL is single-statement, so this only
-    # ever drops the terminator, never a second statement.
-    query = query.rstrip()
-    if query.endswith(";"):
-        query = query[:-1].rstrip()
+    query = _strip_statement_terminator(query)
 
     try:
         parsed = parse_select(query)
     except ExposedHogQLError:
-        return _wrap_hogql_page_query(query, limit, offset)
+        return _wrap_page_query(query, limit, offset)
 
     if (
         offset == 0
@@ -124,24 +130,16 @@ def apply_page_bounds(query: str, limit: int, offset: int) -> str:
         # nosemgrep: semgrep.rules.security.hogql-fstring-audit
         return f"{query}\nlimit {int(limit)}"
 
-    return _wrap_hogql_page_query(query, limit, offset)
+    return _wrap_page_query(query, limit, offset)
 
 
 def apply_raw_page_bounds(query: str, limit: int, offset: int) -> str:
-    """Bound a raw (engine-dialect) query the same way, without parsing it.
+    """Bound a raw (engine-dialect) query, which the HogQL parser can't read.
 
-    Raw SQL never reaches the HogQL parser, so `apply_page_bounds`'s pushdown analysis
-    can't apply — wrap unconditionally. The derived table carries an alias because
-    Postgres and MySQL both reject an unaliased subquery in FROM, and the alias is
-    harmless on the engines that don't care.
+    No pushdown analysis is possible without parsing, so this is `apply_page_bounds`'s
+    wrapper fallback with the parse step skipped.
     """
-    query = query.rstrip()
-    if query.endswith(";"):
-        query = query[:-1].rstrip()
-    # The wrapper is engine SQL by construction, not interpolated HogQL, and the bounds are
-    # int()-cast; the connection's own raw-SQL guard still applies to the result.
-    # nosemgrep: semgrep.rules.security.hogql-fstring-audit
-    return f"select * from (\n{query}\n) as posthog_notebook_page limit {int(limit)} offset {int(offset)}"
+    return _wrap_page_query(_strip_statement_terminator(query), limit, offset)
 
 
 def enqueue_direct_run(team: "Team", user: "User | None", run: NotebookNodeRun) -> None:

@@ -169,8 +169,8 @@ class TestSQLV2ApplyPageBounds(SimpleTestCase):
         # it is always wrapped. The derived table needs an alias or Postgres and MySQL reject it,
         # and a trailing ';' would end the statement before the bound.
         out = apply_raw_page_bounds(query, limit=301, offset=0)
-        assert out == (
-            "select * from (\nselect * from credit.billing_credits\n) as posthog_notebook_page limit 301 offset 0"
+        assert (
+            out == "select * from (select * from credit.billing_credits\n) as posthog_notebook_page limit 301 offset 0"
         )
 
 
