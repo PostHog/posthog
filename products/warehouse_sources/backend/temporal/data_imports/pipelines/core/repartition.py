@@ -31,12 +31,12 @@ from structlog.types import FilteringBoundLogger
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (
-    _purge_s3_prefix,
-    _realign_decimal_buffers,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    normalize_column_name,
+    realign_decimal_buffers,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import _purge_s3_prefix
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_partition_key_to_table,
 )
@@ -427,7 +427,7 @@ async def _rewrite_into_temp(
                 partition_keys=used_keys,
             )
 
-        partitioned_table = _realign_decimal_buffers(partitioned_table)
+        partitioned_table = realign_decimal_buffers(partitioned_table)
 
         await asyncio.to_thread(
             deltalake.write_deltalake,

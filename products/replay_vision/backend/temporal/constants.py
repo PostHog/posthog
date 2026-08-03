@@ -5,13 +5,22 @@ APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
-APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
+# Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
+# budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +
+# provider 25m + terminal mark 3m + cleanup 1m = 100m. The 10m headroom covers task-queue scheduling latency
+# between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
+# row is stranded in `running` until the reaper's cutoff below.
+APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
 
-# Pending/running rows older than twice the apply execution timeout are provably orphaned.
-OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT * 2
+# A pending/running row is created inside its workflow, and the workflow cannot outlive its execution timeout
+# (which spans Temporal-level retries), so any such row older than the timeout plus a margin for clock skew
+# and late state writes is provably orphaned.
+OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
 # Bounds one reaper pass; a backlog beyond this drains across subsequent reconciler ticks.
 REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500
 REAP_ORPHANED_OBSERVATIONS_TIMEOUT = dt.timedelta(minutes=3)
+# The reaper heartbeats between phases; a pass that goes quiet this long is stalled, not slow.
+REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=60)
 
 # Per-action vision-action child, fire-and-forgot by the sweep. Name + timeout live here (not in the
 # workflow-def module) so the sweep can start it without cross-importing another @wf.defn module.

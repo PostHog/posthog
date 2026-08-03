@@ -377,7 +377,11 @@ impl PersonhogStore {
             partition: ack.partition,
             router: &ack.router_name,
         });
-        Ok(self.inner.put(&key, ack, None).await?)
+        // The store stamps the millisecond clock so span metrics never
+        // depend on each writer remembering to.
+        let mut stamped = ack.clone();
+        stamped.acked_at_ms = assignment_coordination::util::now_millis();
+        Ok(self.inner.put(&key, &stamped, None).await?)
     }
 
     pub async fn list_freeze_acks(&self, partition: u32) -> Result<Vec<RouterFreezeAck>> {
@@ -407,7 +411,11 @@ impl PersonhogStore {
             partition: ack.partition,
             pod: &ack.pod_name,
         });
-        Ok(self.inner.put(&key, ack, None).await?)
+        // The store stamps the millisecond clock so span metrics never
+        // depend on each writer remembering to.
+        let mut stamped = ack.clone();
+        stamped.acked_at_ms = assignment_coordination::util::now_millis();
+        Ok(self.inner.put(&key, &stamped, None).await?)
     }
 
     pub async fn list_drained_acks(&self, partition: u32) -> Result<Vec<PodDrainedAck>> {
@@ -437,7 +445,11 @@ impl PersonhogStore {
             partition: ack.partition,
             pod: &ack.pod_name,
         });
-        Ok(self.inner.put(&key, ack, None).await?)
+        // The store stamps the millisecond clock so span metrics never
+        // depend on each writer remembering to.
+        let mut stamped = ack.clone();
+        stamped.acked_at_ms = assignment_coordination::util::now_millis();
+        Ok(self.inner.put(&key, &stamped, None).await?)
     }
 
     pub async fn list_warmed_acks(&self, partition: u32) -> Result<Vec<PodWarmedAck>> {
