@@ -973,6 +973,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
 export const experimentsEndCreateBodyConclusionCommentMax = 4000
 
 export const experimentsEndCreateBodyOpenCleanupPrDefault = false
+export const experimentsEndCreateBodyRepositoryMax = 255
 
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
@@ -998,6 +999,13 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .default(experimentsEndCreateBodyOpenCleanupPrDefault)
         .describe(
             "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
+    repository: zod
+        .string()
+        .max(experimentsEndCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
         ),
 })
 
@@ -1072,6 +1080,8 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
 export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
 
 export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
+export const experimentsShipVariantCreateBodyRepositoryMax = 255
+
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -1098,6 +1108,13 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
         .describe(
             "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
+    repository: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyRepositoryMax)
+        .nullish()
+        .describe(
+            "GitHub repository to open the cleanup pull request in, in `organization\/repository` format. Only used when open_cleanup_pr is true. It must be one of the team's connected repositories (see the flag_cleanup_target action); it is then saved as the experiment's repository. When omitted, the experiment's saved repository or the team's only connected repository is used."
         ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod

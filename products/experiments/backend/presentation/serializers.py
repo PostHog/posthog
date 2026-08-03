@@ -1058,6 +1058,26 @@ class EndExperimentSerializer(serializers.Serializer):
             "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "GitHub repository to open the cleanup pull request in, in `organization/repository` format. "
+            "Only used when open_cleanup_pr is true. It must be one of the team's connected repositories "
+            "(see the flag_cleanup_target action); it is then saved as the experiment's repository. When "
+            "omitted, the experiment's saved repository or the team's only connected repository is used."
+        ),
+    )
+
+    def validate_repository(self, value: str | None) -> str | None:
+        if not value:
+            return None
+        parts = value.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return value.lower()
 
 
 class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
@@ -1078,6 +1098,26 @@ class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
             "Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are "
             "visible to their creator only, so other viewers should not be shown a task link."
         ),
+    )
+
+
+class ExperimentFlagCleanupTargetSerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text="Repository a flag-cleanup pull request would be opened in, or null when none can be determined.",
+    )
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=["explicit", "single_repo", "ambiguous", "no_integration"],
+        help_text=(
+            "How the repository was determined: `explicit` (saved on the experiment), `single_repo` (the "
+            "team's only connected repository), `ambiguous` (several connected repositories and none saved — "
+            "pass one via repository on end/ship_variant), or `no_integration` (no GitHub integration or no "
+            "connected repositories, so no cleanup PR can be opened)."
+        ),
+    )
+    candidates = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Repositories connected to the team's GitHub integration, to choose a target from.",
     )
 
 

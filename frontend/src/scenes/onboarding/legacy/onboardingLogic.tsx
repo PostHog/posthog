@@ -10,7 +10,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { getRelativeNextPath } from 'lib/utils/url'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
@@ -100,7 +99,7 @@ export interface onboardingLogicActions {
     openGlobalSetup: () => {
         value: true
     } // globalSetupLogic
-    reportContextOnboardingCompleted: (productKey: string) => {
+    reportSelfDrivingOnboardingCompleted: (productKey: string) => {
         productKey: string
     } // onboardingEventUsageLogic
     openSidePanel: (
@@ -124,11 +123,11 @@ export interface onboardingLogicActions {
     clearProductKey: () => {
         value: true
     }
-    completeContextOnboarding: () => {
-        value: true
-    }
     completeOnboarding: (options?: { redirectUrlOverride?: string }) => {
         redirectUrlOverride: string | undefined
+    }
+    completeSelfDrivingOnboarding: () => {
+        value: true
     }
     goToNextStep: () => {
         value: true
@@ -258,7 +257,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             globalSetupLogic,
             ['openGlobalSetup'],
             onboardingEventUsageLogic,
-            ['reportContextOnboardingCompleted'],
+            ['reportSelfDrivingOnboardingCompleted'],
         ],
     })),
     actions({
@@ -273,7 +272,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         }),
         // Completion for the context-first flow, which has no selected product. Marks onboarding done
         // (so sceneLogic stops redirecting here) and credits the sources the user turned on.
-        completeContextOnboarding: true,
+        completeSelfDrivingOnboarding: true,
         setSubscribedDuringOnboarding: (subscribedDuringOnboarding: boolean) => ({ subscribedDuringOnboarding }),
         setTeamPropertiesForProduct: (productKey: ProductKey) => ({ productKey }),
         setWaitForBilling: (waitForBilling: boolean) => ({ waitForBilling }),
@@ -799,7 +798,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                 lemonToast.error("Couldn't save onboarding progress. Please try again.")
             }
         },
-        completeContextOnboarding: async () => {
+        completeSelfDrivingOnboarding: async () => {
             // Idempotency guard — Finish can fire twice on a double-click.
             if (values.isCompleting) {
                 return
@@ -821,7 +820,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             for (const productKey of products) {
                 // Same `onboarding completed` event name as the legacy flow, stamped `version: 2`
                 // so dashboards can split the flows without a rename (GROW-89).
-                actions.reportContextOnboardingCompleted(productKey)
+                actions.reportSelfDrivingOnboardingCompleted(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey })
             }
             // Persist both completion signals before navigating. updateCurrentTeam is not optimistic,
@@ -835,9 +834,11 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     completed_snippet_onboarding: true,
                     has_completed_onboarding_for: completedMap,
                 })
-                router.actions.push(
-                    getRelativeNextPath(router.values.searchParams['next'], window.location) ?? urls.default()
-                )
+                // Always the inbox: it is where the wizard's output lands, so it's the only ending
+                // that continues the flow. `next` is deliberately ignored — the onboarding gate
+                // stamps it with whatever page it bounced the user off (sceneLogic), so honouring
+                // it would send most people back to /home instead.
+                router.actions.push(urls.inbox())
             } catch {
                 lemonToast.error("Couldn't finish onboarding. Please try again.")
             } finally {

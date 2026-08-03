@@ -82,8 +82,10 @@ export function projectQuota(
     const capReachDate = combinedDailyRate > 0 && used < cap ? now.add((cap - used) / combinedDailyRate, 'day') : null
     const capReachInPeriod = !!(capReachDate && periodEnd && capReachDate.isBefore(periodEnd))
 
+    // `used >= cap` without `exhausted`: a display clamp (startup cap) lowered the limit below spend,
+    // so the backend isn't blocking yet. Being over the limit must not read quieter than approaching it.
     const status: QuotaStatus =
-        quota.exhausted || capReachInPeriod
+        quota.exhausted || capReachInPeriod || used >= cap
             ? 'danger'
             : projectedPeriodEndRatio >= QUOTA_WARN_THRESHOLD
               ? 'warning'

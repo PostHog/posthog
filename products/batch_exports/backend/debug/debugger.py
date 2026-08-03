@@ -45,15 +45,14 @@ from products.batch_exports.backend.temporal.spmc import (
     compose_filters_clause,
     use_distributed_events_recent_table,
 )
-from products.batch_exports.backend.temporal.sql import (
+from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
     SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
-    SELECT_FROM_PERSONS,
-    SELECT_FROM_PERSONS_BACKFILL,
 )
+from products.batch_exports.backend.temporal.sql.persons import SELECT_FROM_PERSONS, SELECT_FROM_PERSONS_BACKFILL
 
 console = Console()
 

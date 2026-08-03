@@ -6,8 +6,23 @@ from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandb
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
     CloneRepositoryInSandboxInput,
+    _sandbox_image_kind,
     clone_repository_in_sandbox,
 )
+
+
+@pytest.mark.parametrize(
+    "image_source, custom_image_name, expected",
+    [
+        ("custom_image", "posthog-dev-stack", "dev_stack"),
+        ("custom_image", "team-image", "custom"),
+        ("resume_snapshot", "posthog-dev-stack", "resume_snapshot"),
+        ("repository_snapshot", None, "repository_snapshot"),
+        ("base_image", None, "base"),
+    ],
+)
+def test_sandbox_image_kind(image_source: str, custom_image_name: str | None, expected: str) -> None:
+    assert _sandbox_image_kind(image_source, custom_image_name) == expected
 
 
 @pytest.mark.parametrize(

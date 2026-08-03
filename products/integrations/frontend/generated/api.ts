@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    GitHubAvailableInstallationsResponseApi,
     GitHubBranchesResponseApi,
     GitHubLinkExistingRequestApi,
     GitHubOAuthAuthorizeRequestApi,
@@ -667,6 +668,30 @@ export const integrationsDomainConnectCheckRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getIntegrationsGithubAvailableInstallationsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/github/available_installations/`
+}
+
+/**
+ * List the org's existing GitHub installations this project can reuse.
+ *
+ * A GitHub App installs once per organization, so a second project links an existing
+ * installation rather than reinstalling. This backs the picker: when the org has more than
+ * one installation, the client passes the chosen installation_id to github/link_existing.
+ */
+export const integrationsGithubAvailableInstallationsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GitHubAvailableInstallationsResponseApi> => {
+    return apiMutator<GitHubAvailableInstallationsResponseApi>(
+        getIntegrationsGithubAvailableInstallationsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) => {

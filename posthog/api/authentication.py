@@ -20,6 +20,7 @@ from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
 from django.db import transaction
+from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -31,6 +32,7 @@ from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -574,6 +576,25 @@ class DevLoginSerializer(serializers.Serializer):
         return user
 
 
+class DevLoginUserSerializer(serializers.Serializer):
+    email = serializers.EmailField(read_only=True, help_text="Email to log in as.")
+    first_name = serializers.CharField(read_only=True, help_text="First name, shown next to the email.")
+    is_staff = serializers.BooleanField(read_only=True, help_text="Whether the user is a staff (instance admin) user.")
+    # Shadows Field.label, which the metaclass moves aside into _declared_fields at runtime.
+    label = serializers.CharField(  # type: ignore[assignment]
+        read_only=True, allow_null=True, help_text="Label for accounts seeded by setup_dev, e.g. the default test user."
+    )
+    last_login = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this account was last logged in as, or null if never."
+    )
+
+
+class DevLoginUserListSerializer(serializers.Serializer):
+    users = DevLoginUserSerializer(
+        many=True, read_only=True, help_text="Every active user, seeded accounts first, then most recently used."
+    )
+
+
 class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     """
     Dev-only convenience endpoint. Lists active users and lets the login UI
@@ -585,11 +606,20 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = DevLoginSerializer
     permission_classes = (permissions.AllowAny,)
 
+    @extend_schema(responses={200: DevLoginUserListSerializer})
     def list(self, request: Request) -> Response:
         if not is_dev_login_allowed():
             raise Http404()
 
-        users = list(User.objects.filter(is_active=True).order_by("email").values("email", "is_staff")[:50])
+        # Seeded accounts first so the default test user stays on top. After that recency beats
+        # alphabetical: on instances with hundreds of test accounts, the handful you actually
+        # switch between float up on their own. Email breaks ties to keep the order stable.
+        users = list(
+            User.objects.filter(is_active=True)
+            .annotate(is_seeded=Q(email__in=DEV_LOGIN_KNOWN_EMAIL_LABELS))
+            .order_by("-is_seeded", F("last_login").desc(nulls_last=True), "email")
+            .values("email", "first_name", "is_staff", "last_login")
+        )
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
 

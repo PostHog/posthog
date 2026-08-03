@@ -11,7 +11,11 @@ from temporalio import activity
 from posthog.models.user_integration import ReauthorizationRequired
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
+from products.tasks.backend.constants import (
+    DEV_STACK_IMAGE_NAME,
+    SNAPSHOT_KIND_FILESYSTEM,
+    filter_user_sandbox_env_vars,
+)
 from products.tasks.backend.exceptions import (
     CredentialUnavailableError,
     GitHubAuthenticationError,
@@ -29,9 +33,9 @@ from products.tasks.backend.logic.services.sandbox_usage import open_sandbox_ses
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
-    increment_sandbox_created,
     increment_snapshot_restore,
     increment_snapshot_usage,
+    record_sandbox_created,
 )
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -298,6 +302,18 @@ def get_fresh_image_source_for_context(ctx: TaskProcessingContext) -> tuple[str,
     )
 
 
+def _sandbox_image_kind(image_source: str, custom_image_name: str | None) -> str:
+    if image_source == "resume_snapshot":
+        return "resume_snapshot"
+    if image_source == "repository_snapshot":
+        return "repository_snapshot"
+    if custom_image_name == DEV_STACK_IMAGE_NAME:
+        return "dev_stack"
+    if custom_image_name:
+        return "custom"
+    return "base"
+
+
 def _build_environment_variables(
     ctx: TaskProcessingContext, task: Task, github_token: str, access_token: str
 ) -> dict[str, str]:
@@ -416,7 +432,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         "prepare_sandbox_for_repository",
         **ctx.to_log_context(),
     ):
-        has_repo = ctx.repository is not None
+        has_repo = bool(ctx.repositories)
         repository = ctx.repository
 
         snapshot = None
@@ -427,9 +443,8 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # Repo-setup snapshots come from default-base sandboxes; restoring one would silently
         # drop the custom base image. Resume snapshots were taken from this task's own sandbox.
         if has_repo and ctx.github_integration_id is not None and not ctx.custom_image_name:
-            assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
-                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [repository])
+                snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, ctx.repositories)
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
@@ -448,8 +463,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         shallow_clone = task.origin_product != Task.OriginProduct.SIGNAL_REPORT
 
         actor_user = get_task_run_credential_user(task, ctx.state)
+        credential_repository = repository or (ctx.repositories[0] if ctx.repositories else None)
         github_token = _resolve_sandbox_github_token(
-            ctx, task=task, actor_user=actor_user, repository=repository, has_repo=has_repo
+            ctx, task=task, actor_user=actor_user, repository=credential_repository, has_repo=has_repo
         )
 
         try:
@@ -626,7 +642,12 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
         )
         increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
 
-        increment_sandbox_created("vm" if use_vm_sandbox else "gvisor")
+        record_sandbox_created(
+            "vm" if use_vm_sandbox else "gvisor",
+            _sandbox_image_kind(prepared.image_source, config.custom_image_name),
+            sandbox.config.image_fallback is not None,
+            create_ms,
+        )
 
         credentials = sandbox.get_connect_credentials()
 

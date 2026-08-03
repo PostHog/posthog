@@ -5784,6 +5784,7 @@ export const API_SCOPE_OBJECTS = [
     'logs',
     'loop',
     'marketing_analytics',
+    'mcp_builtin_agent',
     'mcp_analytics',
     'metrics',
     'notebook',
@@ -6206,7 +6207,11 @@ export interface DataWarehouseViewLinkValidation {
     is_valid: boolean
     msg: string | null
     hogql: string | null
+    columns: string[]
     results: any[]
+    total_rows: number | null
+    matched_rows: number | null
+    match_rate: number | null
 }
 
 export interface QueryTabState {
@@ -7072,6 +7077,7 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
     | ProductKey.LOGS
+    | ProductKey.METRICS
     | ProductKey.MCP_ANALYTICS
     | ProductKey.CONVERSATIONS,
     OnboardingProduct
@@ -7592,6 +7598,7 @@ export enum UserRole {
     Leadership = 'leadership',
     Marketing = 'marketing',
     Sales = 'sales',
+    Student = 'student',
     Other = 'other',
 }
 
