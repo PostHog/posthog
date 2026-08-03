@@ -59,7 +59,7 @@ class FakeDocumentConnectorAdapter:
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
+        export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         document_id = (artifact.location or {}).get("document_id") if artifact is not None else artifact_id
         location = {
@@ -574,7 +574,7 @@ class TestLivingArtifacts(TestCase):
 
         self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_FILE)
         self.assertEqual(artifact.location["delivery_status"], "pending")
-        self.assertEqual(artifact.metadata["export_asset_id"], asset.id)
+        self.assertEqual(artifact.export_asset_id, asset.id)
         # The delivery token bypasses the org's publicly-shared-resources setting and metadata
         # is readable with only task:read, so it must never be stored — delivery mints it.
         self.assertNotIn("image_url", artifact.metadata)

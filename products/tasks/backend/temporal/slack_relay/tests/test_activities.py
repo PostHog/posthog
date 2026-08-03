@@ -247,7 +247,7 @@ class TestRelaySlackMessage(TestCase):
         assert "no file was attached to Slack for this run" in posted
 
     def _create_pending_slack_file_artifact(
-        self, *, name: str, filename: str, content_type: str, metadata: dict
+        self, *, name: str, filename: str, content_type: str, metadata: dict, export_asset_id: int | None = None
     ) -> tuple[TaskArtifact, str]:
         storage_path = f"tasks/artifacts/team_{self.team.id}/task_{self.task.id}/run_{self.task_run.id}/{filename}"
         location = {
@@ -270,6 +270,7 @@ class TestRelaySlackMessage(TestCase):
             status=TaskArtifact.Status.ACTIVE,
             location=location,
             metadata={"delivery_status": "pending", **metadata},
+            export_asset_id=export_asset_id,
             versions=[
                 {
                     "version": 1,
@@ -389,7 +390,8 @@ class TestRelaySlackMessage(TestCase):
             name="Signups by week",
             filename="signups.v1.png",
             content_type="image/png",
-            metadata={"posthog_url": chart_url, "export_asset_id": 321},
+            metadata={"posthog_url": chart_url},
+            export_asset_id=321,
         )
         slack = unittest.mock.MagicMock()
         slack_integration = unittest.mock.MagicMock()

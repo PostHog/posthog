@@ -126,18 +126,13 @@ def create_living_artifact(
     )
     selected_adapter = _resolve_adapter(run, adapter, artifact_type)
     artifact_id = uuid.uuid4()
-    # The adapter decides the files:write bypass from this, so it must see the sanitized
-    # dict too — a forged export_asset_id must not buy the bypass either.
-    effective_metadata = _caller_owned_metadata(metadata)
-    if export_asset_id is not None:
-        effective_metadata["export_asset_id"] = export_asset_id
     commit = selected_adapter.create(
         run=run,
         name=name,
         artifact_type=artifact_type,
         content=content_payload,
         artifact_id=str(artifact_id),
-        metadata=effective_metadata,
+        export_asset_id=export_asset_id,
     )
 
     with transaction.atomic():
@@ -211,7 +206,6 @@ def edit_living_artifact(
         version=next_version,
         content_type=content_payload.content_type,
         source_artifact=content_payload.source_artifact,
-        metadata=_caller_owned_metadata(metadata),
     )
 
     with transaction.atomic():
@@ -468,7 +462,7 @@ class LivingArtifactAdapter(ABC):
         artifact_type: str,
         content: ArtifactContent,
         artifact_id: str | None = None,
-        metadata: dict[str, Any] | None = None,
+        export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         return self.commit(
             artifact=None,
@@ -481,7 +475,7 @@ class LivingArtifactAdapter(ABC):
             content_type=content.content_type,
             content_bytes=content.content_bytes,
             source_artifact=content.source_artifact,
-            metadata=metadata,
+            export_asset_id=export_asset_id,
         )
 
     @abstractmethod
@@ -505,7 +499,7 @@ class LivingArtifactAdapter(ABC):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
+        export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         raise NotImplementedError
 
@@ -538,7 +532,7 @@ class DocumentConnectorArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
+        export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         connector = _document_connector_adapter_for_run(run)
         if connector is not None:
@@ -554,7 +548,7 @@ class DocumentConnectorArtifactAdapter(LivingArtifactAdapter):
                     content_type=content_type,
                     content_bytes=content_bytes,
                     source_artifact=source_artifact,
-                    metadata=metadata,
+                    export_asset_id=export_asset_id,
                 )
             except DocumentConnectorUnavailable as exc:
                 logger.info("task_run.document_connector_unavailable", run_id=str(run.id))
@@ -589,7 +583,7 @@ class SlackMessageArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
+        export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
         text = content.strip() or name
@@ -651,7 +645,7 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
+        export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
         if not _canvas_file_artifacts_enabled(mapping):
@@ -734,32 +728,27 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
 _CHART_IMAGE_URL_TTL = timedelta(days=30)
 
 
-def _export_asset_id(metadata: dict[str, Any] | None) -> int | None:
-    asset_id = (metadata or {}).get("export_asset_id")
-    return asset_id if isinstance(asset_id, int) and not isinstance(asset_id, bool) else None
-
-
-def _delivery_image_url(team_id: int, metadata: dict[str, Any] | None) -> str | None:
+def _delivery_image_url(team_id: int, export_asset_id: int | None) -> str | None:
     """Mint the url delivery references for a chart image, or None when there is no export.
 
-    The url is trustworthy because it is minted here from an export the chart endpoint
-    linked server-side, never from a url a caller could put in metadata.
+    The url is trustworthy because it is minted here from the export link the chart
+    endpoint set server-side (a dedicated column callers can never write).
     """
-    asset_id = _export_asset_id(metadata)
-    if asset_id is None:
+    if export_asset_id is None:
         return None
-    return get_delivery_image_url(team_id=team_id, asset_id=asset_id, expiry_delta=_CHART_IMAGE_URL_TTL)
+    return get_delivery_image_url(team_id=team_id, asset_id=export_asset_id, expiry_delta=_CHART_IMAGE_URL_TTL)
 
 
-def _is_url_backed_image(content_type: str, *, team_id: int, metadata: dict[str, Any] | None) -> bool:
+def _is_url_backed_image(content_type: str, *, team_id: int, export_asset_id: int | None) -> bool:
     """Whether delivery can post this version as an image block instead of an upload.
 
-    Reads only the metadata being written, so an edit that drops the export link needs
-    files:write for its new bytes rather than passing on the strength of the old render.
+    Reads only the link being written with this version, so an edit (which always drops
+    the export link) needs files:write for its new bytes rather than passing on the
+    strength of the old render.
     """
     if not content_type.startswith("image/"):
         return False
-    return _delivery_image_url(team_id, metadata) is not None
+    return _delivery_image_url(team_id, export_asset_id) is not None
 
 
 class SlackFileArtifactAdapter(LivingArtifactAdapter):
@@ -781,7 +770,7 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
-        metadata: dict[str, Any] | None = None,
+        export_asset_id: int | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
         if not _canvas_file_artifacts_enabled(mapping):
@@ -795,7 +784,7 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         # upload and therefore no files:write. Everything else (non-images, and images with no
         # resolvable export) goes out as an upload, so it needs the scope up front — accepting it
         # here would leave the artifact pending forever with the agent believing it was delivered.
-        if not _is_url_backed_image(resolved_content_type, team_id=run.team_id, metadata=metadata) and (
+        if not _is_url_backed_image(resolved_content_type, team_id=run.team_id, export_asset_id=export_asset_id) and (
             slack_integration.missing_scopes(frozenset({SLACK_FILE_SCOPE}))
         ):
             raise ValueError(
@@ -926,11 +915,11 @@ def deliver_pending_slack_file_artifacts(
         # Slack fetches the image from the url in the card — nothing to upload. An artifact
         # whose export can't be resolved for this team falls through to the upload path,
         # which posts the stored bytes instead.
-        image_url = _delivery_image_url(run.team_id, artifact.metadata)
+        image_url = _delivery_image_url(run.team_id, artifact.export_asset_id)
         if image_url is not None:
             image_cards.append(_SlackImageCard(artifact, version_payload, image_url=image_url))
             continue
-        if _export_asset_id(artifact.metadata) is not None:
+        if artifact.export_asset_id is not None:
             logger.warning("task_artifact.chart_export_asset_unresolved", artifact_id=str(artifact.id))
         if not has_file_scope:
             logger.warning(
