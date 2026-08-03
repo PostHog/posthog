@@ -9,6 +9,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2Type } from '~/types'
 
+import { parseBillingLimitInput } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
@@ -99,17 +100,19 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
                                     {({ value, onChange, error }) => (
                                         <LemonInput
                                             inputRef={limitInputRef}
-                                            type="number"
+                                            type="text"
+                                            inputMode="decimal"
                                             fullWidth={false}
                                             status={error ? 'danger' : 'default'}
-                                            value={value}
+                                            value={
+                                                value === null || value === undefined || Number.isNaN(value)
+                                                    ? ''
+                                                    : String(value)
+                                            }
                                             data-attr={`billing-limit-input-${product.type}`}
-                                            onChange={onChange}
+                                            onChange={(newValue) => onChange(parseBillingLimitInput(newValue))}
                                             prefix={<b>$</b>}
                                             disabled={billingLoading}
-                                            min={0}
-                                            max={billingLimitConfig.max}
-                                            step={1}
                                             suffix={<>/ {billing?.billing_period?.interval}</>}
                                             size="small"
                                         />

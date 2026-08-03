@@ -18,6 +18,21 @@ import { USAGE_TYPES } from './constants'
 import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps, BuildBillingCsvOptions } from './types'
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
+/**
+ * Parses a billing limit input string into a dollar amount.
+ * Strips thousands-separator commas before parsing, since a native `type="number"` input
+ * reports a typed thousands separator like "1,500" as an unparseable NaN rather than 1500.
+ * Returns null for an empty/blank string, or NaN if the remaining text isn't a number at all.
+ */
+export const parseBillingLimitInput = (rawValue: string): number | null => {
+    const trimmed = rawValue.trim()
+    if (!trimmed) {
+        return null
+    }
+    const parsed = Number(trimmed.replace(/,/g, ''))
+    return Number.isFinite(parsed) ? parsed : NaN
+}
+
 export const isProductVariantPrimary = (productType: string): boolean =>
     ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails', 'logs'].includes(productType)
 

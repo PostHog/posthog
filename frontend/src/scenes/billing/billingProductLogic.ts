@@ -1125,7 +1125,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLoaded: () => {
             function calculateDefaultBillingLimit(product: BillingProductV2Type | BillingProductV2AddonType): number {
                 const projectedAmount = parseInt(product.projected_amount_usd || '0')
-                return product.tiers && projectedAmount ? projectedAmount * 1.5 : DEFAULT_BILLING_LIMIT
+                return product.tiers && projectedAmount ? Math.round(projectedAmount * 1.5) : DEFAULT_BILLING_LIMIT
             }
             actions.setIsEditingBillingLimit(false)
             actions.setBillingLimitInput(
@@ -1322,11 +1322,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLimitInput: {
             errors: ({ input }) => ({
                 input:
-                    input === null || Number.isInteger(input)
-                        ? input > values.billingLimitConfig.max
-                            ? values.billingLimitConfig.maxExceededError
-                            : undefined
-                        : 'Please enter a whole number',
+                    input === null
+                        ? undefined
+                        : Number.isNaN(input)
+                          ? 'Please enter a valid number'
+                          : !Number.isInteger(input)
+                            ? 'Please enter a whole number'
+                            : input > values.billingLimitConfig.max
+                              ? values.billingLimitConfig.maxExceededError
+                              : undefined,
             }),
             submit: async ({ input }) => {
                 const currentAmountUsd = props.product.current_amount_usd

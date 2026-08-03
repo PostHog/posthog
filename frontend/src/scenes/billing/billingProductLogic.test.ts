@@ -62,6 +62,21 @@ describe('billingProductLogic', () => {
         })
     })
 
+    describe('default billing limit prefill', () => {
+        // projected_amount_usd * 1.5 can land on a fraction (e.g. 101 * 1.5 = 151.5), which used
+        // to prefill the billing limit input with a non-integer — tripping the "enter a whole
+        // number" validator before the user had typed anything.
+        it('rounds a fractional projected-amount default to a whole dollar amount', async () => {
+            await seedBilling({})
+            const product = { ...productByType('product_analytics'), projected_amount_usd: '101.00' }
+            const logic = billingProductLogic({ product })
+            logic.mount()
+            mounted.push(logic)
+
+            expect(logic.values.billingLimitInput.input).toBe(152)
+        })
+    })
+
     describe('unsubscribe survey state', () => {
         it('keeps survey responses isolated per product type', async () => {
             await seedBilling({})

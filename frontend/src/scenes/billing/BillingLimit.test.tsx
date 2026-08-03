@@ -66,6 +66,9 @@ describe('BillingLimit', () => {
     it.each([
         { entered: '2000', savedLimit: 2000, renderedAmount: '$2,000' },
         { entered: '0', savedLimit: 0, renderedAmount: '$0' },
+        // A typed thousands separator used to reach the browser's native `valueAsNumber` as NaN,
+        // which the validator misreported as "not a whole number" and blocked the save.
+        { entered: '1,500', savedLimit: 1500, renderedAmount: '$1,500' },
     ])(
         'saving a limit ($entered) PATCHes it under custom_limits_usd and renders the saved value',
         async ({ entered, savedLimit, renderedAmount }) => {
