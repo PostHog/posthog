@@ -9,6 +9,13 @@ import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalenda
 
 import { getByDataAttr } from '~/test/byDataAttr'
 
+/** The leftmost month's title renders as a month + year jump `LemonSelect` pair, not plain text. */
+function leftmostMonthYearLabel(container: HTMLElement): string {
+    const month = getByDataAttr(container, 'lemon-calendar-month-select').textContent
+    const year = getByDataAttr(container, 'lemon-calendar-year-select').textContent
+    return `${month} ${year}`
+}
+
 describe('LemonCalendarRange', () => {
     test('shows time toggle when showTimeToggle is true', async () => {
         const onToggleTime = jest.fn()
@@ -64,40 +71,33 @@ describe('LemonCalendarRange', () => {
         expect(calendar).toBeTruthy()
 
         // find February 2022
-        expect(await within(calendar).findByText('February 2022')).toBeTruthy()
+        expect(leftmostMonthYearLabel(calendar)).toBe('February 2022')
 
         async function clickOn(day: string): Promise<void> {
             await userEvent.click(await within(container).findByText(day))
             await userEvent.click(getByDataAttr(container, 'lemon-calendar-range-apply'))
         }
 
-        // click on 15
+        // clicking inside the existing range (10-28) starts a fresh single-day selection at 15,
+        // rather than dragging the start edge to 15 while keeping the old end
         await clickOn('15')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-28T23:59:59.999Z')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-15T23:59:59.999Z')])
 
-        // click on 27
-        await clickOn('27')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-27T23:59:59.999Z')])
-
-        // click on 16
-        await clickOn('16')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-16'), dayjs('2022-02-27T23:59:59.999Z')])
-
-        // click on 26
-        await clickOn('26')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-16'), dayjs('2022-02-26T23:59:59.999Z')])
-
-        // click on 10
-        await clickOn('10')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-10'), dayjs('2022-02-26T23:59:59.999Z')])
-
-        // click on 28
-        await clickOn('28')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-10'), dayjs('2022-02-28T23:59:59.999Z')])
-
-        // click on 20
+        // clicking after the current single day extends the range forward
         await clickOn('20')
-        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-20'), dayjs('2022-02-28T23:59:59.999Z')])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-20T23:59:59.999Z')])
+
+        // clicking before the range start extends it backward
+        await clickOn('8')
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-08'), dayjs('2022-02-20T23:59:59.999Z')])
+
+        // clicking exactly on a boundary collapses the range to that single day
+        await clickOn('8')
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-08'), dayjs('2022-02-08T23:59:59.999Z')])
+
+        // clicking after the current single day extends the range forward again
+        await clickOn('25')
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-08'), dayjs('2022-02-25T23:59:59.999Z')])
 
         await userEvent.click(getByDataAttr(container, 'lemon-calendar-range-cancel'))
         expect(onClose).toHaveBeenCalled()

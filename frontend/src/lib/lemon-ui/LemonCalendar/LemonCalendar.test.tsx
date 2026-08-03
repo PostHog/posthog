@@ -8,6 +8,13 @@ import { getAllByDataAttr, getByDataAttr } from '~/test/byDataAttr'
 
 import { LemonCalendar } from './LemonCalendar'
 
+/** The leftmost month's title renders as a month + year jump `LemonSelect` pair, not plain text. */
+function leftmostMonthYearLabel(container: HTMLElement): string {
+    const month = getByDataAttr(container, 'lemon-calendar-month-select').textContent
+    const year = getByDataAttr(container, 'lemon-calendar-year-select').textContent
+    return `${month} ${year}`
+}
+
 describe('LemonCalendar', () => {
     test('click and move between months with one month showing', async () => {
         const onLeftmostMonthChanged = jest.fn()
@@ -32,13 +39,13 @@ describe('LemonCalendar', () => {
         expect(lemonCalendarWeeks.length).toBe(5)
 
         // find February 2020
-        expect(await within(calendar).findByText('February 2020')).toBeTruthy()
+        expect(leftmostMonthYearLabel(calendar)).toBe('February 2020')
 
         // go to January 2020
         const previousMonth = getByDataAttr(container, 'lemon-calendar-month-previous')
         await userEvent.click(previousMonth)
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-01-01'))
-        expect(await within(calendar).findByText('January 2020')).toBeTruthy()
+        expect(leftmostMonthYearLabel(calendar)).toBe('January 2020')
 
         // click on 15
         let fifteenth = await within(container).findByText('15')
@@ -51,12 +58,27 @@ describe('LemonCalendar', () => {
         await userEvent.click(nextMonth)
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-02-01'))
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-03-01'))
-        expect(await within(calendar).findByText('March 2020')).toBeTruthy()
+        expect(leftmostMonthYearLabel(calendar)).toBe('March 2020')
 
         // click on 15
         fifteenth = await within(container).findByText('15') // the cell moved
         await userEvent.click(fifteenth)
         expect(onDateClick).toHaveBeenCalledWith(dayjs('2020-03-15'))
+    })
+
+    test('jumps directly to a chosen month and year via the header selects', async () => {
+        const onLeftmostMonthChanged = jest.fn()
+        const { container } = render(
+            <LemonCalendar leftmostMonth={dayjs('2020-02-01')} onLeftmostMonthChanged={onLeftmostMonthChanged} />
+        )
+
+        await userEvent.click(getByDataAttr(container, 'lemon-calendar-month-select'))
+        await userEvent.click(await within(document.body).findByText('November'))
+        expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-11-01'))
+
+        await userEvent.click(getByDataAttr(container, 'lemon-calendar-year-select'))
+        await userEvent.click(await within(document.body).findByText('2017'))
+        expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2017-11-01'))
     })
 
     test('click and move between months with two months showing', async () => {
@@ -78,14 +100,14 @@ describe('LemonCalendar', () => {
         const [cal1, cal2] = lemonCalendars
 
         // find February 2020
-        expect(await within(cal1).findByText('February 2020')).toBeTruthy()
+        expect(leftmostMonthYearLabel(cal1)).toBe('February 2020')
         expect(await within(cal2).findByText('March 2020')).toBeTruthy()
 
         // go to January 2020
         const previousMonth = getByDataAttr(container, 'lemon-calendar-month-previous')
         await userEvent.click(previousMonth)
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-01-01'))
-        expect(await within(cal1).findByText('January 2020')).toBeTruthy()
+        expect(leftmostMonthYearLabel(cal1)).toBe('January 2020')
         expect(await within(cal2).findByText('February 2020')).toBeTruthy()
 
         // click on 15
@@ -99,7 +121,7 @@ describe('LemonCalendar', () => {
         await userEvent.click(nextMonth)
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-02-01'))
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-03-01'))
-        expect(await within(cal1).findByText('March 2020')).toBeTruthy()
+        expect(leftmostMonthYearLabel(cal1)).toBe('March 2020')
         expect(await within(cal2).findByText('April 2020')).toBeTruthy()
 
         // click on 15
@@ -124,7 +146,7 @@ describe('LemonCalendar', () => {
 
         const calendar = getByDataAttr(container, 'lemon-calendar')
         const thisMonth = dayjs().format('MMMM YYYY')
-        expect(await within(calendar).findByText(thisMonth)).toBeTruthy()
+        expect(leftmostMonthYearLabel(calendar)).toBe(thisMonth)
     })
 
     test('calls getDateState for each day with its date', async () => {

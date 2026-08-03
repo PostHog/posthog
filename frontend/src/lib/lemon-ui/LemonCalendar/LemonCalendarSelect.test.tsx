@@ -13,6 +13,13 @@ import { getByDataAttr } from '~/test/byDataAttr'
 
 import { GetTimeStateOpts } from './LemonCalendar'
 
+/** The leftmost month's title renders as a month + year jump `LemonSelect` pair, not plain text. */
+function leftmostMonthYearLabel(container: HTMLElement): string {
+    const month = getByDataAttr(container, 'lemon-calendar-month-select').textContent
+    const year = getByDataAttr(container, 'lemon-calendar-year-select').textContent
+    return `${month} ${year}`
+}
+
 const createClickHelpers = (
     container: HTMLElement
 ): {
@@ -88,7 +95,7 @@ describe('LemonCalendarSelect', () => {
         expect(calendar).toBeTruthy()
 
         // find February 2022
-        expect(await within(calendar).findByText('February 2022')).toBeTruthy()
+        expect(leftmostMonthYearLabel(calendar)).toBe('February 2022')
 
         // click on 15
         await clickOnDate('15')

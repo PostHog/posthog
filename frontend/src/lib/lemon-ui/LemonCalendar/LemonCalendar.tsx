@@ -9,8 +9,13 @@ import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { range } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
+
+/** How many years before and after the current year to offer in the year jump dropdown. */
+const YEARS_BEFORE_NOW = 100
+const YEARS_AFTER_NOW = 10
 
 export interface LemonCalendarProps {
     /** Fired if a calendar cell is clicked */
@@ -153,6 +158,29 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
         return timeState ? timeStateToButtonProps(timeState, opts) : undefined
     }
 
+    const jumpToMonth = (change: { month?: number; year?: number }): void => {
+        let newDate = leftmostMonth
+        if (change.month !== undefined) {
+            newDate = newDate.month(change.month)
+        }
+        if (change.year !== undefined) {
+            newDate = newDate.year(change.year)
+        }
+        newDate = newDate.startOf('month')
+        setLeftmostMonth(newDate)
+        props.onLeftmostMonthChanged?.(newDate)
+    }
+
+    const monthOptions = range(0, 12).map((monthIndex) => ({
+        value: monthIndex,
+        label: dayjs().month(monthIndex).format('MMMM'),
+    }))
+    const currentYear = today.year()
+    const yearOptions = range(currentYear - YEARS_BEFORE_NOW, currentYear + YEARS_AFTER_NOW + 1).map((year) => ({
+        value: year,
+        label: String(year),
+    }))
+
     return (
         <div
             ref={ref}
@@ -193,11 +221,43 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                     )}
                                 </th>
                                 <th
-                                    className="relative font-title font-semibold text-secondary uppercase cursor-default text-center"
+                                    className={clsx(
+                                        'relative font-title font-semibold text-secondary uppercase text-center',
+                                        !showLeftMonth && 'cursor-default'
+                                    )}
                                     data-attr={`lemon-calendar-month-title-${month}`}
                                     colSpan={5}
                                 >
-                                    {startOfMonth.format('MMMM')} {startOfMonth.year()}
+                                    {showLeftMonth ? (
+                                        <div className="flex items-center justify-center gap-1">
+                                            <LemonSelect
+                                                value={startOfMonth.month()}
+                                                onChange={(newMonth) =>
+                                                    newMonth !== null && jumpToMonth({ month: newMonth })
+                                                }
+                                                options={monthOptions}
+                                                size="small"
+                                                type="tertiary"
+                                                dropdownMatchSelectWidth={false}
+                                                data-attr="lemon-calendar-month-select"
+                                            />
+                                            <LemonSelect
+                                                value={startOfMonth.year()}
+                                                onChange={(newYear) =>
+                                                    newYear !== null && jumpToMonth({ year: newYear })
+                                                }
+                                                options={yearOptions}
+                                                size="small"
+                                                type="tertiary"
+                                                dropdownMatchSelectWidth={false}
+                                                data-attr="lemon-calendar-year-select"
+                                            />
+                                        </div>
+                                    ) : (
+                                        <>
+                                            {startOfMonth.format('MMMM')} {startOfMonth.year()}
+                                        </>
+                                    )}
                                 </th>
                                 <th className="relative">
                                     {showRightMonth && (

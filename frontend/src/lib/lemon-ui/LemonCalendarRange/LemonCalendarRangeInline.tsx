@@ -10,7 +10,7 @@ const WIDTH_OF_ONE_CALENDAR_MONTH = 300
 /** Number of calendars to display if `typeof window === undefined` */
 const CALENDARS_IF_NO_WINDOW = 2
 
-type RangeState = [dayjs.Dayjs | null, dayjs.Dayjs | null, 'start' | 'end']
+type RangeState = [dayjs.Dayjs | null, dayjs.Dayjs | null]
 
 export function LemonCalendarRangeInline({
     value,
@@ -18,14 +18,10 @@ export function LemonCalendarRangeInline({
     months,
 }: Omit<LemonCalendarRangeProps, 'onClose'>): JSX.Element {
     // Keep a sanitised and cached copy of the selected range
-    const [[rangeStart, rangeEnd, lastChanged], _setRange] = useState<RangeState>([
-        value?.[0] ?? null,
-        value?.[1] ?? null,
-        'end',
-    ])
+    const [[rangeStart, rangeEnd], _setRange] = useState<RangeState>([value?.[0] ?? null, value?.[1] ?? null])
 
-    function setRange([rangeStart, rangeEnd, lastChanged]: RangeState): void {
-        _setRange([rangeStart, rangeEnd ? rangeEnd.endOf('day') : null, lastChanged])
+    function setRange([rangeStart, rangeEnd]: RangeState): void {
+        _setRange([rangeStart, rangeEnd ? rangeEnd.endOf('day') : null])
         if (rangeStart && rangeEnd) {
             onChange([rangeStart, rangeEnd.endOf('day')])
         }
@@ -73,22 +69,22 @@ export function LemonCalendarRangeInline({
         <LemonCalendar
             onDateClick={(date) => {
                 if (!rangeStart && !rangeEnd) {
-                    setRange([date, date, 'start'])
+                    setRange([date, date])
                 } else if (rangeStart && !rangeEnd) {
-                    setRange(date < rangeStart ? [date, rangeStart, 'start'] : [rangeStart, date, 'end'])
+                    setRange(date < rangeStart ? [date, rangeStart] : [rangeStart, date])
                 } else if (rangeEnd && !rangeStart) {
-                    setRange(date < rangeEnd ? [date, rangeEnd, 'start'] : [rangeEnd, date, 'end'])
+                    setRange(date < rangeEnd ? [date, rangeEnd] : [rangeEnd, date])
                 } else if (rangeStart && rangeEnd) {
-                    if (date === rangeStart || date === rangeEnd) {
-                        setRange([date, date, 'start'])
+                    if (date.isSame(rangeStart, 'd') || date.isSame(rangeEnd, 'd')) {
+                        // Clicking a boundary collapses the range to that single day
+                        setRange([date, date])
                     } else if (date < rangeStart) {
-                        setRange([date, rangeEnd, 'start'])
+                        setRange([date, rangeEnd])
                     } else if (date > rangeEnd) {
-                        setRange([rangeStart, date, 'end'])
-                    } else if (lastChanged === 'start') {
-                        setRange([rangeStart, date, 'end'])
+                        setRange([rangeStart, date])
                     } else {
-                        setRange([date, rangeEnd, 'start'])
+                        // Clicking inside an existing range starts a fresh selection rather than dragging an edge
+                        setRange([date, date])
                     }
                 }
             }}
