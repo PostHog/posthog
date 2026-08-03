@@ -271,15 +271,14 @@ export const cohortsModel = kea<cohortsModelType>([
                 // the feature-flag intent warning reads it off `cohortsById` (see
                 // featureFlagIntentWarningLogic.hasBehavioralCriteria), and its raw shape is
                 // what that check expects, so no `processCohort` normalization is needed here.
-                const response = await api.cohorts.listPaginated({
+                const response = await api.cohorts.listBasic({
                     limit: MAX_COHORTS_FOR_FULL_LIST,
-                    basic: true,
                 })
                 return {
                     count: response.count,
-                    // `groups` is required on CohortType but the basic payload omits it; default
-                    // it so entries genuinely match the type rather than lying to the compiler.
-                    results: response.results.map((cohort): CohortType => ({ ...cohort, groups: cohort.groups ?? [] })),
+                    // `groups` is dropped from the basic payload but required on CohortType, so
+                    // add the empty default back — nothing reading `cohortsById` uses `groups`.
+                    results: response.results.map((cohort): CohortType => ({ ...cohort, groups: [] })),
                 }
             },
         },
@@ -420,7 +419,9 @@ export const cohortsModel = kea<cohortsModelType>([
                         // own, or pickers keep serving the deleted-state cache for staleTime.
                         invalidateTaxonomicResourcesWhere(isCohortTaxonomicListKey)
                     }
-                    actions.loadCohorts()
+                    // Refresh `allCohorts` (the source for `cohortsById`) so an undo restores
+                    // the row's name to breadcrumbs and pickers, not just the `cohorts` list.
+                    actions.loadAllCohorts()
                     if (cohort.id && cohort.id !== 'new') {
                         if (undo) {
                             refreshTreeItem('cohort', String(cohort.id))
@@ -446,7 +447,6 @@ export const cohortsModel = kea<cohortsModelType>([
                 actions.hydrateAllCohortsFromExport(exportedCohorts)
             }
         }
-        actions.loadCohorts()
     }),
     permanentlyMount(),
 ])

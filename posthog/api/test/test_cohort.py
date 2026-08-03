@@ -41,6 +41,7 @@ from posthog.tasks.calculate_cohort import (
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
 )
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
@@ -1899,9 +1900,37 @@ email@example.org,
         for dropped in ("query", "groups", "last_error_message", "experiment_set"):
             self.assertNotIn(dropped, basic)
         # `filters` stays: the feature-flag intent warning reads it off the basic list to flag
-        # behavioral cohorts. Dropping it silently disabled that warning, so guard it here.
-        for kept in ("id", "name", "count", "filters"):
+        # behavioral cohorts. `is_calculating` drives the 5s repoll and `is_static` drives the
+        # static-cohort flag warning — both now read only from the basic payload, so trimming
+        # any of these silently breaks a feature. Guard them here.
+        for kept in ("id", "name", "count", "filters", "is_calculating", "is_static"):
             self.assertIn(kept, basic)
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_basic_list_skips_error_and_experiment_queries(self, patch_capture):
+        # The basic payload drops `last_error_message` and `experiment_set`, so it must not run
+        # the per-row CohortCalculationHistory subquery or the experiment prefetch. Asserting on
+        # the emitted SQL (not query count) is what catches it: the correlated subquery splices
+        # into the enclosing SELECT rather than issuing its own, so a count wouldn't move. The
+        # full path is the positive control, so a table rename can't make the negatives pass for
+        # the wrong reason.
+        Cohort.objects.create(
+            team=self.team,
+            name="some cohort",
+            filters={"properties": {"type": "OR", "values": [{"type": "person", "key": "email", "value": "a@b.com"}]}},
+        )
+
+        with capture_db_queries() as full_ctx:
+            self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        full_sql = " ".join(q["sql"] for q in full_ctx.captured_queries)
+        self.assertIn("posthog_cohortcalculationhistory", full_sql)
+        self.assertIn("posthog_experiment", full_sql)
+
+        with capture_db_queries() as basic_ctx:
+            self.client.get(f"/api/projects/{self.team.id}/cohorts?basic=true")
+        basic_sql = " ".join(q["sql"] for q in basic_ctx.captured_queries)
+        self.assertNotIn("posthog_cohortcalculationhistory", basic_sql)
+        self.assertNotIn("posthog_experiment", basic_sql)
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_is_ignored_on_detail_fetch(self, patch_capture):
