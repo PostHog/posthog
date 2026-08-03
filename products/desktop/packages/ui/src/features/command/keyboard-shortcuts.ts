@@ -4,7 +4,7 @@ export const SHORTCUTS = {
   COMMAND_MENU: "mod+k",
   NEW_TASK: "mod+n",
   NEW_TAB: "mod+t",
-  SETTINGS: "mod+,",
+  SETTINGS: "mod+comma",
   SHORTCUTS_SHEET: "mod+/",
   GO_BACK: "mod+[",
   GO_FORWARD: "mod+]",
@@ -328,6 +328,7 @@ function formatKey(key: string): string {
   if (k === "down" || k === "arrowdown") return "↓";
   if (k === "left" || k === "arrowleft") return "←";
   if (k === "right" || k === "arrowright") return "→";
+  if (k === "comma") return ",";
   if (k === ",") return ",";
   if (k === "[") return "[";
   if (k === "]") return "]";
