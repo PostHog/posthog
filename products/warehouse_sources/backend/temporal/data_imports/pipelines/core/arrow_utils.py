@@ -759,6 +759,16 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
         return pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
 
+    # `datetime` before `date`: `datetime.datetime` subclasses `datetime.date`.
+    if issubclass(type_, datetime.datetime) and isinstance(value, datetime.datetime):
+        return pa.timestamp("us", tz="UTC") if value.tzinfo is not None else pa.timestamp("us")
+
+    if issubclass(type_, datetime.date) and isinstance(value, datetime.date):
+        return pa.date32()
+
+    if issubclass(type_, datetime.time) and isinstance(value, datetime.time):
+        return pa.time64("us")
+
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 

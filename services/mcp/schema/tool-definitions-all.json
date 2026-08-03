@@ -1412,7 +1412,7 @@
         }
     },
     "conversations-tickets-list": {
-        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via the list-saved-ticket-views tool); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List support tickets",
@@ -1482,7 +1482,7 @@
         }
     },
     "conversations-views-list": {
-        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>.",
+        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of the list-support-tickets tool.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List saved ticket views",
@@ -6641,7 +6641,7 @@
         "feature_flag": "marketing-analytics-mcp"
     },
     "mcp-analytics-intent-clusters-recompute": {
-        "description": "Trigger an asynchronous recompute of the intent-cluster snapshot: embed the project's recorded agent intents and re-cluster them. Returns immediately with status 'computing'; poll mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').",
+        "description": "Trigger an asynchronous recompute of the intent-cluster snapshot: sample recent sessions, attribute each tool call to its own agent intent, embed and cluster the intents, and derive the tool pivot (capture rates, discovery rates, description fit, overlaps). Returns immediately with status 'computing'; poll mcp-analytics-intent-clusters-retrieve for progress (status becomes 'idle' or 'error').",
         "category": "MCP analytics",
         "feature": "mcp_analytics",
         "summary": "Recompute intent clusters",
@@ -6657,7 +6657,7 @@
         "feature_flag": "mcp-analytics"
     },
     "mcp-analytics-intent-clusters-retrieve": {
-        "description": "Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents, each with its tool distribution, error rate, routing entropy, and journey paths. Returns an empty idle snapshot when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.",
+        "description": "Return the most recent intent-clustering snapshot for the project: clusters of similar agent intents (tool distribution, error rate, routing entropy, journey paths, error switches) plus a tool-centric pivot (per tool: the intent clusters it serves with capture share and rank, discovery rate against the advertised tools-list catalog, description-to-intent fit, contested score) and tool-overlap pairs competing for the same intents. computed_with carries sample-coverage percentages; treat counts as sample statistics. Returns an empty idle snapshot when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.",
         "category": "MCP analytics",
         "feature": "mcp_analytics",
         "summary": "Get intent cluster snapshot",

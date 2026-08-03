@@ -45,6 +45,15 @@ describe('projectQuota', () => {
         expect(proj.capReachDate).not.toBeNull()
     })
 
+    it('danger when spend has passed the limit even without backend exhaustion', () => {
+        // The startup-cap display clamp can lower credit_limit below credits_used while exhausted stays false;
+        // that state must not read quieter than merely approaching the limit.
+        const proj = projectQuota(makeQuota({ credits_used: 12_000 }))
+        expect(proj.status).toBe('danger')
+        expect(proj.exhausted).toBe(false)
+        expect(proj.usedPct).toBe(120)
+    })
+
     it('danger when explicitly exhausted regardless of the fleet rate', () => {
         const proj = projectQuota(makeQuota({ credits_used: 10_000, remaining: 0, exhausted: true }))
         expect(proj.status).toBe('danger')
