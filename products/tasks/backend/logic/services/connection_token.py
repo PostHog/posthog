@@ -32,6 +32,9 @@ STREAM_READ_AUDIENCE = "posthog:stream_read"
 # when a reconnect is rejected with a 401 after the token expires mid-stream.
 STREAM_READ_TOKEN_TTL = timedelta(minutes=15)
 
+TASK_PORT_FORWARD_AUDIENCE = "posthog:task_port_forward"
+TASK_PORT_FORWARD_TOKEN_TTL = timedelta(hours=1)
+
 
 @dataclass(frozen=True)
 class SandboxEventIngestTokenPayload:
@@ -53,6 +56,17 @@ class StreamReadTokenPayload:
     run_id: str
     task_id: str
     team_id: int
+
+
+@dataclass(frozen=True)
+class TaskPortForwardTokenPayload:
+    run_id: str
+    task_id: str
+    team_id: int
+    forward_id: str
+    port: int
+    user_id: int
+    distinct_id: str
 
 
 def _normalize_pem_key(key: str) -> str:
@@ -300,6 +314,30 @@ def create_stream_read_token(task_run: TaskRun, ttl: timedelta = STREAM_READ_TOK
     return _encode_run_scoped_token(task_run, STREAM_READ_AUDIENCE, ttl)
 
 
+def create_task_port_forward_token(
+    task_run: TaskRun,
+    *,
+    forward_id: str,
+    port: int,
+    user_id: int,
+    distinct_id: str,
+    ttl: timedelta = TASK_PORT_FORWARD_TOKEN_TTL,
+) -> str:
+    """
+    Create a short-lived JWT that authorizes opening one task-run port forward.
+
+    The token is minted only after the regular task/run access check and is scoped to a single
+    forward id plus loopback port. The standalone agent-proxy verifies it statelessly before asking
+    Django to resolve the live sandbox connection details.
+    """
+    return _encode_run_scoped_token(
+        task_run,
+        TASK_PORT_FORWARD_AUDIENCE,
+        ttl,
+        {"forward_id": forward_id, "port": port, "user_id": user_id, "distinct_id": distinct_id},
+    )
+
+
 def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
     payload = _decode_sandbox_token(token, STREAM_READ_AUDIENCE)
 
@@ -311,3 +349,36 @@ def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
         raise jwt.InvalidTokenError("Stream read token has invalid claims")
 
     return StreamReadTokenPayload(run_id=run_id, task_id=task_id, team_id=team_id)
+
+
+def validate_task_port_forward_token(token: str) -> TaskPortForwardTokenPayload:
+    payload = _decode_sandbox_token(token, TASK_PORT_FORWARD_AUDIENCE)
+
+    run_id = payload.get("run_id")
+    task_id = payload.get("task_id")
+    team_id = payload.get("team_id")
+    forward_id = payload.get("forward_id")
+    port = payload.get("port")
+    user_id = payload.get("user_id")
+    distinct_id = payload.get("distinct_id")
+
+    if (
+        not isinstance(run_id, str)
+        or not isinstance(task_id, str)
+        or type(team_id) is not int
+        or not isinstance(forward_id, str)
+        or type(port) is not int
+        or type(user_id) is not int
+        or not isinstance(distinct_id, str)
+    ):
+        raise jwt.InvalidTokenError("Task port forward token has invalid claims")
+
+    return TaskPortForwardTokenPayload(
+        run_id=run_id,
+        task_id=task_id,
+        team_id=team_id,
+        forward_id=forward_id,
+        port=port,
+        user_id=user_id,
+        distinct_id=distinct_id,
+    )

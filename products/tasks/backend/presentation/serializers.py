@@ -36,6 +36,8 @@ from products.tasks.backend.facade.contracts import (
     TaskDetailDTO,
     TaskMentionDTO,
     TaskRunDetailDTO,
+    TaskRunPortForwardDTO,
+    TaskRunPortForwardResolveDTO,
     TaskSummaryDTO,
     TaskThreadMessageDTO,
     TaskUserBasicInfo,
@@ -1878,6 +1880,33 @@ class StreamReadTokenResponseSerializer(serializers.Serializer):
             "the run's stream path and sends the token as a Bearer header when this is set."
         ),
     )
+
+
+class TaskRunPortForwardCreateRequestSerializer(serializers.Serializer):
+    port = serializers.IntegerField(min_value=1, max_value=65535)
+    name = serializers.CharField(required=False, allow_blank=True, max_length=80, default="")
+
+
+class TaskRunPortForwardSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TaskRunPortForwardDTO
+
+
+class TaskRunPortForwardTokenResponseSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="Short-lived JWT authorizing this forwarded port")
+    preview_url = serializers.CharField(
+        allow_null=True,
+        help_text="Authenticated preview URL. Null when the agent-proxy public URL is not configured.",
+    )
+
+
+class TaskRunPortForwardResolveRequestSerializer(serializers.Serializer):
+    token = serializers.CharField(help_text="Task port-forward JWT presented by the agent-proxy")
+
+
+class TaskRunPortForwardResolveResponseSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TaskRunPortForwardResolveDTO
 
 
 MAX_IMPORTED_MCP_SERVERS = 20

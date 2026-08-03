@@ -106,6 +106,34 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class TaskRunPortForwardDTO:
+    id: UUID
+    task_id: UUID
+    run_id: UUID
+    team_id: int
+    port: int
+    name: str
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime | None = None
+    last_accessed_at: datetime | None = None
+    preview_url: str | None = None
+
+
+@dataclass(frozen=True)
+class TaskRunPortForwardResolveDTO:
+    run_id: UUID
+    task_id: UUID
+    team_id: int
+    forward_id: UUID
+    port: int
+    sandbox_url: str
+    connection_token: str
+    sandbox_connect_token: str | None = None
+
+
+@dataclass(frozen=True)
 class WizardPrReadyEmailContextDTO:
     """Everything ``send_wizard_pr_ready_email`` needs to read off a task run's PR-ready state."""
 

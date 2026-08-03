@@ -72,6 +72,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskPin,
     TaskRun,
+    TaskRunPortForward,
     TaskSession,
 )
 from products.tasks.backend.presentation.serializers import (
@@ -4585,6 +4586,116 @@ class TestTaskRunAPI(BaseTaskAPITest):
             return False
 
         self.mock_feature_flag.side_effect = check_flag
+
+    def test_create_port_forward_exposes_live_cloud_sandbox_port(self):
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        run.state = {"sandbox_url": "https://sandbox.modal.run"}
+        run.save(update_fields=["state"])
+
+        with self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com"):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/ports/",
+                {"port": 8000, "name": "PostHog web"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["port"], 8000)
+        self.assertEqual(data["name"], "PostHog web")
+        self.assertEqual(data["status"], "active")
+        self.assertEqual(data["preview_url"], f"https://agent-proxy.example.com/v1/ports/{data['id']}/")
+
+    def test_create_port_forward_rejects_run_without_active_sandbox(self):
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/ports/",
+            {"port": 8000},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "No active sandbox for this task run")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @override_settings(SANDBOX_JWT_PUBLIC_KEY=None)
+    def test_port_forward_token_returns_authenticated_preview_url(self):
+        reset_sandbox_jwt_key_cache()
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        run.state = {"sandbox_url": "https://sandbox.modal.run"}
+        run.save(update_fields=["state"])
+        port_forward = TaskRunPortForward.objects.create(
+            task=task,
+            task_run=run,
+            team=self.team,
+            created_by=self.user,
+            port=8000,
+        )
+
+        with self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com"):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/ports/{port_forward.id}/token/"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("token", data)
+        self.assertEqual(
+            data["preview_url"],
+            f"https://agent-proxy.example.com/v1/ports/{port_forward.id}/auth/?token={data['token']}",
+        )
+
+        public_key = get_sandbox_jwt_public_key()
+        decoded = jwt.decode(
+            data["token"],
+            public_key,
+            audience="posthog:task_port_forward",
+            algorithms=["RS256"],
+        )
+        self.assertEqual(decoded["run_id"], str(run.id))
+        self.assertEqual(decoded["forward_id"], str(port_forward.id))
+        self.assertEqual(decoded["port"], 8000)
+        self.assertEqual(decoded["user_id"], self.user.id)
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @override_settings(SANDBOX_JWT_PUBLIC_KEY=None)
+    def test_internal_port_forward_resolve_returns_sandbox_connection(self):
+        reset_sandbox_jwt_key_cache()
+        task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
+        run.state = {"sandbox_url": "https://sandbox.modal.run", "sandbox_connect_token": "connect-token"}
+        run.save(update_fields=["state"])
+        port_forward = TaskRunPortForward.objects.create(
+            task=task,
+            task_run=run,
+            team=self.team,
+            created_by=self.user,
+            port=8000,
+        )
+        token, _preview_url = tasks_facade.create_task_run_port_forward_token(
+            run.id,
+            task.id,
+            self.team.id,
+            forward_id=port_forward.id,
+            user_id=self.user.id,
+            distinct_id=self.user.distinct_id,
+        )
+
+        with self.settings(DEBUG=True, AGENT_PROXY_CALLBACK_SECRET=""):
+            response = self.client.post(
+                "/internal/tasks/port-forward/resolve/",
+                {"token": token},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["run_id"], str(run.id))
+        self.assertEqual(data["forward_id"], str(port_forward.id))
+        self.assertEqual(data["port"], 8000)
+        self.assertEqual(data["sandbox_url"], "https://sandbox.modal.run")
+        self.assertEqual(data["sandbox_connect_token"], "connect-token")
+        self.assertIn("connection_token", data)
 
     def test_list_runs_with_malformed_task_id_returns_404(self):
         # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.

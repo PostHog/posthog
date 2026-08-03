@@ -27,7 +27,7 @@ import {
   readPrUrls,
 } from "@posthog/shared";
 import { unzipSync } from "fflate";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { z } from "zod";
 import packageJson from "../../package.json" with { type: "json" };
 import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../acp-extensions";
@@ -361,6 +361,59 @@ function buildMissingAttachmentNotice(count: number): string {
     `so ${pronoun} are unavailable here. Do not guess at the contents. Tell the user the ` +
     `${noun} didn't come through, and ask them to paste the text directly or send ${pronoun} again.`
   );
+}
+
+const PORT_FORWARD_HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+function buildLoopbackPortForwardUrl(requestUrl: string, port: number): string {
+  const incoming = new URL(requestUrl);
+  const prefix = `/ports/${port}`;
+  const suffix = incoming.pathname.startsWith(prefix)
+    ? incoming.pathname.slice(prefix.length) || "/"
+    : "/";
+  const target = new URL(`http://127.0.0.1:${port}${suffix}`);
+  incoming.searchParams.forEach((value, key) => {
+    if (key !== "_modal_connect_token") {
+      target.searchParams.append(key, value);
+    }
+  });
+  return target.toString();
+}
+
+function filteredPortForwardRequestHeaders(input: Headers): Headers {
+  const headers = new Headers();
+  input.forEach((value, key) => {
+    const normalized = key.toLowerCase();
+    if (
+      PORT_FORWARD_HOP_BY_HOP_HEADERS.has(normalized) ||
+      normalized === "host" ||
+      normalized === "authorization" ||
+      normalized === "cookie"
+    ) {
+      return;
+    }
+    headers.set(key, value);
+  });
+  return headers;
+}
+
+function filteredPortForwardResponseHeaders(input: Headers): Headers {
+  const headers = new Headers();
+  input.forEach((value, key) => {
+    if (!PORT_FORWARD_HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
+      headers.set(key, value);
+    }
+  });
+  return headers;
 }
 
 export class AgentServer {
@@ -786,6 +839,57 @@ export class AgentServer {
         });
       }
     });
+
+    const handlePortForward = async (c: Context) => {
+      let payload: JwtPayload;
+
+      try {
+        payload = this.authenticateRequest(c.req.header.bind(c.req));
+      } catch (error) {
+        return c.json(
+          {
+            error:
+              error instanceof JwtValidationError
+                ? error.message
+                : "Invalid token",
+          },
+          401,
+        );
+      }
+
+      const portRaw = c.req.param("port");
+      const port = Number(portRaw);
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        return c.json({ error: "Invalid port" }, 400);
+      }
+
+      const upstreamUrl = buildLoopbackPortForwardUrl(c.req.url, port);
+      const headers = filteredPortForwardRequestHeaders(c.req.raw.headers);
+      const method = c.req.method.toUpperCase();
+      const init: RequestInit = { method, headers, redirect: "manual" };
+      if (method !== "GET" && method !== "HEAD") {
+        init.body = await c.req.arrayBuffer();
+      }
+
+      try {
+        const upstream = await fetch(upstreamUrl, init);
+        return new Response(upstream.body, {
+          status: upstream.status,
+          statusText: upstream.statusText,
+          headers: filteredPortForwardResponseHeaders(upstream.headers),
+        });
+      } catch (error) {
+        this.logger.warn("Port forward target unreachable", {
+          runId: payload.run_id,
+          port,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return c.json({ error: "Port forward target is not reachable" }, 502);
+      }
+    };
+
+    app.all("/ports/:port", handlePortForward);
+    app.all("/ports/:port/*", handlePortForward);
 
     app.notFound((c) => {
       return c.json({ error: "Not found" }, 404);

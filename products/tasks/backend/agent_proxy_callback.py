@@ -8,15 +8,29 @@ from django.http import JsonResponse
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from jwt import PyJWTError
 
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.presentation.serializers import (
     AgentProxyCallbackRequestSerializer,
     AgentProxyCallbackResponseSerializer,
     TaskRunErrorResponseSerializer,
+    TaskRunPortForwardResolveRequestSerializer,
+    TaskRunPortForwardResolveResponseSerializer,
 )
 from products.tasks.backend.push_dispatcher import notify_task_run_turn_completed
 
 logger = logging.getLogger(__name__)
+
+
+def _validate_agent_proxy_secret(request) -> JsonResponse | None:
+    expected_secret = settings.AGENT_PROXY_CALLBACK_SECRET
+    if expected_secret:
+        provided_secret = request.headers.get("X-Agent-Proxy-Secret", "")
+        if not hmac.compare_digest(provided_secret, expected_secret):
+            return JsonResponse({"error": "Invalid agent-proxy callback secret"}, status=403)
+    elif not (settings.DEBUG or settings.TEST):
+        return JsonResponse({"error": "Agent-proxy callback secret is not configured"}, status=403)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -84,13 +98,8 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
     # drive this callback directly (bypassing the proxy's Redis sequencing/throttle). An unset
     # secret fails closed — the endpoint stays dead until the secret is provisioned — except in
     # local dev/test where no proxy deployment exists to share a secret with.
-    expected_secret = settings.AGENT_PROXY_CALLBACK_SECRET
-    if expected_secret:
-        provided_secret = request.headers.get("X-Agent-Proxy-Secret", "")
-        if not hmac.compare_digest(provided_secret, expected_secret):
-            return JsonResponse({"error": "Invalid agent-proxy callback secret"}, status=403)
-    elif not (settings.DEBUG or settings.TEST):
-        return JsonResponse({"error": "Agent-proxy callback secret is not configured"}, status=403)
+    if secret_response := _validate_agent_proxy_secret(request):
+        return secret_response
 
     # Validate and parse the request body
     try:
@@ -139,3 +148,36 @@ def agent_proxy_callback(request, run_id: str) -> JsonResponse:
             logger.exception("agent_proxy_callback.awaiting_input_failed", extra={"run_id": run_id})
 
     return JsonResponse(AgentProxyCallbackResponseSerializer({"dispatched": dispatched}).data)
+
+
+@extend_schema(
+    tags=["task-runs"],
+    request=TaskRunPortForwardResolveRequestSerializer,
+    responses={
+        200: OpenApiResponse(response=TaskRunPortForwardResolveResponseSerializer, description="Sandbox connection"),
+        400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid request body"),
+        403: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid agent-proxy secret"),
+        404: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Port forward not found or inactive"),
+    },
+    summary="Resolve task-run port forward",
+    description="Internal endpoint called by agent-proxy to resolve a valid port-forward token into sandbox details.",
+)
+def agent_proxy_port_forward_resolve(request) -> JsonResponse:
+    if request.method != "POST":
+        return JsonResponse({"error": "Method not allowed"}, status=405)
+    if secret_response := _validate_agent_proxy_secret(request):
+        return secret_response
+
+    try:
+        body = json.loads(request.body)
+    except (json.JSONDecodeError, ValueError):
+        return JsonResponse({"error": "Invalid JSON body"}, status=400)
+
+    serializer = TaskRunPortForwardResolveRequestSerializer(data=body)
+    if not serializer.is_valid():
+        return JsonResponse({"error": "Invalid request body", "detail": serializer.errors}, status=400)
+
+    resolved = tasks_facade.resolve_task_run_port_forward(serializer.validated_data["token"])
+    if resolved is None:
+        return JsonResponse({"error": "Port forward not found"}, status=404)
+    return JsonResponse(TaskRunPortForwardResolveResponseSerializer(resolved).data)

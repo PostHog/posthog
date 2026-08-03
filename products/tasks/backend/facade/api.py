@@ -76,6 +76,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskPin,
     TaskRun,
+    TaskRunPortForward,
     TaskSession,
     TaskThreadMessage,
     TaskThreadMessageMention,
@@ -147,6 +148,8 @@ __all__ = [
     "create_task_without_run",
     "create_task_run_connection_token",
     "create_task_run_living_artifact",
+    "create_task_run_port_forward",
+    "create_task_run_port_forward_token",
     "create_task_run_stream_read_token",
     "resolve_stream_base_url",
     "claim_and_fail_stale_run",
@@ -175,6 +178,7 @@ __all__ = [
     "get_task_detail",
     "get_task_id_for_run",
     "get_task_run",
+    "get_task_run_port_forward",
     "get_task_run_session",
     "sync_task_run_session",
     "get_task_run_detail",
@@ -195,6 +199,7 @@ __all__ = [
     "sandbox_custom_images_enabled",
     "list_task_automations",
     "list_task_run_living_artifacts",
+    "list_task_run_port_forwards",
     "list_task_repositories",
     "list_task_runs",
     "list_tasks",
@@ -208,6 +213,7 @@ __all__ = [
     "redeem_code_invite",
     "redispatch_task_run",
     "relay_task_run_message",
+    "resolve_task_run_port_forward",
     "resolve_slack_thread_context",
     "resume_task_run_in_cloud",
     "run_task",
@@ -222,6 +228,7 @@ __all__ = [
     "signal_workflow_completion",
     "soft_delete_task",
     "start_task_run",
+    "stop_task_run_port_forward",
     "task_accessible_for_run_view",
     "task_exists",
     "task_ids_with_pr_url_subquery",
@@ -293,6 +300,35 @@ def _task_run_to_dto(run: TaskRun, *, task: Task | None = None) -> contracts.Tas
         created_by_id=parent.created_by_id if parent is not None else None,
         created_by_distinct_id=str(created_by.distinct_id) if created_by is not None else None,
         pr_url=(run.output or {}).get("pr_url"),
+    )
+
+
+def _task_run_port_forward_preview_url(port_forward: TaskRunPortForward, *, token: str | None = None) -> str | None:
+    base_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
+    if not base_url:
+        return None
+    path = f"{base_url.rstrip('/')}/v1/ports/{port_forward.id}/"
+    if token:
+        return f"{base_url.rstrip('/')}/v1/ports/{port_forward.id}/auth/?token={token}"
+    return path
+
+
+def _task_run_port_forward_to_dto(
+    port_forward: TaskRunPortForward, *, preview_url: str | None = None
+) -> contracts.TaskRunPortForwardDTO:
+    return contracts.TaskRunPortForwardDTO(
+        id=port_forward.id,
+        task_id=port_forward.task_id,
+        run_id=port_forward.task_run_id,
+        team_id=port_forward.team_id,
+        port=port_forward.port,
+        name=port_forward.name,
+        status=port_forward.status,
+        created_at=port_forward.created_at,
+        updated_at=port_forward.updated_at,
+        expires_at=port_forward.expires_at,
+        last_accessed_at=port_forward.last_accessed_at,
+        preview_url=preview_url if preview_url is not None else _task_run_port_forward_preview_url(port_forward),
     )
 
 
@@ -1963,6 +1999,176 @@ def _get_task_for_run_control(task_id: str | UUID, team_id: int, user_id: int | 
 def _get_visible_run(run_id: str | UUID, task_id: str | UUID, team_id: int) -> TaskRun | None:
     """A run scoped to its parent task + team. Caller is responsible for task visibility."""
     return _task_run_queryset().filter(pk=run_id, team_id=team_id, task_id=task_id).first()
+
+
+def list_task_run_port_forwards(
+    run_id: str | UUID, task_id: str | UUID, team_id: int
+) -> list[contracts.TaskRunPortForwardDTO] | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    forwards = TaskRunPortForward.objects.filter(task_run=run, team_id=team_id).order_by("port", "created_at")
+    return [_task_run_port_forward_to_dto(port_forward) for port_forward in forwards]
+
+
+def get_task_run_port_forward(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, forward_id: str | UUID
+) -> contracts.TaskRunPortForwardDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    port_forward = TaskRunPortForward.objects.filter(id=forward_id, task_run=run, team_id=team_id).first()
+    return _task_run_port_forward_to_dto(port_forward) if port_forward else None
+
+
+def _validate_port_forward_target(run: TaskRun, port: int) -> str | None:
+    if port < 1 or port > 65535:
+        return "Port must be between 1 and 65535"
+    if run.environment != TaskRun.Environment.CLOUD:
+        return "Only cloud task runs can expose ports"
+    if run.is_terminal:
+        return "Cannot expose ports for a completed task run"
+    if not (run.state or {}).get("sandbox_url"):
+        return "No active sandbox for this task run"
+    return None
+
+
+def create_task_run_port_forward(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    port: int,
+    name: str = "",
+    created_by_id: int | None = None,
+) -> tuple[contracts.TaskRunPortForwardDTO | None, str | None]:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    if error := _validate_port_forward_target(run, port):
+        return None, error
+
+    defaults = {"name": name[:80], "created_by_id": created_by_id}
+    try:
+        port_forward, _created = TaskRunPortForward.objects.get_or_create(
+            task_run=run,
+            task_id=run.task_id,
+            team_id=team_id,
+            port=port,
+            status=TaskRunPortForward.Status.ACTIVE,
+            defaults=defaults,
+        )
+    except IntegrityError:
+        port_forward = TaskRunPortForward.objects.get(
+            task_run=run,
+            team_id=team_id,
+            port=port,
+            status=TaskRunPortForward.Status.ACTIVE,
+        )
+
+    return _task_run_port_forward_to_dto(port_forward), None
+
+
+def stop_task_run_port_forward(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, forward_id: str | UUID
+) -> contracts.TaskRunPortForwardDTO | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    port_forward = TaskRunPortForward.objects.filter(id=forward_id, task_run=run, team_id=team_id).first()
+    if port_forward is None:
+        return None
+    if port_forward.status == TaskRunPortForward.Status.ACTIVE:
+        port_forward.status = TaskRunPortForward.Status.STOPPED
+        port_forward.save(update_fields=["status", "updated_at"])
+    return _task_run_port_forward_to_dto(port_forward)
+
+
+def create_task_run_port_forward_token(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    forward_id: str | UUID,
+    user_id: int,
+    distinct_id: str,
+) -> tuple[str | None, str | None]:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    port_forward = TaskRunPortForward.objects.filter(
+        id=forward_id,
+        task_run=run,
+        team_id=team_id,
+        status=TaskRunPortForward.Status.ACTIVE,
+    ).first()
+    if port_forward is None:
+        return None, None
+    if error := _validate_port_forward_target(run, port_forward.port):
+        return None, error
+
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+        create_task_port_forward_token as _create,
+    )
+
+    token = _create(
+        run,
+        forward_id=str(port_forward.id),
+        port=port_forward.port,
+        user_id=user_id,
+        distinct_id=distinct_id,
+    )
+    return token, _task_run_port_forward_preview_url(port_forward, token=token)
+
+
+def resolve_task_run_port_forward(token: str) -> contracts.TaskRunPortForwardResolveDTO | None:
+    """Resolve a port-forward token into sandbox connection details for the agent-proxy."""
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415
+        create_sandbox_connection_token as _create_connection_token,
+        validate_task_port_forward_token,
+    )
+
+    try:
+        payload = validate_task_port_forward_token(token)
+    except Exception:
+        return None
+
+    port_forward = (
+        TaskRunPortForward.objects.select_related("task_run")
+        .filter(
+            id=payload.forward_id,
+            task_run_id=payload.run_id,
+            task_id=payload.task_id,
+            team_id=payload.team_id,
+            port=payload.port,
+            status=TaskRunPortForward.Status.ACTIVE,
+        )
+        .first()
+    )
+    if port_forward is None:
+        return None
+
+    run = port_forward.task_run
+    if _validate_port_forward_target(run, port_forward.port) is not None:
+        return None
+
+    sandbox_url = (run.state or {}).get("sandbox_url")
+    if not isinstance(sandbox_url, str) or not sandbox_url:
+        return None
+
+    port_forward.last_accessed_at = django_timezone.now()
+    port_forward.save(update_fields=["last_accessed_at", "updated_at"])
+
+    return contracts.TaskRunPortForwardResolveDTO(
+        run_id=run.id,
+        task_id=run.task_id,
+        team_id=run.team_id,
+        forward_id=port_forward.id,
+        port=port_forward.port,
+        sandbox_url=sandbox_url,
+        sandbox_connect_token=(run.state or {}).get("sandbox_connect_token"),
+        connection_token=_create_connection_token(run, user_id=payload.user_id, distinct_id=payload.distinct_id),
+    )
 
 
 def task_run_exists(run_id: str | UUID, task_id: str | UUID, team_id: int) -> bool:

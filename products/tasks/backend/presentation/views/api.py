@@ -124,6 +124,9 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
     TaskRunLivingArtifactsResponseSerializer,
+    TaskRunPortForwardCreateRequestSerializer,
+    TaskRunPortForwardSerializer,
+    TaskRunPortForwardTokenResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
@@ -977,6 +980,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "task_session",
         "stream",
         "stream_token",
+        "port_forwards",
         "artifacts_presign",
         "artifacts_download",
     )
@@ -1724,6 +1728,106 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             force_proxy=tasks_facade.task_uses_pi_runtime(task_id, self.team_id),
         )
         return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunPortForwardSerializer(many=True), description="Forwarded ports"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="List task run port forwards",
+        description="List forwarded ports configured for this task run.",
+    )
+    @action(detail=True, methods=["get"], url_path="ports", required_scopes=["task:read"])
+    def port_forwards(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        forwards = tasks_facade.list_task_run_port_forwards(pk, task_id, self.team_id)
+        if forwards is None:
+            raise NotFound()
+        return Response(TaskRunPortForwardSerializer(forwards, many=True).data)
+
+    @validated_request(
+        request_serializer=TaskRunPortForwardCreateRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=TaskRunPortForwardSerializer, description="Forwarded port"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid port forward"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Create task run port forward",
+        description="Expose an explicit localhost port from a live cloud task sandbox.",
+    )
+    @port_forwards.mapping.post
+    def create_port_forward(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        created, error = tasks_facade.create_task_run_port_forward(
+            pk,
+            task_id,
+            self.team_id,
+            port=request.validated_data["port"],
+            name=request.validated_data.get("name", ""),
+            created_by_id=request.user.id,
+        )
+        if created is None and error is None:
+            raise NotFound()
+        if error:
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        return Response(TaskRunPortForwardSerializer(created).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunPortForwardTokenResponseSerializer, description="Port preview token"),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Inactive port forward"),
+            404: OpenApiResponse(description="Task run or port forward not found"),
+        },
+        summary="Get task run port forward token",
+        description="Generate a short-lived authenticated preview URL for a forwarded port.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"ports/(?P<forward_id>[^/.]+)/token",
+        required_scopes=["task:write"],
+    )
+    def port_forward_token(self, request, pk=None, forward_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        token, preview_url_or_error = tasks_facade.create_task_run_port_forward_token(
+            pk,
+            task_id,
+            self.team_id,
+            forward_id=forward_id,
+            user_id=request.user.id,
+            distinct_id=request.user.distinct_id,
+        )
+        if token is None and preview_url_or_error is None:
+            raise NotFound()
+        if token is None:
+            return Response(
+                TaskRunErrorResponseSerializer({"error": preview_url_or_error or "Port forward is not available"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(
+            TaskRunPortForwardTokenResponseSerializer({"token": token, "preview_url": preview_url_or_error}).data
+        )
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=TaskRunPortForwardSerializer, description="Stopped port forward"),
+            404: OpenApiResponse(description="Task run or port forward not found"),
+        },
+        summary="Stop task run port forward",
+        description="Stop exposing a forwarded port for this task run.",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"ports/(?P<forward_id>[^/.]+)/stop",
+        required_scopes=["task:write"],
+    )
+    def stop_port_forward(self, request, pk=None, forward_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        stopped = tasks_facade.stop_task_run_port_forward(pk, task_id, self.team_id, forward_id=forward_id)
+        if stopped is None:
+            raise NotFound()
+        return Response(TaskRunPortForwardSerializer(stopped).data)
 
     @validated_request(
         request_serializer=TaskRunCommandRequestSerializer,

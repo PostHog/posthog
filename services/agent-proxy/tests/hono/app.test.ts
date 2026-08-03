@@ -7,15 +7,17 @@ import { logger } from '@/lib/logging.js'
 vi.mock('@/lib/jwt.js', () => ({
     validateSandboxEventIngestToken: vi.fn(),
     validateStreamReadToken: vi.fn(),
+    validateTaskPortForwardToken: vi.fn(),
     loadPublicKeys: vi.fn(),
 }))
 
 import { createApp } from '@/hono/app.js'
-import { validateSandboxEventIngestToken } from '@/lib/jwt.js'
+import { validateSandboxEventIngestToken, validateTaskPortForwardToken } from '@/lib/jwt.js'
 
 const mockValidate = vi.mocked(validateSandboxEventIngestToken)
+const mockValidatePortForward = vi.mocked(validateTaskPortForwardToken)
 
-function makeConfig(): Config {
+function makeConfig(overrides?: Partial<Config>): Config {
     return {
         redisUrl: 'redis://localhost:6379',
         sandboxJwtPublicKeysPem: [],
@@ -29,6 +31,7 @@ function makeConfig(): Config {
         host: '0.0.0.0',
         shutdownGraceMs: 300_000,
         shutdownPrestopDelayMs: 0,
+        ...overrides,
     }
 }
 
@@ -36,6 +39,14 @@ describe('app onError', () => {
     beforeEach(() => {
         vi.clearAllMocks()
         mockValidate.mockResolvedValue({ runId: 'run-123', taskId: 'task-abc', teamId: 42 })
+        mockValidatePortForward.mockResolvedValue({
+            runId: 'run-123',
+            taskId: 'task-abc',
+            teamId: 42,
+            forwardId: 'forward-123',
+            port: 8000,
+            userId: 7,
+        })
     })
 
     it('logs unexpected route errors with request context and returns JSON 500', async () => {
@@ -55,5 +66,59 @@ describe('app onError', () => {
         const logged = errorSpy.mock.calls.find((c) => c[0] === 'http.unhandled_error')?.[1] as Record<string, unknown>
         expect(logged).toMatchObject({ error: 'redis exploded', path: '/v1/runs/run-123/ingest', method: 'POST' })
         expect(logged.requestId).toBeTruthy()
+    })
+
+    it('sets an HttpOnly cookie for a valid port-forward auth URL', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(redis, makeConfig(), [])
+
+        const res = await app.request('/v1/ports/forward-123/auth/?token=tok')
+
+        expect(res.status).toBe(302)
+        expect(res.headers.get('Location')).toBe('/v1/ports/forward-123/')
+        expect(res.headers.get('Set-Cookie')).toContain('ph_task_port_forward=tok')
+        expect(res.headers.get('Set-Cookie')).toContain('HttpOnly')
+    })
+
+    it('resolves and proxies an authenticated port-forward request to the sandbox agent server', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({ djangoCallbackBaseUrl: 'http://django', agentProxyCallbackSecret: 'secret' }),
+            []
+        )
+        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
+            if (String(url) === 'http://django/internal/tasks/port-forward/resolve/') {
+                expect(init?.headers).toMatchObject({
+                    'Content-Type': 'application/json',
+                    'X-Agent-Proxy-Secret': 'secret',
+                })
+                return Response.json({
+                    run_id: 'run-123',
+                    task_id: 'task-abc',
+                    team_id: 42,
+                    forward_id: 'forward-123',
+                    port: 8000,
+                    sandbox_url: 'https://sandbox.modal.run',
+                    connection_token: 'sandbox-jwt',
+                    sandbox_connect_token: 'connect-token',
+                })
+            }
+            expect(String(url)).toBe(
+                'https://sandbox.modal.run/ports/8000/some/path?x=1&_modal_connect_token=connect-token'
+            )
+            expect((init?.headers as Headers).get('Authorization')).toBe('Bearer sandbox-jwt')
+            return new Response('ok', { status: 201, headers: { 'X-Test': 'yes' } })
+        })
+
+        const res = await app.request('/v1/ports/forward-123/some/path?x=1', {
+            headers: { Authorization: 'Bearer tok' },
+        })
+
+        expect(res.status).toBe(201)
+        expect(await res.text()).toBe('ok')
+        expect(res.headers.get('X-Test')).toBe('yes')
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        fetchMock.mockRestore()
     })
 })

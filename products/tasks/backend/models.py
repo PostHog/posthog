@@ -2330,6 +2330,46 @@ class TaskRun(models.Model):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 
 
+class TaskRunPortForward(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        STOPPED = "stopped", "Stopped"
+        EXPIRED = "expired", "Expired"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task-run models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="port_forwards")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+    port = models.PositiveIntegerField(help_text="Loopback port exposed from inside the task sandbox")
+    name = models.CharField(max_length=80, blank=True, default="")
+    status = models.CharField(max_length=16, choices=Status, default=Status.ACTIVE)
+    created_at = models.DateTimeField(default=django_timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    last_accessed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_task_run_port_forward"
+        indexes = [
+            models.Index(fields=["team", "task_run", "status"], name="task_run_pf_team_run_status_idx"),
+            models.Index(fields=["expires_at"], name="task_run_pf_expires_at_idx"),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task_run", "port"],
+                condition=models.Q(status="active"),
+                name="task_run_pf_active_port_unique",
+            )
+        ]
+
+    def __str__(self):
+        return f"Port {self.port} for run {self.task_run_id}"
+
+
 class TaskArtifact(TeamScopedRootMixin, UUIDModel):
     class ArtifactType(models.TextChoices):
         SLACK_MESSAGE = "slack_message", "Slack message"

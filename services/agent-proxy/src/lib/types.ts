@@ -102,6 +102,16 @@ export interface SandboxEventIngestTokenPayload {
     teamId: number
 }
 
+// Claims extracted from a posthog:task_port_forward JWT.
+export interface TaskPortForwardTokenPayload {
+    runId: string
+    taskId: string
+    teamId: number
+    forwardId: string
+    port: number
+    userId: number
+}
+
 // ---------------------------------------------------------------------------
 // SSE stream connection outcome (matches Python StreamConnectionOutcome values)
 // ---------------------------------------------------------------------------

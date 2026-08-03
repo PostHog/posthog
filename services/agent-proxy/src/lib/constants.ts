@@ -84,6 +84,7 @@ export const CORS_MAX_AGE = '600'
 // JWT audience strings (must match Python validate_* helpers)
 export const STREAM_READ_AUDIENCE = 'posthog:stream_read'
 export const SANDBOX_EVENT_INGEST_AUDIENCE = 'posthog:sandbox_event_ingest'
+export const TASK_PORT_FORWARD_AUDIENCE = 'posthog:task_port_forward'
 
 // SSE event names (keepalive and terminal events carry a named "event:" line;
 // normal stream events do not — they carry only "id:" and "data:").

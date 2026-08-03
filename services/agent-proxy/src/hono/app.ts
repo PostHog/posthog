@@ -19,17 +19,17 @@ import { stream } from 'hono/streaming'
 import type { Redis } from 'ioredis'
 
 import type { Config } from '../lib/config.js'
-import { validateStreamReadToken } from '../lib/jwt.js'
+import { validateStreamReadToken, validateTaskPortForwardToken } from '../lib/jwt.js'
 import { logger, type RequestLogger } from '../lib/logging.js'
 import { getStreamKey } from '../lib/redis-stream.js'
 import { StreamCapacity } from '../lib/stream-capacity.js'
-import type { StreamReadTokenPayload } from '../lib/types.js'
+import type { StreamReadTokenPayload, TaskPortForwardTokenPayload } from '../lib/types.js'
 import { handleIngest } from './ingest-handler.js'
 import { observeStreamConnectionRejected } from './metrics.js'
 import { corsHeaders, corsPreflightHandler, httpMetrics, requestLog, securityHeaders } from './middleware.js'
 import { registerPublicRoutes } from './public-routes.js'
 import { streamTaskRunEvents } from './sse-handler.js'
-import type { HonoVariables, Lifecycle } from './types.js'
+import type { HonoCtx, HonoVariables, Lifecycle } from './types.js'
 
 // ---------------------------------------------------------------------------
 // Exported types
@@ -168,6 +168,84 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
         return handleIngest(c, redis, config, publicKeys)
     })
 
+    // -- Authenticated task-run port previews --
+    app.get('/v1/ports/:forwardId/auth/', async (c) => {
+        const token = c.req.query('token') ?? ''
+        const { forwardId } = c.req.param() as { forwardId: string }
+        let claims: TaskPortForwardTokenPayload
+        try {
+            claims = await validateTaskPortForwardToken(token, publicKeys)
+        } catch (err: unknown) {
+            const code = err instanceof Error ? err.constructor.name : 'UnknownError'
+            return c.json({ error: 'Invalid port forward token', code }, 401)
+        }
+        if (claims.forwardId !== forwardId) {
+            return c.json({ error: 'Token does not match port forward' }, 403)
+        }
+
+        c.header(
+            'Set-Cookie',
+            `ph_task_port_forward=${encodeURIComponent(token)}; Path=/v1/ports/${forwardId}; HttpOnly; SameSite=Lax; Max-Age=3600; Secure`
+        )
+        return c.redirect(`/v1/ports/${forwardId}/`, 302)
+    })
+
+    const handlePortForward = async (c: HonoCtx): Promise<Response> => {
+        const { forwardId } = c.req.param() as { forwardId: string }
+        const token = extractPortForwardToken(c, forwardId)
+        if (token === null) {
+            return c.json({ error: 'Missing port forward token' }, 401)
+        }
+
+        let claims: TaskPortForwardTokenPayload
+        try {
+            claims = await validateTaskPortForwardToken(token, publicKeys)
+        } catch (err: unknown) {
+            const code = err instanceof Error ? err.constructor.name : 'UnknownError'
+            return c.json({ error: 'Invalid port forward token', code }, 401)
+        }
+        if (claims.forwardId !== forwardId) {
+            return c.json({ error: 'Token does not match port forward' }, 403)
+        }
+
+        const resolved = await resolvePortForward(config, token)
+        if (resolved === null) {
+            return c.json({ error: 'Port forward is not available' }, 404)
+        }
+        if (resolved.port !== claims.port || resolved.forward_id !== claims.forwardId) {
+            return c.json({ error: 'Resolved port forward does not match token' }, 403)
+        }
+
+        const upstreamUrl = buildSandboxPortUrl(c.req.url, forwardId, resolved)
+        const headers = filteredProxyHeaders(c.req.raw.headers)
+        headers.set('Authorization', `Bearer ${resolved.connection_token}`)
+
+        const method = c.req.method.toUpperCase()
+        const init: RequestInit = { method, headers, redirect: 'manual' }
+        if (method !== 'GET' && method !== 'HEAD') {
+            init.body = await c.req.arrayBuffer()
+        }
+
+        try {
+            const upstream = await fetch(upstreamUrl, init)
+            return new Response(upstream.body, {
+                status: upstream.status,
+                statusText: upstream.statusText,
+                headers: filteredResponseHeaders(upstream.headers),
+            })
+        } catch (err) {
+            logger.warn('port_forward:upstream_unreachable', {
+                forwardId,
+                run: claims.runId,
+                error: err instanceof Error ? err.message : String(err),
+            })
+            return c.json({ error: 'Port forward target is not reachable' }, 502)
+        }
+    }
+
+    app.all('/v1/ports/:forwardId', handlePortForward)
+    app.all('/v1/ports/:forwardId/*', handlePortForward)
+
     // -- Catch-all 404 --
     app.all('*', (c) => c.json({ error: 'Not found' }, 404))
 
@@ -197,4 +275,109 @@ function extractStreamReadToken(c: { req: { header: (name: string) => string | u
     }
     const token = authorization.slice(prefix.length).trim()
     return token || null
+}
+
+function extractPortForwardToken(
+    c: { req: { header: (name: string) => string | undefined } },
+    forwardId: string
+): string | null {
+    const bearer = extractStreamReadToken(c)
+    if (bearer) {
+        return bearer
+    }
+    const cookie = c.req.header('Cookie') ?? c.req.header('cookie') ?? ''
+    const pathCookie = cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith('ph_task_port_forward='))
+    if (!pathCookie) {
+        return null
+    }
+    const token = decodeURIComponent(pathCookie.slice('ph_task_port_forward='.length))
+    return token || null
+}
+
+interface ResolvedPortForward {
+    run_id: string
+    task_id: string
+    team_id: number
+    forward_id: string
+    port: number
+    sandbox_url: string
+    connection_token: string
+    sandbox_connect_token?: string | null
+}
+
+async function resolvePortForward(config: Config, token: string): Promise<ResolvedPortForward | null> {
+    if (!config.djangoCallbackBaseUrl) {
+        logger.warn('port_forward:resolve_unconfigured')
+        return null
+    }
+    const response = await fetch(`${config.djangoCallbackBaseUrl}/internal/tasks/port-forward/resolve/`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Agent-Proxy-Secret': config.agentProxyCallbackSecret,
+        },
+        body: JSON.stringify({ token }),
+    })
+    if (!response.ok) {
+        logger.warn('port_forward:resolve_failed', { status: response.status })
+        return null
+    }
+    return (await response.json()) as ResolvedPortForward
+}
+
+function buildSandboxPortUrl(requestUrl: string, forwardId: string, resolved: ResolvedPortForward): string {
+    const incoming = new URL(requestUrl)
+    const prefix = `/v1/ports/${forwardId}`
+    const suffix = incoming.pathname.startsWith(prefix) ? incoming.pathname.slice(prefix.length) || '/' : '/'
+    const target = new URL(`${resolved.sandbox_url.replace(/\/$/, '')}/ports/${resolved.port}${suffix}`)
+    incoming.searchParams.forEach((value, key) => {
+        target.searchParams.append(key, value)
+    })
+    if (resolved.sandbox_connect_token) {
+        target.searchParams.set('_modal_connect_token', resolved.sandbox_connect_token)
+    }
+    return target.toString()
+}
+
+const HOP_BY_HOP_HEADERS = new Set([
+    'connection',
+    'keep-alive',
+    'proxy-authenticate',
+    'proxy-authorization',
+    'te',
+    'trailer',
+    'transfer-encoding',
+    'upgrade',
+])
+
+function filteredProxyHeaders(input: Headers): Headers {
+    const headers = new Headers()
+    input.forEach((value, key) => {
+        const normalized = key.toLowerCase()
+        if (
+            HOP_BY_HOP_HEADERS.has(normalized) ||
+            normalized === 'host' ||
+            normalized === 'authorization' ||
+            normalized === 'cookie'
+        ) {
+            return
+        }
+        headers.set(key, value)
+    })
+    return headers
+}
+
+function filteredResponseHeaders(input: Headers): Headers {
+    const headers = new Headers()
+    input.forEach((value, key) => {
+        const normalized = key.toLowerCase()
+        if (HOP_BY_HOP_HEADERS.has(normalized)) {
+            return
+        }
+        headers.set(key, value)
+    })
+    return headers
 }

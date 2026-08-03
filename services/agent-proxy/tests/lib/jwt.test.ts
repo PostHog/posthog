@@ -6,8 +6,13 @@
 import { SignJWT, exportSPKI, generateKeyPair } from 'jose'
 import { describe, it, expect, beforeAll } from 'vitest'
 
-import { SANDBOX_EVENT_INGEST_AUDIENCE, STREAM_READ_AUDIENCE } from '@/lib/constants.js'
-import { loadPublicKeys, validateSandboxEventIngestToken, validateStreamReadToken } from '@/lib/jwt.js'
+import { SANDBOX_EVENT_INGEST_AUDIENCE, STREAM_READ_AUDIENCE, TASK_PORT_FORWARD_AUDIENCE } from '@/lib/constants.js'
+import {
+    loadPublicKeys,
+    validateSandboxEventIngestToken,
+    validateStreamReadToken,
+    validateTaskPortForwardToken,
+} from '@/lib/jwt.js'
 
 // ---------------------------------------------------------------------------
 // Shared key-pair fixture
@@ -57,6 +62,9 @@ interface TokenOptions {
     expiresIn?: string
     omitExp?: boolean
     signingKey?: CryptoKey
+    forwardId?: string
+    port?: unknown
+    userId?: unknown
 }
 
 async function signToken(opts: TokenOptions = {}): Promise<string> {
@@ -68,9 +76,17 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
         expiresIn = '1h',
         omitExp = false,
         signingKey,
+        forwardId,
+        port,
+        userId,
     } = opts
 
-    const builder = new SignJWT({ run_id: runId, task_id: taskId, team_id: teamId }).setProtectedHeader({
+    const claims: Record<string, unknown> = { run_id: runId, task_id: taskId, team_id: teamId }
+    if (forwardId !== undefined) claims.forward_id = forwardId
+    if (port !== undefined) claims.port = port
+    if (userId !== undefined) claims.user_id = userId
+
+    const builder = new SignJWT(claims).setProtectedHeader({
         alg: 'RS256',
     })
 
@@ -159,6 +175,40 @@ describe('jwt', () => {
             const token = await signToken({ audience: STREAM_READ_AUDIENCE, teamId: true })
 
             await expect(validateStreamReadToken(token, keys.publicKeys)).rejects.toThrow('team_id must be an integer')
+        })
+    })
+
+    describe('validateTaskPortForwardToken', () => {
+        it('verifies a valid task_port_forward token', async () => {
+            const token = await signToken({
+                audience: TASK_PORT_FORWARD_AUDIENCE,
+                forwardId: 'forward-123',
+                port: 8000,
+                userId: 7,
+            })
+
+            const payload = await validateTaskPortForwardToken(token, keys.publicKeys)
+
+            expect(payload).toEqual({
+                runId: 'run-abc-123',
+                taskId: 'task-abc-123',
+                teamId: 42,
+                forwardId: 'forward-123',
+                port: 8000,
+                userId: 7,
+            })
+        })
+
+        it('rejects a port-forward token missing the forward id', async () => {
+            const token = await signToken({
+                audience: TASK_PORT_FORWARD_AUDIENCE,
+                port: 8000,
+                userId: 7,
+            })
+
+            await expect(validateTaskPortForwardToken(token, keys.publicKeys)).rejects.toThrow(
+                'forward_id must be a string'
+            )
         })
     })
 
