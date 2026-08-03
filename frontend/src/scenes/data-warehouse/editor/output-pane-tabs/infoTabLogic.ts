@@ -125,7 +125,7 @@ export const infoTabLogic = kea<infoTabLogicType>([
                                 type: 'table',
                                 view_id: view.id,
                                 status: view.status,
-                                last_run_at: view.last_run_at || 'never',
+                                last_run_at: view.last_run_at ?? null,
                             }
                         }
 
