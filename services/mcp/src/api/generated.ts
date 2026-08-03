@@ -32280,7 +32280,7 @@ export namespace Schemas {
        * * `string` - String
        * * `number` - Number
        * * `json` - JSON */
-      return_type?: ReturnTypeEnum | BlankEnum | null;
+      return_type?: ReturnTypeEnum | null;
       /**
          * Last time this feature flag was called (from $feature_flag_called events)
          * @nullable

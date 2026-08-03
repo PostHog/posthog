@@ -599,7 +599,6 @@ export const FeatureFlagsUpdateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['boolean', 'string', 'number', 'json'])
                     .describe('\* `boolean` - Boolean\n\* `string` - String\n\* `number` - Number\n\* `json` - JSON'),
-                zod.enum(['']),
                 zod.null(),
             ])
             .optional()
@@ -1051,7 +1050,6 @@ export const FeatureFlagsCreateStaticCohortForFlagCreateBody = /* @__PURE__ */ z
                 zod
                     .enum(['boolean', 'string', 'number', 'json'])
                     .describe('\* `boolean` - Boolean\n\* `string` - String\n\* `number` - Number\n\* `json` - JSON'),
-                zod.enum(['']),
                 zod.null(),
             ])
             .optional()
@@ -1149,7 +1147,6 @@ export const FeatureFlagsDashboardCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['boolean', 'string', 'number', 'json'])
                     .describe('\* `boolean` - Boolean\n\* `string` - String\n\* `number` - Number\n\* `json` - JSON'),
-                zod.enum(['']),
                 zod.null(),
             ])
             .optional()
@@ -1247,7 +1244,6 @@ export const FeatureFlagsEnrichUsageDashboardCreateBody = /* @__PURE__ */ zod
                 zod
                     .enum(['boolean', 'string', 'number', 'json'])
                     .describe('\* `boolean` - Boolean\n\* `string` - String\n\* `number` - Number\n\* `json` - JSON'),
-                zod.enum(['']),
                 zod.null(),
             ])
             .optional()

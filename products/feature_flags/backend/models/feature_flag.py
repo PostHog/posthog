@@ -229,11 +229,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         ("number", "Number"),
         ("json", "JSON"),
     ]
+    # No blank=True: null is the only "undeclared" state, so an empty string stays invalid
+    # rather than becoming a second way to say the same thing.
     return_type = models.CharField(
         max_length=16,
         choices=RETURN_TYPE_CHOICES,
         null=True,
-        blank=True,
         help_text="Type of value this flag returns to calling code. Null means undeclared",
     )
 

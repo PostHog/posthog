@@ -1165,7 +1165,7 @@ class FeatureFlagSerializer(
         if current and attrs["return_type"] != current:
             raise serializers.ValidationError(
                 {
-                    "return_type": f"Cannot change the return type of a flag that already returns '{current}'. "
+                    "return_type": f"Cannot change the return type of a flag that already declares '{current}'. "
                     "Calling code relies on it. Create a new flag instead."
                 }
             )

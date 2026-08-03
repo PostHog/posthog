@@ -13,7 +13,6 @@ class Migration(migrations.Migration):
             model_name="featureflag",
             name="return_type",
             field=models.CharField(
-                blank=True,
                 choices=[
                     ("boolean", "Boolean"),
                     ("string", "String"),
