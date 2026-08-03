@@ -227,6 +227,7 @@
     'stats_config',
     'type',
     'variants',
+    'version',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_ExperimentHoldout
