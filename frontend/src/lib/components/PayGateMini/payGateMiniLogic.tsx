@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { membershipLevelToName } from 'lib/utils/permissioning'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -19,14 +21,17 @@ export type GateVariantType = 'add-card' | 'contact-sales' | 'move-to-cloud' | n
 export interface payGateMiniLogicValues {
     billing: BillingType | null // billingLogic
     billingLoading: boolean // billingLogic
+    canAccessBilling: boolean // billingLogic
+    minimumBillingAccessLevel: OrganizationMembershipLevel // billingLogic
     isCloudOrDev: boolean | undefined // preflightLogic
     availableFeature: (feature: AvailableFeature) => BillingFeatureType | null | undefined // userLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
     addonTrialModalOpen: boolean
     bypassPaywall: boolean
-    ctaLabel: 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans'
+    ctaLabel: 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans' | 'Ask an admin to upgrade'
     ctaLink: string | undefined
+    ctaDisabledReason: string | undefined
     featureAvailableOnOrg: BillingFeatureType | null | undefined
     featureInfo: BillingFeatureType | undefined
     featureInfoOnNextPlan: BillingFeatureType | undefined
@@ -88,16 +93,24 @@ export interface payGateMiniLogicMeta {
         ctaLink: (
             gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
             productWithFeature: BillingProductV2AddonType | BillingProductV2Type | undefined,
-            featureInfo: BillingFeatureType | undefined
+            featureInfo: BillingFeatureType | undefined,
+            canAccessBilling: boolean
         ) => string | undefined
         ctaLabel: (
             gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
-            isPaymentEntryFlow: boolean
-        ) => 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans'
+            isPaymentEntryFlow: boolean,
+            canAccessBilling: boolean
+        ) => 'Contact sales' | 'Move to PostHog Cloud' | 'Upgrade now' | 'View plans' | 'Ask an admin to upgrade'
+        ctaDisabledReason: (
+            gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+            canAccessBilling: boolean,
+            minimumBillingAccessLevel: OrganizationMembershipLevel
+        ) => string | undefined
         isPaymentEntryFlow: (
             gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
             isAddonProduct: boolean | undefined,
-            billing: BillingType | null
+            billing: BillingType | null,
+            canAccessBilling: boolean
         ) => boolean
     }
 }
@@ -116,7 +129,7 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
     connect(() => ({
         values: [
             billingLogic,
-            ['billing', 'billingLoading'],
+            ['billing', 'billingLoading', 'canAccessBilling', 'minimumBillingAccessLevel'],
             userLogic,
             ['user', 'hasAvailableFeature', 'availableFeature'],
             preflightLogic,
@@ -249,15 +262,21 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         ctaLink: [
-            (s) => [s.gateVariant, s.productWithFeature, s.featureInfo],
+            (s) => [s.gateVariant, s.productWithFeature, s.featureInfo, s.canAccessBilling],
             (
                 gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
                 productWithFeature: BillingProductV2AddonType | BillingProductV2Type | undefined,
-                featureInfo: import('~/types').BillingFeatureType | undefined
+                featureInfo: import('~/types').BillingFeatureType | undefined,
+                canAccessBilling: boolean
             ) => {
                 // product activation is already handled in the startPaymentEntryFlow,
                 // ctaLink is used only when isPaymentEntryFlow is false
                 if (gateVariant === 'add-card') {
+                    // Members below the billing access level can't view /organization/billing,
+                    // so don't send them there - ctaDisabledReason tells them who to ask instead
+                    if (!canAccessBilling) {
+                        return undefined
+                    }
                     return `/organization/billing${productWithFeature?.type ? `?products=${productWithFeature.type}` : ''}`
                 } else if (gateVariant === 'contact-sales') {
                     return `mailto:sales@posthog.com?subject=Inquiring about ${featureInfo?.name}`
@@ -268,13 +287,20 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
             },
         ],
         ctaLabel: [
-            (s) => [s.gateVariant, s.isPaymentEntryFlow],
-            (gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null, isPaymentEntryFlow: boolean) => {
+            (s) => [s.gateVariant, s.isPaymentEntryFlow, s.canAccessBilling],
+            (
+                gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+                isPaymentEntryFlow: boolean,
+                canAccessBilling: boolean
+            ) => {
                 if (gateVariant === 'contact-sales') {
                     return 'Contact sales'
                 }
                 if (gateVariant === 'move-to-cloud') {
                     return 'Move to PostHog Cloud'
+                }
+                if (gateVariant === 'add-card' && !canAccessBilling) {
+                    return 'Ask an admin to upgrade'
                 }
                 if (isPaymentEntryFlow) {
                     return 'Upgrade now'
@@ -285,16 +311,36 @@ export const payGateMiniLogic = kea<payGateMiniLogicType>([
                 return 'Upgrade now'
             },
         ],
+        ctaDisabledReason: [
+            (s) => [s.gateVariant, s.canAccessBilling, s.minimumBillingAccessLevel],
+            (
+                gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
+                canAccessBilling: boolean,
+                minimumBillingAccessLevel: OrganizationMembershipLevel
+            ) => {
+                if (gateVariant !== 'add-card' || canAccessBilling) {
+                    return undefined
+                }
+                const roleName = membershipLevelToName.get(minimumBillingAccessLevel) ?? 'admin'
+                return `Ask an organization ${roleName} to upgrade your plan.`
+            },
+        ],
         isPaymentEntryFlow: [
-            (s) => [s.gateVariant, s.isAddonProduct, s.billing],
+            (s) => [s.gateVariant, s.isAddonProduct, s.billing, s.canAccessBilling],
             (
                 gateVariant: 'add-card' | 'contact-sales' | 'move-to-cloud' | null,
                 isAddonProduct: boolean | undefined,
-                billing: null | import('~/types').BillingType
+                billing: null | import('~/types').BillingType,
+                canAccessBilling: boolean
             ): boolean => {
                 // Show payment entry flow only for free customers trying to upgrade to a paid plan
-                // to use core features (not addons)
-                return gateVariant === 'add-card' && !isAddonProduct && billing?.subscription_level === 'free'
+                // to use core features (not addons), and only when they can actually manage billing
+                return (
+                    gateVariant === 'add-card' &&
+                    !isAddonProduct &&
+                    billing?.subscription_level === 'free' &&
+                    canAccessBilling
+                )
             },
         ],
     })),

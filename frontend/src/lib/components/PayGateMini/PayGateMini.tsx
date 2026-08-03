@@ -34,6 +34,11 @@ export type PayGateMiniProps = PayGateMiniLogicProps & {
      * Actions
      */
     handleSubmit?: () => void
+    /**
+     * Extra properties to merge into the `pay gate shown` / `pay gate CTA clicked` events,
+     * e.g. feature-specific access status that's otherwise a guess from outside this component
+     */
+    extraEventProperties?: Record<string, unknown>
 }
 
 /** A sort of paywall for premium features.
@@ -52,8 +57,9 @@ export function PayGateMini({
     docsLink,
     loadingSkeleton,
     handleSubmit,
+    extraEventProperties,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, ctaLabel } = useValues(
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, ctaLabel, canAccessBilling } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
@@ -68,9 +74,12 @@ export function PayGateMini({
                 feature: feature,
                 gate_variant: gateVariant,
                 cta_label: ctaLabel,
+                has_billing_access: canAccessBilling,
+                ...extraEventProperties,
             })
         }
-    }, [gateVariant, ctaLabel]) // oxlint-disable-line react-hooks/exhaustive-deps
+        // oxlint-disable-next-line react-hooks/exhaustive-deps
+    }, [gateVariant, ctaLabel, canAccessBilling])
 
     const handleCtaClick = (): void => {
         if (handleSubmit) {
@@ -81,6 +90,8 @@ export function PayGateMini({
             feature: feature,
             gate_variant: gateVariant,
             cta_label: ctaLabel,
+            has_billing_access: canAccessBilling,
+            ...extraEventProperties,
         })
     }
 

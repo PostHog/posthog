@@ -15,7 +15,7 @@ type UsePayGateButtonReturn = Pick<
     payGateMiniLogicType['values'],
     'ctaLabel' | 'gateVariant' | 'productWithFeature'
 > & {
-    clickHandlerProps: Pick<LemonButtonProps, 'onClick' | 'to'>
+    clickHandlerProps: Pick<LemonButtonProps, 'onClick' | 'to' | 'disabledReason'>
 }
 
 function usePayGateButton({
@@ -23,24 +23,26 @@ function usePayGateButton({
     currentUsage,
     onClick,
 }: PayGateMiniLogicProps & Pick<LemonButtonProps, 'onClick'>): UsePayGateButtonReturn {
-    const { productWithFeature, ctaLink, ctaLabel, gateVariant, isPaymentEntryFlow } = useValues(
+    const { productWithFeature, ctaLink, ctaLabel, ctaDisabledReason, gateVariant, isPaymentEntryFlow } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { startPaymentEntryFlow } = useActions(paymentEntryLogic)
 
-    const clickHandlerProps = isPaymentEntryFlow
-        ? {
-              onClick: (ev: React.MouseEvent<HTMLButtonElement>) => {
-                  startPaymentEntryFlow(
-                      productWithFeature as BillingProductV2Type,
-                      window.location.pathname + window.location.search
-                  )
-                  if (onClick) {
-                      onClick(ev)
-                  }
-              },
-          }
-        : { to: ctaLink }
+    const clickHandlerProps = ctaDisabledReason
+        ? { disabledReason: ctaDisabledReason }
+        : isPaymentEntryFlow
+          ? {
+                onClick: (ev: React.MouseEvent<HTMLButtonElement>) => {
+                    startPaymentEntryFlow(
+                        productWithFeature as BillingProductV2Type,
+                        window.location.pathname + window.location.search
+                    )
+                    if (onClick) {
+                        onClick(ev)
+                    }
+                },
+            }
+          : { to: ctaLink }
 
     return {
         clickHandlerProps,

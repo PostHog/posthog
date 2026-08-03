@@ -1,16 +1,22 @@
+import { useValues } from 'kea'
+
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 
 import { AvailableFeature } from '~/types'
 
 export function GroupsIntroduction(): JSX.Element {
+    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
     return (
         <PayGateMini
             feature={AvailableFeature.GROUP_ANALYTICS}
             className="py-8"
             docsLink="https://posthog.com/docs/user-guides/group-analytics"
+            extraEventProperties={{ groups_access_status: GroupsAccessStatus[groupsAccessStatus] }}
         >
             <div className="flex flex-col items-center mt-4 justify-center text-center border rounded-lg py-8 min-h-56">
                 <h2 className="mb-2 text-2xl font-semibold">Start tracking groups</h2>

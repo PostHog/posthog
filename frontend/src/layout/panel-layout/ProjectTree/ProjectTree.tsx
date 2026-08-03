@@ -3,12 +3,21 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { RefObject, useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconCheckbox, IconChevronRight, IconEllipsis, IconFolderPlus, IconPlusSmall, IconStar } from '@posthog/icons'
+import {
+    IconCheckbox,
+    IconChevronRight,
+    IconEllipsis,
+    IconFolderPlus,
+    IconLock,
+    IconPlusSmall,
+    IconStar,
+} from '@posthog/icons'
 
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import {
     LemonTree,
@@ -159,6 +168,7 @@ export function ProjectTree({
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { needsUpgradeForGroups } = useValues(groupsAccessLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
@@ -555,6 +565,9 @@ export function ProjectTree({
                 }
 
                 if (root === 'data-and-people://' || root === 'project://' || root === 'shortcuts://') {
+                    if (needsUpgradeForGroups && item.record?.category === 'Groups') {
+                        return <>Group analytics is a paid feature. Click to learn more and upgrade.</>
+                    }
                     const key = item.record?.sceneKey
                     const description = sceneConfigurations[key]?.description
                     if (description) {
@@ -586,6 +599,8 @@ export function ProjectTree({
                     (reasonText || USER_PRODUCT_LIST_REASON_DEFAULTS[reason]) &&
                     !seenCustomProducts.includes(itemId)
 
+                const isGroupsGated = needsUpgradeForGroups && item.record?.category === 'Groups'
+
                 return (
                     <>
                         {sortMethod === 'recent' && item.type !== 'loading-indicator' && (
@@ -599,6 +614,12 @@ export function ProjectTree({
                             <TreeNodeDisplayIcon item={item} expandedItemIds={expandedFolders} />
                             {showIndicator && (
                                 <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
+                            )}
+                            {isGroupsGated && (
+                                <IconLock
+                                    className="absolute -bottom-1 -right-1 text-xs rounded-full bg-surface-primary"
+                                    style={{ color: 'var(--warning)' }}
+                                />
                             )}
                         </div>
                     </>
