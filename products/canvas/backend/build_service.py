@@ -23,6 +23,7 @@ import shutil
 import hashlib
 import subprocess
 from datetime import timedelta
+from functools import partial
 from typing import Any
 from uuid import UUID
 
@@ -677,7 +678,7 @@ def sweep_canvas_builds() -> dict[str, int]:
                 build.status = CanvasBuild.STATUS_QUEUED
                 build.lease_expires_at = None
                 build.save(update_fields=["status", "lease_expires_at"])
-                transaction.on_commit(lambda stuck=build: _enqueue_build(stuck))
+                transaction.on_commit(partial(_enqueue_build, build))
                 counts["requeued"] += 1
 
     with transaction.atomic():
@@ -702,7 +703,7 @@ def sweep_canvas_builds() -> dict[str, int]:
             else:
                 # Re-delivery is idempotent: the worker claims rows under a
                 # row lock and no-ops on anything already claimed or finished.
-                transaction.on_commit(lambda stuck=build: _enqueue_build(stuck))
+                transaction.on_commit(partial(_enqueue_build, build))
                 counts["redelivered"] += 1
 
     for outcome, count in counts.items():

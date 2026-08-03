@@ -76,7 +76,9 @@ class CanvasUpdateSerializer(serializers.Serializer):
     """Writable canvas fields: metadata only — source changes go through publish/edit."""
 
     name = serializers.CharField(required=False, allow_blank=False, trim_whitespace=True, max_length=400)
-    context = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)
+    # The field name shadows BaseSerializer.context; the metaclass moves declared fields into
+    # _declared_fields, so self.context still resolves to the serializer context at runtime.
+    context = serializers.CharField(required=False, allow_blank=True, trim_whitespace=False)  # type: ignore[assignment]
     pinned = serializers.BooleanField(required=False)
     generation_task_id = serializers.UUIDField(required=False, allow_null=True)
 

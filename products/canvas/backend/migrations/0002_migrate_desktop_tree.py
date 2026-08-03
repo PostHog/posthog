@@ -21,6 +21,7 @@ follow-up posthog migration.
 import re
 from collections import defaultdict
 from datetime import UTC, datetime
+from typing import Any
 
 from django.db import migrations
 
@@ -72,8 +73,8 @@ def migrate_desktop_tree(apps, schema_editor):
 
         # 1. Top-level folders → channels. Deeper folders resolve through their
         # top-level ancestor; "Unfiled" is the tree's system folder, not a channel.
-        channel_by_folder_id: dict[str, object] = {}
-        channel_by_top_path: dict[str, object] = {}
+        channel_by_folder_id: dict[str, Any] = {}
+        channel_by_top_path: dict[str, Any] = {}
         for folder in team_folders:
             top = re.split(r"(?<!\\)/", folder.path or "")[0]
             normalized = _normalize_channel_name(top.replace("\\/", "/"))
