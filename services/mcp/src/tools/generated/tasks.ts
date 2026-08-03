@@ -332,6 +332,7 @@ const loopsRunsRetrieve = (): ToolBase<typeof LoopsRunsRetrieveSchema, WithPostH
 const TasksCreateSchema = TasksCreateBody.omit({
     title_manually_set: true,
     origin_product: true,
+    repositories: true,
     github_integration: true,
     github_user_integration: true,
     signal_report: true,

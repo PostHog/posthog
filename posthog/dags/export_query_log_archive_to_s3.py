@@ -141,7 +141,9 @@ def export_query_log_archive_day(
     # Leaf rows of a query straddling midnight land on the next event_date, hence the two-day window.
     # The rollup keeps only parents present in the day's initial rows so its join hash table stays
     # small enough to hold in memory; spilling the join to disk instead OOMs or times out on the
-    # read-back of the wide probe rows.
+    # read-back of the wide probe rows. Parents are matched on cityHash64(query_id) rather than the
+    # 36-char id string, shrinking the IN set and hash table keys 5x; a 64-bit collision would merge
+    # one pair of queries' rollups (~once per 160 years of daily exports).
     query = f"""
 INSERT INTO FUNCTION s3('{s3_url}', 'Parquet')
 SELECT
@@ -155,6 +157,7 @@ FROM
 (
     SELECT
         {columns},
+        cityHash64(query_id) AS parent_key,
         query,
         lc_query__query
     FROM {SOURCE_TABLE}
@@ -163,19 +166,21 @@ FROM
 LEFT JOIN
 (
     SELECT
-        initial_query_id AS leaf_initial_query_id,
+        cityHash64(initial_query_id) AS leaf_parent_key,
         count() AS leaf_count,
         max(memory_usage) AS leaf_memory_usage_max,
         {leaf_sums}
     FROM {SOURCE_TABLE}
     WHERE event_date >= toDate('{day}') AND event_date <= toDate('{day}') + 1 AND NOT is_initial_query
-        AND initial_query_id IN (
-            SELECT query_id FROM {SOURCE_TABLE} WHERE event_date = toDate('{day}') AND is_initial_query
+        AND cityHash64(initial_query_id) IN (
+            SELECT cityHash64(query_id) FROM {SOURCE_TABLE} WHERE event_date = toDate('{day}') AND is_initial_query
         )
-    GROUP BY leaf_initial_query_id
-) AS leaf ON initial_rows.query_id = leaf.leaf_initial_query_id
+    GROUP BY leaf_parent_key
+) AS leaf ON initial_rows.parent_key = leaf.leaf_parent_key
 SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads},
-    join_algorithm = 'hash', max_bytes_before_external_group_by = 2000000000
+    join_algorithm = 'hash', max_bytes_before_external_group_by = 2000000000,
+    min_insert_block_size_rows = 65536, min_insert_block_size_bytes = 134217728,
+    output_format_parquet_row_group_size = 131072, output_format_parquet_row_group_size_bytes = 134217728
 """
 
     def run(client: Client) -> str:
