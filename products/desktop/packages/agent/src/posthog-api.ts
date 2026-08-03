@@ -1,6 +1,7 @@
 import type { StoredLogEntry } from "@posthog/shared";
 import packageJson from "../package.json" with { type: "json" };
 import type {
+  ArtifactSource,
   ArtifactType,
   PostHogAPIConfig,
   StoredEntry,
@@ -17,7 +18,7 @@ const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.versio
 export interface TaskArtifactUploadPayload {
   name: string;
   type: ArtifactType;
-  source?: string;
+  source?: ArtifactSource;
   content: string;
   /** Encoding of `content`. With "base64" the backend stores the decoded bytes. */
   content_encoding?: "utf-8" | "base64";
@@ -27,7 +28,7 @@ export interface TaskArtifactUploadPayload {
 export interface TaskArtifactPrepareUploadPayload {
   name: string;
   type: ArtifactType;
-  source?: string;
+  source?: ArtifactSource;
   size: number;
   content_type?: string;
 }
@@ -36,7 +37,7 @@ export interface PreparedTaskArtifactUpload {
   id: string;
   name: string;
   type: ArtifactType;
-  source?: string;
+  source?: ArtifactSource;
   size: number;
   content_type?: string;
   storage_path: string;
@@ -54,7 +55,7 @@ export interface TaskArtifactFinalizeUploadPayload {
   id: string;
   name: string;
   type: ArtifactType;
-  source?: string;
+  source?: ArtifactSource;
   storage_path: string;
   content_type?: string;
 }

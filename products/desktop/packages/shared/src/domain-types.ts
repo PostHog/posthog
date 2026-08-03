@@ -227,6 +227,11 @@ export type ArtifactType =
   | "user_attachment"
   | "skill_bundle";
 
+export type ArtifactSource =
+  | "agent_output"
+  | "user_attachment"
+  | "posthog_code_skill";
+
 export interface TaskRunArtifactMetadata {
   skill_name: string;
   skill_source: UploadableSkillSource;
@@ -239,7 +244,7 @@ export interface TaskRunArtifact {
   id?: string;
   name: string;
   type: ArtifactType;
-  source?: string;
+  source?: ArtifactSource;
   size?: number;
   content_type?: string;
   metadata?: TaskRunArtifactMetadata;
@@ -592,8 +597,7 @@ export interface PriorityJudgmentContent {
 }
 
 /** Artefact with `type: "actionability_judgment"` — actionability assessment from the agentic report. */
-export interface ActionabilityJudgmentArtefact
-  extends SignalReportArtefactBase {
+export interface ActionabilityJudgmentArtefact extends SignalReportArtefactBase {
   type: "actionability_judgment";
   content: ActionabilityJudgmentContent;
 }
@@ -922,7 +926,4 @@ export interface SlackChannelsQueryParams {
   channelId?: string;
 }
 
-export type {
-  NewTaskLinkPayload,
-  NewTaskSharedParams,
-} from "./deep-links";
+export type { NewTaskLinkPayload, NewTaskSharedParams } from "./deep-links";
