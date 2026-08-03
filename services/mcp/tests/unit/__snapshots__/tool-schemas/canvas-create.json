@@ -17,6 +17,7 @@
         },
         "template_id": {
             "default": "freeform",
+            "description": "Canvas template identifier.",
             "maxLength": 64,
             "type": "string"
         }
