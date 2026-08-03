@@ -22,6 +22,7 @@
 //!
 //! This module itself holds only what more than one pipeline genuinely shares.
 
+pub mod ai;
 pub mod legacy;
 pub mod otel;
 
@@ -73,6 +74,27 @@ impl SdkAttribution {
 /// on the unknown fallback instead of riding into every warning for the request.
 pub(crate) fn within_bound(value: String) -> Option<String> {
     (value.len() <= MAX_SDK_ATTRIBUTION_LEN).then_some(value)
+}
+
+/// Bound a client-supplied value being copied into a warning's details.
+///
+/// Same budget and same reason as [`MAX_SDK_ATTRIBUTION_LEN`]: details ride into
+/// every warning message and land in a customer-visible table, and nothing
+/// downstream length-limits them, so an oversized event name or part name would
+/// inflate Kafka messages and warning storage.
+///
+/// Unlike attribution, these values name the thing the customer has to fix, so
+/// an oversized one is truncated rather than dropped. Truncation is marked, and
+/// respects char boundaries so a multi-byte name can't be cut mid-character.
+pub(crate) fn bounded_detail(value: &str) -> String {
+    if value.len() <= MAX_SDK_ATTRIBUTION_LEN {
+        return value.to_string();
+    }
+    let end = (0..=MAX_SDK_ATTRIBUTION_LEN)
+        .rev()
+        .find(|&i| value.is_char_boundary(i))
+        .unwrap_or(0);
+    format!("{}…", &value[..end])
 }
 
 /// Stamp [`UNKNOWN_ATTRIBUTION`] rather than dropping the key, so every warning
