@@ -254,10 +254,7 @@ mod test {
         // tries to access an undefined global
         let props = test_props(JsonValue::from("no_match"));
 
-        let matched =
-            evaluate_grouping_rules(&ctx.posthog_pool, test_team_id, &ctx.team_manager, || {
-                Ok(props)
-            })
+        let matched = evaluate_grouping_rules(&db, test_team_id, &team_manager, || Ok(props))
             .await
             .unwrap();
 
