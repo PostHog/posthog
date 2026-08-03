@@ -289,7 +289,7 @@ describe('create-event-step', () => {
         })
 
         describe('$experiment_exposure duplication', () => {
-            it('duplicates multivariate $feature_flag_called events for allowlisted teams', async () => {
+            it('duplicates multivariate $feature_flag_called events for allowlisted teams with a fresh uuid', async () => {
                 const step = createCreateEventStep(EVENTS_OUTPUT, '2')
                 const result = await step({
                     person: mockPerson,
@@ -315,7 +315,12 @@ describe('create-event-step', () => {
                     expect(result.value.eventsToEmit).toHaveLength(2)
                     const [flagCalled, exposure] = result.value.eventsToEmit
                     expect(exposure.output).toBe(EVENTS_OUTPUT)
-                    expect(exposure.event).toEqual({ ...flagCalled.event, event: '$experiment_exposure' })
+                    expect(exposure.event.uuid).not.toBe(flagCalled.event.uuid)
+                    expect(exposure.event).toEqual({
+                        ...flagCalled.event,
+                        event: '$experiment_exposure',
+                        uuid: exposure.event.uuid,
+                    })
                 }
             })
 

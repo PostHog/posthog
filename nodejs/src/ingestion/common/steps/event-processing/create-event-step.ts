@@ -1,4 +1,5 @@
 import { Message } from 'node-rdkafka'
+import { v7 as uuidv7 } from 'uuid'
 
 import { parseTeamsList } from '~/common/utils/env-utils'
 import { createEvent } from '~/ingestion/common/steps/event-processing/create-event'
@@ -56,12 +57,13 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
         const eventsToEmit: EventToEmit<O>[] = [{ event: rawEvent, output }]
 
         // Duplicated exposures build up $experiment_exposure data for allowlisted teams during
-        // the migration away from $feature_flag_called-based experiment exposures.
+        // the migration away from $feature_flag_called-based experiment exposures. The duplicate
+        // gets its own uuid because event uuids are assumed unique by lookups and API endpoints.
         if (
             (exposureDuplicationTeams === '*' || exposureDuplicationTeams.includes(preparedEvent.teamId)) &&
             isMultivariateFeatureFlagCalledEvent(preparedEvent)
         ) {
-            eventsToEmit.push({ event: { ...rawEvent, event: EXPERIMENT_EXPOSURE_EVENT }, output })
+            eventsToEmit.push({ event: { ...rawEvent, event: EXPERIMENT_EXPOSURE_EVENT, uuid: uuidv7() }, output })
         }
 
         const result: CreateEventStepResult<O> = {
