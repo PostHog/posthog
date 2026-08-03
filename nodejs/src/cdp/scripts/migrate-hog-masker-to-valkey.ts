@@ -1,39 +1,14 @@
 import IORedis, { Redis } from 'ioredis'
 import { parseArgs } from 'node:util'
 
+import {
+    MaskerMigrationOptions,
+    MigrationPhase,
+    migrationHasMismatches,
+    runMaskerMigration,
+} from './hog-masker-valkey-migration'
+
 const KEY_PATTERN = '@posthog/hog-masker/mask/*'
-
-type Phase = 'copy' | 'finalize' | 'verify'
-type MigrationOptions = {
-    phase: Phase
-    execute: boolean
-    writersPaused: boolean
-    scanCount: number
-    ttlToleranceMs: number
-}
-type MigrationSummary = {
-    sourceKeys: number
-    copiedKeys: number
-    skippedExpiredKeys: number
-    deletedExtraKeys: number
-    mismatchedValues: number
-    mismatchedExpiries: number
-    missingTargetKeys: number
-    extraTargetKeys: number
-}
-
-function emptySummary(): MigrationSummary {
-    return {
-        sourceKeys: 0,
-        copiedKeys: 0,
-        skippedExpiredKeys: 0,
-        deletedExtraKeys: 0,
-        mismatchedValues: 0,
-        mismatchedExpiries: 0,
-        missingTargetKeys: 0,
-        extraTargetKeys: 0,
-    }
-}
 
 function connectionFromEnv(prefix: 'CDP_REDIS' | 'CDP_VALKEY'): Redis {
     const host = process.env[`${prefix}_HOST`]
@@ -46,123 +21,7 @@ function connectionFromEnv(prefix: 'CDP_REDIS' | 'CDP_VALKEY'): Redis {
     return new IORedis({ host, port, password, tls, lazyConnect: true, maxRetriesPerRequest: 3 })
 }
 
-async function* scanBatches(redis: Redis, count: number): AsyncGenerator<string[]> {
-    let cursor = '0'
-    do {
-        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', KEY_PATTERN, 'COUNT', count)
-        cursor = nextCursor
-        if (keys.length > 0) {
-            yield keys
-        }
-    } while (cursor !== '0')
-}
-
-function sourceTimeMs([seconds, microseconds]: [string, string]): number {
-    return Number(seconds) * 1000 + Math.floor(Number(microseconds) / 1000)
-}
-
-async function copySourceKeys(
-    source: Redis,
-    target: Redis,
-    options: MigrationOptions,
-    summary: MigrationSummary
-): Promise<void> {
-    for await (const keys of scanBatches(source, options.scanCount)) {
-        summary.sourceKeys += keys.length
-        if (!options.execute) {
-            continue
-        }
-
-        const sourcePipeline = source.pipeline()
-        for (const key of keys) {
-            sourcePipeline.get(key)
-            sourcePipeline.pttl(key)
-        }
-        const [time, rows] = await Promise.all([source.time(), sourcePipeline.exec()])
-        if (!rows) {
-            throw new Error('Source Redis pipeline returned no results')
-        }
-
-        const nowMs = sourceTimeMs(time)
-        const targetPipeline = target.pipeline()
-        keys.forEach((key, index) => {
-            const value = rows[index * 2]?.[1] as string | null
-            const ttlMs = Number(rows[index * 2 + 1]?.[1])
-            if (value === null || ttlMs <= 0) {
-                summary.skippedExpiredKeys++
-                return
-            }
-            targetPipeline.set(key, value, 'PXAT', nowMs + ttlMs)
-            summary.copiedKeys++
-        })
-        await targetPipeline.exec()
-    }
-}
-
-async function deleteTargetExtras(
-    source: Redis,
-    target: Redis,
-    options: MigrationOptions,
-    summary: MigrationSummary
-): Promise<void> {
-    for await (const keys of scanBatches(target, options.scanCount)) {
-        const existsPipeline = source.pipeline()
-        keys.forEach((key) => existsPipeline.exists(key))
-        const rows = await existsPipeline.exec()
-        if (!rows) {
-            throw new Error('Source Redis existence pipeline returned no results')
-        }
-        const extras = keys.filter((_, index) => Number(rows[index]?.[1]) === 0)
-        summary.extraTargetKeys += extras.length
-        if (options.execute && extras.length > 0) {
-            summary.deletedExtraKeys += await target.del(...extras)
-        }
-    }
-}
-
-async function verifyKeys(
-    source: Redis,
-    target: Redis,
-    options: MigrationOptions,
-    summary: MigrationSummary
-): Promise<void> {
-    for await (const keys of scanBatches(source, options.scanCount)) {
-        const sourcePipeline = source.pipeline()
-        const targetPipeline = target.pipeline()
-        for (const key of keys) {
-            sourcePipeline.get(key)
-            sourcePipeline.pttl(key)
-            targetPipeline.get(key)
-            targetPipeline.pttl(key)
-        }
-        const [sourceRows, targetRows] = await Promise.all([sourcePipeline.exec(), targetPipeline.exec()])
-        if (!sourceRows || !targetRows) {
-            throw new Error('Verification pipeline returned no results')
-        }
-        keys.forEach((_, index) => {
-            const sourceValue = sourceRows[index * 2]?.[1] as string | null
-            const sourceTtl = Number(sourceRows[index * 2 + 1]?.[1])
-            const targetValue = targetRows[index * 2]?.[1] as string | null
-            const targetTtl = Number(targetRows[index * 2 + 1]?.[1])
-            if (sourceValue === null || sourceTtl <= 0) {
-                return
-            }
-            if (targetValue === null) {
-                summary.missingTargetKeys++
-                return
-            }
-            if (sourceValue !== targetValue) {
-                summary.mismatchedValues++
-            }
-            if (Math.abs(sourceTtl - targetTtl) > options.ttlToleranceMs) {
-                summary.mismatchedExpiries++
-            }
-        })
-    }
-    await deleteTargetExtras(source, target, { ...options, execute: false }, summary)
-}
-
-function parseOptions(): MigrationOptions {
+function parseOptions(): MaskerMigrationOptions {
     const { values } = parseArgs({
         options: {
             phase: { type: 'string', default: 'copy' },
@@ -190,16 +49,19 @@ Connections come from CDP_REDIS_* (source) and CDP_VALKEY_* (target).`)
     if (!['copy', 'finalize', 'verify'].includes(values.phase)) {
         throw new Error(`Invalid --phase: ${values.phase}`)
     }
-    const phase = values.phase as Phase
-    if (phase === 'finalize' && (!values.execute || !values['writers-paused'])) {
-        throw new Error('--phase finalize requires both --execute and --writers-paused')
-    }
     const scanCount = Number(values['scan-count'])
     const ttlToleranceMs = Number(values['ttl-tolerance-ms'])
     if (!Number.isInteger(scanCount) || scanCount < 1 || !Number.isFinite(ttlToleranceMs) || ttlToleranceMs < 0) {
         throw new Error('Scan count must be a positive integer and TTL tolerance must be non-negative')
     }
-    return { phase, execute: values.execute, writersPaused: values['writers-paused'], scanCount, ttlToleranceMs }
+    return {
+        phase: values.phase as MigrationPhase,
+        execute: values.execute,
+        writersPaused: values['writers-paused'],
+        scanCount,
+        ttlToleranceMs,
+        keyPattern: KEY_PATTERN,
+    }
 }
 
 async function main(): Promise<void> {
@@ -214,29 +76,14 @@ async function main(): Promise<void> {
     }
     const source = connectionFromEnv('CDP_REDIS')
     const target = connectionFromEnv('CDP_VALKEY')
-    const summary = emptySummary()
     try {
         await Promise.all([source.connect(), target.connect()])
         await Promise.all([source.ping(), target.ping()])
-        if (options.phase === 'copy' || options.phase === 'finalize') {
-            await copySourceKeys(source, target, options, summary)
-        }
-        if (options.phase === 'finalize') {
-            await deleteTargetExtras(source, target, options, summary)
-        }
-        if (options.phase === 'verify' || options.phase === 'finalize') {
-            await verifyKeys(source, target, options, summary)
-        }
+        const summary = await runMaskerMigration(source, target, options)
         console.log(
-            JSON.stringify({ phase: options.phase, dryRun: !options.execute, pattern: KEY_PATTERN, ...summary })
+            JSON.stringify({ phase: options.phase, dryRun: !options.execute, pattern: options.keyPattern, ...summary })
         )
-        const undeletedExtraKeys = summary.extraTargetKeys - summary.deletedExtraKeys
-        if (
-            summary.mismatchedValues ||
-            summary.mismatchedExpiries ||
-            summary.missingTargetKeys ||
-            (options.phase !== 'copy' && undeletedExtraKeys > 0)
-        ) {
+        if (migrationHasMismatches(summary)) {
             process.exitCode = 2
         }
     } finally {
