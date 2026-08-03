@@ -1,4 +1,5 @@
 import { Lightbulb, MagnifyingGlass, Plus } from "@phosphor-icons/react";
+import { pruneAlwaysOnSkillRefs } from "@posthog/core/skills/alwaysOnSkills";
 import { analyzeSkills } from "@posthog/core/skills/analyzeSkills";
 import { Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import type { SkillInfo, SkillSource } from "@posthog/shared";
@@ -12,6 +13,7 @@ import {
 } from "@radix-ui/themes";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ResizableSidebar } from "../../primitives/ResizableSidebar";
+import { useSettingsStore } from "../settings/settingsStore";
 import { MarketplaceBrowse } from "./MarketplaceBrowse";
 import { NewSkillDialog } from "./NewSkillDialog";
 import { SkillSection, SOURCE_CONFIG } from "./SkillCard";
@@ -91,6 +93,16 @@ export function SkillsView() {
   }, []);
 
   const analysis = useMemo(() => analyzeSkills(skills), [skills]);
+
+  // Drop always-on refs whose skill no longer exists on disk. Only after a
+  // successful non-empty list — an empty or failed read must not wipe toggles.
+  const alwaysOnSkills = useSettingsStore((s) => s.alwaysOnSkills);
+  const setAlwaysOnSkills = useSettingsStore((s) => s.setAlwaysOnSkills);
+  useEffect(() => {
+    if (isLoading || skills.length === 0) return;
+    const pruned = pruneAlwaysOnSkillRefs(alwaysOnSkills, skills);
+    if (pruned !== alwaysOnSkills) setAlwaysOnSkills(pruned);
+  }, [alwaysOnSkills, isLoading, setAlwaysOnSkills, skills]);
 
   const grouped = useMemo(() => {
     const map = new Map<SkillSource, SkillInfo[]>();

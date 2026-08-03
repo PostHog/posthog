@@ -1,5 +1,6 @@
 import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
 import type { ConversationItem } from "./buildConversationItems";
+import { extractAlwaysOnSkills } from "./session-update/alwaysOnSkills";
 import { extractChannelContext } from "./session-update/channelContext";
 import { extractCustomInstructions } from "./session-update/customInstructions";
 
@@ -18,13 +19,15 @@ type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
 // buildCustomInstructionsText in @posthog/core). The description side instead
 // appends an `Attached files: <names>` summary line that the echo carries as
 // resource_link blocks, not text (see buildCloudTaskDescription). Dedupe and
-// upgrade compare on the text with all three stripped so the echo still matches
-// its placeholder.
+// upgrade compare on the text with all injected blocks stripped so the echo
+// still matches its placeholder.
 function strippedUserContent(content: string): string {
   const withoutChannel = extractChannelContext(content)?.stripped ?? content;
   const withoutInstructions =
     extractCustomInstructions(withoutChannel)?.stripped ?? withoutChannel;
-  return stripTrailingAttachmentSummary(withoutInstructions);
+  const withoutAlwaysOnSkills =
+    extractAlwaysOnSkills(withoutInstructions)?.stripped ?? withoutInstructions;
+  return stripTrailingAttachmentSummary(withoutAlwaysOnSkills);
 }
 
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays

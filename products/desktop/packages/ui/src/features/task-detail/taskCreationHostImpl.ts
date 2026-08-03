@@ -1,11 +1,16 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import { CLOUD_USAGE_LIMIT_ERROR_MESSAGE } from "@posthog/api-client/posthog-client";
+import { ALWAYS_ON_SKILL_MD_MAX_BYTES } from "@posthog/core/editor/prompt-builder";
 import {
   CLOUD_ARTIFACT_SERVICE,
   type CloudArtifactClient,
 } from "@posthog/core/sessions/cloudArtifactIdentifiers";
 import type { CloudArtifactService } from "@posthog/core/sessions/cloudArtifactService";
 import { getCloudPromptTransport } from "@posthog/core/sessions/cloudPrompt";
+import {
+  type ResolvedAlwaysOnSkill,
+  resolveAlwaysOnSkills,
+} from "@posthog/core/skills/alwaysOnSkills";
 import type { TaskCreationApiClient } from "@posthog/core/task-detail/taskCreationApiClient";
 import type {
   CloudPromptTransport,
@@ -24,16 +29,24 @@ import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import { expandTildePath, type Workspace } from "@posthog/shared";
+import {
+  expandTildePath,
+  stripFrontmatter,
+  type Workspace,
+} from "@posthog/shared";
 import { injectable } from "inversify";
 import { track } from "../../shell/analytics";
+import { logger } from "../../shell/logger";
 import { getAuthenticatedClient } from "../auth/authClientImperative";
 import { assertCloudUsageAvailable } from "../billing/preflightCloudUsage";
 import { resolveLocalSkillPrompt } from "../message-editor/commands";
 import { DEFAULT_PANEL_IDS } from "../panels/panelConstants";
 import { usePanelLayoutStore } from "../panels/panelLayoutStore";
 import { useProvisioningStore } from "../provisioning/store";
+import { useSettingsStore } from "../settings/settingsStore";
 import { takeWarmTaskLease } from "./hooks/warmTaskLease";
+
+const log = logger.scope("task-creation-host");
 
 interface EnvironmentHostClient {
   environment: {
@@ -154,6 +167,43 @@ export class TrpcTaskCreationHost implements ITaskCreationHost {
         hostClient().skills.list.query(),
       )) ?? prompt
     );
+  }
+
+  async resolveAlwaysOnSkills(args: {
+    includeBodies: boolean;
+  }): Promise<ResolvedAlwaysOnSkill[]> {
+    try {
+      const refs = useSettingsStore.getState().alwaysOnSkills;
+      if (refs.length === 0) return [];
+      const skills = await hostClient().skills.list.query();
+      const resolved = resolveAlwaysOnSkills(refs, skills);
+      if (!args.includeBodies) return resolved;
+      return await Promise.all(
+        resolved.map(async (skill) => {
+          // Bundled skill bodies stay reference-only (available to the session
+          // via the posthog plugin); oversized manifests are never inlined, so
+          // skip the read too.
+          if (
+            skill.source === "bundled" ||
+            skill.skillMdBytes > ALWAYS_ON_SKILL_MD_MAX_BYTES
+          ) {
+            return skill;
+          }
+          const content = await hostClient()
+            .skills.readFile.query({
+              skillPath: skill.path,
+              filePath: "SKILL.md",
+            })
+            .catch(() => null);
+          return content
+            ? { ...skill, body: stripFrontmatter(content) }
+            : skill;
+        }),
+      );
+    } catch (error) {
+      log.warn("Failed to resolve always-on skills", { error });
+      return [];
+    }
   }
 
   takeWarmTaskLease(args: {

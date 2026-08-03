@@ -1,4 +1,5 @@
 import { stripTrailingAttachmentSummary } from "@posthog/core/editor/cloud-prompt";
+import { extractAlwaysOnSkills } from "@posthog/ui/features/sessions/components/session-update/alwaysOnSkills";
 import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
 import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
 import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
@@ -53,15 +54,18 @@ export function promptRecallStep(
 }
 
 // A stored prompt can carry blocks folded in at send time that the user never
-// typed (channel CONTEXT.md, canvas instructions, personalization, a trailing
-// attachment summary); recall returns only what the user wrote.
+// typed (channel CONTEXT.md, canvas instructions, personalization, always-on
+// skills, a trailing attachment summary); recall returns only what the user
+// wrote.
 function stripInjectedPromptBlocks(content: string): string {
   const withoutChannel = extractChannelContext(content)?.stripped ?? content;
   const withoutCanvas =
     extractCanvasInstructions(withoutChannel)?.stripped ?? withoutChannel;
   const withoutInstructions =
     extractCustomInstructions(withoutCanvas)?.stripped ?? withoutCanvas;
-  return stripTrailingAttachmentSummary(withoutInstructions);
+  const withoutAlwaysOnSkills =
+    extractAlwaysOnSkills(withoutInstructions)?.stripped ?? withoutInstructions;
+  return stripTrailingAttachmentSummary(withoutAlwaysOnSkills);
 }
 
 export function resolvePromptRecall(

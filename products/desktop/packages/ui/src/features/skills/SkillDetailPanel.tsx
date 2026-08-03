@@ -24,6 +24,7 @@ import {
   Dialog,
   Flex,
   ScrollArea,
+  Switch,
   Text,
   TextField,
   Tooltip,
@@ -35,6 +36,7 @@ import { SkillFileEditor } from "./SkillFileEditor";
 import { SkillFileTree } from "./SkillFileTree";
 import { SkillManifestEditor } from "./SkillManifestEditor";
 import { isSkillExistsError, skillErrorDescription } from "./skillErrors";
+import { useAlwaysOnSkill } from "./useAlwaysOnSkill";
 import { useSkillContents, useSkillFile } from "./useSkillContents";
 import {
   useDeleteSkill,
@@ -84,6 +86,11 @@ export function SkillDetailPanel({
   const deleteSkill = useDeleteSkill();
   const publishSkill = usePublishSkill();
   const importCodexSkill = useImportCodexSkill();
+  const {
+    canToggle: canToggleAlwaysOn,
+    enabled: alwaysOnEnabled,
+    setEnabled: setAlwaysOnEnabled,
+  } = useAlwaysOnSkill(skill);
 
   const files = contents?.files ?? [];
   const isSkillMd = selectedFile === "SKILL.md";
@@ -298,6 +305,20 @@ export function SkillDetailPanel({
             </Button>
           )}
         </Flex>
+
+        {canToggleAlwaysOn && (
+          <Flex align="center" justify="between" gap="2">
+            <Tooltip content="Automatically applied to every new task">
+              <Text className="text-[12px] text-gray-11">Always-on</Text>
+            </Tooltip>
+            <Switch
+              size="1"
+              aria-label="Always-on"
+              checked={alwaysOnEnabled}
+              onCheckedChange={setAlwaysOnEnabled}
+            />
+          </Flex>
+        )}
 
         {issues.length > 0 && (
           <Flex direction="column" gap="1">

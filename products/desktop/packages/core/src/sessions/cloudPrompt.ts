@@ -8,7 +8,11 @@ import {
   stripSkillTags,
 } from "@posthog/core/editor/cloud-prompt";
 import type { EditorContent } from "@posthog/core/message-editor/content";
-import { collectUploadableSkillTags } from "@posthog/core/message-editor/skillTags";
+import {
+  collectUploadableSkillTags,
+  isUploadableSkillSource,
+} from "@posthog/core/message-editor/skillTags";
+import type { ResolvedAlwaysOnSkill } from "@posthog/core/skills/alwaysOnSkills";
 import { getFileName, pathToFileUri } from "@posthog/shared";
 import type { CloudSkillBundleRef } from "./cloudArtifactIdentifiers";
 
@@ -128,6 +132,35 @@ export function getCloudPromptTransport(
     messageText: promptText || undefined,
     promptText: summarizePrompt(promptText, attachmentPaths),
   };
+}
+
+// Adds the user's always-on skills to the transport's bundle refs so the
+// existing upload pipeline ships them with the first message. Bundled-source
+// skills are skipped (preinstalled in the sandbox), and refs already collected
+// from typed skill tags are not duplicated.
+export function appendAlwaysOnSkillBundles(
+  transport: CloudPromptTransport,
+  alwaysOnSkills: ResolvedAlwaysOnSkill[],
+): CloudPromptTransport {
+  if (alwaysOnSkills.length === 0) return transport;
+  const seen = new Set(
+    transport.skillBundles.map((ref) => `${ref.source}:${ref.path}`),
+  );
+  const skillBundles = [...transport.skillBundles];
+  for (const skill of alwaysOnSkills) {
+    if (!isUploadableSkillSource(skill.source)) continue;
+    const key = `${skill.source}:${skill.path}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    skillBundles.push({
+      name: skill.name,
+      source: skill.source,
+      path: skill.path,
+    });
+  }
+  return skillBundles.length === transport.skillBundles.length
+    ? transport
+    : { ...transport, skillBundles };
 }
 
 export function cloudPromptToBlocks(prompt: QueuedCloudPrompt): ContentBlock[] {

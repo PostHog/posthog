@@ -1,4 +1,5 @@
 import type { SessionService } from "@posthog/core/sessions/sessionService";
+import type { ResolvedAlwaysOnSkill } from "@posthog/core/skills/alwaysOnSkills";
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -21,6 +22,9 @@ const mockHost = vi.hoisted(() => ({
   detectRepo: vi.fn(),
   getCloudPromptTransport: vi.fn(),
   resolveLocalSkillCommandPrompt: vi.fn(async (prompt: string) => prompt),
+  resolveAlwaysOnSkills: vi.fn(
+    async (): Promise<ResolvedAlwaysOnSkill[]> => [],
+  ),
   takeWarmTaskLease: vi.fn(
     (): { taskId: string; runId: string } | null => null,
   ),
@@ -118,6 +122,7 @@ describe("TaskCreationSaga", () => {
     mockHost.getWorkspace.mockResolvedValue(null);
     mockHost.getFolders.mockResolvedValue([]);
     mockHost.uploadRunAttachments.mockResolvedValue([]);
+    mockHost.resolveAlwaysOnSkills.mockResolvedValue([]);
     mockHost.linkTaskBranch.mockResolvedValue(undefined);
     mockHost.recordClaudeCliImport.mockResolvedValue(undefined);
     mockHost.deleteClaudeCliImport.mockResolvedValue(undefined);
@@ -241,6 +246,97 @@ describe("TaskCreationSaga", () => {
       "task-123",
       sentMessage,
     );
+  });
+
+  it("uploads always-on skill bundles and folds their manifest into the cloud first message", async () => {
+    mockHost.resolveAlwaysOnSkills.mockResolvedValue([
+      {
+        name: "i-have-adhd",
+        source: "user",
+        path: "/skills/i-have-adhd",
+        description: "Focus aid",
+        skillMdBytes: 120,
+      },
+    ]);
+    const startedTask = createTask({ latest_run: createRun() });
+    const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+    const startTaskRunMock = vi.fn().mockResolvedValue(startedTask);
+    vi.mocked(sessionService.rememberInitialCloudPrompt).mockClear();
+
+    const saga = makeSaga({
+      createTask: vi.fn().mockResolvedValue(createTask()),
+      createTaskRun: createTaskRunMock,
+      startTaskRun: startTaskRunMock,
+    });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repository: "posthog/posthog",
+      workspaceMode: "cloud",
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockHost.resolveAlwaysOnSkills).toHaveBeenCalledWith({
+      includeBodies: false,
+    });
+    // The bundle rides the existing attachment pipeline to the real run.
+    expect(mockHost.uploadRunAttachments).toHaveBeenCalledWith(
+      expect.anything(),
+      "task-123",
+      "run-123",
+      [],
+      [{ name: "i-have-adhd", source: "user", path: "/skills/i-have-adhd" }],
+    );
+    const sentMessage = startTaskRunMock.mock.calls[0][2]
+      .pendingUserMessage as string;
+    expect(sentMessage).toContain("Ship the fix");
+    expect(sentMessage).toContain("<always_on_skills>");
+    expect(sentMessage).toContain("- /i-have-adhd: Focus aid");
+    expect(sessionService.rememberInitialCloudPrompt).toHaveBeenCalledWith(
+      "task-123",
+      sentMessage,
+    );
+  });
+
+  it("appends always-on skill bodies to a local task's initial prompt", async () => {
+    mockHost.resolveAlwaysOnSkills.mockResolvedValue([
+      {
+        name: "i-have-adhd",
+        source: "user",
+        path: "/skills/i-have-adhd",
+        description: "Focus aid",
+        skillMdBytes: 20,
+        body: "Stay focused.",
+      },
+    ]);
+    mockHost.addFolder.mockResolvedValue({ id: "folder-1", path: "/repo" });
+    mockHost.detectRepo.mockResolvedValue(null);
+
+    const saga = makeSaga({
+      createTask: vi.fn().mockResolvedValue(createTask()),
+    });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repoPath: "/repo",
+      workspaceMode: "local",
+    });
+
+    expect(result.success).toBe(true);
+    expect(mockHost.resolveAlwaysOnSkills).toHaveBeenCalledWith({
+      includeBodies: true,
+    });
+    const connectParams = vi.mocked(sessionService.connectToTask).mock
+      .calls[0][0];
+    const lastBlock = connectParams.initialPrompt?.at(-1) as
+      | { type: string; text: string }
+      | undefined;
+    expect(lastBlock?.type).toBe("text");
+    expect(lastBlock?.text).toContain("<always_on_skills>");
+    expect(lastBlock?.text).toContain(
+      "--- BEGIN ALWAYS-ON SKILL i-have-adhd ---",
+    );
+    expect(lastBlock?.text).toContain("Stay focused.");
   });
 
   it("folds custom personalization into the cloud prompt and stashes it for the optimistic placeholder", async () => {

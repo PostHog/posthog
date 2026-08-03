@@ -1,5 +1,6 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { CloudSkillBundleRef } from "@posthog/core/sessions/cloudArtifactIdentifiers";
+import type { ResolvedAlwaysOnSkill } from "@posthog/core/skills/alwaysOnSkills";
 import type { Workspace, WorkspaceInfo, WorkspaceMode } from "@posthog/shared";
 import type { TaskCreationApiClient } from "./taskCreationApiClient";
 
@@ -103,6 +104,15 @@ export interface ITaskCreationHost {
    * too, or a typed `/my-skill` reaches the sandbox with no bundle attached.
    */
   resolveLocalSkillCommandPrompt(prompt: string): Promise<string>;
+  /**
+   * Resolve the user's always-on skill toggles into live skills for injection
+   * into a new task's first message. `includeBodies` reads each SKILL.md for
+   * local runs (cloud delivers bodies via uploaded bundles). Must never throw:
+   * a failed resolution must not block task creation — return [] instead.
+   */
+  resolveAlwaysOnSkills(args: {
+    includeBodies: boolean;
+  }): Promise<ResolvedAlwaysOnSkill[]>;
   /**
    * Return-and-clear the pre-warmed sandbox lease matching the composer
    * selection, if one was provisioned while the user typed. The saga uploads

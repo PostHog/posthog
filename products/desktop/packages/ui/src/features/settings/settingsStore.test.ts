@@ -492,6 +492,52 @@ describe("getEffectiveCustomInstructions", () => {
   });
 });
 
+describe("feature settingsStore always-on skills", () => {
+  beforeEach(async () => {
+    await resetPersistenceMocks();
+    useSettingsStore.setState({ alwaysOnSkills: [] });
+  });
+
+  it("persists toggles and drops invalid refs on rehydrate", async () => {
+    useSettingsStore
+      .getState()
+      .setSkillAlwaysOn({ name: "i-have-adhd", source: "user" }, true);
+
+    await waitForPersistedWrite();
+
+    const lastCall = setItem.mock.calls[setItem.mock.calls.length - 1];
+    expect(JSON.parse(lastCall[1]).state.alwaysOnSkills).toEqual([
+      { name: "i-have-adhd", source: "user" },
+    ]);
+
+    getItem.mockResolvedValue(
+      JSON.stringify({
+        state: {
+          alwaysOnSkills: [
+            { name: "i-have-adhd", source: "user" },
+            // Repo skills are not toggleable; a stale persisted ref must drop.
+            { name: "repo-skill", source: "repo" },
+            { name: 42, source: "user" },
+          ],
+        },
+        version: 1,
+      }),
+    );
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState().alwaysOnSkills).toEqual([
+      { name: "i-have-adhd", source: "user" },
+    ]);
+  });
+
+  it("ignores toggles for repo-source skills", () => {
+    useSettingsStore
+      .getState()
+      .setSkillAlwaysOn({ name: "repo-skill", source: "repo" }, true);
+    expect(useSettingsStore.getState().alwaysOnSkills).toEqual([]);
+  });
+});
+
 describe("feature settingsStore custom instructions sync persistence", () => {
   beforeEach(async () => {
     await resetPersistenceMocks();

@@ -11,9 +11,10 @@ import type {
   SkillIssue,
 } from "@posthog/core/skills/analyzeSkills";
 import type { SkillInfo, SkillSource } from "@posthog/shared";
-import { Badge, Flex, Text, Tooltip } from "@radix-ui/themes";
+import { Badge, Flex, Switch, Text, Tooltip } from "@radix-ui/themes";
 import { useEffect, useRef } from "react";
 import { SkillListCard } from "./SkillListCard";
+import { useAlwaysOnSkill } from "./useAlwaysOnSkill";
 
 export const SOURCE_CONFIG: Record<
   SkillSource,
@@ -54,6 +55,7 @@ export function SkillCard({
 }: SkillCardProps) {
   const config = SOURCE_CONFIG[skill.source];
   const Icon = config?.icon ?? Package;
+  const { canToggle, enabled, setEnabled } = useAlwaysOnSkill(skill);
 
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -91,6 +93,18 @@ export function SkillCard({
             <Badge size="1" variant="soft" color="gray" className="shrink-0">
               {skill.repoName}
             </Badge>
+          )}
+          {canToggle && (
+            <Tooltip content="Always-on: automatically applied to every new task">
+              <Switch
+                size="1"
+                className="shrink-0"
+                aria-label="Always-on"
+                checked={enabled}
+                onCheckedChange={setEnabled}
+                onClick={(event) => event.stopPropagation()}
+              />
+            </Tooltip>
           )}
         </>
       }

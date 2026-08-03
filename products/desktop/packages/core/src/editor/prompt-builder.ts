@@ -1,4 +1,5 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import type { ResolvedAlwaysOnSkill } from "@posthog/core/skills/alwaysOnSkills";
 import { escapeXmlAttr, isAbsolutePath, pathToFileUri } from "@posthog/shared";
 
 export async function buildPromptBlocks(
@@ -80,4 +81,73 @@ export function buildChannelContextBlock(
 ): ContentBlock | null {
   const text = buildChannelContextText(content, channelName, channelContextId);
   return text ? { type: "text", text } : null;
+}
+
+// The fixed preamble is also the anchor the conversation UI's stripper matches
+// on (session-update/alwaysOnSkills.ts in @posthog/ui), so user-pasted
+// lookalike tags are never hidden — keep the wording in sync.
+const ALWAYS_ON_SKILLS_PREAMBLE =
+  "The user has marked these skills as always-on: their instructions apply to this entire session, from your first response on, without being explicitly invoked. If a skill conflicts with the user's message, the message wins.";
+
+/** SKILL.md bodies above this size are referenced by path instead of inlined. */
+export const ALWAYS_ON_SKILL_MD_MAX_BYTES = 32 * 1024;
+const ALWAYS_ON_SKILLS_TOTAL_MAX_BYTES = 96 * 1024;
+
+function alwaysOnSkillReferenceLine(skill: ResolvedAlwaysOnSkill): string {
+  const description = skill.description.trim();
+  const bundled =
+    skill.source === "bundled" ? " (preinstalled PostHog skill)" : "";
+  return `- /${skill.name}${description ? `: ${description}` : ""}${bundled}`;
+}
+
+// Cloud form of the always-on skills injection: a reference manifest only.
+// Bodies are not inlined here — the skills travel as uploaded bundles, and the
+// sandbox inlines each bundle's full SKILL.md when its /name is mentioned in
+// the message (buildAttachedSkillsPromptContext in @posthog/agent), so these
+// lines are what trigger that. Returns null when nothing is toggled on.
+export function buildAlwaysOnSkillsCloudText(
+  skills: ResolvedAlwaysOnSkill[],
+): string | null {
+  if (skills.length === 0) return null;
+  const lines = skills.map(alwaysOnSkillReferenceLine);
+  return `<always_on_skills>\n${ALWAYS_ON_SKILLS_PREAMBLE}\n\n${lines.join("\n")}\n</always_on_skills>`;
+}
+
+// Local form: inlines each SKILL.md body — a local session has no bundle
+// upload or server-side inliner, so the first message is the only delivery
+// path. The framing mirrors the sandbox's inline format so both runtimes see
+// near-identical context. Entries without a body (bundled skills, oversized
+// manifests, read failures) degrade to a reference line with the on-disk path.
+export function buildAlwaysOnSkillsBlock(
+  skills: ResolvedAlwaysOnSkill[],
+): ContentBlock | null {
+  if (skills.length === 0) return null;
+  const sections: string[] = [ALWAYS_ON_SKILLS_PREAMBLE];
+  let inlinedBytes = 0;
+  for (const skill of skills) {
+    const body = skill.body?.trim();
+    const inline =
+      body &&
+      skill.skillMdBytes <= ALWAYS_ON_SKILL_MD_MAX_BYTES &&
+      inlinedBytes + skill.skillMdBytes <= ALWAYS_ON_SKILLS_TOTAL_MAX_BYTES;
+    if (inline) {
+      inlinedBytes += skill.skillMdBytes;
+      sections.push(
+        "",
+        `--- BEGIN ALWAYS-ON SKILL ${skill.name} ---`,
+        body,
+        `--- END ALWAYS-ON SKILL ${skill.name} ---`,
+        `Skill directory: ${skill.path}`,
+      );
+    } else {
+      sections.push(
+        "",
+        `${alwaysOnSkillReferenceLine(skill)} — read its SKILL.md at ${skill.path}`,
+      );
+    }
+  }
+  return {
+    type: "text",
+    text: `<always_on_skills>\n${sections.join("\n")}\n</always_on_skills>`,
+  };
 }

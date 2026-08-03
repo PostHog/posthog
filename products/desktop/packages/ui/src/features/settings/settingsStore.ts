@@ -1,8 +1,14 @@
 import type { UserRepositoryIntegrationRef } from "@posthog/core/integrations/repositories";
+import {
+  type AlwaysOnSkillRef,
+  sanitizeAlwaysOnSkillRefs,
+  toggleAlwaysOnSkillRef,
+} from "@posthog/core/skills/alwaysOnSkills";
 import type {
   Adapter,
   AgentRuntime,
   ExecutionMode,
+  SkillInfo,
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
@@ -247,6 +253,17 @@ interface SettingsStore {
   showSidebarWorktrees: boolean;
   setShowSidebarWorktrees: (enabled: boolean) => void;
 
+  // Skills
+  // Skills injected into every new task's first message. Persisted as
+  // {name, source} refs and re-resolved against the live list at creation
+  // (see @posthog/core/skills/alwaysOnSkills).
+  alwaysOnSkills: AlwaysOnSkillRef[];
+  setSkillAlwaysOn: (
+    skill: Pick<SkillInfo, "name" | "source">,
+    enabled: boolean,
+  ) => void;
+  setAlwaysOnSkills: (refs: AlwaysOnSkillRef[]) => void;
+
   // Experimental / misc
   hedgehogMode: boolean;
   slotMachineMode: boolean;
@@ -482,6 +499,18 @@ export const useSettingsStore = create<SettingsStore>()(
       setShowSidebarWorktrees: (enabled) =>
         set({ showSidebarWorktrees: enabled }),
 
+      // Skills
+      alwaysOnSkills: [],
+      setSkillAlwaysOn: (skill, enabled) =>
+        set((state) => ({
+          alwaysOnSkills: toggleAlwaysOnSkillRef(
+            state.alwaysOnSkills,
+            skill,
+            enabled,
+          ),
+        })),
+      setAlwaysOnSkills: (refs) => set({ alwaysOnSkills: refs }),
+
       // Experimental / misc
       hedgehogMode: false,
       slotMachineMode: false,
@@ -620,6 +649,9 @@ export const useSettingsStore = create<SettingsStore>()(
         // Sidebar
         showSidebarWorktrees: state.showSidebarWorktrees,
 
+        // Skills
+        alwaysOnSkills: state.alwaysOnSkills,
+
         // Experimental / misc
         hedgehogMode: state.hedgehogMode,
         slotMachineMode: state.slotMachineMode,
@@ -658,6 +690,9 @@ export const useSettingsStore = create<SettingsStore>()(
         ) {
           (merged as Record<string, unknown>).completionSound = "none";
         }
+        merged.alwaysOnSkills = sanitizeAlwaysOnSkillRefs(
+          merged.alwaysOnSkills,
+        );
         return merged;
       },
     },

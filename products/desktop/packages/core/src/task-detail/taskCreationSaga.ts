@@ -1,14 +1,18 @@
 import { PI_THINKING_LEVELS } from "@posthog/agent/pi/types";
 import {
+  buildAlwaysOnSkillsBlock,
+  buildAlwaysOnSkillsCloudText,
   buildChannelContextBlock,
   buildChannelContextText,
   buildCustomInstructionsText,
   buildPromptBlocks,
 } from "@posthog/core/editor/prompt-builder";
+import { appendAlwaysOnSkillBundles } from "@posthog/core/sessions/cloudPrompt";
 import type {
   ConnectParams,
   SessionService,
 } from "@posthog/core/sessions/sessionService";
+import type { ResolvedAlwaysOnSkill } from "@posthog/core/skills/alwaysOnSkills";
 import {
   getTaskRepository,
   Saga,
@@ -48,12 +52,14 @@ interface WarmActivationPayload {
 // The local connect path appends channel CONTEXT.md to initialPrompt and gets
 // the user's personalization via the workspace-server system prompt; cloud
 // sends its first message as text and has no client-side system-prompt seam,
-// so fold both blocks into the first message here. Order: user's message, then
-// personalization (user-level), then channel context (workspace-level).
-// Personalization is folded only when there is message text to augment.
+// so fold the blocks into the first message here. Order: user's message, then
+// personalization (user-level), then channel context (workspace-level), then
+// always-on skills. Personalization and always-on skills are folded only when
+// there is message text to augment.
 function buildCloudFirstMessage(
   messageText: string | undefined,
   input: TaskCreationInput,
+  alwaysOnSkills: ResolvedAlwaysOnSkill[],
 ): { pendingUserMessage?: string; augmented: boolean } {
   const customInstructionsText = messageText
     ? buildCustomInstructionsText(input.customInstructions)
@@ -63,13 +69,25 @@ function buildCloudFirstMessage(
     input.channelName,
     input.channelContextId,
   );
+  const alwaysOnSkillsText = messageText
+    ? buildAlwaysOnSkillsCloudText(alwaysOnSkills)
+    : null;
   const pendingUserMessage =
-    [messageText, customInstructionsText, channelContextText]
+    [
+      messageText,
+      customInstructionsText,
+      channelContextText,
+      alwaysOnSkillsText,
+    ]
       .filter((part): part is string => !!part)
       .join("\n\n") || undefined;
   return {
     pendingUserMessage,
-    augmented: !!(customInstructionsText || channelContextText),
+    augmented: !!(
+      customInstructionsText ||
+      channelContextText ||
+      alwaysOnSkillsText
+    ),
   };
 }
 
@@ -100,9 +118,21 @@ export class TaskCreationSaga extends Saga<
       ? undefined
       : await this.importClaudeSession(input);
 
+    // Union point for auto-injected skills: today the host resolves the user's
+    // global always-on toggles; future scoped sets (per-channel, per-repo)
+    // merge into this list before injection.
+    const alwaysOnSkills: ResolvedAlwaysOnSkill[] =
+      isPiRuntime || taskId || !(input.content || input.filePaths?.length)
+        ? []
+        : await this.readOnlyStep("resolve_always_on_skills", () =>
+            this.deps.host.resolveAlwaysOnSkills({
+              includeBodies: input.workspaceMode !== "cloud",
+            }),
+          );
+
     const warmPayload =
       !isPiRuntime && !taskId && input.workspaceMode === "cloud"
-        ? await this.prepareWarmActivation(input)
+        ? await this.prepareWarmActivation(input, alwaysOnSkills)
         : null;
 
     let task = taskId
@@ -376,9 +406,12 @@ export class TaskCreationSaga extends Saga<
                     input.content,
                   )
                 : "";
-              return this.deps.host.getCloudPromptTransport(
-                resolvedContent,
-                input.filePaths,
+              return appendAlwaysOnSkillBundles(
+                this.deps.host.getCloudPromptTransport(
+                  resolvedContent,
+                  input.filePaths,
+                ),
+                alwaysOnSkills,
               );
             };
           const transport = warmPayload
@@ -387,7 +420,11 @@ export class TaskCreationSaga extends Saga<
 
           const { pendingUserMessage, augmented } = warmPayload
             ? warmPayload
-            : buildCloudFirstMessage(transport?.messageText, input);
+            : buildCloudFirstMessage(
+                transport?.messageText,
+                input,
+                alwaysOnSkills,
+              );
 
           // The sandbox echoes pendingUserMessage back once it boots; until then
           // the optimistic placeholder would show the bare task description with
@@ -518,6 +555,11 @@ export class TaskCreationSaga extends Saga<
       );
       if (initialPrompt && channelContextBlock) {
         initialPrompt.push(channelContextBlock);
+      }
+
+      const alwaysOnSkillsBlock = buildAlwaysOnSkillsBlock(alwaysOnSkills);
+      if (initialPrompt && alwaysOnSkillsBlock) {
+        initialPrompt.push(alwaysOnSkillsBlock);
       }
 
       await this.step({
@@ -708,6 +750,7 @@ export class TaskCreationSaga extends Saga<
   // deliver the first message without its attachments.
   private async prepareWarmActivation(
     input: TaskCreationInput,
+    alwaysOnSkills: ResolvedAlwaysOnSkill[],
   ): Promise<WarmActivationPayload | null> {
     if (!input.content && !input.filePaths?.length) {
       return null;
@@ -716,13 +759,14 @@ export class TaskCreationSaga extends Saga<
     const resolvedContent = input.content
       ? await this.deps.host.resolveLocalSkillCommandPrompt(input.content)
       : "";
-    const transport = this.deps.host.getCloudPromptTransport(
-      resolvedContent,
-      input.filePaths,
+    const transport = appendAlwaysOnSkillBundles(
+      this.deps.host.getCloudPromptTransport(resolvedContent, input.filePaths),
+      alwaysOnSkills,
     );
     const { pendingUserMessage, augmented } = buildCloudFirstMessage(
       transport.messageText,
       input,
+      alwaysOnSkills,
     );
     const base: WarmActivationPayload = {
       transport,

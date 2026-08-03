@@ -35,6 +35,7 @@ function makeService(): TaskService {
     detectRepo: vi.fn(async () => null),
     getFolders: vi.fn(async () => []),
     addFolder: vi.fn(async () => ({ id: "folder-1", path: "/repo" })),
+    resolveAlwaysOnSkills: vi.fn(async () => []),
     track: vi.fn(),
   } as unknown as ITaskCreationHost;
   const sessionService = {

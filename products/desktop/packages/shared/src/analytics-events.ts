@@ -295,6 +295,13 @@ export interface SettingChangedProperties {
   old_value?: string | boolean | number;
 }
 
+export interface SkillAlwaysOnToggledProperties {
+  skill_source: string;
+  enabled: boolean;
+  /** Count of always-on skills after this toggle. */
+  total_always_on: number;
+}
+
 export interface CustomSoundAddedProperties {
   // How the clip was captured.
   source: "recording" | "import";
@@ -1340,6 +1347,7 @@ export const ANALYTICS_EVENTS = {
 
   // Settings events
   SETTING_CHANGED: "Setting changed",
+  SKILL_ALWAYS_ON_TOGGLED: "Skill always-on toggled",
   CUSTOM_SOUND_ADDED: "Custom sound added",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
 
@@ -1520,6 +1528,7 @@ export type EventPropertyMap = {
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
+  [ANALYTICS_EVENTS.SKILL_ALWAYS_ON_TOGGLED]: SkillAlwaysOnToggledProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
 
