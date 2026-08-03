@@ -671,9 +671,22 @@ function rewritePortForwardLocation(
         return value
     }
     const isLoopback = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-    if (!isLoopback || (location.port && Number(location.port) !== resolved.port)) {
+    if (!isLoopback || effectiveUrlPort(location) !== resolved.port) {
         return value
     }
     const locationPath = `${location.pathname}${location.search}${location.hash}`
     return mode === 'host' ? locationPath : `${prefix}${locationPath}`
+}
+
+function effectiveUrlPort(url: URL): number | null {
+    if (url.port) {
+        return Number(url.port)
+    }
+    if (url.protocol === 'http:') {
+        return 80
+    }
+    if (url.protocol === 'https:') {
+        return 443
+    }
+    return null
 }

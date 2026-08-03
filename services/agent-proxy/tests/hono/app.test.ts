@@ -187,6 +187,80 @@ describe('app onError', () => {
         fetchMock.mockRestore()
     })
 
+    it('does not rewrite loopback redirects with a different effective port', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                Response.json({
+                    run_id: 'run-123',
+                    task_id: 'task-abc',
+                    team_id: 42,
+                    forward_id: 'forward-123',
+                    port: 8000,
+                    sandbox_url: 'https://sandbox.modal.run',
+                    connection_token: 'sandbox-jwt',
+                })
+            )
+            .mockResolvedValueOnce(new Response('ok', { status: 302, headers: { Location: 'http://localhost/login' } }))
+
+        const res = await app.request('/some/path', {
+            headers: { Host: 'forward-123.agent-proxy.example.com', Cookie: '__Host-ph_task_port_forward=tok' },
+        })
+
+        expect(res.status).toBe(302)
+        expect(res.headers.get('Location')).toBe('http://localhost/login')
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        fetchMock.mockRestore()
+    })
+
+    it('rewrites loopback redirects with the forwarded explicit port', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                Response.json({
+                    run_id: 'run-123',
+                    task_id: 'task-abc',
+                    team_id: 42,
+                    forward_id: 'forward-123',
+                    port: 8000,
+                    sandbox_url: 'https://sandbox.modal.run',
+                    connection_token: 'sandbox-jwt',
+                })
+            )
+            .mockResolvedValueOnce(
+                new Response('ok', { status: 302, headers: { Location: 'http://localhost:8000/login' } })
+            )
+
+        const res = await app.request('/some/path', {
+            headers: { Host: 'forward-123.agent-proxy.example.com', Cookie: '__Host-ph_task_port_forward=tok' },
+        })
+
+        expect(res.status).toBe(302)
+        expect(res.headers.get('Location')).toBe('/login')
+        expect(fetchMock).toHaveBeenCalledTimes(2)
+        fetchMock.mockRestore()
+    })
+
     it('keeps path-mode port-forward proxying bearer-token only', async () => {
         const redis = {} as unknown as Redis
         const { app } = createApp(
