@@ -80,6 +80,24 @@ describe('SupportEditor serialization and preview schema', () => {
             '> - one\n> - two',
         ],
         [
+            'blockquote inside a list item indented under the marker',
+            {
+                type: 'doc',
+                content: [
+                    {
+                        type: 'bulletList',
+                        content: [
+                            listItem(paragraph('item'), {
+                                type: 'blockquote',
+                                content: [paragraph('a'), paragraph('b')],
+                            }),
+                        ],
+                    },
+                ],
+            },
+            '- item\n  > a\n  >\n  > b',
+        ],
+        [
             'list followed by paragraph and image keeps all blocks',
             {
                 type: 'doc',
