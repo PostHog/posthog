@@ -22,8 +22,8 @@ function renderSlackMarkup(message: string): JSX.Element[] {
         })
 }
 
-export interface MCPNotificationPreviewProps {
-    /** Slack mrkdwn, as produced by `mcpNotificationPreviewMessage` */
+export interface NotificationSlackPreviewProps {
+    /** Slack mrkdwn, as produced by a sub-template's preview-message helper */
     message: string
     buttonLabel: string
     /** Where the interpolated values came from — the project's own events, or sample copy. */
@@ -35,7 +35,11 @@ export interface MCPNotificationPreviewProps {
  * channel before connecting one. Deliberately static: the copy comes from the real template, but
  * the values are samples.
  */
-export function MCPNotificationPreview({ message, buttonLabel, caption }: MCPNotificationPreviewProps): JSX.Element {
+export function NotificationSlackPreview({
+    message,
+    buttonLabel,
+    caption,
+}: NotificationSlackPreviewProps): JSX.Element {
     return (
         <div className="flex gap-2 rounded border bg-surface-primary p-2">
             <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-surface-secondary">

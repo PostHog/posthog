@@ -61,6 +61,17 @@ function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
     return { id: '$mcp_tool_call', type: 'events', properties }
 }
 
+// The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
+const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
+
+// How long one rage-clicked page stays deduped — same trade-off as the MCP TTL above.
+const PA_ALERT_MASKING_TTL_SECONDS = 30 * 60
+
+// Like MCP_ALERT_MASKING_HASH, the key must never be empty (HogMaskerService skips masking on a
+// falsy hash), so events without page properties collapse into one bucket instead.
+const PA_RAGECLICK_MASKING_HASH =
+    `{concat(${PA_RAGECLICK_PAGE_EXPR}) != '' ` + `? concat(${PA_RAGECLICK_PAGE_EXPR}) : 'unknown-page'}`
+
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
     Pick<HogFunctionSubTemplateType, 'sub_template_id' | 'type' | 'context_id'> &
@@ -99,6 +110,16 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         // bury a channel, and amplifiable by anyone holding the (public) project token. One message
         // per tool per interval still surfaces each distinct breakage.
         masking: { hash: MCP_ALERT_MASKING_HASH, ttl: MCP_ALERT_MASKING_TTL_SECONDS, threshold: null },
+    },
+    'pa-rageclick': {
+        sub_template_id: 'pa-rageclick',
+        type: 'destination',
+        context_id: 'standard',
+        filters: { events: [{ id: '$rageclick', type: 'events' }] },
+        // Deduped per page, not per click burst: a broken element gets rage clicked by every
+        // visitor who hits it, so an undeduped alert would post a message per event. One message
+        // per page per interval still surfaces each distinct broken page.
+        masking: { hash: PA_RAGECLICK_MASKING_HASH, ttl: PA_ALERT_MASKING_TTL_SECONDS, threshold: null },
     },
     'activity-log': {
         sub_template_id: 'activity-log',
@@ -429,6 +450,64 @@ export function mcpNotificationPreviewMessage(values: Record<MCPMessageField, st
 const MCP_TOOL_ERROR_SLACK_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(slackEscapeExpr), '*')
 const MCP_TOOL_ERROR_MARKDOWN_MESSAGE = mcpToolFailureMessage(hogFieldRenderer(markdownEscapeExpr), '**')
 
+// $pathname, $current_url and $browser are producer-controlled just like the $mcp_* properties, so
+// the rageclick message reuses the same escaping and length bounds.
+const PA_FIELD_MAX_LENGTH = 200
+
+/** The producer-controlled values a rageclick notification message interpolates. */
+export type PAMessageField = 'page' | 'browser'
+type PAFieldRenderer = (field: PAMessageField) => string
+
+function paHogFieldRenderer(escape: ChatEscaper): PAFieldRenderer {
+    return (field) => {
+        switch (field) {
+            case 'page':
+                return `{${escape(PA_RAGECLICK_PAGE_EXPR, PA_FIELD_MAX_LENGTH)}}`
+            case 'browser':
+                return `{${escape('event.properties.$browser', PA_FIELD_MAX_LENGTH)}}`
+        }
+    }
+}
+
+// Same single-source pattern as mcpToolFailureMessage: the Hog templates and the in-app preview
+// render the one copy string, so the preview can't drift from what gets delivered.
+function paRageclickMessage(field: PAFieldRenderer, bold: string): string {
+    return (
+        `Users are rage clicking on ${bold}${field('page')}${bold} ` +
+        `(browser: ${field('browser')}). The element they're clicking isn't responding.`
+    )
+}
+
+export type PANotificationSubTemplateId = 'pa-rageclick'
+
+export const PA_NOTIFICATION_BUTTON_LABELS: Record<PANotificationSubTemplateId, string> = {
+    'pa-rageclick': 'Watch session replay',
+}
+
+/** See MCP_MESSAGE_FIELD_LIMITS — the caps a preview built from real event values must apply. */
+export const PA_MESSAGE_FIELD_LIMITS: Record<PAMessageField, number> = {
+    page: PA_FIELD_MAX_LENGTH,
+    browser: PA_FIELD_MAX_LENGTH,
+}
+
+/** See mcpNotificationPreviewMessage — the Slack message rendered with sample values. */
+export function paNotificationPreviewMessage(values: Record<PAMessageField, string>): string {
+    const field: PAFieldRenderer = (name) => values[name]
+    return paRageclickMessage(field, '*')
+}
+
+const PA_RAGECLICK_SLACK_MESSAGE = paRageclickMessage(paHogFieldRenderer(slackEscapeExpr), '*')
+const PA_RAGECLICK_MARKDOWN_MESSAGE = paRageclickMessage(paHogFieldRenderer(markdownEscapeExpr), '**')
+
+// Session IDs are producer-controlled too: cap the encoded form like the MCP tool link does (a
+// truncated ID would resolve to nothing, and a lone surrogate would make encodeURLComponent throw),
+// falling back to the replay home page when the ID is missing or oversized.
+const PA_ENCODED_SESSION_EXPR = 'encodeURLComponent(concat(event.properties.$session_id))'
+const PA_RAGECLICK_LINK =
+    `{project.url}/replay` +
+    `{length(${PA_ENCODED_SESSION_EXPR}) > 0 and length(${PA_ENCODED_SESSION_EXPR}) <= ${MCP_URL_ENCODED_TOOL_BUDGET}` +
+    ` ? concat('/', ${PA_ENCODED_SESSION_EXPR}) : '/home'}`
+
 const MCP_ENCODED_EFFECTIVE_TOOL_EXPR = `encodeURLComponent(concat(${MCP_EFFECTIVE_TOOL_EXPR}))`
 // Deep-links to the failing tool, falling back to the tool list when the encoded name would
 // blow the Discord budget (see MCP_URL_ENCODED_TOOL_BUDGET). project.url stays a plain
@@ -438,7 +517,7 @@ const MCP_TOOL_ERROR_LINK =
     `{length(${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) <= ${MCP_URL_ENCODED_TOOL_BUDGET}` +
     ` ? concat('/', ${MCP_ENCODED_EFFECTIVE_TOOL_EXPR}) : ''}`
 
-interface MCPNotificationVariantsOptions {
+interface NotificationVariantsOptions {
     subTemplateId: HogFunctionSubTemplateIdType
     nameSuffix: string
     description: string
@@ -449,7 +528,7 @@ interface MCPNotificationVariantsOptions {
     slackButton: { url: string; label: string }
 }
 
-function mcpNotificationVariants({
+function notificationVariants({
     subTemplateId,
     nameSuffix,
     description,
@@ -458,7 +537,7 @@ function mcpNotificationVariants({
     slackFallbackText,
     markdownMessage,
     slackButton,
-}: MCPNotificationVariantsOptions): HogFunctionSubTemplateType[] {
+}: NotificationVariantsOptions): HogFunctionSubTemplateType[] {
     const commonProperties = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[subTemplateId]
 
     return [
@@ -514,7 +593,7 @@ function mcpNotificationVariants({
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
-    'mcp-tool-error': mcpNotificationVariants({
+    'mcp-tool-error': notificationVariants({
         subTemplateId: 'mcp-tool-error',
         nameSuffix: 'when an MCP tool call fails',
         description: 'Know the moment agents hit an error on one of your tools',
@@ -523,6 +602,16 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackFallbackText: 'An MCP tool call failed',
         markdownMessage: `${MCP_TOOL_ERROR_MARKDOWN_MESSAGE}\n\n${MCP_TOOL_ERROR_LINK}`,
         slackButton: { url: MCP_TOOL_ERROR_LINK, label: MCP_NOTIFICATION_BUTTON_LABELS['mcp-tool-error'] },
+    }),
+    'pa-rageclick': notificationVariants({
+        subTemplateId: 'pa-rageclick',
+        nameSuffix: 'when users rage click',
+        description: "Know when users repeatedly click something that isn't working",
+        webhookDescription: 'Send rage click events to your own endpoint',
+        slackMessage: PA_RAGECLICK_SLACK_MESSAGE,
+        slackFallbackText: 'Users are rage clicking',
+        markdownMessage: `${PA_RAGECLICK_MARKDOWN_MESSAGE}\n\n${PA_RAGECLICK_LINK}`,
+        slackButton: { url: PA_RAGECLICK_LINK, label: PA_NOTIFICATION_BUTTON_LABELS['pa-rageclick'] },
     }),
     'survey-response': [
         {

@@ -1084,6 +1084,7 @@ export enum SavedInsightsTabs {
     Yours = 'yours',
     History = 'history',
     Alerts = 'alerts',
+    Notifications = 'notifications',
 }
 
 export enum ReplayTabs {
@@ -7256,6 +7257,7 @@ export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
     | 'survey-response'
     | 'mcp-tool-error'
+    | 'pa-rageclick'
     | 'activity-log'
     | 'feature-flag-change'
     | 'error-tracking-issue-created'
