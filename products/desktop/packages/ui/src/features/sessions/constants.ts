@@ -2,8 +2,8 @@ export const CHAT_CONTENT_MAX_WIDTH = 750;
 /**
  * Horizontal room reserved on both sides of the thread's scroll content, and by the composer, so
  * the two columns narrow in step instead of one running wider than the other (and into the panel
- * edges). Wide enough to clear the minimap rail (44px from the right edge), so rows never pass
- * underneath it.
+ * edges). Wide enough to clear the minimap rail (44px from the right edge) while the pane can
+ * afford it; once the gutter collapses toward the floor below, rows do pass under the rail.
  */
 export const CHAT_CONTENT_GUTTER = 48;
 /**

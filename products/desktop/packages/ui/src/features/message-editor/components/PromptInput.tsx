@@ -89,9 +89,10 @@ export interface PromptInputProps {
    * rather than a separate widget attached outside it.
    */
   headerAddon?: React.ReactNode;
-  // Render an empty toolbar (no attach/mode/model/reasoning/history/submit).
-  // Submission falls back to the Enter key. Used by surfaces that want the
-  // editor chrome without any controls yet (e.g. the canvas composer).
+  // Drop the toolbar row's own controls (attach/mode/model/reasoning/history).
+  // The row itself is omitted unless a caller slot still needs it, and send
+  // stays put — it lives in the box, not the row. Used by surfaces that want
+  // the editor chrome without any controls yet (e.g. the canvas composer).
   hideDefaultToolbar?: boolean;
   // prompt history provider
   getPromptHistory?: () => string[];
@@ -415,8 +416,8 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
 
     // The controls sit under the box rather than inside it, so the box holds
     // only what you are writing plus the send button. Mirrors the addons' own
-    // flex/gap/padding so the row keeps its spacing and left inset, and carries
-    // the muted colour it no longer inherits out here.
+    // flex/gap/padding so the row keeps their spacing and left inset, and
+    // carries the muted colour the addons would have supplied.
     const toolbar = (!hideDefaultToolbar ||
       toolbarEndSlot ||
       messagingModeToggle) && (
