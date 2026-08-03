@@ -1057,7 +1057,8 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
         run = child.runs.get()
         self.assertEqual(child.channel_id, channel.id)
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
-        self.assertEqual(run.state["pending_user_message"], child.description)
+        self.assertIn("You were spawned by an orchestrator task", run.state["pending_user_message"])
+        self.assertTrue(run.state["pending_user_message"].endswith("Make the focused change"))
         self.assertEqual(
             {key: run.state[key] for key in ("parent_task_id", "parent_run_id", "wake_on")},
             {
@@ -1240,11 +1241,13 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
         self.assertEqual(override_run.state["sandbox_environment_id"], str(override.id))
         self.assertEqual(override_run.state["custom_image_id"], str(override_image.id))
 
+    @patch("products.tasks.backend.models.TaskRun.capture_event")
     @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
-    def test_spawn_rejects_child_parent_run(self, _flag):
+    def test_spawn_rejects_child_parent_run(self, _flag, capture_event):
         parent_run = self._parent_run(state={"parent_task_id": str(uuid.uuid4())})
         response = self.client.post(self.url, self._payload(parent_run), format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        capture_event.assert_called_once_with("task_spawn_rejected", {"reason": "depth_limit"})
 
     @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
     def test_spawn_rejects_terminal_parent_run(self, _flag):

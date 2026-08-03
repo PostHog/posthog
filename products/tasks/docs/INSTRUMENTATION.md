@@ -94,13 +94,21 @@ Additional properties:
 
 ### `parent_woken`
 
-Tracked when a cold orchestrator parent is resumed and its queued child wakes are delivered.
+Tracked when an orchestrator parent receives a child wake, either through its live workflow or after an automatic resume.
 
 | Property       | Type   | Description                                       |
 | -------------- | ------ | ------------------------------------------------- |
 | `source`       | `str`  | `terminal`, `pr_merged`, or `multiple`            |
 | `cold`         | `bool` | Whether delivery required an automatic resume     |
 | `queued_count` | `int`  | Number of queued wake messages delivered together |
+
+### `task_spawn_rejected`
+
+Tracked on the parent run when a valid parent run cannot spawn a child.
+
+| Property | Type  | Description                                                      |
+| -------- | ----- | ---------------------------------------------------------------- |
+| `reason` | `str` | `terminal_parent`, `depth_limit`, `usage_limit`, or `rate_limit` |
 
 ## Loop Fire Metrics
 
