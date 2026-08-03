@@ -31,6 +31,8 @@ import { registerPublicRoutes } from './public-routes.js'
 import { streamTaskRunEvents } from './sse-handler.js'
 import type { HonoCtx, HonoVariables, Lifecycle } from './types.js'
 
+const PORT_FORWARD_AUTH_COOKIE = '__Host-ph_task_port_forward'
+
 // ---------------------------------------------------------------------------
 // Exported types
 // ---------------------------------------------------------------------------
@@ -186,11 +188,10 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             return c.json({ error: 'Token does not match port forward' }, 403)
         }
 
-        const cookiePath = mode === 'host' ? '/' : `/v1/ports/${forwardId}`
         const redirectPath = mode === 'host' ? '/' : `/v1/ports/${forwardId}/`
         c.header(
             'Set-Cookie',
-            `ph_task_port_forward=${encodeURIComponent(token)}; Path=${cookiePath}; HttpOnly; SameSite=Lax; Max-Age=3600; Secure`
+            `${PORT_FORWARD_AUTH_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=3600; Secure`
         )
         return c.redirect(redirectPath, 302)
     }
@@ -324,11 +325,11 @@ function extractPortForwardToken(
     const pathCookie = cookie
         .split(';')
         .map((part) => part.trim())
-        .find((part) => part.startsWith('ph_task_port_forward='))
+        .find((part) => part.startsWith(`${PORT_FORWARD_AUTH_COOKIE}=`))
     if (!pathCookie) {
         return null
     }
-    const token = decodeURIComponent(pathCookie.slice('ph_task_port_forward='.length))
+    const token = decodeURIComponent(pathCookie.slice(PORT_FORWARD_AUTH_COOKIE.length + 1))
     return token || null
 }
 

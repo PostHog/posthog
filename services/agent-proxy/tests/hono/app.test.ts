@@ -88,9 +88,10 @@ describe('app onError', () => {
 
         expect(res.status).toBe(302)
         expect(res.headers.get('Location')).toBe('/')
-        expect(res.headers.get('Set-Cookie')).toContain('ph_task_port_forward=tok')
+        expect(res.headers.get('Set-Cookie')).toContain('__Host-ph_task_port_forward=tok')
         expect(res.headers.get('Set-Cookie')).toContain('Path=/')
         expect(res.headers.get('Set-Cookie')).toContain('HttpOnly')
+        expect(res.headers.get('Set-Cookie')).not.toContain('Domain=')
         expect(fetchMock).toHaveBeenCalledWith(
             'http://django/internal/tasks/port-forward/exchange-ticket/',
             expect.objectContaining({
@@ -164,7 +165,7 @@ describe('app onError', () => {
             })
 
         const res = await app.request('/some/path?x=1', {
-            headers: { Host: 'forward-123.agent-proxy.example.com', Cookie: 'ph_task_port_forward=tok' },
+            headers: { Host: 'forward-123.agent-proxy.example.com', Cookie: '__Host-ph_task_port_forward=tok' },
         })
 
         expect(res.status).toBe(201)
@@ -221,6 +222,26 @@ describe('app onError', () => {
         expect(bearer.headers.get('Location')).toBe('/v1/ports/forward-123/login')
         expect(fetchMock).toHaveBeenCalledTimes(2)
         fetchMock.mockRestore()
+    })
+
+    it('ignores parent-domain port-forward cookies on isolated preview hosts', async () => {
+        const redis = {} as unknown as Redis
+        const { app } = createApp(
+            redis,
+            makeConfig({
+                djangoCallbackBaseUrl: 'http://django',
+                agentProxyCallbackSecret: 'secret',
+                tasksAgentProxyPublicUrl: 'https://agent-proxy.example.com',
+            }),
+            []
+        )
+
+        const res = await app.request('/some/path', {
+            headers: { Host: 'forward-123.agent-proxy.example.com', Cookie: 'ph_task_port_forward=poisoned' },
+        })
+
+        expect(res.status).toBe(401)
+        expect(await res.json()).toEqual({ error: 'Missing port forward token' })
     })
 
     it('rejects resolved port-forward targets outside allowed sandbox hosts', async () => {
