@@ -657,7 +657,13 @@ def _teams_from_response(resp: Response) -> list[dict] | None:
         return None
     data = resp.data
     if isinstance(data, dict):
+        naming_version = data.get("data_imports_table_naming_version")
         data = data.get("teams")
+        if isinstance(data, list) and isinstance(naming_version, str) and naming_version:
+            data = [
+                {**row, "data_imports_table_naming_version": naming_version} if isinstance(row, dict) else row
+                for row in data
+            ]
     if not isinstance(data, list):
         return None
     return [row for row in data if isinstance(row, dict)]
