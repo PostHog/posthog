@@ -42,6 +42,7 @@ def query_daily_rows(team: Team) -> list:
     """
     from posthog.hogql.query import execute_hogql_query
 
+    from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.workload import Workload
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:daily_rows")
@@ -65,6 +66,7 @@ def query_daily_rows(team: Team) -> list:
         filters=HogQLFilters(filterTestAccounts=True),
         # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
         workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.ERROR_TRACKING,
     )
     return response.results or []
 
@@ -152,6 +154,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     busiest project without needing a per-team build.
     """
     from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.workload import Workload
 
     tag_queries(product=ProductKey.ERROR_TRACKING, name="weekly_digest:exception_counts")
@@ -174,7 +177,7 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """
 
     # Cross-team scan for a weekly batch job — keep it off the online cluster.
-    results = sync_execute(query, query_params, workload=Workload.OFFLINE)
+    results = sync_execute(query, query_params, workload=Workload.OFFLINE, ch_user=ClickHouseUser.ERROR_TRACKING)
     return results if isinstance(results, list) else []
 
 
@@ -182,6 +185,7 @@ def get_crash_free_sessions(team: Team) -> dict:
     """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
     from posthog.hogql.query import execute_hogql_query
 
+    from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.workload import Workload
 
     # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
@@ -209,6 +213,7 @@ def get_crash_free_sessions(team: Team) -> dict:
         filters=HogQLFilters(filterTestAccounts=True),
         # Unfiltered 14-day session scan — the heaviest query here. Must stay off the online cluster.
         workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.ERROR_TRACKING,
     )
 
     if not response.results or not response.results[0]:
@@ -278,6 +283,7 @@ def _query_issue_rows(team: Team) -> list:
     """
     from posthog.hogql.query import execute_hogql_query
 
+    from posthog.clickhouse.client.connection import ClickHouseUser
     from posthog.clickhouse.workload import Workload
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:issue_rows")
@@ -312,6 +318,7 @@ def _query_issue_rows(team: Team) -> list:
         filters=HogQLFilters(filterTestAccounts=True),
         # Weekly batch job: Celery pinned this to the offline cluster process-wide, Temporal does not.
         workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.ERROR_TRACKING,
     )
     return response.results or []
 
