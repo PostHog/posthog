@@ -2371,6 +2371,7 @@ def _to_channel_summary_view(summary: AccountChannelSummary) -> contracts.Accoun
         period_end=summary.period_end,
         content=summary.content,
         message_count=summary.message_count,
+        messages=summary.messages,
         generated_at=summary.generated_at,
     )
 
@@ -2448,9 +2449,13 @@ def record_channel_summary(
     period_end: datetime,
     content: str,
     message_count: int,
+    messages: list[dict] | None = None,
     model_name: str = "",
 ) -> str | None:
     """Store a finished channel summary pushed in by the conversations pipeline.
+
+    ``messages`` is the per-message audit metadata ([{author, sent_at, permalink}]),
+    never message text.
 
     Idempotent on ``(team, account, cadence, period_start)``: a retry or overlapping run
     resolves to the existing row's id instead of double-writing. Returns None when the
@@ -2471,6 +2476,7 @@ def record_channel_summary(
                 period_end=period_end,
                 content=content,
                 message_count=message_count,
+                messages=messages or [],
                 model_name=model_name,
             )
     except IntegrityError:

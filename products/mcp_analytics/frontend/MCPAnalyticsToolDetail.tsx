@@ -39,6 +39,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import type { MCPToolFailureOccurrenceItem } from '~/queries/schema/schema-general'
 import { SceneExport } from '~/scenes/sceneTypes'
 
+import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
 import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
 import { MetricTile } from './dashboard/MetricTile'
@@ -620,6 +621,13 @@ function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.
                         />
                     </div>
                 </div>
+            </div>
+
+            <LemonDivider />
+
+            <div className="flex flex-col gap-3 px-4 pb-4">
+                <SectionHeader title="Intents served" subtitle="From the latest intent cluster snapshot" />
+                <ToolDetailIntentsSection toolName={toolName} />
             </div>
 
             <LemonDivider />
