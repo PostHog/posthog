@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import UTC, datetime, timedelta
 from typing import cast
 from urllib.parse import urlencode
@@ -582,6 +583,26 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         # any-user mode excludes it
         any_user = self.client.get(f"/api/projects/{self.team.id}/session_recordings?hide_viewed_recordings=any-user")
         assert self._result_ids(any_user) == ["unviewed"]
+
+    @parameterized.expand([("from_clickhouse", False), ("persisted_to_s3", True)])
+    def test_session_ids_results_follow_the_requested_order(self, _name: str, persisted: bool):
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        for index, session_id in enumerate(["alpha", "beta", "gamma"]):
+            self.produce_replay_summary("user1", session_id, base_time + relativedelta(seconds=index * 10))
+            if persisted:
+                SessionRecording.objects.create(
+                    team=self.team, session_id=session_id, full_recording_v2_path=f"s3://bucket/{session_id}"
+                )
+
+        # Pinned collections and the experiment tab's session buckets both rely on the response
+        # keeping the order they asked for, which is not the list's own recency ordering. Once every
+        # requested recording is persisted there is nothing left to look up in ClickHouse, so the
+        # ordering has to survive skipping that branch.
+        requested = ["gamma", "alpha", "beta"]
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings?session_ids={json.dumps(requested)}"
+        )
+        assert self._result_ids(response) == requested
 
     def test_hide_viewed_recordings_does_not_apply_to_explicit_session_ids(self):
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
@@ -2108,6 +2129,38 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 {"recent_session": True},  # must be in results, with expected matches_filters
                 ["no_such_session"],  # must NOT be in results
             ),
+            (
+                "recording_outside_supplied_session_ids_is_included_but_flagged",
+                # The caller supplies an explicit session_ids set (how the experiment recordings tab
+                # sends bucket results) and asks for a recording that isn't in it.
+                {
+                    "recordings": [
+                        {"session_id": "bucket_session", "days_ago": 1},
+                        {"session_id": "open_session", "days_ago": 1},
+                    ],
+                    "date_from": "-3d",
+                    "session_ids": ["bucket_session"],
+                    "session_recording_id": "open_session",
+                },
+                {"bucket_session": True, "open_session": False},
+                [],  # must NOT be in results
+            ),
+            (
+                "recording_inside_supplied_session_ids_is_not_flagged",
+                # The same shape, except the requested recording is part of the supplied set, so it
+                # is a genuine member of the list rather than a retained selection.
+                {
+                    "recordings": [
+                        {"session_id": "bucket_session", "days_ago": 1},
+                        {"session_id": "open_session", "days_ago": 1},
+                    ],
+                    "date_from": "-3d",
+                    "session_ids": ["bucket_session", "open_session"],
+                    "session_recording_id": "open_session",
+                },
+                {"bucket_session": True, "open_session": True},
+                [],  # must NOT be in results
+            ),
         ]
     )
     def test_session_recording_id_respects_filters(
@@ -2138,6 +2191,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             params["limit"] = config["limit"]
         if "session_recording_id" in config:
             params["session_recording_id"] = config["session_recording_id"]
+        if "session_ids" in config:
+            params["session_ids"] = json.dumps(config["session_ids"])
 
         params_string = urlencode(params)
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
