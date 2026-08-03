@@ -339,17 +339,20 @@ class TestLoginAPI(APIBaseTest):
         self._enforce_current_test_org()
         self.client.force_login(self.user)
 
-    def test_cross_org_admin_cannot_modify_enforcing_org_via_custom_permission_chain(self):
+    def test_cross_org_admin_permission_chain_enforced_except_the_escape_hatch(self):
         # OrganizationViewSet's update chain comes from dangerously_get_permissions, which must not
-        # skip domain enforcement: PATCHing the org is the endpoint that could disable the setting.
+        # skip domain enforcement — but the escape hatch (disabling the setting) must work through
+        # it, or a blocked admin could never recover the organization.
         self._blocked_admin_parked_in_permitted_org()
 
-        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
-
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"name": "New name"})
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
-        self.assertTrue(self.organization.enforce_verified_domains)
+        self.assertFalse(self.organization.enforce_verified_domains)
 
     def test_cross_org_admin_cannot_create_invites_for_enforcing_org(self):
         # Invite creation also runs on a custom permission chain; a member the org no longer admits

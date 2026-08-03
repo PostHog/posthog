@@ -319,6 +319,44 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.enforce_verified_domains)
 
+    def test_blocked_admin_can_disable_enforcement_but_change_nothing_else(self):
+        # The escape hatch: an admin who became blocked (email changed, domain deleted) must still be
+        # able to turn the setting off — and only that — or the organization is wedged permanently.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        # Any other change through the hatch is rejected, alone or alongside the disable.
+        for payload in [{"name": "New name"}, {"enforce_verified_domains": False, "name": "New name"}]:
+            response = self.client.patch(f"/api/organizations/{self.organization.id}/", payload)
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, payload)
+            self.assertEqual(response.json()["code"], "verified_domain_required")
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertFalse(self.organization.enforce_verified_domains)
+
+    def test_blocked_member_cannot_use_the_enforcement_escape_hatch(self):
+        # The hatch only bypasses the domain gates; the admin-write requirement on the organization
+        # endpoint still applies to members.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.enforce_verified_domains = True
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="hogflix.com", organization=self.organization, verified_at=timezone.now()
+        )
+
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_verified_domains": False})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.enforce_verified_domains)
+
     def test_cannot_update_allow_publicly_shared_resources_without_feature(self):
         """Test that allow_publicly_shared_resources cannot be updated without ORGANIZATION_SECURITY_SETTINGS feature."""
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

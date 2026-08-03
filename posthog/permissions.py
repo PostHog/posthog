@@ -28,7 +28,7 @@ from posthog.auth import (
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
-from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
 from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
@@ -280,6 +280,10 @@ class VerifiedDomainEnforcementPermission(BasePermission):
         # Non-user principals (sharing links, project secret keys, internal API) aren't members
         # and can't be domain-gated.
         if not isinstance(user, User):
+            return True
+
+        # Escape hatch: a blocked admin must always be able to turn the setting off.
+        if is_enforcement_disable_request(request):
             return True
 
         # Impersonating staff are exempt like every other enforcement gate; checked before the

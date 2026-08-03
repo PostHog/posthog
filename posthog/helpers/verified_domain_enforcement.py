@@ -1,3 +1,5 @@
+import re
+
 import structlog
 from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
@@ -13,6 +15,18 @@ VERIFIED_DOMAIN_REQUIRED_ERROR = (
     "Your organization only allows members with a verified email domain. Contact your organization's admin for access."
 )
 
+_ORGANIZATION_DETAIL_PATH = re.compile(r"^/api/organizations/[^/]+/?$")
+
+
+def is_enforcement_disable_request(request: Request) -> bool:
+    """
+    The escape hatch, mirroring 2FA's whitelisted `two_factor_disable`: a PATCH to the organization
+    itself passes the domain gates so a blocked admin can turn `enforce_verified_domains` off.
+    `OrganizationSerializer.validate` rejects every other field change from a blocked admin, and the
+    standard admin-write permission still applies.
+    """
+    return request.method == "PATCH" and bool(_ORGANIZATION_DETAIL_PATH.match(request.path))
+
 
 def enforce_verified_domain(request: Request, user: User) -> None:
     """
@@ -25,6 +39,9 @@ def enforce_verified_domain(request: Request, user: User) -> None:
     user is, not that the organization admits their email domain.
     """
     if is_path_whitelisted(request.path):
+        return
+
+    if is_enforcement_disable_request(request):
         return
 
     if is_impersonated_session(request._request):

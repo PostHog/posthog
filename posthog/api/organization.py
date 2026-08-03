@@ -32,6 +32,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import validate_display_name
+from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR
 from posthog.models import Organization, User
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.organization import OrganizationMembership
@@ -313,6 +314,20 @@ class OrganizationSerializer(
                     code="payment_required",
                 )
         return value
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # A blocked admin gets through the domain gates only to use the escape hatch: turning
+        # `enforce_verified_domains` off. Reject anything else they try to change on the way.
+        request = self.context.get("request")
+        if (
+            self.instance
+            and request
+            and isinstance(request.user, User)
+            and OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(request.user.email, self.instance)
+        ):
+            if set(attrs) != {"enforce_verified_domains"} or attrs["enforce_verified_domains"]:
+                raise exceptions.PermissionDenied(VERIFIED_DOMAIN_REQUIRED_ERROR, code="verified_domain_required")
+        return attrs
 
     def validate_enforce_verified_domains(self, value: bool | None) -> bool | None:
         # Only turning it on is gated. This setting denies access rather than prompting for setup, so
