@@ -2020,11 +2020,6 @@ tasks: PostgresTable = PostgresTable(
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", nullable=True, description="When the task was deleted; NULL if not deleted."
         ),
-        "channel_id": StringDatabaseField(
-            name="channel_id",
-            nullable=True,
-            description="Channel the task was kicked off in.",
-        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the task was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the task was last updated."),
     },
