@@ -1936,6 +1936,18 @@ def spawned_task_run_rate_capped(team_id: int) -> bool:
     )
 
 
+def get_task_run_imported_mcp_servers(run_id: str | UUID, team_id: int) -> list[dict] | None:
+    return TaskRun.objects.only("imported_mcp_servers").get(id=run_id, team_id=team_id).imported_mcp_servers
+
+
+def copy_task_run_skill_bundle_artifacts(source_run_id: str | UUID, target_run_id: str | UUID, team_id: int) -> None:
+    from products.tasks.backend.logic.services.loop_runs import copy_task_run_skill_bundle_artifacts as copy_bundles
+
+    source_run = TaskRun.objects.get(id=source_run_id, team_id=team_id)
+    target_run = TaskRun.objects.get(id=target_run_id, team_id=team_id)
+    copy_bundles(source_run, target_run)
+
+
 # `output.pr_merged` is GitHub's word, recorded by the PR webhook (`_record_run_pr_merged`) — never
 # the caller's. Signals reads it to decide refund finality (billing.report_pr_is_merged): a report
 # whose PR merged keeps its resolved status through a refund instead of being suppressed and having

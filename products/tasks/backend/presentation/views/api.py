@@ -389,12 +389,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return Response({"detail": "Team task run rate limit exceeded"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         wake_on = data.pop("wake_on")
+        parent_state = parent_run.state or {}
+        sandbox_environment_id = data.pop("sandbox_environment_id", parent_state.get("sandbox_environment_id"))
+        custom_image_id = data.pop("custom_image_id", parent_state.get("custom_image_id"))
         run_data = {
             "environment": tasks_facade.TaskRunEnvironment.CLOUD,
             "mode": "background",
             "runtime_adapter": data.pop("runtime_adapter"),
             "model": data.pop("model"),
             "reasoning_effort": data.pop("reasoning_effort"),
+            "sandbox_environment_id": sandbox_environment_id,
+            "custom_image_id": custom_image_id,
+            "imported_mcp_servers": tasks_facade.get_task_run_imported_mcp_servers(parent_run.id, self.team_id),
         }
         task_data = data
         if parent_task.channel is not None:
@@ -421,6 +427,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if result is None or result.error is not None or result.run is None:
                 detail = result.error.detail if result and result.error else "Could not create child run"
                 raise ValidationError(detail)
+            tasks_facade.copy_task_run_skill_bundle_artifacts(parent_run.id, result.run.id, self.team_id)
             outcome, _ = tasks_facade.start_task_run(
                 result.run.id,
                 child_task.id,

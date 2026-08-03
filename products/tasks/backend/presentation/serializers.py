@@ -772,6 +772,8 @@ class TaskSpawnRequestSerializer(serializers.Serializer):
     reasoning_effort = serializers.ChoiceField(
         choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS], required=False, default=None
     )
+    sandbox_environment_id = serializers.UUIDField(required=False, allow_null=True)
+    custom_image_id = serializers.UUIDField(required=False, allow_null=True)
     wake_on = serializers.ListField(child=serializers.ChoiceField(choices=["pr_merged"]), required=False, default=list)
 
     def validate_repository(self, value: str | None) -> str | None:

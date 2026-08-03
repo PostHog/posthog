@@ -621,18 +621,34 @@ def _seed_skill_bundle_artifacts(task_run: TaskRun) -> None:
     if not bundles:
         return
 
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the fire path import
-
-    from products.tasks.backend.logic.services.staged_artifacts import get_safe_artifact_name  # noqa: PLC0415
-
-    # `state` is a client-PATCHable surface (the seeds key is server-protected, but this
-    # copy primitive must not trust it anyway): every source path has to sit under the
-    # owning loop's own bundle prefix, and the target segments are re-sanitized, or a
-    # forged entry would read or write arbitrary bucket keys via the recovery path.
     loop_id = task_run.task.loop_id
     if loop_id is None:
         raise ValueError("skill bundle seeds on a run without a loop")
     loop_prefix = f"{Loop.skill_bundle_s3_prefix_for(task_run.team_id, loop_id)}/"
+
+    _copy_skill_bundle_artifacts(task_run, bundles, source_prefix=loop_prefix)
+
+
+def copy_task_run_skill_bundle_artifacts(source_run: TaskRun, target_run: TaskRun) -> None:
+    bundles = [
+        entry
+        for entry in (source_run.artifacts or [])
+        if isinstance(entry, dict) and entry.get("type") == "skill_bundle" and entry.get("storage_path")
+    ]
+    _copy_skill_bundle_artifacts(
+        target_run,
+        bundles,
+        source_prefix=f"{source_run.get_artifact_s3_prefix()}/",
+    )
+
+
+def _copy_skill_bundle_artifacts(task_run: TaskRun, bundles: list[dict], *, source_prefix: str) -> None:
+    if not bundles:
+        return
+
+    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the fire path import
+
+    from products.tasks.backend.logic.services.staged_artifacts import get_safe_artifact_name  # noqa: PLC0415
 
     run_prefix = task_run.get_artifact_s3_prefix()
     manifest = list(task_run.artifacts or [])
@@ -641,8 +657,8 @@ def _seed_skill_bundle_artifacts(task_run: TaskRun) -> None:
         for bundle in bundles:
             entry = dict(bundle)
             source_path = str(entry["storage_path"])
-            if not source_path.startswith(loop_prefix):
-                raise ValueError("skill bundle seed escapes the loop's storage prefix")
+            if not source_path.startswith(source_prefix):
+                raise ValueError("skill bundle source escapes the owning run's storage prefix")
             entry_id = str(entry["id"])
             if not re.fullmatch(r"[0-9a-f]{8,64}", entry_id):
                 raise ValueError("skill bundle seed has a malformed id")
