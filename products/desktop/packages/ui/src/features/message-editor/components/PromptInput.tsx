@@ -78,9 +78,9 @@ export interface PromptInputProps {
    */
   attachmentsPrefix?: React.ReactNode;
   /**
-   * Pushed to the far end of the toolbar under the composer — for read-only
-   * status about the session the prompt goes to (e.g. context usage), as
-   * opposed to the controls on the left that change what sending does.
+   * Pushed to the far end of the composer's toolbar row — for read-only status
+   * about the session the prompt goes to (e.g. context usage), as opposed to
+   * the controls on the left that change what sending does.
    */
   toolbarEndSlot?: React.ReactNode;
   /**
@@ -391,7 +391,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       <Tooltip content="Stop">
         <Button
           variant="destructive"
-          size="icon-sm"
+          size="icon"
           onClick={onCancel}
           aria-label="Stop"
         >
@@ -402,7 +402,7 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       <Tooltip content={submitTooltip}>
         <Button
           variant="primary"
-          size="icon-sm"
+          size="icon"
           onClick={handleSubmitClick}
           disabled={submitBlocked}
           aria-label="Send message"
@@ -413,99 +413,110 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       </Tooltip>
     );
 
-    // The left-hand controls sit under the composer rather than inside it, so the
-    // box holds only what you are writing. Mirrors the block-end addon's own
-    // flex/gap/padding so the controls keep their spacing and left inset, and
-    // carries the addon's muted colour, which they no longer inherit out here.
-    const toolbar = hideDefaultToolbar ? null : (
-      <div className="flex select-none items-center gap-1 whitespace-nowrap p-1 text-muted-foreground">
-        <AttachmentMenu
-          disabled={disabled}
-          repoPath={repoPath}
-          taskId={taskId}
-          onAddAttachment={addAttachment}
-          onAttachFiles={onAttachFiles}
-          onInsertChip={insertChip}
-          onRemoveChip={removeChipById}
-        />
-        {onModeChange && (
-          <ModeSelector
-            modeOption={modeOption}
-            onChange={onModeChange}
-            allowBypassPermissions={allowBypassPermissions}
-            disabled={disabled}
-            autoresearch={autoresearch}
-            canvas={canvas}
-          />
+    // The controls sit under the box rather than inside it, so the box holds
+    // only what you are writing plus the send button. Mirrors the addons' own
+    // flex/gap/padding so the row keeps its spacing and left inset, and carries
+    // the muted colour it no longer inherits out here.
+    const toolbar = (!hideDefaultToolbar ||
+      toolbarEndSlot ||
+      messagingModeToggle) && (
+      <div className="flex select-none items-center gap-1 whitespace-nowrap px-1 text-muted-foreground">
+        {!hideDefaultToolbar && (
+          <>
+            <AttachmentMenu
+              disabled={disabled}
+              repoPath={repoPath}
+              taskId={taskId}
+              onAddAttachment={addAttachment}
+              onAttachFiles={onAttachFiles}
+              onInsertChip={insertChip}
+              onRemoveChip={removeChipById}
+            />
+            {onModeChange && (
+              <ModeSelector
+                modeOption={modeOption}
+                onChange={onModeChange}
+                allowBypassPermissions={allowBypassPermissions}
+                disabled={disabled}
+                autoresearch={autoresearch}
+                canvas={canvas}
+              />
+            )}
+            {modelSelector && <span>{modelSelector}</span>}
+            {reasoningSelector && <span>{reasoningSelector}</span>}
+            {isBashMode && (
+              <Text className="font-mono text-(--blue-9) text-[13px]">
+                ! bash
+              </Text>
+            )}
+          </>
         )}
-        {modelSelector && <span>{modelSelector}</span>}
-        {reasoningSelector && <span>{reasoningSelector}</span>}
-        {isBashMode && (
-          <Text className="font-mono text-(--blue-9) text-[13px]">! bash</Text>
-        )}
-        {toolbarEndSlot && <span className="ml-auto">{toolbarEndSlot}</span>}
+        <span className="ml-auto flex items-center gap-1">
+          {toolbarEndSlot}
+          {!hideDefaultToolbar && historyButton}
+          {messagingModeToggle}
+        </span>
       </div>
     );
 
-    return (
-      <Flex direction="column" gap="1">
-        <Flex gap="2" align="stretch">
-          <InputGroup
-            onClick={handleContainerClick}
-            onContextMenu={handleContextMenu}
-            className={`h-auto flex-1 cursor-text bg-card ${isBashMode ? "ring-1 ring-blue-9" : "focus-within:border-ring/50 focus-within:ring-3 focus-within:ring-ring/30"}`}
-            {...(tourTarget && {
-              "data-tour": `${tourTarget}-editor`,
-              "data-tour-ready": !isEmpty ? "true" : undefined,
-            })}
-          >
-            {headerAddon && (
-              <InputGroupAddon align="block-start">
-                {headerAddon}
-              </InputGroupAddon>
-            )}
-            {(attachmentsPrefix || attachments.length > 0) && (
-              <InputGroupAddon align="block-start">
-                {/* One provider for the row: moving between squares reuses the
+    const composerRow = (
+      <Flex gap="2" align="stretch">
+        <InputGroup
+          onClick={handleContainerClick}
+          onContextMenu={handleContextMenu}
+          className={`h-auto flex-1 cursor-text bg-card ${isBashMode ? "ring-1 ring-blue-9" : "focus-within:border-ring/50 focus-within:ring-3 focus-within:ring-ring/30"}`}
+          {...(tourTarget && {
+            "data-tour": `${tourTarget}-editor`,
+            "data-tour-ready": !isEmpty ? "true" : undefined,
+          })}
+        >
+          {headerAddon && (
+            <InputGroupAddon align="block-start">{headerAddon}</InputGroupAddon>
+          )}
+          {(attachmentsPrefix || attachments.length > 0) && (
+            <InputGroupAddon align="block-start">
+              {/* One provider for the row: moving between squares reuses the
                     open delay instead of re-waiting it per attachment. */}
-                <TooltipProvider>
-                  {attachmentsPrefix}
-                  <AttachmentsBar
-                    attachments={attachments}
-                    onRemove={removeAttachment}
-                    uploadStatuses={attachmentUploadStatuses}
-                  />
-                </TooltipProvider>
-              </InputGroupAddon>
-            )}
+              <TooltipProvider>
+                {attachmentsPrefix}
+                <AttachmentsBar
+                  attachments={attachments}
+                  onRemove={removeAttachment}
+                  uploadStatuses={attachmentUploadStatuses}
+                />
+              </TooltipProvider>
+            </InputGroupAddon>
+          )}
+          {/* Send rides alongside the text rather than down in the toolbar.
+              `items-end` parks it on the last line, so a growing prompt pushes
+              it down the box instead of leaving it stranded up top. */}
+          <div className="flex w-full items-end">
             <div
               className={clsx(
-                "cli-editor-scroll relative min-h-[50px] w-full flex-1 overflow-y-auto px-2 py-2 text-[14px]",
+                "cli-editor-scroll relative min-h-[37px] min-w-0 flex-1 overflow-y-auto px-2 py-2 text-[14px]",
                 editorHeight === "large" ? "max-h-[45vh]" : "max-h-[200px]",
               )}
             >
               <EditorContent editor={editor} />
             </div>
-            {/* Submit stays in the box even with a blank toolbar; only the
-                left-side addons are suppressed. Steer/queue sits beside it
-                rather than down in the toolbar: it decides what the send button
-                does, so it belongs within reach of it. */}
-            <InputGroupAddon align="block-end" className="p-1">
-              <span className="ml-auto flex items-center gap-1">
-                {!hideDefaultToolbar && historyButton}
-                {messagingModeToggle}
-                {submitButton}
-              </span>
-            </InputGroupAddon>
-          </InputGroup>
-          {slotMachineMode && !inStopMode && (
-            <SlotMachineSubmit
-              disabled={submitBlocked}
-              onSubmit={doSubmit}
-              tourTarget={tourTarget}
-            />
-          )}
-        </Flex>
+            {submitButton && (
+              <span className="shrink-0 p-1">{submitButton}</span>
+            )}
+          </div>
+        </InputGroup>
+        {slotMachineMode && !inStopMode && (
+          <SlotMachineSubmit
+            disabled={submitBlocked}
+            onSubmit={doSubmit}
+            tourTarget={tourTarget}
+          />
+        )}
+      </Flex>
+    );
+
+    return (
+      <Flex direction="column" gap="1">
+        {composerRow}
         {toolbar}
       </Flex>
     );

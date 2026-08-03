@@ -50,8 +50,8 @@ import {
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
 import {
-  CHAT_CONTENT_GUTTER,
   CHAT_CONTENT_MAX_WIDTH,
+  CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
 import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
@@ -139,7 +139,7 @@ function ComposerWidth({
   }
 
   return (
-    <Box style={{ paddingInline: CHAT_CONTENT_GUTTER }}>
+    <Box style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}>
       <Box
         className="mx-auto pb-2"
         style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}

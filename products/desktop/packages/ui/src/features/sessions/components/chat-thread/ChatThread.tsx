@@ -95,8 +95,8 @@ import { SessionUpdateView } from "@posthog/ui/features/sessions/components/sess
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
-  CHAT_CONTENT_GUTTER,
   CHAT_CONTENT_MAX_WIDTH,
+  CHAT_CONTENT_PADDING_INLINE,
 } from "@posthog/ui/features/sessions/constants";
 import { DIFFS_HIGHLIGHTER_OPTIONS } from "@posthog/ui/features/sessions/diffHighlighterOptions";
 import { useAgentConversationItems } from "@posthog/ui/features/sessions/hooks/useAgentConversationItems";
@@ -938,7 +938,7 @@ function ThreadScrollBody({
         <ChatMessageScrollerContent
           className="gap-4 py-4 pb-8"
           density="default"
-          style={{ paddingInline: CHAT_CONTENT_GUTTER }}
+          style={{ paddingInline: CHAT_CONTENT_PADDING_INLINE }}
         >
           {keyedRows.map(({ item, key }) => (
             <ThreadRow

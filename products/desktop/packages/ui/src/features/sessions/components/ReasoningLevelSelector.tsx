@@ -5,9 +5,7 @@ import type {
 import {
   ArrowCounterClockwise,
   CaretDown,
-  Cpu,
   Lightning,
-  Robot,
   Spinner,
 } from "@phosphor-icons/react";
 import {
@@ -56,11 +54,6 @@ import {
 const ADAPTER_LABELS: Record<AgentAdapter, string> = {
   claude: "Claude Code",
   codex: "Codex",
-};
-
-const ADAPTER_ICONS: Record<AgentAdapter, React.ReactNode> = {
-  claude: <Robot size={14} weight="regular" />,
-  codex: <Cpu size={14} weight="regular" />,
 };
 
 // Separates model and effort in a slider stop key; never appears in ids.
@@ -357,16 +350,10 @@ export function ReasoningLevelSelector({
               fastActive ? "ring-1 ring-amber-9 ring-inset" : undefined
             }
           >
-            {fastActive ? (
+            {fastActive && (
               <span className="text-amber-11">
                 <Lightning size={14} weight="fill" />
               </span>
-            ) : (
-              adapter && (
-                <span className="text-muted-foreground">
-                  {ADAPTER_ICONS[adapter]}
-                </span>
-              )
             )}
             {modelLabel && (
               <span className="font-medium text-foreground">{modelLabel}</span>

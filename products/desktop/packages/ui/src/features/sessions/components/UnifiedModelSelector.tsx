@@ -2,13 +2,7 @@ import type {
   SessionConfigOption,
   SessionConfigSelectGroup,
 } from "@agentclientprotocol/sdk";
-import {
-  ArrowsClockwise,
-  CaretDown,
-  Cpu,
-  Robot,
-  Spinner,
-} from "@phosphor-icons/react";
+import { ArrowsClockwise, CaretDown, Spinner } from "@phosphor-icons/react";
 import {
   Button,
   DropdownMenu,
@@ -25,11 +19,6 @@ import { flattenSelectOptions } from "@posthog/ui/features/sessions/sessionStore
 import { useRetainedConfigOption } from "@posthog/ui/features/sessions/useRetainedConfigOption";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { Fragment, useMemo, useRef, useState } from "react";
-
-const ADAPTER_ICONS: Record<AgentAdapter, React.ReactNode> = {
-  claude: <Robot size={14} weight="regular" />,
-  codex: <Cpu size={14} weight="regular" />,
-};
 
 const ADAPTER_LABELS: Record<AgentAdapter, string> = {
   claude: "Claude Code",
@@ -118,9 +107,6 @@ export function UnifiedModelSelector({
             disabled={disabled}
             aria-label="Model"
           >
-            <span className="text-muted-foreground">
-              {ADAPTER_ICONS[adapter]}
-            </span>
             {currentLabel ?? "Model"}
             <CaretDown
               size={10}
