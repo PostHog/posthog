@@ -232,6 +232,74 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
+            # name, set_completed_at — both force-fail shapes leave query_to NULL while discovery runs.
+            # admin "Mark as failed" stamps completed_at; the staleness sweep deliberately leaves it NULL, so
+            # a completed_at-only guard would miss the sweep. The status guard catches both.
+            ("admin_sets_completed_at", True),
+            ("sweep_leaves_completed_at_null", False),
+        ]
+    )
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_does_not_revive_a_force_failed_run(self, name: str, set_completed_at: bool):
+        recalc = self._recalc(self._experiment(flag_key=f"progress-start-force-failed-{name}"))
+        completed_at = timezone.now() if set_completed_at else None
+        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(
+            status=ExperimentMetricsRecalculation.Status.FAILED, completed_at=completed_at
+        )
+
+        returned = _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=3,
+                metric_uuids=["m1", "m2", "m3"],
+                mark_started=True,
+            )
+        )
+
+        recalc.refresh_from_db()
+        # The run stays terminal: no revival, no started_at, query_to left NULL.
+        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
+        assert recalc.completed_at == completed_at
+        assert recalc.started_at is None
+        assert recalc.query_to is None
+        # query_to was never pinned, so the read-back returns None; the workflow's isinstance(str) check then
+        # fails the run non-retryably instead of proceeding to calc activities on a dead run.
+        assert returned is None
+
+    @freeze_time("2026-06-23T05:00:00Z")
+    def test_mark_started_returns_none_when_force_failed_after_query_to_pinned(self):
+        # mark_started ran first and pinned query_to (run went IN_PROGRESS), then an admin force-failed it.
+        # A retried mark_started loses the guard, but the read-back must NOT hand back the pinned query_to as a
+        # string: that would pass the workflow's isinstance(str) check and let calc activities run ClickHouse
+        # queries and persist results for a terminal, superseded run (they don't re-check terminal status).
+        recalc = self._recalc(self._experiment(flag_key="progress-start-pinned-then-failed"))
+        pinned_query_to = timezone.now()
+        ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            completed_at=timezone.now(),
+            query_to=pinned_query_to,
+            started_at=timezone.now(),
+        )
+
+        returned = _update(
+            RecalculationProgressUpdate(
+                recalculation_id=str(recalc.id),
+                status="in_progress",
+                total_metrics=3,
+                metric_uuids=["m1", "m2", "m3"],
+                mark_started=True,
+            )
+        )
+
+        # Terminal read-back returns None despite query_to being pinned, so the workflow fails the run.
+        assert returned is None
+        recalc.refresh_from_db()
+        assert recalc.status == ExperimentMetricsRecalculation.Status.FAILED
+        assert recalc.query_to == pinned_query_to
+
+    @parameterized.expand(
+        [
             # name, end_date_offset_days (None = running experiment), expect query_to == end_date
             ("running_uses_now", None, False),
             ("stopped_uses_end_date", -5, True),

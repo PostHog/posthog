@@ -13,15 +13,18 @@ import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -65,6 +68,12 @@ import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
 
 const HedgehogExperiment = pngHoggie(experimentPng)
+
+// Renders nothing on purpose: throwaway code that exists only so the experiment-cleanup-e2e-dummy
+// flag has references in the repo for the flag-cleanup PR flow to remove.
+const CleanupDummyExperiment = (): JSX.Element | null => {
+    return null
+}
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -254,7 +263,14 @@ const ExperimentsTable = ({
                                 )}
                             </>
                         }
-                        description={experiment.description}
+                        description={
+                            experiment.description ? (
+                                // Hypotheses can run many paragraphs, so clamp to keep list rows compact
+                                <LemonMarkdown className="max-w-[30rem] line-clamp-2" lowKeyHeadings disableImages>
+                                    {experiment.description}
+                                </LemonMarkdown>
+                            ) : undefined
+                        }
                     />
                 )
             },
@@ -552,6 +568,9 @@ const ExperimentsTable = ({
 export function Experiments(): JSX.Element {
     const { tab } = useValues(experimentsLogic)
     const { setExperimentsTab, loadExperiments } = useActions(experimentsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const cleanupDummyTestVariant = featureFlags[FEATURE_FLAGS.EXPERIMENT_CLEANUP_E2E_DUMMY] === 'test'
 
     const [duplicateModalExperiment, setDuplicateModalExperiment] = useState<Experiment | null>(null)
     const [copyToProjectModalExperiment, setCopyToProjectModalExperiment] = useState<Experiment | null>(null)
@@ -631,6 +650,7 @@ export function Experiments(): JSX.Element {
                     ) : undefined
                 }
             />
+            {cleanupDummyTestVariant && <CleanupDummyExperiment />}
             <LemonTabs
                 activeKey={tab}
                 onChange={(newKey) => setExperimentsTab(newKey)}

@@ -4,6 +4,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
+import { aggregateKafkaDebugContexts } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ok } from '~/ingestion/framework/results'
 import {
@@ -198,6 +199,7 @@ export function createMlMirrorReplayPipeline(
             }),
         // One batch in flight at a time (also the framework default): each feed tags the manager's
         // current recorder, so a concurrent batch could span a flush and record into a stale recorder.
-        { concurrentBatches: 1 }
+        { concurrentBatches: 1 },
+        { aggregateDebugContexts: aggregateKafkaDebugContexts }
     )
 }

@@ -13,7 +13,7 @@ import time
 import random
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, TypeVar
+from typing import TYPE_CHECKING, Annotated, Literal, TypeVar
 
 from django.db.models import Q
 
@@ -461,10 +461,11 @@ def list_all_eval_results(
 ) -> str:
     """Get a compact overview of evaluation results in the period.
 
-    Returns up to 500 results as condensed rows: outcome, target ID, and
-    truncated reasoning. When there are more than 500 results, returns a random
-    sample. Use this as your first scan to spot patterns before drilling into
-    specific examples with the target-specific detail tool.
+    Returns up to 500 results as condensed rows with outcome and target ID.
+    Boolean results include truncated reasoning, while sentiment results include
+    scores without classifier reasoning. When there are more than 500 results,
+    returns a random sample. Use this as your first scan to spot patterns before
+    drilling into specific examples with the target-specific detail tool.
 
     Args:
         max_reasoning_length: Truncate reasoning strings to this many characters (default 80)
@@ -533,10 +534,13 @@ def list_all_eval_results(
         target_id = str(row[0]) if row[0] else "?"
         outcome = _outcome_for_result(output_type, row[1], row[2]) or "?"
         score = f" ({row[3]:.2f})" if isinstance(row[3], int | float) else ""
-        reasoning = (row[4] or "")[:max_reasoning_length]
-        if row[4] and len(row[4]) > max_reasoning_length:
-            reasoning += "..."
-        lines.append(f"{outcome}{score} | {target_id} | {reasoning}")
+        fields = [f"{outcome}{score}", target_id]
+        if output_type != "sentiment":
+            reasoning = (row[4] or "")[:max_reasoning_length]
+            if row[4] and len(row[4]) > max_reasoning_length:
+                reasoning += "..."
+            fields.append(reasoning)
+        lines.append(" | ".join(fields))
 
     if is_sampled:
         header = f"Total: {total_count} results (showing random sample of {len(lines)})\n"
@@ -550,14 +554,17 @@ def sample_eval_results(
     state: Annotated[dict, InjectedState],
     outcome: str = "all",
     limit: int = 50,
+    order_by: Literal["recent", "score"] = "recent",
 ) -> str:
-    """Sample evaluation runs with target ID, outcome, score, and reasoning.
+    """Sample evaluation runs with target ID and outcome.
 
-    Call multiple times with different filters to understand patterns.
+    Boolean results include reasoning. Sentiment results include scores without
+    classifier reasoning and can be ordered by score.
 
     Args:
         outcome: "all" or one of the output type's supported outcomes
         limit: Maximum number of results to return (default 50)
+        order_by: "recent" or "score"; score ordering is only available for sentiment
     """
     limit = min(max(1, limit), 500)
     team_id = state["team_id"]
@@ -566,6 +573,9 @@ def sample_eval_results(
     ts_end = _ch_ts(state["period_end"])
     output_type, definition = _resolve_output_type(state.get("output_type"))
     evaluation_target = resolve_evaluation_target(state.get("evaluation_target"))
+    if order_by == "score" and output_type != "sentiment":
+        return json.dumps({"error": "Score ordering is only available for sentiment results"})
+    order_clause = "ORDER BY score DESC, timestamp DESC" if order_by == "score" else "ORDER BY timestamp DESC"
 
     # Whitelisted filter fragment: outcome predicates come only from the trusted
     # outcome definition, never directly from the LLM-controlled argument.
@@ -593,7 +603,7 @@ def sample_eval_results(
             AND timestamp >= {{ts_start}}
             AND timestamp < {{ts_end}}
             {filter_clause}
-        ORDER BY timestamp DESC
+        {order_clause}
         LIMIT {{limit}}
         """,
         placeholders={
@@ -611,10 +621,11 @@ def sample_eval_results(
         entry = {
             target_id_key: str(row[0]) if row[0] else "",
             "outcome": _outcome_for_result(output_type, row[1], row[3]),
-            "reasoning": row[2] or "",
         }
         if output_type == "sentiment":
             entry["score"] = row[4]
+        else:
+            entry["reasoning"] = row[2] or ""
         result.append(entry)
 
     return json.dumps(result, indent=2)
@@ -1372,7 +1383,6 @@ _COMMON_OVERVIEW_TOOLS: list[BaseTool] = [
 _COMMON_FOLLOWUP_TOOLS: list[BaseTool] = [
     list_recent_report_runs,
     get_report_run,
-    get_top_outcome_reasons,
 ]
 
 _GENERATION_DETAIL_TOOLS: list[BaseTool] = [sample_generation_details, get_generation_detail, get_generation_text_repr]
@@ -1384,11 +1394,12 @@ _OUTPUT_TOOLS: list[BaseTool] = [
 ]
 
 
-def get_eval_report_tools(evaluation_target: str) -> list[BaseTool]:
-    """Return the shared report tools plus only the details relevant to this target."""
+def get_eval_report_tools(evaluation_target: str, output_type: str = "boolean") -> list[BaseTool]:
+    """Return the shared report tools plus only the tools relevant to this evaluation."""
     target = resolve_evaluation_target(evaluation_target)
     detail_tools = _TRACE_DETAIL_TOOLS if target == TRACE_TARGET else _GENERATION_DETAIL_TOOLS
-    return [*_COMMON_OVERVIEW_TOOLS, *detail_tools, *_COMMON_FOLLOWUP_TOOLS, *_OUTPUT_TOOLS]
+    reasoning_tools = [] if output_type == "sentiment" else [get_top_outcome_reasons]
+    return [*_COMMON_OVERVIEW_TOOLS, *detail_tools, *_COMMON_FOLLOWUP_TOOLS, *reasoning_tools, *_OUTPUT_TOOLS]
 
 
 # Preserve the original export for callers that build generation report agents directly.

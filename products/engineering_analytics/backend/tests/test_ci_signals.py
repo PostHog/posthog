@@ -50,6 +50,7 @@ from products.engineering_analytics.backend.logic.signals.detectors import (
 )
 from products.engineering_analytics.backend.logic.sources import GitHubTables
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    PULL_REQUESTS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -573,11 +574,19 @@ class TestCISignalDetectors(ClickhouseTestMixin, BaseTest):
                 source=source,
                 credential=credential,
             )
-        # pull_requests is never read by these detectors; reuse the runs table so for_team isn't needed.
+        # These detectors read no PR data, but the curated run source joins the PR snapshot for
+        # default-branch attribution, so it needs a real table of that shape. An empty one suffices.
+        prs_table, _source, _credential = self._seed_table(
+            [],
+            table_name="github_pull_requests",
+            columns=PULL_REQUESTS_COLUMNS,
+            source=source,
+            credential=credential,
+        )
         return CuratedGitHubSource(
             team=self.team,
             tables=GitHubTables(
-                pull_requests=table.name,
+                pull_requests=prs_table.name,
                 workflow_runs=table.name,
                 workflow_jobs=jobs_table.name if jobs_table else None,
             ),
