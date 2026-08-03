@@ -53,7 +53,8 @@ jobs:
                       awk -f .github/scripts/flatten-parallel-steps-for-actionlint.awk "$workflow" \
                           > "/tmp/actionlint-workflows/$(basename "$workflow")"
                   done
-                  ./.bin/actionlint -format '{{json .}}' /tmp/actionlint-workflows/* > actionlint.json
+                  ./.bin/actionlint -config-file .github/actionlint.yaml \
+                      -format '{{json .}}' /tmp/actionlint-workflows/* > actionlint.json
 
             - name: Summarize findings
               if: always()
