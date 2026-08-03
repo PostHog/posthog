@@ -37,7 +37,9 @@ class Migration(migrations.Migration):
                 (
                     "fetch",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE,
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
                         related_name="label_results",
                         to="growth.organizationenrichmentfetch",
                     ),

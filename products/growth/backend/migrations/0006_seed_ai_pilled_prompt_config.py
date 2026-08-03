@@ -36,7 +36,9 @@ AI_PILLED_OUTPUT_FIELDS = [
 
 def seed_config(apps, schema_editor):
     EnrichmentPromptConfig = apps.get_model("growth", "EnrichmentPromptConfig")
-    EnrichmentPromptConfig.objects.get_or_create(
+    # is_active starts False so the insert never collides with growth_prompt_config_one_active;
+    # this row is only promoted to active below, once we know it won't collide.
+    config, _ = EnrichmentPromptConfig.objects.get_or_create(
         name="ai_pilled",
         version="ai-pilled-clay-v1",
         defaults={
@@ -44,15 +46,21 @@ def seed_config(apps, schema_editor):
             "model": "gpt-5-mini",
             "input_fields": AI_PILLED_INPUT_FIELDS,
             "output_fields": AI_PILLED_OUTPUT_FIELDS,
-            "is_active": True,
+            "is_active": False,
         },
     )
+    other_active_exists = (
+        EnrichmentPromptConfig.objects.filter(name="ai_pilled", is_active=True).exclude(pk=config.pk).exists()
+    )
+    if not config.is_active and not other_active_exists:
+        config.is_active = True
+        config.save(update_fields=["is_active"])
 
 
 def unseed_config(apps, schema_editor):
     EnrichmentPromptConfig = apps.get_model("growth", "EnrichmentPromptConfig")
-    # Historical models carry no custom delete(); reversing skips the has-results guard,
-    # which is fine — results stay self-describing via their stored prompt_hash.
+    # Historical models carry no custom delete(); results stay self-describing via their
+    # stored prompt_hash, so deleting the config here doesn't affect stored verdicts.
     EnrichmentPromptConfig.objects.filter(name="ai_pilled", version="ai-pilled-clay-v1").delete()
 
 
