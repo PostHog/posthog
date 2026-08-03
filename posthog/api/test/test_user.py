@@ -1108,6 +1108,20 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(self.user.current_team, first_team)
         self.assertEqual(self.user.current_organization, org)
 
+    def test_cannot_switch_current_organization_into_one_that_blocks_the_member(self):
+        # /api/users/@me/ is on the enforcement whitelist, so the switch must refuse on its own —
+        # otherwise a blocked member could point their session back at the org that moved them off.
+        blocking_org = Organization.objects.create(name="Enforcing org", enforce_verified_domains=True)
+        OrganizationMembership.objects.create(organization=blocking_org, user=self.user)
+        OrganizationDomain.objects.create(domain="hogflix.com", organization=blocking_org, verified_at=timezone.now())
+
+        response = self.client.patch("/api/users/@me/", {"set_current_organization": str(blocking_org.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "verified_domain_required")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, self.organization)
+
     def test_cannot_set_an_organization_without_permissions(self):
         org = Organization.objects.create(name="Isolated Org")
 
