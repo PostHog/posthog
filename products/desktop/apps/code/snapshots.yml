@@ -543,15 +543,11 @@ snapshots:
     loops-loopslistview--long-mixed-list--dark:
         hash: v1.k4693efd2.c9915e22655fe1f6b77eabaf11d8876648c387ceebac6cd8be1880e7255bd7a5.y-gyTKSp7wYbuS57TABRbEyMSL9_U1wvHYvbyCeAbiQ
     loops-loopslistview--long-mixed-list--light:
-        hash: v1.k4693efd2.aa17d9b6f40fbd3914bd742951db9f90add0bd233c54170803c8483aeb45b43b.yXpqqGczOq1uW5k4Ie7ddNTnne-cFTglZ9cL800pXB4
-    loops-loopslistview--shared-page-header--dark:
-        hash: v1.k4693efd2.14ab860dcb0df51b4019f012288e45f3a2c4c23fa08e809efef8c04b5687fe36.qoMLHprZmV2wON156NBbl3sqP84a4nXgdYm1H6WpTVM
-    loops-loopslistview--shared-page-header--light:
-        hash: v1.k4693efd2.23be5408ff3b4a912a0ce0457af8638124b99a01c88a499d0f4204cee2c62487.dGBP1K08MA2Fvhml-BPl5eFra8U83JXmy04NK9wOQnM
+        hash: v1.k4693efd2.5fec9e1a3c14f1bc319cd7e5abc24b3d66ed787986a103b5330f49341d4983ad.mpD-eTS6vkSbsJdOYaHXASHQd5IiJGWRCb6uDGlzhpk
     loops-loopslistview--with-builder-sessions--dark:
         hash: v1.k4693efd2.06b404e4016ba0eb86769331a574bc640be1ad26ebf3a04d0256334d1da041a3.fPfF8c2wNFREfy8dVRdsw7W9Fpqj7HEtuaERMroNHMA
     loops-loopslistview--with-builder-sessions--light:
-        hash: v1.k4693efd2.eb65c38bb0de7efedbc0d7a6c27a6695528e2e6b60949617e7d22335b1e68c8b.fJr9uykvc8S7LI_ASXk5KRqxXCwIqh6ld9zfzs4shP0
+        hash: v1.k4693efd2.30f89915a12cadf313216403fb0f3e221f3c33cee763f0692ae2b96b4332e2b9.j00vexnH4QS0wJAHn7pQNpeITYYRtOxlvB2ngyzqU0c
     primitives-pageheader--title-only--dark:
         hash: v1.k4693efd2.f7f8c560b1e5cf20050189e10fc0f129e555ba672300a7a09bef5827c171a743.yP9Pp_k51agu_9Ri55Y7uCAPBQ1UTeUQJA9U9dPMKfQ
     primitives-pageheader--title-only--light:
