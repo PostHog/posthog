@@ -94,6 +94,13 @@ class TestMCPGatewayAuditAPI(APIBaseTest):
         assert own_detail_response.status_code == status.HTTP_200_OK
         assert other_detail_response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_counts_scope_to_service_account_filter(self) -> None:
+        account_id = str(self.agent_event.actor_service_account_id)
+        counts_response = self.client.get(self._api_url("counts/"), {"actor_service_account_id": account_id})
+
+        assert counts_response.status_code == status.HTTP_200_OK
+        assert counts_response.json() == {"all": 1, "agents": 1, "approvals": 1, "blocked": 0}
+
     def test_admin_still_sees_all_team_calls(self) -> None:
         membership = self.user.organization_memberships.get(organization=self.organization)
         membership.level = OrganizationMembership.Level.ADMIN

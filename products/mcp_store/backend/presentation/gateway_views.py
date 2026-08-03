@@ -760,6 +760,12 @@ class AuditQuerySerializer(serializers.Serializer):
     )
 
 
+class AuditCountsQuerySerializer(serializers.Serializer):
+    actor_service_account_id = serializers.UUIDField(
+        required=False, help_text="Only count calls made by this service account."
+    )
+
+
 class AuditCountsSerializer(serializers.Serializer):
     all = serializers.IntegerField(help_text="Every audited tool call visible to the requesting user.")
     agents = serializers.IntegerField(help_text="Visible calls made by service accounts.")
@@ -1355,12 +1361,18 @@ class MCPAuditEventViewSet(
         serializer = self.get_serializer(page, many=True)
         return self.get_paginated_response(serializer.data)
 
-    @extend_schema(responses={200: OpenApiResponse(response=AuditCountsSerializer)})
+    @validated_request(
+        query_serializer=AuditCountsQuerySerializer,
+        responses={200: OpenApiResponse(response=AuditCountsSerializer)},
+    )
     @action(detail=False, methods=["get"], url_path="counts")
     def counts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Totals backing the quick-filter chips."""
+        queryset = self.get_queryset()
+        if account_id := request.validated_query_data.get("actor_service_account_id"):
+            queryset = queryset.filter(actor_service_account_id=account_id)
         return Response(
-            self.get_queryset().aggregate(
+            queryset.aggregate(
                 all=Count("id"),
                 agents=Count("id", filter=Q(actor_service_account__isnull=False)),
                 approvals=Count("id", filter=Q(decision__in=["approved", "pending"])),

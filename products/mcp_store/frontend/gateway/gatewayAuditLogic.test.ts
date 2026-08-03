@@ -86,6 +86,7 @@ describe('gatewayAuditLogic', () => {
     it('filters by service account and resets pagination', async () => {
         await expectLogic(logic, () => logic.actions.setPage(3)).toFinishAllListeners()
         mockAuditList.mockClear()
+        mockAuditCountsRetrieve.mockClear()
 
         await expectLogic(logic, () => logic.actions.setCallerFilter('support-agent'))
             .toFinishAllListeners()
@@ -96,6 +97,9 @@ describe('gatewayAuditLogic', () => {
             actor_service_account_id: 'support-agent',
             limit: 10,
             offset: 0,
+        })
+        expect(mockAuditCountsRetrieve).toHaveBeenLastCalledWith(expect.any(String), {
+            actor_service_account_id: 'support-agent',
         })
     })
 

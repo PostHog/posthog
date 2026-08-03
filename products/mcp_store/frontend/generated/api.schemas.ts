@@ -1046,6 +1046,13 @@ export const McpGatewayAuditListQuickFilter = {
     Blocked: 'blocked',
 } as const
 
+export type McpGatewayAuditCountsRetrieveParams = {
+    /**
+     * Only count calls made by this service account.
+     */
+    actor_service_account_id?: string
+}
+
 export type McpGatewayMembersListParams = {
     /**
      * Number of results to return per page.

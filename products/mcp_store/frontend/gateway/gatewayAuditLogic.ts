@@ -125,7 +125,9 @@ export const gatewayAuditLogic = kea<gatewayAuditLogicType>([
             null as AuditCountsApi | null,
             {
                 loadCounts: async (_: void, breakpoint) => {
-                    const counts = await mcpGatewayAuditCountsRetrieve(currentProjectId())
+                    const counts = await mcpGatewayAuditCountsRetrieve(currentProjectId(), {
+                        actor_service_account_id: values.callerFilter === 'all' ? undefined : values.callerFilter,
+                    })
                     breakpoint()
                     return counts
                 },
@@ -163,7 +165,10 @@ export const gatewayAuditLogic = kea<gatewayAuditLogicType>([
             actions.loadAudit()
             actions.loadCounts()
         },
-        setCallerFilter: () => actions.loadAudit(),
+        setCallerFilter: () => {
+            actions.loadAudit()
+            actions.loadCounts()
+        },
         clearFilters: () => {
             actions.loadAudit()
             actions.loadCounts()
