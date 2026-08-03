@@ -1071,17 +1071,26 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
         },
         // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
-        submitFeedbackNote: ({ note }) => {
+        submitFeedbackNote: async ({ note }) => {
             const trimmed = note.trim()
             if (!values.report || !values.feedbackSentiment || !trimmed) {
                 return
             }
+            const sentiment = values.feedbackSentiment
             captureInboxReportFeedbackNote({
                 report: values.report,
-                sentiment: values.feedbackSentiment,
+                sentiment,
                 note: trimmed,
                 surface: 'detail_footer',
             })
+            // Best-effort: also carry the note into the scout steering channel so the scout that filed
+            // the report reads it next run. The analytics event above is the durable record, so a
+            // failure here is swallowed rather than surfaced — the note is already captured.
+            try {
+                await api.signalReports.submitFeedback(values.report.id, { sentiment, note: trimmed })
+            } catch {
+                // no-op: forwarding is a convenience on top of the recorded feedback
+            }
         },
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)
