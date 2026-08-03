@@ -7,7 +7,7 @@ def backfill_task_repositories(apps, schema_editor):
             cursor.execute(
                 """
                 UPDATE posthog_task
-                SET repositories = ARRAY[repository]
+                SET repositories = ARRAY[LOWER(repository)]
                 WHERE id IN (
                     SELECT id
                     FROM posthog_task
