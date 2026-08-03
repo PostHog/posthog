@@ -713,33 +713,6 @@ def _expr_to_compare_op(
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
 
-def expr_to_compare_op(
-    expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
-) -> ast.Expr:
-    if not isinstance(value, list) or operator in (
-        PropertyOperator.BETWEEN,
-        PropertyOperator.NOT_BETWEEN,
-        PropertyOperator.ICONTAINS,
-        PropertyOperator.NOT_ICONTAINS,
-        PropertyOperator.ICONTAINS_MULTI,
-        PropertyOperator.NOT_ICONTAINS_MULTI,
-        PropertyOperator.IN_,
-        PropertyOperator.NOT_IN,
-    ):
-        return _expr_to_compare_op(expr, value, operator, property, is_json_field, team)
-    if len(value) == 0:
-        return ast.Constant(value=1)
-    if len(value) == 1:
-        return _expr_to_compare_op(expr, value[0], operator, property, is_json_field, team)
-    if operator in (PropertyOperator.EXACT, PropertyOperator.IS_NOT):
-        op = ast.CompareOperationOp.In if operator == PropertyOperator.EXACT else ast.CompareOperationOp.NotIn
-        return ast.CompareOperation(op=op, left=expr, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]))
-    exprs = [_expr_to_compare_op(expr, v, operator, property, is_json_field, team) for v in value]
-    if operator in (PropertyOperator.NOT_REGEX, PropertyOperator.NOT_STARTS_WITH, PropertyOperator.NOT_ENDS_WITH):
-        return ast.And(exprs=exprs)
-    return ast.Or(exprs=exprs)
-
-
 def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
     if not team.path_cleaning_filters:
         return path_expr

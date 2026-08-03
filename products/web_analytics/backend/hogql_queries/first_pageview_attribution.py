@@ -5,7 +5,7 @@ from posthog.schema import HogQLQueryModifiers, PropertyOperator, SessionPropert
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import expr_to_compare_op, property_to_expr
+from posthog.hogql.property import _expr_to_compare_op, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.models.property import Property, ValueT
@@ -154,6 +154,33 @@ def first_pageview_filter_value_expr(
     return first_pageview_prop(breakdown, keys[0])
 
 
+def _list_aware_expr_to_compare_op(
+    expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: "Team"
+) -> ast.Expr:
+    if not isinstance(value, list) or operator in (
+        PropertyOperator.BETWEEN,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.ICONTAINS_MULTI,
+        PropertyOperator.NOT_ICONTAINS_MULTI,
+        PropertyOperator.IN_,
+        PropertyOperator.NOT_IN,
+    ):
+        return _expr_to_compare_op(expr, value, operator, property, is_json_field, team)
+    if len(value) == 0:
+        return ast.Constant(value=1)
+    if len(value) == 1:
+        return _expr_to_compare_op(expr, value[0], operator, property, is_json_field, team)
+    if operator in (PropertyOperator.EXACT, PropertyOperator.IS_NOT):
+        op = ast.CompareOperationOp.In if operator == PropertyOperator.EXACT else ast.CompareOperationOp.NotIn
+        return ast.CompareOperation(op=op, left=expr, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value]))
+    exprs = [_expr_to_compare_op(expr, v, operator, property, is_json_field, team) for v in value]
+    if operator in (PropertyOperator.NOT_REGEX, PropertyOperator.NOT_STARTS_WITH, PropertyOperator.NOT_ENDS_WITH):
+        return ast.And(exprs=exprs)
+    return ast.Or(exprs=exprs)
+
+
 def first_pageview_session_filter_expr(
     prop: SessionPropertyFilter,
     *,
@@ -207,7 +234,7 @@ WHERE {match}
                 if session_id_present is not None
                 else parse_expr("events.$session_id_uuid IS NOT NULL")
             ),
-            "match": expr_to_compare_op(
+            "match": _list_aware_expr_to_compare_op(
                 expr=first_pageview_filter_value_expr(breakdown, modifiers=modifiers, timings=timings),
                 value=cast(ValueT, prop.value),
                 operator=prop.operator or PropertyOperator.EXACT,
