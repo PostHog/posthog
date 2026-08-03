@@ -109,4 +109,25 @@ describe('McpSessionRedisStore', () => {
             JSON.stringify('ClaudeCode'),
         ])
     })
+
+    it('starts compact and legacy reads in parallel', async () => {
+        const redis = createRedis()
+        let releaseLegacyReads: (() => void) | undefined
+        const legacyReads = new Promise<void>((resolve) => {
+            releaseLegacyReads = resolve
+        })
+        vi.mocked(redis.get).mockImplementation(async (key: string) => {
+            if (key.startsWith('mcp:session:')) {
+                await legacyReads
+            }
+            return null
+        })
+
+        const resolution = new McpSessionRedisStore(redis, 'session-1').resolve(liveContext, '1')
+        await vi.waitFor(() => {
+            expect(redis.get).toHaveBeenCalledWith(expect.stringMatching(/^mcp:s:/))
+        })
+        releaseLegacyReads?.()
+        await resolution
+    })
 })

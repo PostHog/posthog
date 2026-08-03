@@ -102,9 +102,12 @@ export class RequestStateResolver {
     async resolve(props: RequestProperties): Promise<ResolvedState> {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext)
-        const context = await reqCtx.getContext()
 
         const { features, tools, organizationId, projectId, readOnly } = props
+        const contextPromise = reqCtx.getContext()
+        const pinnedSessionContextPromise = projectId
+            ? this.resolveSessionContext(requestContext, projectId)
+            : undefined
 
         await reqCtx.tokenCache.setMany({
             ...(organizationId ? { orgId: organizationId } : {}),
@@ -113,11 +116,15 @@ export class RequestStateResolver {
 
         let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
         if (!cachedProjectId) {
-            await context.stateManager.setDefaultOrganizationAndProject()
+            const contextForDefault = await contextPromise
+            await contextForDefault.stateManager.setDefaultOrganizationAndProject()
             cachedProjectId = (await reqCtx.tokenCache.get('projectId')) ?? undefined
         }
 
-        const sessionContext = await this.resolveSessionContext(requestContext, cachedProjectId)
+        const [context, sessionContext] = await Promise.all([
+            contextPromise,
+            pinnedSessionContextPromise ?? this.resolveSessionContext(requestContext, cachedProjectId),
+        ])
         const clientContext = getEffectiveMCPClientContext(requestContext, sessionContext)
 
         // PRODUCT_DATA_CATALOG_FLAG gates instructions content (the metric-discovery prompt

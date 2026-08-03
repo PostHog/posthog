@@ -25,21 +25,23 @@ export class McpSessionRedisStore {
         private readonly redis: RedisLike,
         sessionId: string
     ) {
-        this.legacyPrefix = `mcp:session:${sha256Hex(sessionId)}`
-        this.compactKey = `mcp:s:${sha256Base64Url128(sessionId)}:c`
+        const digest = createHash('sha256').update(sessionId).digest()
+        this.legacyPrefix = `mcp:session:${digest.toString('hex')}`
+        this.compactKey = `mcp:s:${digest.subarray(0, 16).toString('base64url')}:c`
     }
 
     async resolve(liveContext: MCPClientContext, projectId: string | undefined): Promise<SessionContext> {
-        const legacyContext = await this.readLegacy()
-        const compactContext = await this.readCompact()
+        const [legacyContext, compactContext] = await Promise.all([this.readLegacy(), this.readCompact()])
         this.recordComparison(legacyContext, compactContext)
 
         const readCompact = shouldReadCompact(projectId)
         const storedContext = readCompact && compactContext ? compactContext : legacyContext
         const resolvedContext = mergeContexts(storedContext, liveContext)
 
-        await this.writeMissingLegacyValues(legacyContext, liveContext)
-        await this.refreshCompact(resolvedContext, compactContext)
+        await Promise.all([
+            this.writeMissingLegacyValues(legacyContext, liveContext),
+            this.refreshCompact(resolvedContext, compactContext),
+        ])
 
         sessionCacheOperationsTotal.inc({ schema: readCompact ? 'compact' : 'legacy', operation: 'read' })
         return resolvedContext
@@ -125,12 +127,4 @@ function shouldReadCompact(projectId: string | undefined): boolean {
             .filter(Boolean)
     )
     return projects.has(projectId)
-}
-
-function sha256Hex(value: string): string {
-    return createHash('sha256').update(value).digest('hex')
-}
-
-function sha256Base64Url128(value: string): string {
-    return createHash('sha256').update(value).digest().subarray(0, 16).toString('base64url')
 }
