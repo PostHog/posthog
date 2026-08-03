@@ -39,8 +39,8 @@ interface LoopModelFieldsProps {
 /**
  * Static model configuration for a loop: model, adapter, and reasoning effort.
  * Loops have no live agent session, so the interactive
- * `UnifiedModelSelector`/`ReasoningLevelSelector` (which read a session's
- * `SessionConfigOption`) don't apply here; instead this presents the same
+ * `ReasoningLevelSelector` (which reads a session's `SessionConfigOption`)
+ * doesn't apply here; instead this presents the same
  * per-adapter choices as the main create-task picker (see `loopModels.ts`),
  * so every selectable combo passes the server's validation in
  * `process_task/utils.py`. Adapter and model switches clamp a now-unsupported

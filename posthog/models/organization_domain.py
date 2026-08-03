@@ -1,5 +1,5 @@
 import secrets
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
@@ -16,6 +16,9 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
+if TYPE_CHECKING:
+    from posthog.models.user import User
+
 logger = structlog.get_logger(__name__)
 
 
@@ -26,6 +29,10 @@ def generate_verification_challenge() -> str:
 class OrganizationDomainManager(models.Manager):
     def verified_domains(self):
         # TODO: Verification becomes stale on Cloud if not reverified after a certain period.
+        # INVARIANT for that future work: never clear `verified_at` while the owning organization
+        # has `enforce_verified_domains` on — the domain would drop out of the enforcement
+        # allow-list and lock out every member on it at once, admins included. Suspend or flag
+        # instead of clearing.
         # `select_related` the IdP config since reads of SAML/SCIM/ID-JAG settings resolve through
         # it (`OrganizationDomain.idp_config`) in the hot auth paths.
         return self.exclude(verified_at__isnull=True).select_related("identity_provider_config")
@@ -166,6 +173,34 @@ class OrganizationDomainManager(models.Manager):
                 return None
 
         return candidate_sso_enforcement
+
+    def is_domain_verified_for_organization(self, email: str, organization: Organization) -> bool:
+        """Whether the domain of `email` is a verified domain owned by `organization`."""
+        if "@" not in email:
+            return False
+        domain = email[email.index("@") + 1 :]
+        return self.verified_domains().filter(organization=organization, domain__iexact=domain).exists()
+
+    def is_email_blocked_by_domain_enforcement(self, email: str, organization: Organization) -> bool:
+        """
+        Whether a login or join for `email` into `organization` should be blocked: the org requires
+        a verified email domain, and `email`'s domain is not one of the org's verified domains.
+        """
+        if not organization.enforce_verified_domains:
+            return False
+        return not self.is_domain_verified_for_organization(email, organization)
+
+    def is_access_blocked_by_domain_enforcement(self, user: "User") -> bool:
+        """
+        Whether `user` should be denied access to the organization they're currently in.
+
+        Scoped to the current organization, matching `enforce_2fa`: one organization's setting must
+        not lock a member out of the other organizations they belong to.
+        """
+        organization = user.organization
+        if organization is None:
+            return False
+        return self.is_email_blocked_by_domain_enforcement(user.email, organization)
 
 
 class OrganizationDomain(ModelActivityMixin, UUIDTModel):
