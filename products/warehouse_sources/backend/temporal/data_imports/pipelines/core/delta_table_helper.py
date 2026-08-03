@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     conditional_lru_cache_async,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
     is_transient_object_store_error,
 )
 
@@ -155,13 +156,16 @@ class DeltaTableHelper:
     async def _capture_unless_transient(self, e: Exception) -> None:
         """capture_exception unless `e` is a known-transient object-store blip (see
         is_transient_object_store_error) — those recover on retry and aren't a defect, so reporting
-        them to error tracking is just noise. Never suppresses the re-raise itself, so Temporal's
-        activity retry policy is unaffected either way.
+        them to error tracking is just noise. A transient blip is re-raised as
+        TransientObjectStoreError instead of letting the original propagate: the activity
+        interceptor reports any uncaught activity exception unless it's a NonReportableError, so a
+        bare re-raise here would still mint a fresh issue at that boundary. Never suppresses the
+        re-raise itself, so Temporal's activity retry policy is unaffected either way.
         """
         if is_transient_object_store_error(e):
             await self._logger.awarning(f"get_delta_table: transient object-store error, not reporting: {e}")
-        else:
-            capture_exception(e)
+            raise TransientObjectStoreError(str(e)) from e
+        capture_exception(e)
 
     @conditional_lru_cache_async(maxsize=1, condition=lambda result: result is not None)
     async def get_delta_table(self) -> deltalake.DeltaTable | None:
