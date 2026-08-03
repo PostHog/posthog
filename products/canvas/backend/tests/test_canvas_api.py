@@ -346,7 +346,7 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         canvas_id, v1, v2 = self._published_canvas()
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/revert/",
-            {"version_id": v1},
+            {"version_id": v1, "expected_current_version_id": v2},
             format="json",
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -355,7 +355,7 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
 
     def test_versions_history_and_versioned_source(self):
         canvas_id, v1, v2 = self._published_canvas()
-        versions = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/versions/").json()
+        versions = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/versions/").json()["results"]
         assert [v["id"] for v in versions] == [v2, v1]
         assert versions[1]["parent_version_id"] is None
 
@@ -368,10 +368,10 @@ class TestCanvasRevertAndBuilds(CanvasAPIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_revert_rejects_foreign_version(self):
-        canvas_id, *_ = self._published_canvas()
+        canvas_id, _, v2 = self._published_canvas()
         response = self.client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/revert/",
-            {"version_id": str(uuid4())},
+            {"version_id": str(uuid4()), "expected_current_version_id": v2},
             format="json",
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND

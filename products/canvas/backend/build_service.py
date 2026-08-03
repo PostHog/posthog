@@ -504,6 +504,7 @@ def act_on_build(canvas: Canvas, build_id: str | UUID, action: str) -> CanvasBui
                 build,
                 [{"severity": "warning", "code": "cancelled", "message": "The build was cancelled."}],
             )
+            build.refresh_from_db()
         else:
             raise ValueError(f"Unknown build action: {action}")
     return build
