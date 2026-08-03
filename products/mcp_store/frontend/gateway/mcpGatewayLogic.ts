@@ -1543,7 +1543,7 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
                         return { ...member, revoked_server_ids: revokedServerIds }
                     })
                 )
-                actions.loadServers()
+                actions.loadServersSuccess(await fetchGatewayServers())
                 lemonToast[enabled ? 'success' : 'info'](
                     `${enabled ? 'Restored' : 'Turned off'} access to ${server?.name ?? 'server'}`
                 )
