@@ -117,8 +117,7 @@ export function SidebarItem({
       className={cn(
         "group flex w-full cursor-default text-left text-[13px] leading-snug transition-colors",
         "disabled:opacity-100 data-active:bg-fill-selected data-selected:bg-(--gray-3)",
-        // Quill's Button pins a fixed single-line height, which would clip the
-        // second line — opt out and grow with the content instead.
+        // Quill's Button pins a fixed single-line height that would clip the second line.
         subtitle && "h-auto! min-h-7 py-1",
         isDimmed && "opacity-50",
       )}
@@ -158,8 +157,6 @@ export function SidebarItem({
           {endContent}
         </span>
         {subtitle ? (
-          // Shares the label's truncate-plus-tooltip treatment, so a long
-          // `repository · branch` stays readable when it doesn't fit.
           <SidebarItemLabel
             label={subtitle}
             grow={false}

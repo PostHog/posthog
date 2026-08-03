@@ -19,7 +19,6 @@ const POSTHOG_REPO = {
   organization: "PostHog",
 };
 
-/** The context line exactly as the sidebar builds it for a pinned row. */
 function context(task: Partial<TaskContextTask>): string | undefined {
   return (
     formatTaskContext({
@@ -35,7 +34,6 @@ interface Row {
   taskId: string;
   label: string;
   subtitle?: string;
-  /** Age of the task's last activity, resolved to a timestamp at render. */
   ageHours: number;
   isPinned?: boolean;
   workspaceMode?: "local" | "worktree" | "cloud";
@@ -52,11 +50,9 @@ function TaskRows({
   rows: Row[];
   sectionLabel?: string;
 }) {
-  // Ages become timestamps here rather than in `args`, so the relative labels
-  // are read off the same clock that renders them. The visual-regression runner
-  // freezes the clock in a decorator (apps/code/.storybook/preview.tsx) while
-  // story args are evaluated at import time against the real one — anchoring
-  // args to `Date.now()` collapses every label to "now" in CI.
+  // Resolved at render, not in `args`: the VR runner freezes the clock in a
+  // decorator (apps/code/.storybook/preview.tsx), but args are evaluated at
+  // import time against the real clock, which collapses every label to "now".
   const now = Date.now();
   return (
     <div className="flex w-[280px] flex-col bg-gray-2 py-1">
@@ -94,10 +90,6 @@ const meta: Meta<typeof TaskRows> = {
 export default meta;
 type Story = StoryObj<typeof TaskRows>;
 
-/**
- * A row inside a repository group: one line, because the group header above it
- * already says which repository the task belongs to.
- */
 export const InRepositoryGroup: Story = {
   args: {
     sectionLabel: "code",
@@ -120,10 +112,6 @@ export const InRepositoryGroup: Story = {
   },
 };
 
-/**
- * The pinned section floats above every repository group, so each row carries
- * its own `repository · branch` context line.
- */
 export const Pinned: Story = {
   args: {
     sectionLabel: "Pinned",

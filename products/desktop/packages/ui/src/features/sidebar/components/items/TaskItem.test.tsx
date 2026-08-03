@@ -31,8 +31,6 @@ describe("TaskItem", () => {
   it("stays a single line when there is no context to show", () => {
     renderTaskItem();
 
-    // Only the title renders — rows inside a repository group already get their
-    // repository from the group header, so they must not grow a second line.
     expect(
       screen.getByText("Write runbook for 5xx errors"),
     ).toBeInTheDocument();

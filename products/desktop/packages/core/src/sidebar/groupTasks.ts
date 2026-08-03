@@ -16,14 +16,10 @@ export interface GroupableTask {
   originProduct?: string;
 }
 
-/** The registered-folder fields that decide which group a folder belongs to. */
 export interface GroupableFolder {
   path: string;
   remoteUrl: string | null;
-  /**
-   * Root of the main checkout when this folder is a linked git worktree, null
-   * or absent for a main clone.
-   */
+  /** Set only on linked git worktrees: root of the main checkout. */
   mainRepoPath?: string | null;
 }
 

@@ -56,9 +56,6 @@ describe("formatTaskContext", () => {
     },
     {
       name: "no branch for a local task sitting on the default branch",
-      // A local workspace reports whatever branch the checkout is on, which is
-      // shared by every local task in the repo. Only `linkedBranch` is the
-      // task's own, so `main` must not leak into the line.
       task: task({ workspaceMode: "local", branchName: "main" }),
       expected: "code",
     },

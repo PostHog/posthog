@@ -5,7 +5,6 @@ import {
 } from "./groupTasks";
 import type { TaskData } from "./sidebarData.types";
 
-/** The `TaskData` fields a context line reads. */
 export type TaskContextTask = Pick<
   TaskData,
   | "repository"
@@ -15,7 +14,6 @@ export type TaskContextTask = Pick<
   | "linkedBranch"
 >;
 
-/** A registered folder, plus the display name the group header would use. */
 export interface TaskContextFolder extends GroupableFolder {
   name: string;
 }
@@ -27,31 +25,21 @@ function repositoryLabel(
   if (task.originProduct === "image_builder") return CUSTOM_IMAGES_GROUP_NAME;
   const repository = task.repository;
   if (!repository) return null;
-  // Prefer the registered folder's name, which is what the group header for
-  // this repo reads when a folder is registered. Without one we take the bare
-  // repo name and skip the organization prefix `groupByRepository` adds when
-  // two groups collide on a name: that is a decision across the whole group
-  // set, and pinned tasks are partitioned out before the groups are built, so
-  // a pinned task's repo may have no group to borrow a name from at all.
+  // The registered folder's name is what the group header shows. No collision
+  // prefix here: pinned tasks are partitioned out before groups are built.
   return findGroupFolder(folders, repository.fullPath)?.name ?? repository.name;
 }
 
 function branchLabel(task: TaskContextTask): string | null {
-  // `linkedBranch` is the branch the task produced, and is deliberately left
-  // unset while a task sits on the repo's default branch — so this never
-  // degrades into a "· main" that repeats on every row. A worktree falls back
-  // to its checked-out branch, which is the whole reason the worktree exists.
+  // `linkedBranch` stays unset while a task sits on the repo's default branch,
+  // so rows never all repeat "· main". Worktrees fall back to their checkout.
   if (task.linkedBranch) return task.linkedBranch;
   return task.workspaceMode === "worktree" ? task.branchName : null;
 }
 
 /**
- * "Where does this task live" line for a task row rendered outside its
- * repository group — today the pinned section, which floats above the per-repo
- * groups and so loses the context its group header would have given it.
- *
- * Reads as `<repository> · <branch>`, dropping either half when unknown, and
- * returns null when the task has no repository or branch to report at all.
+ * `<repository> · <branch>` line for a row rendered outside its repository
+ * group (the pinned section), where no group header supplies the context.
  */
 export function formatTaskContext(
   task: TaskContextTask,

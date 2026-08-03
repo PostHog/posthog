@@ -212,9 +212,8 @@ export function TaskListView({
             <TaskRow
               key={task.id}
               task={task}
-              // Pinned rows float above the per-project groups, so each one
-              // restates its own context. Without it a long pinned list gives no
-              // clue which repository — let alone which branch — a task is in.
+              // Pinned rows sit outside the per-project groups, so no group
+              // header supplies their repository.
               subtitle={formatTaskContext(task, folders) ?? undefined}
               isActive={activeTaskId === task.id}
               isSelected={selectedIdSet.has(task.id)}
