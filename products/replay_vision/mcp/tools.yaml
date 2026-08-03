@@ -209,11 +209,8 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        list: true
-        # Observations are read to explain a recording, so link each one to the recording it analysed
-        # rather than to the Replay vision index.
-        url_prefix: /replay
         enrich_url: '{session_id}'
+        list: true
         title: List a session's replay vision observations
         description: >
             List every replay vision observation recorded for a single session, across all scanners the caller can read.
@@ -230,6 +227,7 @@ tools:
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
         feature_flag: replay-vision
+        url_prefix: /replay
     vision-observations-retrieve:
         operation: vision_observations_retrieve
         enabled: true
@@ -240,7 +238,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        url_prefix: /replay
         enrich_url: '{session_id}'
         title: Get a session's replay vision observation
         description: >
@@ -254,6 +251,7 @@ tools:
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
         feature_flag: replay-vision
+        url_prefix: /replay
     vision-observations-retry-create:
         operation: vision_observations_retry_create
         enabled: false
@@ -436,7 +434,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        url_prefix: /replay
         enrich_url: '{session_id}'
         title: Get scanner observation
         description: >
@@ -452,6 +449,7 @@ tools:
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
         feature_flag: replay-vision
+        url_prefix: /replay
     vision-scanners-observations-label-create:
         operation: vision_scanners_observations_label_create
         enabled: false
@@ -468,11 +466,8 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        list: true
-        # Observations are read to explain a recording, so link each one to the recording it analysed
-        # rather than to the Replay vision index.
-        url_prefix: /replay
         enrich_url: '{session_id}'
+        list: true
         title: List scanner observations
         description: >
             List the observations recorded by a single scanner. Each observation is one scan of one session and includes
@@ -489,6 +484,7 @@ tools:
             (`timestamp_ms` / 1000, rounded down) to that URL to seek straight to it. When you report a finding to
             someone, deep-link the one or two moments it turns on rather than only describing them.
         feature_flag: replay-vision
+        url_prefix: /replay
     vision-scanners-observations-retry-create:
         operation: vision_scanners_observations_retry_create
         enabled: false
