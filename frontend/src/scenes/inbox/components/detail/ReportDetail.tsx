@@ -84,7 +84,7 @@ export function ReportDetailBadges({
 
 /** Shared explainer for the finding count in the meta line and the Evidence section. */
 const FINDINGS_TOOLTIP =
-    'Findings are the individual pieces of evidence – signals from your connected sources and scouts – that were grouped into this report.'
+    'Signals are the individual pieces of evidence – from your connected sources and scouts – that were grouped into this report.'
 
 /**
  * Single meta line under the title: status/actionability chips, then dot-separated stats
@@ -112,7 +112,7 @@ function ReportDetailMeta({
         stats.push(
             <Tooltip title={FINDINGS_TOOLTIP}>
                 <span className="tabular-nums cursor-help">
-                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                    {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                 </span>
             </Tooltip>
         )
@@ -405,7 +405,7 @@ export function InboxDetailFrame({
                             rightSlot={
                                 <Tooltip title={FINDINGS_TOOLTIP}>
                                     <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
-                                        {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                                        {evidenceCount} signal{evidenceCount === 1 ? '' : 's'}
                                     </span>
                                 </Tooltip>
                             }

@@ -907,6 +907,9 @@
                     "$ref": "#/definitions/MarketingAnalyticsAggregatedQuery"
                 },
                 {
+                    "$ref": "#/definitions/MarketingAnalyticsAttributionQuery"
+                },
+                {
                     "$ref": "#/definitions/NonIntegratedConversionsTableQuery"
                 },
                 {
@@ -10026,6 +10029,148 @@
                 "next_allowed_client_refresh",
                 "results",
                 "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedMarketingAnalyticsAttributionQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "allowsMultipleConversionsPerVisitor": {
+                    "description": "Whether this result counted a repeat converter's every conversion, after resolving the query's null against the goal's math. The rate columns are a true share only when this is false, so the table reads it to label them.",
+                    "type": "boolean"
+                },
+                "attributionWindowDays": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The team's configured attribution window, for the tooltips."
+                },
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hasValue": {
+                    "description": "Whether the goal is revenue-bearing, which gates the value columns.",
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "models": {
+                    "description": "Model order for the column groups.",
+                    "items": {
+                        "$ref": "#/definitions/AttributionMode"
+                    },
+                    "type": "array"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsAttributionRow"
+                    },
+                    "type": "array"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "totalConversions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Total conversions in range, so the footer can say \"N of M\"."
+                },
+                "unattributedConversions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversions with no touchpoint in the window. Reported in the footer, not in any row."
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "allowsMultipleConversionsPerVisitor",
+                "attributionWindowDays",
+                "cache_key",
+                "hasValue",
+                "is_cached",
+                "last_refresh",
+                "models",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone",
+                "totalConversions",
+                "unattributedConversions"
             ],
             "type": "object"
         },
@@ -24002,6 +24147,7 @@
                 "Campfire",
                 "Crisp",
                 "Kommo",
+                "GoogleMerchantCenter",
                 "Axiom",
                 "Plivo",
                 "DataForSEO",
@@ -31460,6 +31606,282 @@
             "required": ["results"],
             "type": "object"
         },
+        "MarketingAnalyticsAttributionBreakdown": {
+            "description": "Row dimension for the Attribution table. String values match MarketingAnalyticsDrillDownLevel for the levels they share, so both surfaces speak the same vocabulary. It's a separate enum because `ad_group`/`ad` can't be attributed to events at all (no ad identifier reaches the events table), while `referring_domain`/`landing_page` have no cost-side expression and so don't belong in the drill-down.",
+            "enum": ["channel", "source", "campaign", "medium", "content", "term", "referring_domain", "landing_page"],
+            "type": "string"
+        },
+        "MarketingAnalyticsAttributionModelCell": {
+            "additionalProperties": false,
+            "description": "One attribution model's credit for one breakdown row.",
+            "properties": {
+                "conversionRate": {
+                    "description": "conversions / visitors. Null when the row has no visitors.",
+                    "type": ["number", "null"]
+                },
+                "conversionValue": {
+                    "description": "Null unless the goal is revenue-bearing.",
+                    "type": ["number", "null"]
+                },
+                "conversions": {
+                    "description": "Fractional for multi-touch models: each conversion's credit is split across its touchpoints.",
+                    "type": "number"
+                },
+                "model": {
+                    "$ref": "#/definitions/AttributionMode"
+                }
+            },
+            "required": ["model", "conversions", "conversionRate", "conversionValue"],
+            "type": "object"
+        },
+        "MarketingAnalyticsAttributionQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Groups aggregation - not used in Web Analytics but required for type compatibility"
+                },
+                "allowMultipleConversionsPerVisitor": {
+                    "description": "Whether one person converting repeatedly counts once or every time. Null follows the goal's own math: unique-users goals count each person once, count-based goals count every conversion. Set explicitly to override. Counting every conversion makes the rate columns exceed 100%, since a person can convert more times than they visited.",
+                    "type": "boolean"
+                },
+                "breakdownBy": {
+                    "$ref": "#/definitions/MarketingAnalyticsAttributionBreakdown",
+                    "description": "Row dimension. Defaults to channel."
+                },
+                "conversionGoal": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/WebAnalyticsConversionGoal"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "conversionGoalId": {
+                    "description": "conversion_goal_id of the goal to attribute. The table is meaningless without one.",
+                    "type": "string"
+                },
+                "dataColorTheme": {
+                    "description": "Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility",
+                    "type": ["number", "null"]
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "doPathCleaning": {
+                    "type": "boolean"
+                },
+                "excludeDirectTraffic": {
+                    "description": "Drop direct sessions from the touchpoint set before weights are computed, so the remaining touchpoints renormalize to full credit rather than losing direct's share.",
+                    "type": "boolean"
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "includeRevenue": {
+                    "deprecated": "ignored, always treated as disabled",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Interval for date range calculation (affects date_to rounding for hour vs day ranges)"
+                },
+                "kind": {
+                    "const": "MarketingAnalyticsAttributionQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
+                "lookbackWindowDays": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many days before each conversion a touchpoint can earn credit, overriding the team's configured attribution window for this query only."
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
+                },
+                "properties": {
+                    "$ref": "#/definitions/WebAnalyticsPropertyFilters"
+                },
+                "response": {
+                    "$ref": "#/definitions/MarketingAnalyticsAttributionQueryResponse"
+                },
+                "sampling": {
+                    "$ref": "#/definitions/WebAnalyticsSampling",
+                    "deprecated": "Use samplingFactor instead"
+                },
+                "samplingFactor": {
+                    "description": "Sampling rate",
+                    "type": ["number", "null"]
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "useSessionsTable": {
+                    "deprecated": "ignored, always treated as enabled *",
+                    "type": "boolean"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["conversionGoalId", "kind", "properties"],
+            "type": "object"
+        },
+        "MarketingAnalyticsAttributionQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "allowsMultipleConversionsPerVisitor": {
+                    "description": "Whether this result counted a repeat converter's every conversion, after resolving the query's null against the goal's math. The rate columns are a true share only when this is false, so the table reads it to label them.",
+                    "type": "boolean"
+                },
+                "attributionWindowDays": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The team's configured attribution window, for the tooltips."
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hasValue": {
+                    "description": "Whether the goal is revenue-bearing, which gates the value columns.",
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "models": {
+                    "description": "Model order for the column groups.",
+                    "items": {
+                        "$ref": "#/definitions/AttributionMode"
+                    },
+                    "type": "array"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsAttributionRow"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "totalConversions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Total conversions in range, so the footer can say \"N of M\"."
+                },
+                "unattributedConversions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversions with no touchpoint in the window. Reported in the footer, not in any row."
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "allowsMultipleConversionsPerVisitor",
+                "attributionWindowDays",
+                "hasValue",
+                "models",
+                "results",
+                "totalConversions",
+                "unattributedConversions"
+            ],
+            "type": "object"
+        },
+        "MarketingAnalyticsAttributionRow": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdownValue": {
+                    "type": "string"
+                },
+                "influencedConversions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversions with at least one touchpoint on this dimension. Counted once per conversion, so a conversion influenced by several dimensions is counted in each of their rows. These deliberately sum to more than the total, unlike the per-model columns."
+                },
+                "influencedValue": {
+                    "type": ["number", "null"]
+                },
+                "models": {
+                    "description": "One cell per model, always in the order given by the response's `models`.",
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsAttributionModelCell"
+                    },
+                    "type": "array"
+                },
+                "visitors": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Unique persons who arrived via this dimension in the date range, converters or not."
+                }
+            },
+            "required": ["breakdownValue", "visitors", "influencedConversions", "influencedValue", "models"],
+            "type": "object"
+        },
         "MarketingAnalyticsBaseColumns": {
             "enum": [
                 "ID",
@@ -34543,6 +34965,7 @@
                 "WebNotableChangesQuery",
                 "MarketingAnalyticsTableQuery",
                 "MarketingAnalyticsAggregatedQuery",
+                "MarketingAnalyticsAttributionQuery",
                 "NonIntegratedConversionsTableQuery",
                 "ExperimentMetric",
                 "ExperimentQuery",
@@ -38438,6 +38861,115 @@
                         }
                     },
                     "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "allowsMultipleConversionsPerVisitor": {
+                            "description": "Whether this result counted a repeat converter's every conversion, after resolving the query's null against the goal's math. The rate columns are a true share only when this is false, so the table reads it to label them.",
+                            "type": "boolean"
+                        },
+                        "attributionWindowDays": {
+                            "$ref": "#/definitions/integer",
+                            "description": "The team's configured attribution window, for the tooltips."
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hasValue": {
+                            "description": "Whether the goal is revenue-bearing, which gates the value columns.",
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "models": {
+                            "description": "Model order for the column groups.",
+                            "items": {
+                                "$ref": "#/definitions/AttributionMode"
+                            },
+                            "type": "array"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/MarketingAnalyticsAttributionRow"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "totalConversions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Total conversions in range, so the footer can say \"N of M\"."
+                        },
+                        "unattributedConversions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Conversions with no touchpoint in the window. Reported in the footer, not in any row."
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": [
+                        "allowsMultipleConversionsPerVisitor",
+                        "attributionWindowDays",
+                        "hasValue",
+                        "models",
+                        "results",
+                        "totalConversions",
+                        "unattributedConversions"
+                    ],
                     "type": "object"
                 },
                 {
@@ -43681,6 +44213,9 @@
                 },
                 {
                     "$ref": "#/definitions/MarketingAnalyticsAggregatedQuery"
+                },
+                {
+                    "$ref": "#/definitions/MarketingAnalyticsAttributionQuery"
                 },
                 {
                     "$ref": "#/definitions/NonIntegratedConversionsTableQuery"

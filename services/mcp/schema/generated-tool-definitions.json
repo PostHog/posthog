@@ -75,7 +75,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-create": {
-        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set role assignments (`csm`, `account_executive`, `account_owner`) and external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account.",
+        "description": "Create a new Customer Analytics account. An account is a logical container for assigning ownership across the customer-success org. Provide `name` (required), optional `external_id` (CRM ID or similar), optional `properties` to set external system identifiers (`stripe_customer_id`, `hubspot_deal_id`, `billing_id`, `sfdc_id`, `zendesk_id`), and optional `tags` to categorize the account. To assign users (CSM, account executive, ...), use `accounts-relationships-create` after creating the account.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create account",
@@ -135,7 +135,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-list": {
-        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (assignment fields csm, account_executive, account_owner and external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab.",
+        "description": "List Customer Analytics accounts in the project, ordered by most recently created. Each result includes the account `id`, `name`, `external_id`, typed `properties` (external identifiers stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id), `tags`, and creation/update metadata. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. Pass `tags` (JSON-encoded array, e.g. `[\"enterprise\",\"priority\"]`) to filter to accounts that have any of the listed tags. Use `accounts-retrieve` for a single account by id. The `properties` above are the built-in fields only; teams also define their own typed attributes as custom properties, which do not appear here. Call `custom-property-definitions-list` first to see what a team actually tracks on its accounts, rather than assuming the built-ins are the whole schema or guessing at property names. To link a user to a specific account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`). This filters the list to that account, expands it, and opens the tab.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List accounts",
@@ -270,7 +270,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "accounts-retrieve": {
-        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (csm, account_executive, account_owner assignments plus stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. These are the built-in fields only; a team's own typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
+        "description": "Fetch a single Customer Analytics account by id. Returns the full account including typed `properties` (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id external identifiers) and `tags`. User assignments (CSM, account executive, ...) live on account relationships — see `accounts-relationships-list`. These are the built-in fields only; a team's own typed attributes are custom properties and are not returned here. Call `custom-property-definitions-list` to see what the team tracks, then `accounts-custom-property-values-list` for this account's values. To link a user to this account rather than the bare list, deep-link it with the path `/customer_analytics/accounts/<id>/<tab>` (using the account `id`; tab is optional — one of notes/users/usage/spend, e.g. `/customer_analytics/accounts/<id>/usage`).",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Get account",
@@ -1397,7 +1397,7 @@
         }
     },
     "conversations-tickets-list": {
-        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, date range, and search. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
+        "description": "List support tickets in the project. Supports filtering by status (new, open, pending, on_hold, resolved), priority (low, medium, high, critical), channel_source (widget, email, slack), assignee, tags, SLA state, AI triage result, date range, and search. To work with a saved ticket view, pass its short_id as the `view` parameter (find it via the list-saved-ticket-views tool); the view's saved filters are applied server-side, and any filter parameter passed explicitly overrides the view's value for that dimension. Results are paginated and ordered by updated_at descending by default. Returns ticket metadata including status, priority, message counts, and timestamps.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List support tickets",
@@ -1467,7 +1467,7 @@
         }
     },
     "conversations-views-list": {
-        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>.",
+        "description": "List the saved ticket views in the project. Each view is a named, saved set of ticket filters — for example the per-team views named \"Team <name>\". Returns each view's short_id and name; a view opens in the app at /support/tickets?view=<short_id>. To get the tickets a view contains, pass its short_id as the `view` parameter of the list-support-tickets tool.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List saved ticket views",
@@ -4942,6 +4942,126 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "llma-dataset-archive": {
+        "description": "Archive a dataset by ID. Its revisions and items remain readable, but item mutations are rejected until the dataset is restored. Archiving an already archived dataset leaves it unchanged.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Archive dataset",
+        "title": "Archive dataset",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-create": {
+        "description": "Create an empty dataset in the current project. Dataset names are unique within a project. The first immutable revision is created when the first item is added.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create dataset",
+        "title": "Create dataset",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-archive": {
+        "description": "Archive an active dataset item by stable item ID. Pass its current version as `base_version` to prevent a stale write. This creates an immutable archived version and a new dataset revision while preserving history.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Archive dataset item",
+        "title": "Archive dataset item",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-create": {
+        "description": "Add an item to a dataset and create its first immutable version. `input` accepts any non-null JSON value. Use `expected_output` for the user-authored target and `source_output` for an actual output copied from a trace. Supply a case-sensitive `external_id` for safe retries. If that item is archived, this restores it with the submitted content. For trace provenance, provide `source_trace_id` and `source_timestamp` together; `source_event_id` is optional.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create dataset item",
+        "title": "Create dataset item",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-restore": {
+        "description": "Restore an archived item by stable item ID. Pass its current version as `base_version` to prevent a stale write. By default the archived version's content is copied into a new active version. Pass `source_version` to restore content from another historical version.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Restore dataset item",
+        "title": "Restore dataset item",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-update": {
+        "description": "Update an active item by stable item ID. Pass its current version as `base_version` to prevent a stale write. Each update creates a new immutable item version and dataset revision. Only `input`, `expected_output`, and `metadata` are editable; source fields remain unchanged.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update dataset item",
+        "title": "Update dataset item",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-restore": {
+        "description": "Restore an archived dataset by ID. This makes item mutations available again without changing item states or creating a dataset revision. Restoring an active dataset leaves it unchanged.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Restore dataset",
+        "title": "Restore dataset",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-update": {
+        "description": "Update an active dataset's name, description, or metadata by ID. These descriptive changes do not create a dataset revision.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update dataset",
+        "title": "Update dataset",
+        "required_scopes": ["dataset:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
     },
     "llma-evaluation-config-get": {
         "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
@@ -10608,6 +10728,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "workflows-patch-action-email": {
+        "description": "Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template, addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing reaches real people until workflows-publish; a rejection saying active workflows can't be edited means draft editing isn't enabled for this project yet. The full updated workflow is returned. Prefer this over workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template instead.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Patch a workflow step's email",
+        "title": "Patch a workflow step's email",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "workflows-patch-email-template": {

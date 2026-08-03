@@ -32,7 +32,7 @@ class EventStreamTestMessageError(Exception):
 
 @dataclass(frozen=True)
 class AccountAssignment:
-    """A user assigned to an account role (CSM, account executive, account owner)."""
+    """A user assigned to an account relationship (CSM, account executive, ...)."""
 
     id: int
     email: str
@@ -65,14 +65,11 @@ class AccountRelationship:
 
 @dataclass(frozen=True)
 class AccountProperties:
-    """Typed account properties — assignment roles and external-system identifiers.
+    """Typed account properties — external-system identifiers.
 
     Mirrors ``models.account.AccountProperties`` as a stable, framework-free shape.
     """
 
-    csm: AccountAssignment | None = None
-    account_executive: AccountAssignment | None = None
-    account_owner: AccountAssignment | None = None
     stripe_customer_id: str | None = None
     hubspot_deal_id: str | None = None
     billing_id: str | None = None
@@ -80,6 +77,7 @@ class AccountProperties:
     zendesk_id: str | None = None
     slack_channel_id: str | None = None
     usage_dashboard_link: str | None = None
+    metabase_link: str | None = None
 
 
 @dataclass(frozen=True)

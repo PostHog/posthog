@@ -88,7 +88,7 @@
                         "role_at_organization": {
                             "anyOf": [
                                 {
-                                    "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other",
+                                    "description": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
                                     "enum": [
                                         "engineering",
                                         "data",
@@ -97,6 +97,7 @@
                                         "leadership",
                                         "marketing",
                                         "sales",
+                                        "student",
                                         "other"
                                     ],
                                     "type": "string"
