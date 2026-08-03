@@ -108,6 +108,33 @@ class TestReadWorkflows:
         assert job.is_reusable_call
         assert job.uses == "./.github/workflows/other.yml"
 
+    def test_flattens_parallel_steps(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: My
+            on: [pull_request]
+            jobs:
+              build:
+                timeout-minutes: 5
+                runs-on: depot-ubuntu-latest
+                steps:
+                  - run: echo before
+                  - parallel:
+                      - id: cache
+                        uses: actions/cache/save@v5
+                      - run: echo nested
+            """,
+        )
+        wf = next(read_workflows(tmp_path))
+        [job] = wf.jobs
+        assert [(step.id_, step.uses, step.run) for step in job.steps] == [
+            (None, None, "echo before"),
+            ("cache", "actions/cache/save@v5", None),
+            (None, None, "echo nested"),
+        ]
+
     def test_parse_error_raises_typed(self, tmp_path: Path) -> None:
         bad = tmp_path / "wf.yml"
         bad.write_text("name: x\non: [\njobs: {}\n")
