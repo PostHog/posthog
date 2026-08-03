@@ -1,3 +1,4 @@
+import { resolveAlwaysOnSkills } from "@posthog/core/skills/alwaysOnSkills";
 import { isValidConfigValue } from "@posthog/core/task-detail/configOptions";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
@@ -7,6 +8,7 @@ import {
   forwardRef,
   useCallback,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -25,6 +27,8 @@ import {
   type AgentAdapter,
   useSettingsStore,
 } from "../../settings/settingsStore";
+import { AlwaysOnSkillChips } from "../../skills/AlwaysOnSkillChips";
+import { useSkills } from "../../skills/useSkills";
 import {
   type WorkspaceMode,
   WorkspaceModeSelect,
@@ -139,6 +143,13 @@ export const ChannelHomeComposer = forwardRef<
 
   const cloudModeEnabled = useCloudModeEnabled();
   const { hasGithubIntegration } = useUserRepositoryIntegration();
+
+  const { data: skillsList } = useSkills();
+  const alwaysOnSkillRefs = useSettingsStore((s) => s.alwaysOnSkills);
+  const alwaysOnSkills = useMemo(
+    () => resolveAlwaysOnSkills(alwaysOnSkillRefs, skillsList ?? []),
+    [alwaysOnSkillRefs, skillsList],
+  );
 
   // Repo-less channel tasks only run local or cloud (worktree needs a repo), so
   // collapse any lingering worktree preference down to local for the initial pick.
@@ -395,7 +406,7 @@ export const ChannelHomeComposer = forwardRef<
           and the trigger's own fill is translucent, so it carries an opaque
           backdrop at the button's radius to stop messages showing through. */}
       {!canvasArmed && (
-        <div className="absolute bottom-full left-0 mb-2 flex items-center gap-2 rounded-sm bg-card">
+        <div className="absolute bottom-full left-0 mb-2 flex max-w-full flex-wrap items-center gap-2 rounded-sm bg-card">
           <WorkspaceModeSelect
             value={workspaceMode}
             onChange={setWorkspaceMode}
@@ -405,6 +416,7 @@ export const ChannelHomeComposer = forwardRef<
             size="1"
             disabled={isBusy}
           />
+          <AlwaysOnSkillChips skills={alwaysOnSkills} />
         </div>
       )}
 

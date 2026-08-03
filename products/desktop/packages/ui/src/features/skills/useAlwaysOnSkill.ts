@@ -8,24 +8,29 @@ import { useCallback } from "react";
 import { track } from "../../shell/analytics";
 import { useSettingsStore } from "../settings/settingsStore";
 
+/** Store write + analytics in one place, callable outside React (chips). */
+export function setSkillAlwaysOnTracked(
+  skill: Pick<SkillInfo, "name" | "source">,
+  enabled: boolean,
+): void {
+  useSettingsStore.getState().setSkillAlwaysOn(skill, enabled);
+  track(ANALYTICS_EVENTS.SKILL_ALWAYS_ON_TOGGLED, {
+    skill_source: skill.source,
+    enabled,
+    total_always_on: useSettingsStore.getState().alwaysOnSkills.length,
+  });
+}
+
 /** Read + toggle a skill's always-on state (Settings-store backed). */
 export function useAlwaysOnSkill(skill: Pick<SkillInfo, "name" | "source">) {
   const alwaysOnSkills = useSettingsStore((s) => s.alwaysOnSkills);
-  const setSkillAlwaysOn = useSettingsStore((s) => s.setSkillAlwaysOn);
 
   const canToggle = isAlwaysOnSkillSource(skill.source);
   const enabled = canToggle && isAlwaysOnSkill(alwaysOnSkills, skill);
 
   const setEnabled = useCallback(
-    (next: boolean) => {
-      setSkillAlwaysOn(skill, next);
-      track(ANALYTICS_EVENTS.SKILL_ALWAYS_ON_TOGGLED, {
-        skill_source: skill.source,
-        enabled: next,
-        total_always_on: useSettingsStore.getState().alwaysOnSkills.length,
-      });
-    },
-    [setSkillAlwaysOn, skill],
+    (next: boolean) => setSkillAlwaysOnTracked(skill, next),
+    [skill],
   );
 
   return { canToggle, enabled, setEnabled };
