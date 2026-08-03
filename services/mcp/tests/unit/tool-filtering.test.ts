@@ -841,6 +841,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'notebooks-collaboration',
                 'revamped-py-notebooks',
                 'replay-vision',
+                'replay-vision-actions',
                 'tasks',
                 'dashboard-widgets',
                 'heatmaps-mcp',
