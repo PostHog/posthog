@@ -15,8 +15,9 @@ class WeeklyDigestInputs:
     # Total executions per org activity: initial run + 5 retries. The final attempt sends
     # partial digests instead of deferring recipients whose teams failed to build.
     max_attempts: int = 6
-    # Orgs handled per page. Each page runs as its own child workflow so history stays
-    # bounded no matter how many orgs are discovered.
+    # Orgs handled per page. Per-org activity history lives in the page child workflows;
+    # the parent still records ~80KB per page (discovery result + child input), so it
+    # holds to roughly 600k orgs before nearing Temporal's 50MB history cap.
     page_size: int = 1000
     # Pages processed concurrently as child workflows. The global org-activity target is
     # max_concurrent_pages * max_concurrent — keep it at or below the worker fleet's

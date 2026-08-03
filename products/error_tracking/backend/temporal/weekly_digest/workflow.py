@@ -83,6 +83,10 @@ async def _send_orgs(org_ids: list[str], dry_run: bool, max_concurrent: int, max
     sent = 0
     orgs_failed = 0
     for org_id, result in zip(org_ids, results):
+        # Workflow cancellation lands here as a captured CancelledError; counting it as an
+        # org failure would keep the run going instead of honoring the cancel.
+        if isinstance(result, asyncio.CancelledError):
+            raise result
         if isinstance(result, BaseException):
             orgs_failed += 1
             sent += _sent_from_error(result)
@@ -169,6 +173,10 @@ class ErrorTrackingWeeklyDigestWorkflow(PostHogWorkflow):
         sent = 0
         for page, result in zip(pages, results):
             orgs += len(page)
+            # Same as _send_orgs: a captured CancelledError is the run being cancelled,
+            # not a failed page.
+            if isinstance(result, asyncio.CancelledError):
+                raise result
             if isinstance(result, BaseException):
                 # The child only propagates unexpected failures (per-org errors are counted
                 # inside it), so attribute the whole page.
