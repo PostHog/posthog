@@ -25,6 +25,7 @@ export interface DatasetItemModalLogicProps {
     partialDatasetItem?: DatasetItemModalValue | null
     closeModal: (refetchDatasetItems?: boolean) => void
     isModalOpen: boolean
+    readOnly?: boolean
 }
 
 export interface DatasetItemFormValues {
@@ -158,11 +159,14 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
             }),
 
             submit: async (formValues) => {
+                if (props.readOnly) {
+                    return
+                }
                 try {
                     if (!isStoredDatasetItem(props.partialDatasetItem)) {
                         await datasetsApi.createItem({
                             dataset: props.datasetId,
-                            external_id: props.partialDatasetItem?.external_id,
+                            client_item_id: props.partialDatasetItem?.client_item_id,
                             input: parseJsonValue(formValues.input) ?? {},
                             expected_output: parseJsonValue(formValues.expectedOutput),
                             source_output: props.partialDatasetItem?.source_output,
@@ -197,7 +201,7 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
                             error.detail || 'This dataset item changed after it was loaded. Reload it and try again.',
                             {
                                 button: {
-                                    label: 'Reload item',
+                                    label: 'Reload items',
                                     action: () => props.closeModal(true),
                                 },
                             }
@@ -230,6 +234,9 @@ export const datasetItemModalLogic = kea<datasetItemModalLogicType>([
 
         if (props.isModalOpen) {
             actions.setRefetchDatasetItems(false)
+            if (props.partialDatasetItem) {
+                actions.setDatasetItemFormValues(getDatasetItemFormDefaults(props.partialDatasetItem))
+            }
         }
     }),
 ])

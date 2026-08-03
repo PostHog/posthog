@@ -14178,7 +14178,8 @@ export namespace Schemas {
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
      * * `dataset_item_active` - dataset_item_active
-     * * `external_id_conflict` - external_id_conflict
+     * * `client_item_id_conflict` - client_item_id_conflict
+     * * `limit_reached` - limit_reached
      * * `stale_version` - stale_version
      */
     export type CodeEnum = typeof CodeEnum[keyof typeof CodeEnum];
@@ -14189,7 +14190,8 @@ export namespace Schemas {
       DatasetNameConflict: 'dataset_name_conflict',
       DatasetItemArchived: 'dataset_item_archived',
       DatasetItemActive: 'dataset_item_active',
-      ExternalIdConflict: 'external_id_conflict',
+      ClientItemIdConflict: 'client_item_id_conflict',
+      LimitReached: 'limit_reached',
       StaleVersion: 'stale_version',
     } as const;
 
@@ -21537,6 +21539,20 @@ export namespace Schemas {
       Databricks: 'Databricks',
     } as const;
 
+    /**
+     * * `datasets` - datasets
+     * * `dataset_items` - dataset_items
+     * * `dataset_item_versions` - dataset_item_versions
+     */
+    export type ResourceEnum = typeof ResourceEnum[keyof typeof ResourceEnum];
+
+
+    export const ResourceEnum = {
+      Datasets: 'datasets',
+      DatasetItems: 'dataset_items',
+      DatasetItemVersions: 'dataset_item_versions',
+    } as const;
+
     export interface DatasetConflictResponse {
       /** Stable code identifying why the mutation was rejected.
        *
@@ -21544,7 +21560,8 @@ export namespace Schemas {
        * * `dataset_name_conflict` - dataset_name_conflict
        * * `dataset_item_archived` - dataset_item_archived
        * * `dataset_item_active` - dataset_item_active
-       * * `external_id_conflict` - external_id_conflict
+       * * `client_item_id_conflict` - client_item_id_conflict
+       * * `limit_reached` - limit_reached
        * * `stale_version` - stale_version */
       code: CodeEnum;
       /** Explanation of how to resolve the conflict. */
@@ -21555,10 +21572,20 @@ export namespace Schemas {
          */
       current_version?: number | null;
       /**
-         * Existing item ID when the conflict concerns an external ID.
+         * Existing item ID when the conflict concerns a client item ID.
          * @nullable
          */
       current_item_id?: string | null;
+      /** Resource whose configured limit was reached.
+       *
+       * * `datasets` - datasets
+       * * `dataset_items` - dataset_items
+       * * `dataset_item_versions` - dataset_item_versions */
+      resource?: ResourceEnum;
+      /** Number of resources that already exist. */
+      current_count?: number;
+      /** Maximum number of resources allowed. */
+      limit?: number;
     }
 
     /**
@@ -21593,6 +21620,73 @@ export namespace Schemas {
       Persons: 'persons',
     } as const;
 
+    export interface DatasetExportContext {
+      /** Dataset included in the export. */
+      readonly dataset_id: string;
+      /** Pinned dataset revision. */
+      readonly dataset_revision: number;
+      /** Base name used for the generated file. */
+      readonly filename: string;
+    }
+
+    export interface DatasetExportCreate {
+      /**
+         * Dataset revision to export. Defaults to the latest revision when the export is created.
+         * @minimum 1
+         */
+      revision?: number;
+    }
+
+    export interface DatasetExportError {
+      /** Why the export cannot be created or downloaded yet. */
+      detail: string;
+    }
+
+    export type DatasetExportReadStatusEnum = typeof DatasetExportReadStatusEnum[keyof typeof DatasetExportReadStatusEnum];
+
+
+    export const DatasetExportReadStatusEnum = {
+      Pending: 'pending',
+      Complete: 'complete',
+      Failed: 'failed',
+    } as const;
+
+    export interface DatasetExportRead {
+      /** Export ID used to check status and download the file. */
+      readonly id: number;
+      /**
+         * Dashboard associated with the export, always null for datasets.
+         * @nullable
+         */
+      readonly dashboard: number | null;
+      /**
+         * Insight associated with the export, always null for datasets.
+         * @nullable
+         */
+      readonly insight: number | null;
+      /** MIME type of the generated JSONL file. */
+      readonly export_format: string;
+      /** Pinned dataset and revision used by the export. */
+      readonly export_context: DatasetExportContext;
+      /** Whether the generated file is ready to download. */
+      readonly has_content: boolean;
+      /** Current export state: pending, complete, or failed. */
+      readonly status: DatasetExportReadStatusEnum;
+      /** Immutable dataset revision included in the export. */
+      readonly dataset_revision: number;
+      /** Generated JSONL filename. */
+      readonly filename: string;
+      /** When the export was requested. */
+      readonly created_at: string;
+      /** When the generated file expires. */
+      readonly expires_after: string;
+      /**
+         * Reason the export failed, or null while it is pending or complete.
+         * @nullable
+         */
+      readonly exception: string | null;
+    }
+
     export interface DatasetItemArchive {
       /**
          * Current item version observed by the caller.
@@ -21612,11 +21706,11 @@ export namespace Schemas {
       /** Dataset that will own the item. */
       dataset: string;
       /**
-         * Optional case-sensitive stable key used for idempotent creates.
+         * Optional case-sensitive stable key used for idempotent creates. It cannot be changed.
          * @maxLength 255
          * @nullable
          */
-      external_id?: string | null;
+      client_item_id?: string | null;
       /** Input supplied to the system under test. Any non-null JSON value is accepted. */
       input: DatasetJSONValue;
       /** Optional user-authored expected output. */
@@ -21655,10 +21749,10 @@ export namespace Schemas {
       /** Dataset that owns the item. */
       readonly dataset: string;
       /**
-         * Optional caller-owned stable key.
+         * Optional caller-owned stable key that cannot be changed.
          * @nullable
          */
-      readonly external_id: string | null;
+      readonly client_item_id: string | null;
       readonly version: number;
       /** ID of this immutable item version. */
       readonly version_id: string;
@@ -21715,6 +21809,9 @@ export namespace Schemas {
      */
     export type DatasetReadMetadata = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface DatasetRead {
       readonly id: string;
       readonly name: string;
@@ -21738,6 +21835,11 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the dataset. */
       readonly team_id: number;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface DatasetRevisionRead {
@@ -29191,6 +29293,16 @@ export namespace Schemas {
       dashboard?: number | null;
       /** @nullable */
       insight?: number | null;
+      /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
+       *
+       * * `image/png` - image/png
+       * * `application/pdf` - application/pdf
+       * * `text/csv` - text/csv
+       * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+       * * `video/webm` - video/webm
+       * * `video/mp4` - video/mp4
+       * * `image/gif` - image/gif
+       * * `application/json` - application/json */
       export_format: ExportFormatEnum;
       readonly created_at: string;
       readonly has_content: boolean;
@@ -78062,6 +78174,14 @@ export namespace Schemas {
     offset?: number;
     /**
      * Return the exact dataset snapshot at this revision.
+     * @minimum 1
+     */
+    revision?: number;
+    };
+
+    export type DatasetItemsRetrieveParams = {
+    /**
+     * Return the item as it appeared at this exact dataset revision.
      * @minimum 1
      */
     revision?: number;

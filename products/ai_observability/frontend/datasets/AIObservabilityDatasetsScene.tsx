@@ -12,8 +12,10 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
+import { LemonSegmentedButton } from '~/lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTag } from '~/lib/lemon-ui/LemonTag'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
@@ -27,7 +29,7 @@ export const scene: SceneExport = {
 }
 
 export function AIObservabilityDatasetsScene(): JSX.Element {
-    const { setFilters, archiveDataset } = useActions(aiObservabilityDatasetsLogic)
+    const { setFilters, archiveDataset, restoreDataset } = useActions(aiObservabilityDatasetsLogic)
     const { archivingDatasetId, datasets, datasetsLoading, sorting, pagination, filters, datasetCountLabel } =
         useValues(aiObservabilityDatasetsLogic)
     const { searchParams } = useValues(router)
@@ -68,6 +70,17 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                 )
             },
         },
+        {
+            title: 'Status',
+            key: 'status',
+            render: function renderStatus(_, dataset) {
+                return (
+                    <LemonTag type={dataset.archived ? 'muted' : 'success'}>
+                        {dataset.archived ? 'Archived' : 'Active'}
+                    </LemonTag>
+                )
+            },
+        },
         createdAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
         updatedAtColumn<Dataset>() as LemonTableColumn<Dataset, keyof Dataset | undefined>,
         {
@@ -88,20 +101,25 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.LlmAnalytics}
                                     minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={dataset.user_access_level as AccessControlLevel}
                                 >
                                     <LemonButton
-                                        status="danger"
-                                        onClick={() => archiveDataset(dataset.id)}
+                                        status={dataset.archived ? undefined : 'danger'}
+                                        onClick={() =>
+                                            dataset.archived ? restoreDataset(dataset.id) : archiveDataset(dataset.id)
+                                        }
                                         loading={archivingDatasetId === dataset.id}
                                         disabledReason={
                                             archivingDatasetId && archivingDatasetId !== dataset.id
                                                 ? 'Another dataset is being archived'
                                                 : undefined
                                         }
-                                        data-attr={`dataset-item-${dataset.id}-dropdown-archive`}
+                                        data-attr={`dataset-${dataset.id}-dropdown-${
+                                            dataset.archived ? 'unarchive' : 'archive'
+                                        }`}
                                         fullWidth
                                     >
-                                        Archive
+                                        {dataset.archived ? 'Unarchive' : 'Archive'}
                                     </LemonButton>
                                 </AccessControlAction>
                             </>
@@ -136,15 +154,27 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                 }
             />
             <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
-                <LemonInput
-                    type="search"
-                    placeholder="Search datasets..."
-                    value={filters.search}
-                    data-attr="datasets-search-input"
-                    onChange={(value) => setFilters({ search: value })}
-                    className="max-w-md"
-                    data-testid="search-datasets-input"
-                />
+                <div className="flex gap-2 items-center flex-wrap">
+                    <LemonSegmentedButton
+                        value={filters.archived ? 'archived' : 'active'}
+                        onChange={(value) => setFilters({ archived: value === 'archived' }, true, false)}
+                        options={[
+                            { value: 'active', label: 'Active' },
+                            { value: 'archived', label: 'Archived' },
+                        ]}
+                        size="small"
+                        data-attr="datasets-status-filter"
+                    />
+                    <LemonInput
+                        type="search"
+                        placeholder="Search datasets..."
+                        value={filters.search}
+                        data-attr="datasets-search-input"
+                        onChange={(value) => setFilters({ search: value })}
+                        className="max-w-md"
+                        data-testid="search-datasets-input"
+                    />
+                </div>
                 <div className="text-muted-alt">{datasetCountLabel}</div>
             </div>
 

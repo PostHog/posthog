@@ -585,6 +585,38 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
 
+    def test_dataset_exports_are_hidden_from_generic_export_list(self) -> None:
+        dataset_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={"dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5", "dataset_revision": 1},
+            created_by=self.user,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/exports")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(dataset_export.id), {result["id"] for result in response.json()["results"]})
+
+    @parameterized.expand(
+        [
+            ("retrieve", "/api/projects/{team_id}/exports/{export_id}"),
+            ("content", "/api/projects/{team_id}/exports/{export_id}/content"),
+        ]
+    )
+    def test_dataset_exports_are_hidden_from_generic_export_endpoints(self, _name, url_template) -> None:
+        dataset_export = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.JSONL,
+            export_context={"dataset_id": "302b0ee8-18a2-45d1-91a9-1a347853f6e5", "dataset_revision": 1},
+            created_by=self.user,
+            content=b"{}\n",
+        )
+
+        response = self.client.get(url_template.format(team_id=self.team.id, export_id=dataset_export.id))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_list_shows_stuck_exports_as_failed_in_response(self) -> None:
         with freeze_time(now() - timedelta(seconds=2 * HOGQL_INCREASED_MAX_EXECUTION_TIME)):
             # Create an export that's older than HOGQL_INCREASED_MAX_EXECUTION_TIME

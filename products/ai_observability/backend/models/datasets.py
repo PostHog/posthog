@@ -116,7 +116,7 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     )
 
     dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="items")
-    external_id = models.CharField(max_length=255, null=True, blank=True)
+    client_item_id = models.CharField(db_column="external_id", max_length=255, null=True, blank=True)
     current_version = models.ForeignKey(
         "DatasetItemVersion",
         on_delete=models.RESTRICT,
@@ -130,8 +130,8 @@ class DatasetItem(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         ordering = ["-created_at", "id"]
         constraints = [
             models.UniqueConstraint(
-                fields=["dataset", "external_id"],
-                condition=Q(external_id__isnull=False),
+                fields=["dataset", "client_item_id"],
+                condition=Q(client_item_id__isnull=False),
                 name="uniq_llma_dataset_item_v2_ext",
             )
         ]
@@ -155,6 +155,7 @@ class DatasetItemVersion(UUIDModel, CreatedMetaFields):
         db_constraint=False,
     )
 
+    dataset = models.ForeignKey(Dataset, on_delete=models.CASCADE, related_name="item_versions")
     dataset_item = models.ForeignKey(DatasetItem, on_delete=models.CASCADE, related_name="versions")
     dataset_revision = models.ForeignKey(
         DatasetRevision,

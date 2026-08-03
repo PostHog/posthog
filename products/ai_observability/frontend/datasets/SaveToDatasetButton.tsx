@@ -38,7 +38,7 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
 }: SaveToDatasetButtonProps): JSX.Element {
     const partialDatasetItem: Partial<DatasetItemCreateApi> = useMemo(
         () => ({
-            external_id: sourceId,
+            client_item_id: sourceId,
             source_trace_id: traceId,
             source_timestamp: timestamp,
             source_event_id: sourceId,
@@ -137,51 +137,63 @@ function OverlayMenu(): JSX.Element {
                             <>
                                 <p className="text-muted text-xs px-2">Recent datasets</p>
                                 {recentDatasets.map((dataset, index) => (
-                                    <LemonButton
+                                    <AccessControlAction
                                         key={dataset.id}
                                         ref={itemsRef?.current?.[index]}
-                                        fullWidth
-                                        size="small"
-                                        active={focusedItemIndex === index}
-                                        htmlType="submit"
-                                        onClick={() => {
-                                            setSearchFormValue('datasetId', dataset.id)
-                                        }}
-                                        loading={isSearchFormSubmitting && searchForm.datasetId === dataset.id}
-                                        disabledReason={
-                                            isSearchFormSubmitting && searchForm.datasetId !== dataset.id
-                                                ? 'A dataset item is being saved'
-                                                : undefined
-                                        }
-                                        data-attr="save-to-dataset-select"
+                                        resourceType={AccessControlResourceType.LlmAnalytics}
+                                        minAccessLevel={AccessControlLevel.Editor}
+                                        userAccessLevel={dataset.user_access_level as AccessControlLevel}
                                     >
-                                        <span className="line-clamp-1">{dataset.name}</span>
-                                    </LemonButton>
+                                        <LemonButton
+                                            fullWidth
+                                            size="small"
+                                            active={focusedItemIndex === index}
+                                            htmlType="submit"
+                                            onClick={() => {
+                                                setSearchFormValue('datasetId', dataset.id)
+                                            }}
+                                            loading={isSearchFormSubmitting && searchForm.datasetId === dataset.id}
+                                            disabledReason={
+                                                isSearchFormSubmitting && searchForm.datasetId !== dataset.id
+                                                    ? 'A dataset item is being saved'
+                                                    : undefined
+                                            }
+                                            data-attr="save-to-dataset-select"
+                                        >
+                                            <span className="line-clamp-1">{dataset.name}</span>
+                                        </LemonButton>
+                                    </AccessControlAction>
                                 ))}
                                 <LemonDivider className="my-0 mb-2" />
                             </>
                         )}
                         {datasets.map((dataset, index) => (
-                            <LemonButton
+                            <AccessControlAction
                                 key={dataset.id}
                                 ref={itemsRef?.current?.[recentDatasetsLength + index]}
-                                fullWidth
-                                size="small"
-                                active={focusedItemIndex - recentDatasetsLength === index}
-                                htmlType="submit"
-                                onClick={() => {
-                                    setSearchFormValue('datasetId', dataset.id)
-                                }}
-                                loading={isSearchFormSubmitting && searchForm.datasetId === dataset.id}
-                                disabledReason={
-                                    isSearchFormSubmitting && searchForm.datasetId !== dataset.id
-                                        ? 'A dataset item is being saved'
-                                        : undefined
-                                }
-                                data-attr="save-to-dataset-select"
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={dataset.user_access_level as AccessControlLevel}
                             >
-                                <span className="line-clamp-1">{dataset.name}</span>
-                            </LemonButton>
+                                <LemonButton
+                                    fullWidth
+                                    size="small"
+                                    active={focusedItemIndex - recentDatasetsLength === index}
+                                    htmlType="submit"
+                                    onClick={() => {
+                                        setSearchFormValue('datasetId', dataset.id)
+                                    }}
+                                    loading={isSearchFormSubmitting && searchForm.datasetId === dataset.id}
+                                    disabledReason={
+                                        isSearchFormSubmitting && searchForm.datasetId !== dataset.id
+                                            ? 'A dataset item is being saved'
+                                            : undefined
+                                    }
+                                    data-attr="save-to-dataset-select"
+                                >
+                                    <span className="line-clamp-1">{dataset.name}</span>
+                                </LemonButton>
+                            </AccessControlAction>
                         ))}
                     </>
                 ) : (

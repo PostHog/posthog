@@ -5268,6 +5268,21 @@
         },
         "feature_flag": "llm-analytics-datasets"
     },
+    "llma-dataset-get": {
+        "description": "Retrieve an active or archived dataset by UUID, including its metadata and latest committed revision.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get dataset",
+        "title": "Get dataset",
+        "required_scopes": ["dataset:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
     "llma-dataset-item-archive": {
         "description": "Archive an active dataset item by stable item ID. Pass its current version as `base_version` to prevent a stale write. This creates an immutable archived version and a new dataset revision while preserving history.",
         "category": "AI observability",
@@ -5284,7 +5299,7 @@
         "feature_flag": "llm-analytics-datasets"
     },
     "llma-dataset-item-create": {
-        "description": "Add an item to a dataset and create its first immutable version. `input` accepts any non-null JSON value. Use `expected_output` for the user-authored target and `source_output` for an actual output copied from a trace. Supply a case-sensitive `external_id` for safe retries. If that item is archived, this restores it with the submitted content. For trace provenance, provide `source_trace_id` and `source_timestamp` together; `source_event_id` is optional.",
+        "description": "Add an item to a dataset and create its first immutable version. `input` accepts any non-null JSON value. Use `expected_output` for the user-authored target and `source_output` for an actual output copied from a trace. Supply a case-sensitive `client_item_id` for safe retries. An identical retry returns the existing item. A different payload or an archived matching item returns a conflict. Restore archived items explicitly. For trace provenance, provide `source_trace_id` and `source_timestamp` together; `source_event_id` is optional.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create dataset item",
@@ -5295,6 +5310,36 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-get": {
+        "description": "Retrieve the current immutable version of an active or archived dataset item by its stable item UUID. Pass `revision` to retrieve the version visible at an exact dataset revision.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get dataset item",
+        "title": "Get dataset item",
+        "required_scopes": ["dataset:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-item-list": {
+        "description": "List active items in a dataset by default. Set `archived` to list archived items, or pass `revision` to inspect the exact item snapshot at a committed dataset revision.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List dataset items",
+        "title": "List dataset items",
+        "required_scopes": ["dataset:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "llm-analytics-datasets"
     },
@@ -5328,6 +5373,36 @@
         },
         "feature_flag": "llm-analytics-datasets"
     },
+    "llma-dataset-item-version-list": {
+        "description": "List every immutable version of a dataset item, newest first. The response includes historical content, archive state, dataset revision, provenance, and creator timestamps.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List dataset item versions",
+        "title": "List dataset item versions",
+        "required_scopes": ["dataset:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-list": {
+        "description": "List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to list archived datasets.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List datasets",
+        "title": "List datasets",
+        "required_scopes": ["dataset:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
     "llma-dataset-restore": {
         "description": "Restore an archived dataset by ID. This makes item mutations available again without changing item states or creating a dataset revision. Restoring an active dataset leaves it unchanged.",
         "category": "AI observability",
@@ -5340,6 +5415,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
+        },
+        "feature_flag": "llm-analytics-datasets"
+    },
+    "llma-dataset-revision-list": {
+        "description": "List immutable revisions for a dataset by UUID, newest first. Use a revision number with the dataset item list tool to inspect that exact snapshot.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List dataset revisions",
+        "title": "List dataset revisions",
+        "required_scopes": ["dataset:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
         },
         "feature_flag": "llm-analytics-datasets"
     },

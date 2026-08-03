@@ -3033,6 +3033,16 @@ export interface ExportedAssetApi {
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
+    /** File format to generate. Dataset JSONL exports use the dataset export endpoint.
+     *
+     * * `image/png` - image/png
+     * * `application/pdf` - application/pdf
+     * * `text/csv` - text/csv
+     * * `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet` - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+     * * `video/webm` - video/webm
+     * * `video/mp4` - video/mp4
+     * * `image/gif` - image/gif
+     * * `application/json` - application/json */
     export_format: ExportFormatEnumApi
     readonly created_at: string
     readonly has_content: boolean

@@ -30,9 +30,9 @@ from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
-from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
 
+from products.exports.backend.facade.api import start_export_asset_workflow
 from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
 from products.product_analytics.backend.models.insight import Insight
 
@@ -56,6 +56,14 @@ logger = structlog.get_logger(__name__)
 class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """Standard ExportedAsset serializer that doesn't return content."""
 
+    export_format = serializers.ChoiceField(
+        choices=[
+            export_format
+            for export_format in ExportedAsset.get_supported_format_values()
+            if export_format != ExportedAsset.ExportFormat.JSONL
+        ],
+        help_text="File format to generate. Dataset JSONL exports use the dataset export endpoint.",
+    )
     has_content = serializers.BooleanField(read_only=True)
     filename = serializers.CharField(read_only=True)
 
@@ -379,10 +387,10 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
         source = get_event_source(request) if request else EventSource.EXPORT
         distinct_id = str(user.distinct_id) if user else str(team.id)
 
-        workflow_inputs = ExportAssetWorkflowInputs(
-            exported_asset_id=instance.id,
-            team_id=team.id,
+        started = start_export_asset_workflow(
+            asset=instance,
             distinct_id=distinct_id,
+            wait=not force_async,
             slo=SloConfig(
                 operation=SloOperation.EXPORT,
                 area=SloArea.ANALYTIC_PLATFORM,
@@ -401,37 +409,11 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
                 },
             ),
         )
-
-        async def _run():
-            client = await async_connect()
-            method = client.start_workflow if force_async else client.execute_workflow
-            await method(
-                ExportAssetWorkflow.run,
-                workflow_inputs,
-                id=f"export-asset-{instance.id}",
-                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
-                execution_timeout=timedelta(minutes=35),
-            )
-
-        try:
-            async_to_sync(_run)()
-        except Exception as e:
-            # Swallow workflow failures so the API always returns a 201 with the
-            # ExportedAsset record. export_asset_direct populates the exception
-            # field before re-raising, so callers (frontend toast, sharing
-            # endpoint) can inspect the failure on the asset itself.
+        if started:
             logger.info(
-                "export_workflow_failed_gracefully",
+                "export_workflow_dispatched" if force_async else "export_workflow_completed",
                 asset_id=instance.id,
-                error=str(e),
             )
-            return
-
-        logger.info(
-            "export_workflow_dispatched" if force_async else "export_workflow_completed",
-            asset_id=instance.id,
-        )
 
 
 @extend_schema(extensions={"x-product": "core"})
@@ -451,12 +433,12 @@ class ExportedAssetViewSet(
         """
         List shows only exports you created (quota + history are per user).
 
-        Retrieve/content by id: exports without export_context.session_recording_id are only
-        readable by their author; session recording exports are readable by any project member
-        who passes recording viewer checks in safely_get_object.
+        Dataset exports use dataset-scoped endpoints. Other exports without
+        export_context.session_recording_id are only readable by their author; session recording
+        exports are readable by project members who pass viewer checks in safely_get_object.
         """
         if self.action == "list":
-            queryset = queryset.filter(created_by=self.request.user)
+            queryset = queryset.filter(created_by=self.request.user).exclude(export_context__has_key="dataset_id")
 
             session_recording_filter = self.request.query_params.get("session_recording_id")
             if session_recording_filter:
@@ -477,11 +459,14 @@ class ExportedAssetViewSet(
 
     def safely_get_object(self, queryset):
         instance = get_object_or_404(queryset, pk=self.kwargs["pk"])
+        export_context = instance.export_context or {}
+
+        if "dataset_id" in export_context:
+            raise NotFound()
 
         if not instance.is_session_recording_export and instance.created_by_id != self.request.user.id:
             raise NotFound()
 
-        export_context = instance.export_context or {}
         session_recording_id = export_context.get("session_recording_id")
 
         resource = instance.dashboard or instance.insight

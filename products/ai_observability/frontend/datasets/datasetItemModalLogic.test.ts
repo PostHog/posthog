@@ -30,7 +30,7 @@ describe('datasetItemModalLogic', () => {
     const mockDatasetItem: DatasetItem = {
         id: 'test-item-1',
         dataset: 'test-dataset-1',
-        external_id: null,
+        client_item_id: null,
         version: 2,
         version_id: 'test-item-version-2',
         dataset_revision: 2,
@@ -151,7 +151,7 @@ describe('datasetItemModalLogic', () => {
         expect(mockCloseModal).toHaveBeenCalledWith(true)
     })
 
-    it('offers to reload an item when editing an outdated version', async () => {
+    it('offers to reload items when editing an outdated version', async () => {
         const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
         mockDatasetsApi.updateItem.mockRejectedValue(
             new ApiError(errorDetail, 409, undefined, {
@@ -174,7 +174,7 @@ describe('datasetItemModalLogic', () => {
 
         expect(lemonToast.error).toHaveBeenCalledWith(errorDetail, {
             button: {
-                label: 'Reload item',
+                label: 'Reload items',
                 action: expect.any(Function),
             },
         })
@@ -274,7 +274,7 @@ describe('datasetItemModalLogic', () => {
 
         expect(mockDatasetsApi.createItem).toHaveBeenCalledWith({
             dataset: 'test-dataset-1',
-            external_id: undefined,
+            client_item_id: undefined,
             input: false,
             expected_output: ['first', 2],
             source_output: undefined,
@@ -283,6 +283,21 @@ describe('datasetItemModalLogic', () => {
             source_event_id: undefined,
             source_timestamp: undefined,
         })
+    })
+
+    it('does not submit mutations from a read-only item modal', async () => {
+        const logic = datasetItemModalLogic({
+            datasetId: 'test-dataset-1',
+            partialDatasetItem: mockDatasetItem,
+            closeModal: mockCloseModal,
+            isModalOpen: true,
+            readOnly: true,
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.submitDatasetItemForm()).toFinishAllListeners()
+
+        expect(mockDatasetsApi.updateItem).not.toHaveBeenCalled()
     })
 
     it('rejects invalid expected output JSON', () => {

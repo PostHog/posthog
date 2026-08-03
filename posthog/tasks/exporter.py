@@ -117,6 +117,12 @@ def export_asset_direct(
     try:
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)
+        elif exported_asset.export_format == ExportedAsset.ExportFormat.JSONL:
+            from products.ai_observability.backend.dataset_export import (  # noqa: PLC0415 because this keeps product-specific code off the generic task import path
+                export_dataset_jsonl,
+            )
+
+            export_dataset_jsonl(exported_asset)
         else:
             image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
 

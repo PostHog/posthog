@@ -10,9 +10,9 @@
 import * as zod from 'zod'
 
 /**
- * Create an item and its first immutable version. An identical external ID retry returns the existing item. If the matching item is archived, the submitted content is restored as a new active version.
+ * Create an item and its first immutable version. An identical client item ID retry returns the existing item. A different payload or an archived match returns a conflict.
  */
-export const datasetItemsCreateBodyExternalIdMax = 255
+export const datasetItemsCreateBodyClientItemIdMax = 255
 
 export const datasetItemsCreateBodySourceTraceIdMax = 255
 
@@ -20,11 +20,11 @@ export const datasetItemsCreateBodySourceEventIdMax = 255
 
 export const DatasetItemsCreateBody = /* @__PURE__ */ zod.object({
     dataset: zod.uuid().describe('Dataset that will own the item.'),
-    external_id: zod
+    client_item_id: zod
         .string()
-        .max(datasetItemsCreateBodyExternalIdMax)
+        .max(datasetItemsCreateBodyClientItemIdMax)
         .nullish()
-        .describe('Optional case-sensitive stable key used for idempotent creates.'),
+        .describe('Optional case-sensitive stable key used for idempotent creates. It cannot be changed.'),
     input: zod
         .union([
             zod.record(zod.string(), zod.unknown()),
@@ -174,6 +174,18 @@ export const DatasetsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe('Replacement JSON object for descriptive dataset metadata.'),
+})
+
+/**
+ * Create an asynchronous JSONL export pinned to an immutable dataset revision.
+ */
+
+export const DatasetsExportsCreateBody = /* @__PURE__ */ zod.object({
+    revision: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Dataset revision to export. Defaults to the latest revision when the export is created.'),
 })
 
 /**

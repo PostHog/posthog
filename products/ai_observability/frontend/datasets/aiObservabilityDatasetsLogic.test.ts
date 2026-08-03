@@ -30,6 +30,7 @@ describe('aiObservabilityDatasetsLogic', () => {
         archived: false,
         current_revision: null,
         current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockDataset2: Dataset = {
@@ -44,6 +45,7 @@ describe('aiObservabilityDatasetsLogic', () => {
         archived: false,
         current_revision: null,
         current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockDatasetsResponse = {
@@ -81,6 +83,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 page: 2,
                 search: 'test search',
                 order_by: 'name',
+                archived: false,
             })
         })
 
@@ -110,6 +113,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 page: 1,
                 search: '',
                 order_by: '-created_at',
+                archived: false,
             })
         })
 
@@ -152,6 +156,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 order_by: '-created_at',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -170,6 +175,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 order_by: '-created_at',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -184,6 +190,7 @@ describe('aiObservabilityDatasetsLogic', () => {
                 order_by: '-created_at',
                 offset: DATASETS_PER_PAGE * 2,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
             })
         })
 
@@ -197,6 +204,23 @@ describe('aiObservabilityDatasetsLogic', () => {
                 order_by: 'name',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
+                archived: false,
+            })
+        })
+
+        it('loads archived datasets when the archived filter is selected', async () => {
+            const logic = aiObservabilityDatasetsLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ archived: true }, false, false)
+            }).toFinishAllListeners()
+
+            expect(mockDatasetsApi.listDatasets).toHaveBeenLastCalledWith({
+                order_by: '-created_at',
+                offset: 0,
+                limit: DATASETS_PER_PAGE,
+                archived: true,
             })
         })
     })

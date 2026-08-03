@@ -13,6 +13,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.ai_observability.backend.dataset_service import create_dataset
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestDatasetsApi(APIBaseTest):
@@ -81,6 +82,7 @@ class TestDatasetsApi(APIBaseTest):
 
         retrieve_response = self.client.get(f"{self.datasets_url}{dataset['id']}/")
         self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        self.assertIn("user_access_level", retrieve_response.data)
 
         blocked_item_response = self.client.post(
             self.items_url,
@@ -131,11 +133,11 @@ class TestDatasetsApi(APIBaseTest):
 
         self.assertEqual(item["input"], input_value)
 
-    def test_item_create_handles_existing_external_id(self) -> None:
+    def test_item_create_handles_existing_client_item_id(self) -> None:
         dataset = self._create_dataset()
         payload = {
             "dataset": dataset["id"],
-            "external_id": "trace:abc:event:def",
+            "client_item_id": "trace:abc:event:def",
             "input": ["hello"],
             "source_output": ["world"],
             "source_trace_id": "abc",
@@ -149,6 +151,7 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(retry_response.status_code, status.HTTP_200_OK)
         self.assertEqual(retry_response.data["id"], first_response.data["id"])
+        self.assertEqual(retry_response.data["client_item_id"], payload["client_item_id"])
         self.assertEqual(
             DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
             1,
@@ -160,7 +163,7 @@ class TestDatasetsApi(APIBaseTest):
             format="json",
         )
         self.assertEqual(conflicting_response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(conflicting_response.data["code"], "external_id_conflict")
+        self.assertEqual(conflicting_response.data["code"], "client_item_id_conflict")
 
         archive_response = self.client.post(
             f"{self.items_url}{first_response.data['id']}/archive/",
@@ -169,31 +172,25 @@ class TestDatasetsApi(APIBaseTest):
         )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
 
-        restored_payload = {**payload, "input": ["refreshed"]}
-        restored_response = self.client.post(self.items_url, restored_payload, format="json")
-        retry_restored_response = self.client.post(self.items_url, restored_payload, format="json")
+        archived_retry_response = self.client.post(self.items_url, payload, format="json")
 
-        self.assertEqual(restored_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(restored_response.data["id"], first_response.data["id"])
-        self.assertEqual(restored_response.data["version"], 3)
-        self.assertEqual(restored_response.data["input"], ["refreshed"])
-        self.assertFalse(restored_response.data["archived"])
-        self.assertEqual(retry_restored_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(retry_restored_response.data["version_id"], restored_response.data["version_id"])
+        self.assertEqual(archived_retry_response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(archived_retry_response.data["code"], "client_item_id_conflict")
+        self.assertEqual(archived_retry_response.data["current_item_id"], first_response.data["id"])
         self.assertEqual(
             DatasetItem.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
             1,
         )
         self.assertEqual(
             DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
-            3,
+            2,
         )
 
-    def test_external_id_idempotency_preserves_json_types(self) -> None:
+    def test_client_item_id_idempotency_preserves_json_types(self) -> None:
         dataset = self._create_dataset()
         payload = {
             "dataset": dataset["id"],
-            "external_id": "typed-input",
+            "client_item_id": "typed-input",
             "input": {"value": True},
         }
         self.assertEqual(
@@ -208,7 +205,7 @@ class TestDatasetsApi(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertEqual(response.data["code"], "external_id_conflict")
+        self.assertEqual(response.data["code"], "client_item_id_conflict")
 
     def test_update_creates_history_and_preserves_source_fields(self) -> None:
         dataset = self._create_dataset()
@@ -402,6 +399,38 @@ class TestDatasetsApi(APIBaseTest):
             [first_item["id"]],
         )
 
+        item_at_revision_one = self.client.get(
+            f"{self.items_url}{first_item['id']}/",
+            {"revision": 1},
+        )
+        item_at_revision_three = self.client.get(
+            f"{self.items_url}{first_item['id']}/",
+            {"revision": 3},
+        )
+        missing_item_revision = self.client.get(
+            f"{self.items_url}{second_item['id']}/",
+            {"revision": 1},
+        )
+
+        self.assertEqual(item_at_revision_one.status_code, status.HTTP_200_OK)
+        self.assertEqual(item_at_revision_one.data["input"], "first-v1")
+        self.assertEqual(item_at_revision_three.status_code, status.HTTP_200_OK)
+        self.assertEqual(item_at_revision_three.data["input"], "first-v2")
+        self.assertEqual(missing_item_revision.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_inconsistent_item_version_ownership_is_not_readable(self) -> None:
+        accessible_dataset = self._create_dataset("Accessible dataset")
+        other_dataset = self._create_dataset("Other dataset")
+        item = self._create_item(other_dataset["id"])
+        DatasetItemVersion.objects.unscoped().filter(id=item["version_id"]).update(dataset_id=accessible_dataset["id"])
+
+        list_response = self.client.get(self.items_url, {"dataset": accessible_dataset["id"]})
+        retrieve_response = self.client.get(f"{self.items_url}{item['id']}/")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(list_response.data["results"], [])
+        self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
+
     @parameterized.expand(
         [
             ("trace_without_timestamp", {"source_trace_id": "trace-id"}),
@@ -500,6 +529,10 @@ class TestDatasetsApi(APIBaseTest):
                 DatasetRevision.objects.unscoped().get(id=child_item_response.data["dataset_revision_id"]).team_id,
             ],
             [child_team.id] * 3,
+        )
+        self.assertEqual(
+            str(DatasetItemVersion.objects.unscoped().get(id=child_item_response.data["version_id"]).dataset_id),
+            child_response.data["id"],
         )
 
         parent_list = self.client.get(self.datasets_url)
@@ -666,9 +699,16 @@ class TestDatasetsApi(APIBaseTest):
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {read_key}")
 
+        with patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True):
+            export_response = self.client.post(
+                f"{self.datasets_url}{dataset['id']}/exports/",
+                {},
+                format="json",
+            )
         read_responses = [
             self.client.get(f"{self.datasets_url}{dataset['id']}/revisions/"),
             self.client.get(f"{self.items_url}{item['id']}/versions/"),
+            export_response,
         ]
         blocked_write_responses = [
             self.client.post(f"{self.datasets_url}{dataset['id']}/archive/"),
@@ -681,7 +721,7 @@ class TestDatasetsApi(APIBaseTest):
 
         self.assertEqual(
             [response.status_code for response in read_responses],
-            [status.HTTP_200_OK] * 2,
+            [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_201_CREATED],
         )
         self.assertEqual(
             [response.status_code for response in blocked_write_responses],
@@ -726,13 +766,81 @@ class TestDatasetsApi(APIBaseTest):
                 source_trace_id="trace-without-timestamp"
             )
 
-    def test_dataset_list_caps_requested_page_size(self) -> None:
-        for index in range(101):
-            create_dataset(
-                team=self.team,
-                created_by=self.user,
-                name=f"Dataset {index}",
+    def test_dataset_limit_counts_archived_datasets(self) -> None:
+        with patch("products.ai_observability.backend.dataset_service.MAX_DATASETS_PER_TEAM", 1):
+            dataset = self._create_dataset()
+            self.client.post(f"{self.datasets_url}{dataset['id']}/archive/")
+            response = self.client.post(self.datasets_url, {"name": "Over the limit"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(
+            response.data,
+            {
+                "code": "limit_reached",
+                "detail": "No more datasets can be added to this project. The limit is 1. Contact support if you need more.",
+                "resource": "datasets",
+                "current_count": 1,
+                "limit": 1,
+            },
+        )
+        self.assertEqual(Dataset.objects.for_team(self.team.id).count(), 1)
+
+    def test_item_limit_counts_archived_items_without_creating_a_revision(self) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"])
+        archive_response = self.client.post(
+            f"{self.items_url}{item['id']}/archive/",
+            {"base_version": 1},
+            format="json",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+
+        with patch("products.ai_observability.backend.dataset_service.MAX_ITEMS_PER_DATASET", 1):
+            response = self.client.post(
+                self.items_url,
+                {"dataset": dataset["id"], "input": "Over the limit"},
+                format="json",
             )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["resource"], "dataset_items")
+        self.assertEqual(response.data["current_count"], 1)
+        self.assertEqual(response.data["limit"], 1)
+        self.assertEqual(DatasetItem.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(), 1)
+        self.assertEqual(DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(), 2)
+
+    def test_version_limit_does_not_create_a_partial_revision(self) -> None:
+        dataset = self._create_dataset()
+        item = self._create_item(dataset["id"])
+
+        with patch("products.ai_observability.backend.dataset_service.MAX_VERSIONS_PER_ITEM", 1):
+            response = self.client.patch(
+                f"{self.items_url}{item['id']}/",
+                {"base_version": 1, "input": "Over the limit"},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["resource"], "dataset_item_versions")
+        self.assertEqual(response.data["current_count"], 1)
+        self.assertEqual(response.data["limit"], 1)
+        self.assertEqual(
+            DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
+            1,
+        )
+        self.assertEqual(
+            DatasetItemVersion.objects.for_team(self.team.id).filter(dataset_item_id=item["id"]).count(),
+            1,
+        )
+
+    def test_dataset_list_caps_requested_page_size(self) -> None:
+        with patch("products.ai_observability.backend.dataset_service.MAX_DATASETS_PER_TEAM", 101):
+            for index in range(101):
+                create_dataset(
+                    team=self.team,
+                    created_by=self.user,
+                    name=f"Dataset {index}",
+                )
 
         response = self.client.get(self.datasets_url, {"limit": 10_000})
 
@@ -753,3 +861,48 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 26)
         self.assertEqual(len(response.data["results"]), 25)
+
+    @patch("products.exports.backend.facade.api.start_export_asset_workflow", return_value=True)
+    def test_dataset_export_pins_revision_and_scopes_status_and_content(self, _start_workflow: object) -> None:
+        dataset = self._create_dataset()
+        first_item = self._create_item(dataset["id"], input={"question": "First"})
+
+        create_response = self.client.post(
+            f"{self.datasets_url}{dataset['id']}/exports/",
+            {},
+            format="json",
+        )
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(create_response.data["status"], "pending")
+        self.assertEqual(create_response.data["dataset_revision"], first_item["dataset_revision"])
+        self.assertEqual(create_response.data["export_context"]["dataset_revision"], first_item["dataset_revision"])
+
+        self._create_item(dataset["id"], input={"question": "Later"})
+        export_id = create_response.data["id"]
+        status_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/")
+        self.assertEqual(status_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(status_response.data["dataset_revision"], first_item["dataset_revision"])
+
+        other_dataset = self._create_dataset("Other dataset")
+        mismatched_parent_response = self.client.get(f"{self.datasets_url}{other_dataset['id']}/exports/{export_id}/")
+        self.assertEqual(mismatched_parent_response.status_code, status.HTTP_404_NOT_FOUND)
+
+        pending_content_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/")
+        self.assertEqual(pending_content_response.status_code, status.HTTP_409_CONFLICT)
+
+        asset = ExportedAsset.objects.get(id=export_id)
+        asset.content = b'{"input":{"question":"First"}}\n'
+        asset.save(update_fields=["content"])
+        content_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/")
+
+        self.assertEqual(content_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(content_response.content, asset.content)
+        self.assertIn("attachment", content_response["Content-Disposition"])
+
+    def test_dataset_export_rejects_an_invalid_export_id(self) -> None:
+        dataset = self._create_dataset()
+
+        response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{'9' * 5_000}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

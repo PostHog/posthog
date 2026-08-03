@@ -261,10 +261,10 @@ export interface DatasetItemReadApi {
     /** Dataset that owns the item. */
     readonly dataset: string
     /**
-     * Optional caller-owned stable key.
+     * Optional caller-owned stable key that cannot be changed.
      * @nullable
      */
-    readonly external_id: string | null
+    readonly client_item_id: string | null
     readonly version: number
     /** ID of this immutable item version. */
     readonly version_id: string
@@ -320,11 +320,11 @@ export interface DatasetItemCreateApi {
     /** Dataset that will own the item. */
     dataset: string
     /**
-     * Optional case-sensitive stable key used for idempotent creates.
+     * Optional case-sensitive stable key used for idempotent creates. It cannot be changed.
      * @maxLength 255
      * @nullable
      */
-    external_id?: string | null
+    client_item_id?: string | null
     /** Input supplied to the system under test. Any non-null JSON value is accepted. */
     input: DatasetJSONValueApi
     /** Optional user-authored expected output. */
@@ -357,7 +357,8 @@ export interface DatasetItemCreateApi {
  * * `dataset_name_conflict` - dataset_name_conflict
  * * `dataset_item_archived` - dataset_item_archived
  * * `dataset_item_active` - dataset_item_active
- * * `external_id_conflict` - external_id_conflict
+ * * `client_item_id_conflict` - client_item_id_conflict
+ * * `limit_reached` - limit_reached
  * * `stale_version` - stale_version
  */
 export type CodeEnumApi = (typeof CodeEnumApi)[keyof typeof CodeEnumApi]
@@ -367,8 +368,22 @@ export const CodeEnumApi = {
     DatasetNameConflict: 'dataset_name_conflict',
     DatasetItemArchived: 'dataset_item_archived',
     DatasetItemActive: 'dataset_item_active',
-    ExternalIdConflict: 'external_id_conflict',
+    ClientItemIdConflict: 'client_item_id_conflict',
+    LimitReached: 'limit_reached',
     StaleVersion: 'stale_version',
+} as const
+
+/**
+ * * `datasets` - datasets
+ * * `dataset_items` - dataset_items
+ * * `dataset_item_versions` - dataset_item_versions
+ */
+export type ResourceEnumApi = (typeof ResourceEnumApi)[keyof typeof ResourceEnumApi]
+
+export const ResourceEnumApi = {
+    Datasets: 'datasets',
+    DatasetItems: 'dataset_items',
+    DatasetItemVersions: 'dataset_item_versions',
 } as const
 
 export interface DatasetConflictResponseApi {
@@ -378,7 +393,8 @@ export interface DatasetConflictResponseApi {
      * * `dataset_name_conflict` - dataset_name_conflict
      * * `dataset_item_archived` - dataset_item_archived
      * * `dataset_item_active` - dataset_item_active
-     * * `external_id_conflict` - external_id_conflict
+     * * `client_item_id_conflict` - client_item_id_conflict
+     * * `limit_reached` - limit_reached
      * * `stale_version` - stale_version */
     code: CodeEnumApi
     /** Explanation of how to resolve the conflict. */
@@ -389,10 +405,20 @@ export interface DatasetConflictResponseApi {
      */
     current_version?: number | null
     /**
-     * Existing item ID when the conflict concerns an external ID.
+     * Existing item ID when the conflict concerns a client item ID.
      * @nullable
      */
     current_item_id?: string | null
+    /** Resource whose configured limit was reached.
+     *
+     * * `datasets` - datasets
+     * * `dataset_items` - dataset_items
+     * * `dataset_item_versions` - dataset_item_versions */
+    resource?: ResourceEnumApi
+    /** Number of resources that already exist. */
+    current_count?: number
+    /** Maximum number of resources allowed. */
+    limit?: number
 }
 
 export interface DatasetItemArchiveApi {
@@ -422,6 +448,9 @@ export interface DatasetItemRestoreApi {
  */
 export type DatasetReadApiMetadata = { [key: string]: unknown }
 
+/**
+ * Mixin for serializers to add user access control fields
+ */
 export interface DatasetReadApi {
     readonly id: string
     readonly name: string
@@ -445,6 +474,11 @@ export interface DatasetReadApi {
     readonly created_by: UserBasicApi | null
     /** Project that owns the dataset. */
     readonly team_id: number
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedDatasetReadListApi {
@@ -494,6 +528,73 @@ export interface PatchedDatasetUpdateApi {
     description?: string
     /** Replacement JSON object for descriptive dataset metadata. */
     metadata?: PatchedDatasetUpdateApiMetadata
+}
+
+export interface DatasetExportCreateApi {
+    /**
+     * Dataset revision to export. Defaults to the latest revision when the export is created.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export interface DatasetExportContextApi {
+    /** Dataset included in the export. */
+    readonly dataset_id: string
+    /** Pinned dataset revision. */
+    readonly dataset_revision: number
+    /** Base name used for the generated file. */
+    readonly filename: string
+}
+
+export type DatasetExportReadStatusEnumApi =
+    (typeof DatasetExportReadStatusEnumApi)[keyof typeof DatasetExportReadStatusEnumApi]
+
+export const DatasetExportReadStatusEnumApi = {
+    Pending: 'pending',
+    Complete: 'complete',
+    Failed: 'failed',
+} as const
+
+export interface DatasetExportReadApi {
+    /** Export ID used to check status and download the file. */
+    readonly id: number
+    /**
+     * Dashboard associated with the export, always null for datasets.
+     * @nullable
+     */
+    readonly dashboard: number | null
+    /**
+     * Insight associated with the export, always null for datasets.
+     * @nullable
+     */
+    readonly insight: number | null
+    /** MIME type of the generated JSONL file. */
+    readonly export_format: string
+    /** Pinned dataset and revision used by the export. */
+    readonly export_context: DatasetExportContextApi
+    /** Whether the generated file is ready to download. */
+    readonly has_content: boolean
+    /** Current export state: pending, complete, or failed. */
+    readonly status: DatasetExportReadStatusEnumApi
+    /** Immutable dataset revision included in the export. */
+    readonly dataset_revision: number
+    /** Generated JSONL filename. */
+    readonly filename: string
+    /** When the export was requested. */
+    readonly created_at: string
+    /** When the generated file expires. */
+    readonly expires_after: string
+    /**
+     * Reason the export failed, or null while it is pending or complete.
+     * @nullable
+     */
+    readonly exception: string | null
+}
+
+export interface DatasetExportErrorApi {
+    /** Why the export cannot be created or downloaded yet. */
+    detail: string
 }
 
 export interface DatasetRevisionReadApi {
@@ -2927,6 +3028,14 @@ export type DatasetItemsListParams = {
     offset?: number
     /**
      * Return the exact dataset snapshot at this revision.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export type DatasetItemsRetrieveParams = {
+    /**
+     * Return the item as it appeared at this exact dataset revision.
      * @minimum 1
      */
     revision?: number

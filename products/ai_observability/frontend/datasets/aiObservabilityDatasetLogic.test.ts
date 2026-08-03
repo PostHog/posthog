@@ -5,6 +5,7 @@ import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
 import { CodeEnumApi } from '../generated/api.schemas'
@@ -19,12 +20,19 @@ jest.mock('./datasetsApi', () => ({
         createDataset: jest.fn(),
         updateDataset: jest.fn(),
         getDataset: jest.fn(),
+        getItem: jest.fn(),
         listDatasets: jest.fn(),
         listItems: jest.fn(),
+        listItemVersions: jest.fn(),
+        listRevisions: jest.fn(),
         archiveDataset: jest.fn(),
         restoreDataset: jest.fn(),
+        updateItem: jest.fn(),
         archiveItem: jest.fn(),
         restoreItem: jest.fn(),
+        exportDataset: jest.fn(),
+        getExport: jest.fn(),
+        getExportContentUrl: jest.fn(),
     },
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -42,12 +50,13 @@ describe('aiObservabilityDatasetLogic', () => {
         archived: false,
         current_revision: null,
         current_revision_id: null,
+        user_access_level: 'editor',
     }
 
     const mockDatasetItem1: DatasetItem = {
         id: 'item-1',
         dataset: 'test-dataset-id',
-        external_id: null,
+        client_item_id: null,
         version: 1,
         version_id: 'item-version-1',
         dataset_revision: 1,
@@ -71,7 +80,7 @@ describe('aiObservabilityDatasetLogic', () => {
     const mockDatasetItem2: DatasetItem = {
         id: 'item-2',
         dataset: 'test-dataset-id',
-        external_id: null,
+        client_item_id: null,
         version: 1,
         version_id: 'item-version-2',
         dataset_revision: 2,
@@ -93,6 +102,24 @@ describe('aiObservabilityDatasetLogic', () => {
     }
 
     const mockDatasetsApi = jest.mocked(datasetsApi)
+    const mockDatasetExport = {
+        id: 123,
+        dashboard: null,
+        insight: null,
+        export_format: 'application/x-ndjson',
+        export_context: {
+            dataset_id: mockDataset.id,
+            dataset_revision: 7,
+            filename: 'test-dataset',
+        },
+        has_content: true,
+        status: 'complete' as const,
+        dataset_revision: 7,
+        filename: 'test-dataset.jsonl',
+        created_at: '2024-01-01T00:00:00Z',
+        expires_after: '2024-01-08T00:00:00Z',
+        exception: null,
+    }
 
     beforeEach(() => {
         initKeaTests()
@@ -105,6 +132,18 @@ describe('aiObservabilityDatasetLogic', () => {
         mockDatasetsApi.getDataset.mockResolvedValue(mockDataset)
         mockDatasetsApi.listDatasets.mockResolvedValue({ results: [], count: 0 })
         mockDatasetsApi.listItems.mockResolvedValue({ results: [], count: 0 })
+        mockDatasetsApi.getItem.mockImplementation(async (itemId) => {
+            const item = [mockDatasetItem1, mockDatasetItem2].find(({ id }) => id === itemId)
+            if (!item) {
+                throw new ApiError('Not found', 404)
+            }
+            return item
+        })
+        mockDatasetsApi.listItemVersions.mockResolvedValue({ results: [], count: 0 })
+        mockDatasetsApi.listRevisions.mockResolvedValue({ results: [], count: 0 })
+        mockDatasetsApi.updateItem.mockResolvedValue(mockDatasetItem1)
+        mockDatasetsApi.exportDataset.mockResolvedValue(mockDatasetExport)
+        mockDatasetsApi.getExport.mockResolvedValue(mockDatasetExport)
         mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset, archived: true })
         mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset)
         mockDatasetsApi.archiveItem.mockResolvedValue({ ...mockDatasetItem1, archived: true, version: 2 })
@@ -383,6 +422,36 @@ describe('aiObservabilityDatasetLogic', () => {
         })
     })
 
+    describe('dataset export', () => {
+        it('starts an export pinned to the selected revision', async () => {
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.exportDataset(7)).toFinishAllListeners()
+
+            expect(mockDatasetsApi.exportDataset).toHaveBeenCalledWith(mockDataset.id, 7)
+            expect(logic.values.datasetExport).toEqual(mockDatasetExport)
+            expect(lemonToast.success).toHaveBeenCalledWith('Dataset export is ready to download.')
+        })
+
+        it('retries export creation when a new request fails after an earlier export completed', async () => {
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            logic.actions.exportDatasetSuccess(mockDatasetExport)
+            mockDatasetsApi.exportDataset.mockRejectedValue(new ApiError('Export failed', 500))
+            silenceKeaLoadersErrors()
+
+            try {
+                await expectLogic(logic, () => logic.actions.exportDataset(8)).toFinishAllListeners()
+            } finally {
+                resumeKeaLoadersErrors()
+            }
+
+            expect(logic.values.datasetExport).toEqual(mockDatasetExport)
+            expect(logic.values.datasetExportErrorOperation).toBe('create')
+        })
+    })
+
     describe('dataset item archiving', () => {
         it('offers to reload items when archiving an outdated version', async () => {
             const errorDetail = 'This dataset item changed after it was loaded. Reload it and try again.'
@@ -581,6 +650,8 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(logic.values.filters).toEqual({
                     page: 1,
                     limit: 25,
+                    archived: false,
+                    revision: null,
                 })
             })
 
@@ -589,6 +660,8 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(logic.values.filters).toEqual({
                     page: 3,
                     limit: 25,
+                    archived: false,
+                    revision: null,
                 })
             })
 
@@ -597,6 +670,8 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(logic.values.filters).toEqual({
                     page: 1,
                     limit: 25,
+                    archived: false,
+                    revision: null,
                 })
             })
 
@@ -605,6 +680,8 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(logic.values.filters).toEqual({
                     page: 2,
                     limit: 25,
+                    archived: false,
+                    revision: null,
                 })
             })
 
@@ -638,6 +715,8 @@ describe('aiObservabilityDatasetLogic', () => {
                     dataset: 'existing-dataset-id',
                     offset: 25,
                     limit: 25,
+                    archived: false,
+                    revision: undefined,
                 })
             })
 
@@ -650,6 +729,8 @@ describe('aiObservabilityDatasetLogic', () => {
                     dataset: 'existing-dataset-id',
                     offset: 50,
                     limit: 25,
+                    archived: false,
+                    revision: undefined,
                 })
             })
 
@@ -729,20 +810,33 @@ describe('aiObservabilityDatasetLogic', () => {
                 }).toFinishAllListeners()
 
                 // Verify modal opens with correct item selected
+                expect(mockDatasetsApi.getItem).toHaveBeenCalledWith('item-1', undefined)
                 expect(logic.values.selectedDatasetItem).toEqual(mockDatasetItem1)
                 expect(logic.values.isDatasetItemModalOpen).toBe(true)
             })
 
-            it('ignores URL item parameter when item not found', async () => {
+            it('clears a deep-linked item error when the item is removed from the URL', async () => {
                 const datasetUrl = urls.aiObservabilityDataset('existing-dataset-id')
+                silenceKeaLoadersErrors()
+
+                try {
+                    await expectLogic(logic, () => {
+                        router.actions.push(datasetUrl, { item: 'non-existent-item', page: '1' })
+                    }).toFinishAllListeners()
+                } finally {
+                    resumeKeaLoadersErrors()
+                }
+
+                expect(logic.values.selectedDatasetItem).toBe(null)
+                expect(logic.values.isDatasetItemModalOpen).toBe(true)
+                expect(logic.values.selectedDatasetItemLoadError?.status).toBe(404)
 
                 await expectLogic(logic, () => {
-                    router.actions.push(datasetUrl, { item: 'non-existent-item', page: '1' })
+                    router.actions.push(datasetUrl, { page: '1' })
                 }).toFinishAllListeners()
 
-                // Verify modal stays closed when item not found
-                expect(logic.values.selectedDatasetItem).toBe(null)
                 expect(logic.values.isDatasetItemModalOpen).toBe(false)
+                expect(logic.values.selectedDatasetItemLoadError).toBe(null)
             })
 
             it('sets filters from URL parameters via urlToAction', async () => {
@@ -756,6 +850,30 @@ describe('aiObservabilityDatasetLogic', () => {
                 expect(logic.values.filters).toEqual({
                     page: 3,
                     limit: 25,
+                    archived: false,
+                    revision: null,
+                })
+            })
+
+            it('loads an exact revision and archived items from URL state', async () => {
+                const datasetUrl = urls.aiObservabilityDataset('existing-dataset-id')
+
+                await expectLogic(logic, () => {
+                    router.actions.push(datasetUrl, {
+                        item: 'item-1',
+                        item_status: 'archived',
+                        revision: '12',
+                    })
+                }).toFinishAllListeners()
+
+                expect(logic.values.filters).toMatchObject({ archived: true, revision: 12 })
+                expect(mockDatasetsApi.getItem).toHaveBeenCalledWith('item-1', 12)
+                expect(mockDatasetsApi.listItems).toHaveBeenLastCalledWith({
+                    dataset: 'existing-dataset-id',
+                    offset: 0,
+                    limit: 25,
+                    archived: true,
+                    revision: 12,
                 })
             })
 

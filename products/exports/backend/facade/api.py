@@ -1,13 +1,9 @@
-"""Facade for the exports product — the surface other products may import.
-
-Currently exposes synchronous PNG rendering so composed endpoints (e.g. a task run
-delivering a chart to Slack) can render server-side without shuttling bytes through
-API clients.
-"""
+"""Public Python interface for creating and retrieving one-off exports."""
 
 from datetime import timedelta
 
 from django.conf import settings
+from django.http.response import HttpResponseBase
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -15,18 +11,92 @@ from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import UserAccessControl
+from posthog.slo.types import SloConfig
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
-from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.exported_asset import ExportedAsset, get_content_response
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
 
+JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
+
 # Caps the whole workflow including retries; callers block on this, so it must stay
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
+EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
+
+
+def start_export_asset_workflow(
+    *,
+    asset: ExportedAsset,
+    distinct_id: str,
+    wait: bool,
+    slo: SloConfig | None = None,
+) -> bool:
+    async def _run() -> None:
+        client = await async_connect()
+        method = client.execute_workflow if wait else client.start_workflow
+        await method(
+            ExportAssetWorkflow.run,
+            ExportAssetWorkflowInputs(
+                exported_asset_id=asset.id,
+                team_id=asset.team_id,
+                distinct_id=distinct_id,
+                slo=slo,
+            ),
+            id=f"export-asset-{asset.id}",
+            task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+            id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            execution_timeout=EXPORT_WORKFLOW_TIMEOUT,
+        )
+
+    try:
+        async_to_sync(_run)()
+    except Exception as error:
+        logger.info("export_workflow_failed_gracefully", asset_id=asset.id, error=str(error))
+        asset.refresh_from_db()
+        if not asset.exception:
+            asset.exception = "The export could not be started. Try again."
+            asset.exception_type = type(error).__name__
+            asset.save(update_fields=["exception", "exception_type"])
+        return False
+    return True
+
+
+def create_export_asset_async(
+    *,
+    team: Team,
+    created_by: User,
+    export_format: str,
+    export_context: dict[str, object],
+) -> ExportedAsset:
+    if export_format not in ExportedAsset.get_supported_format_values():
+        raise ValueError(f"Unsupported export format: {export_format}")
+
+    asset = ExportedAsset.objects.create(
+        team=team,
+        created_by=created_by,
+        export_format=export_format,
+        export_context=export_context,
+    )
+    start_export_asset_workflow(
+        asset=asset,
+        distinct_id=str(created_by.distinct_id),
+        wait=False,
+    )
+    asset.refresh_from_db()
+    return asset
+
+
+def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
+    return ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
+
+
+def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:
+    return get_content_response(asset, download=download)
 
 
 def _validate_adhoc_export_context(export_context: dict) -> None:

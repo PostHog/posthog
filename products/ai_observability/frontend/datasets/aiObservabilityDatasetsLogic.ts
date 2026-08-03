@@ -22,13 +22,15 @@ export interface DatasetFilters {
     page: number
     search: string
     order_by: string
+    archived: boolean
 }
 
-function cleanFilters(values: Partial<DatasetFilters>): DatasetFilters {
+function cleanFilters(values: Partial<DatasetFilters> & { dataset_status?: unknown }): DatasetFilters {
     return {
         page: parseInt(String(values.page)) || 1,
         search: String(values.search || ''),
         order_by: values.order_by || '-created_at',
+        archived: values.dataset_status ? values.dataset_status === 'archived' : values.archived === true,
     }
 }
 
@@ -72,6 +74,9 @@ export interface aiObservabilityDatasetsLogicActions {
         payload?: {
             debounce: boolean
         }
+    }
+    restoreDataset: (datasetId: string) => {
+        datasetId: string
     }
     setArchivingDatasetId: (datasetId: string | null) => {
         datasetId: string | null
@@ -117,6 +122,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
         }),
         loadDatasets: (debounce: boolean = true) => ({ debounce }),
         archiveDataset: (datasetId: string) => ({ datasetId }),
+        restoreDataset: (datasetId: string) => ({ datasetId }),
         setArchivingDatasetId: (datasetId: string | null) => ({ datasetId }),
     }),
 
@@ -125,6 +131,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
             null as string | null,
             {
                 archiveDataset: (_, { datasetId }) => datasetId,
+                restoreDataset: (_, { datasetId }) => datasetId,
                 setArchivingDatasetId: (_, { datasetId }) => datasetId,
             },
         ],
@@ -157,6 +164,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
                         order_by: filters.order_by,
                         offset: Math.max(0, (filters.page - 1) * DATASETS_PER_PAGE),
                         limit: DATASETS_PER_PAGE,
+                        archived: filters.archived,
                     }
 
                     // Scroll to top if the page changed, except if changed via back/forward
@@ -262,6 +270,19 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
                 actions.setArchivingDatasetId(null)
             }
         },
+
+        restoreDataset: async ({ datasetId }) => {
+            try {
+                const datasetName = values.datasets.results.find((dataset) => dataset.id === datasetId)?.name
+                await datasetsApi.restoreDataset(datasetId)
+                await asyncActions.loadDatasets(false)
+                lemonToast.success(`${datasetName || 'Dataset'} has been unarchived.`)
+            } catch {
+                lemonToast.error("Couldn't unarchive dataset. Try again.")
+            } finally {
+                actions.setArchivingDatasetId(null)
+            }
+        },
     })),
 
     trackedActionToUrl(({ values }) => {
@@ -275,7 +296,10 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
                   },
               ]
             | void => {
-            const nextValues = cleanPagedSearchOrderParams(values.filters)
+            const nextValues = {
+                ...cleanPagedSearchOrderParams(values.filters),
+                dataset_status: values.filters.archived ? 'archived' : undefined,
+            }
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(values.filters, urlValues)) {
                 return [urls.aiObservabilityDatasets(), nextValues, {}, { replace: true }]

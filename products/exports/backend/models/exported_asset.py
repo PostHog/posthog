@@ -1,5 +1,6 @@
 import secrets
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -56,6 +57,7 @@ class ExportedAsset(models.Model):
         MP4 = "video/mp4", "video/mp4"
         GIF = "image/gif", "image/gif"
         JSON = "application/json", "application/json"
+        JSONL = "application/x-ndjson", "application/x-ndjson"
 
     SUPPORTED_FORMATS = [
         ExportFormat.PNG,
@@ -66,6 +68,7 @@ class ExportedAsset(models.Model):
         ExportFormat.MP4,
         ExportFormat.GIF,
         ExportFormat.JSON,
+        ExportFormat.JSONL,
     ]
 
     # Relations
@@ -120,7 +123,7 @@ class ExportedAsset(models.Model):
 
     @classmethod
     def get_expiry_delta(cls, export_format: str) -> timedelta:
-        if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX):
+        if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX, cls.ExportFormat.JSONL):
             return SEVEN_DAYS
         elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
             return TWELVE_MONTHS
@@ -171,6 +174,8 @@ class ExportedAsset(models.Model):
             return "recording"
         if ctx.get("heatmap_url"):
             return "heatmap"
+        if ctx.get("dataset_id"):
+            return "dataset"
         return "unknown"
 
     @property
@@ -302,14 +307,7 @@ def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes
 
 
 def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes) -> None:
-    path_parts: list[str] = [
-        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
-        exported_asset.export_format.split("/")[1],
-        f"team-{exported_asset.team.id}",
-        f"task-{exported_asset.id}",
-        str(UUIDT()),
-    ]
-    object_path = "/".join(path_parts)
+    object_path = _get_object_path(exported_asset)
     object_storage.write(object_path, content)
     exported_asset.content_location = object_path
     exported_asset.save(update_fields=["content_location"])
@@ -326,8 +324,12 @@ def _get_object_path(exported_asset: ExportedAsset) -> str:
     return "/".join(path_parts)
 
 
-def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> None:
-    """Save content from a file to object storage, with fallback to storing in the database."""
+def save_content_from_file(
+    exported_asset: ExportedAsset,
+    file_path: str,
+    *,
+    max_database_bytes: int | None = None,
+) -> None:
     try:
         if settings.OBJECT_STORAGE_ENABLED:
             object_path = _get_object_path(exported_asset)
@@ -343,5 +345,7 @@ def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> Non
             exception=ose,
             exc_info=True,
         )
+    if max_database_bytes is not None and Path(file_path).stat().st_size > max_database_bytes:
+        raise ValueError("The export is too large to store without object storage.")
     with open(file_path, "rb") as f:
         save_content_to_exported_asset(exported_asset, f.read())
