@@ -2,6 +2,8 @@
 
 `AGENTS.md` is the source of truth for architecture and development rules. `CLAUDE.md` is a symlink to this file. Edit this file only.
 
+Feature-level guides follow the same convention: the content lives in `<dir>/AGENTS.md` with a `<dir>/CLAUDE.md` symlink beside it. When you add a new guide, add the symlink too (`ln -s AGENTS.md CLAUDE.md`).
+
 ## Architecture
 
 PostHog uses a layered architecture. Business logic and UI live in shared `packages/*`. Each `apps/*` host boots those packages and binds host-specific implementations. `@posthog/core` and `@posthog/ui` must run unchanged on desktop, web, and mobile.
@@ -53,9 +55,11 @@ Hosts:
 10. Boot side effects are `Contribution`s bound in feature modules and started by `boot()`.
 11. tRPC routers are one-line forwards over services. No inline business logic.
 12. Use Inversify with `@inversifyjs/strongly-typed`. Define each token as a standalone `export const TOKEN = Symbol.for("posthog.<area>.<thing>")` beside its `interface`/service — never an object-literal token bag (`TOKENS = { X: Symbol.for(...) }`), because object properties are not `unique symbol` and cannot key a binding map. Every composition root declares a `BindingMap` interface (token → bound type) and constructs `new TypedContainer<BindingMap>()`, so a mistyped bind or a resolve of an unbound token fails at compile time. Bind in the feature module. Do not use `@provide` or `*Port` naming.
-13. Use `@posthog/quill` for rendering-layer primitives when available. Routing is TanStack Router contributed per feature.
+13. Use `@posthog/quill` for rendering-layer primitives. Never import Radix — see [UI Components](#ui-components). Routing is TanStack Router contributed per feature.
 
 Hard boundary: `@posthog/core` and `@posthog/ui` never import host transports. No `trpcClient`, `electron`, or `node:*`.
+
+Hard boundary: no new `@radix-ui/*` imports anywhere in the repo.
 
 ## Import Direction
 
@@ -99,6 +103,8 @@ For each new file or meaningful change:
 
 ## Forbidden Patterns
 
+- Any new `@radix-ui/*` import (`@radix-ui/themes`, `@radix-ui/react-*`). Use `@posthog/quill` plus `div` + Tailwind.
+- Radix layout primitives (`Box`, `Flex`, `Grid`, `Section`, `Container`) in code you touch; replace them with `div`s.
 - Business logic in store actions.
 - Domain stores in `@posthog/ui`.
 - `trpcClient` imports in `@posthog/core` or `@posthog/ui`.
@@ -222,6 +228,66 @@ All merges into `main` go through the Trunk merge queue. Never run `gh pr merge`
 - Queue progress is the `Trunk Merge Queue (main)` check run on the PR's head commit. On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
 - Never force-push a branch while it is in the queue -- it removes the PR from the queue.
 
+## UI Components
+
+**Radix is banned. Do not add a `@radix-ui/*` import to any file, ever.** That covers
+`@radix-ui/themes` and every `@radix-ui/react-*` package. There is no "just this once"
+exception for matching surrounding code: the ~500 files that still import Radix are
+legacy awaiting migration, not a pattern to copy. If a file you are editing already
+imports Radix, that is a reason to remove those imports, not to add more.
+
+Rendering primitives come from `@posthog/quill`. Layout comes from plain HTML elements
+plus Tailwind.
+
+### Replace Radix as you go
+
+When you touch a component that imports Radix, migrate the parts you are working in.
+Swap the whole file when the file is small or the change is broad; otherwise migrate at
+least the elements your diff touches, and leave the file no more Radix-dependent than
+you found it. Don't open a drive-by migration of an untouched file in an unrelated PR.
+
+Layout primitives become `div`s (or the right semantic element) with Tailwind classes:
+
+| Radix Themes | Replace with |
+| --- | --- |
+| `<Box p="2">` | `<div className="p-2">` |
+| `<Flex align="center" gap="2">` | `<div className="flex items-center gap-2">` |
+| `<Flex direction="column">` | `<div className="flex flex-col">` |
+| `<Grid columns="2" gap="3">` | `<div className="grid grid-cols-2 gap-3">` |
+| `<Section>`, `<Container>` | `<div>` / `<section>` + Tailwind |
+| `<ScrollArea>` | `<div className="overflow-y-auto">` |
+| `<Heading>` | quill `Heading`, or `<h1>`–`<h6>` + Tailwind |
+| `<Code>`, `<Blockquote>` | `<code>`, `<blockquote>` + Tailwind |
+| `<VisuallyHidden>` | `className="sr-only"` |
+| `<Link>` | TanStack Router `Link` (in quill, `render={<Link … />}`) |
+
+Everything else has a quill equivalent — import it from `@posthog/quill`:
+
+| Radix Themes | quill |
+| --- | --- |
+| `Text` | `Text` |
+| `Button`, `IconButton` | `Button` (`variant`/`size` props) |
+| `TextField`, `TextArea` | `Input`, `Textarea`, `InputGroup*` |
+| `Select`, `Checkbox`, `Switch`, `Slider`, `Progress` | same names |
+| `SegmentedControl`, `RadioGroup` | `ToggleGroup` + `ToggleGroupItem`, or `Tabs` |
+| `Badge`, `Avatar`, `Separator`, `Skeleton`, `Spinner`, `Kbd`, `Card`, `Table*`, `Tabs*` | same names |
+| `Tooltip`, `Popover`, `Dialog`, `AlertDialog`, `DropdownMenu`, `ContextMenu` | same names, as `*Trigger` / `*Content` compounds |
+| `Callout` | compose a `div` with Tailwind, or quill `Item*` |
+
+No quill equivalent and no plain-HTML answer? Build it from HTML + Tailwind in the
+feature, or add it to quill (see [`.claude/skills/quill-code/SKILL.md`](./.claude/skills/quill-code/SKILL.md)).
+Pulling in a Radix package is not the fallback.
+
+### The two carve-outs
+
+- **CSS variables are not components.** Tailwind classes like `text-(--gray-12)`,
+  `bg-(--gray-2)`, and `rounded-(--radius-2)` come from Radix's *CSS token* layer and
+  stay. Keep using them; do not "de-Radix" a stylesheet.
+- **The `<Theme>` root stays for now.** The app-level provider (`Providers.tsx`,
+  `.storybook/preview.tsx`) and the `<Theme>` wrapper in existing tests supply those
+  tokens. Leave them alone — removing them is a separate migration. Do not add
+  `<Theme>` to new files; new tests should not need it.
+
 ## Code Style
 
 - Prefer local code over new dependencies for simple fixes.
@@ -245,7 +311,7 @@ See [docs/conventions.md](./docs/conventions.md).
 
 ## Key Libraries
 
-- React 19, Radix UI Themes, Tailwind CSS, `@posthog/quill`
+- React 19, Tailwind CSS, `@posthog/quill` (the component library — Radix is banned in new code, see [UI Components](#ui-components); Radix Themes remains only as the CSS-token layer and legacy imports pending migration)
 - TanStack Query, TanStack Router
 - Zustand, InversifyJS (with `@inversifyjs/strongly-typed`), Zod
 - xterm.js, CodeMirror, Tiptap
