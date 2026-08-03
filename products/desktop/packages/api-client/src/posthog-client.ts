@@ -351,12 +351,49 @@ export interface SignalSourceConfig {
 // Endpoints live under /api/projects/{id}/signals/scout/ and require the
 // `signal_scout:read` / `signal_scout:write` scopes.
 
+/**
+ * Lifecycle state the coordinator keeps alongside `enabled`:
+ * - `active` – running on its schedule.
+ * - `pending_pause` – still running, but flagged by the inactivity sweep and
+ *   due to be paused unless something changes.
+ * - `paused_by_user` – a person switched it off; the system never overrides it.
+ * - `paused_by_system` – the platform switched it off, see `pause_reason`.
+ */
+export type ScoutLifecycleStatus =
+  | "active"
+  | "pending_pause"
+  | "paused_by_user"
+  | "paused_by_system";
+
+/**
+ * Why the system warned or paused a scout: `ignored` (its findings went
+ * unacted on), `no_output` (it stopped emitting anything), or
+ * `repeated_failures` (its runs kept erroring).
+ */
+export type ScoutPauseReason = "ignored" | "no_output" | "repeated_failures";
+
 export interface ScoutConfig {
   id: string;
   skill_name: string;
   enabled: boolean;
   /** False means dry-run: the scout runs but findings are not emitted. */
   emit: boolean;
+  /**
+   * Lifecycle state behind `enabled`. Absent on backends predating the
+   * lifecycle fields, in which case `enabled` is all there is to go on.
+   */
+  status?: ScoutLifecycleStatus;
+  /** Why the system warned or paused the scout; null while it is healthy. */
+  pause_reason?: ScoutPauseReason | null;
+  /** ISO timestamp of the last `status` transition; null if it never moved. */
+  status_changed_at?: string | null;
+  /** Runs that failed back to back; trips a `repeated_failures` pause. */
+  consecutive_failure_count?: number;
+  /**
+   * Exempts the scout from the inactivity sweep — both the `ignored` pause and
+   * the `no_output` warning. Set on watchdog scouts whose value is staying quiet.
+   */
+  auto_pause_exempt?: boolean;
   /**
    * Summary of what the scout investigates, from the skill's description
    * metadata. Empty string when the skill is absent or carries no description;
@@ -2148,9 +2185,15 @@ export class PostHogAPIClient {
     projectId: number,
     configId: string,
     updates: {
+      /**
+       * Flipping this off records a user pause (`status` becomes
+       * `paused_by_user`, which the system never overrides); flipping it on
+       * resumes the scout from any pause, including a system one.
+       */
       enabled?: boolean;
       emit?: boolean;
       run_interval_minutes?: number;
+      auto_pause_exempt?: boolean;
     },
   ): Promise<ScoutConfig> {
     const urlPath = `/api/projects/${projectId}/signals/scout/configs/${configId}/`;

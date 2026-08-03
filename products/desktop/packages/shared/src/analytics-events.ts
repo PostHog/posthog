@@ -850,9 +850,10 @@ export interface ScoutDetailViewedProperties {
 export interface ScoutConfigChangedProperties {
   skill_name: string;
   scout_origin: "canonical" | "custom";
-  setting: "enabled" | "emit" | "run_interval_minutes";
+  setting: "enabled" | "emit" | "run_interval_minutes" | "auto_pause_exempt";
   new_value: boolean | number;
-  old_value: boolean | number;
+  /** Undefined when the backend predates the setting and never sent a value. */
+  old_value: boolean | number | undefined;
   /** False when the server rejected the update and the change rolled back. */
   success: boolean;
 }

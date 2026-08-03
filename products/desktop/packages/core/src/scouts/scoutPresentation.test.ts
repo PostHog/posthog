@@ -6,6 +6,7 @@ import {
   computeScoutRollups,
   deriveRunFailureKind,
   deriveRunOutcome,
+  deriveScoutLifecycle,
   formatRunDuration,
   formatRunInterval,
   formatRunIntervalShort,
@@ -301,6 +302,39 @@ describe("rollups", () => {
     expect(summary.successRate).toBeNull();
     expect(summary.emitRate).toBeNull();
   });
+
+  it("counts warned and system-paused scouts", () => {
+    const configs = [
+      makeConfig({ status: "active" }),
+      makeConfig({
+        id: "config-2",
+        skill_name: "signals-scout-logs",
+        status: "pending_pause",
+        pause_reason: "no_output",
+      }),
+      makeConfig({
+        id: "config-3",
+        skill_name: "signals-scout-apm",
+        enabled: false,
+        status: "paused_by_system",
+        pause_reason: "repeated_failures",
+      }),
+      makeConfig({
+        id: "config-4",
+        skill_name: "signals-scout-surveys",
+        enabled: false,
+        status: "paused_by_user",
+      }),
+    ];
+    expect(computeFleetSummary(configs, computeScoutRollups([]))).toMatchObject(
+      {
+        totalCount: 4,
+        enabledCount: 2,
+        warnedCount: 1,
+        systemPausedCount: 1,
+      },
+    );
+  });
 });
 
 describe("intervals and ordering", () => {
@@ -332,6 +366,107 @@ describe("intervals and ordering", () => {
       "signals-scout-surveys",
       "signals-scout-logs",
     ]);
+  });
+
+  it("leads the off-block with system-paused scouts", () => {
+    const configs = [
+      makeConfig({ skill_name: "signals-scout-apm", enabled: false }),
+      makeConfig({
+        skill_name: "signals-scout-logs",
+        enabled: false,
+        status: "paused_by_system",
+        pause_reason: "repeated_failures",
+      }),
+      makeConfig({ skill_name: "signals-scout-surveys" }),
+    ];
+    expect(
+      sortConfigsForDisplay(configs).map((config) => config.skill_name),
+    ).toEqual([
+      "signals-scout-surveys",
+      "signals-scout-logs",
+      "signals-scout-apm",
+    ]);
+  });
+});
+
+describe("lifecycle", () => {
+  it.each([
+    ["ignored", "unacted on"],
+    ["no_output", "stopped emitting"],
+    ["repeated_failures", "3 runs in a row failed"],
+  ] as const)("explains a %s system pause", (reason, fragment) => {
+    const state = deriveScoutLifecycle(
+      makeConfig({
+        enabled: false,
+        status: "paused_by_system",
+        pause_reason: reason,
+        consecutive_failure_count: 3,
+        status_changed_at: "2026-06-09T00:00:00Z",
+      }),
+    );
+    expect(state).toMatchObject({
+      lifecycle: "paused_by_system",
+      label: "Auto-paused",
+      isSystemPaused: true,
+      isWarned: false,
+      changedAt: "2026-06-09T00:00:00Z",
+    });
+    expect(state.explanation).toContain(fragment);
+    // The recovery has to be spelled out — it is the only way back.
+    expect(state.explanation).toMatch(/switch it back on to resume/i);
+  });
+
+  it("flags a warned scout that is still running", () => {
+    const state = deriveScoutLifecycle(
+      makeConfig({ status: "pending_pause", pause_reason: "ignored" }),
+    );
+    expect(state).toMatchObject({
+      lifecycle: "warned",
+      label: "Pausing soon",
+      isWarned: true,
+      isSystemPaused: false,
+    });
+    expect(state.explanation).toContain("exempt it from auto-pause");
+  });
+
+  it.each([
+    [true, "active"],
+    [false, "paused_by_user"],
+  ] as const)(
+    "badges nothing for an enabled=%s scout with no system action",
+    (enabled, lifecycle) => {
+      expect(
+        deriveScoutLifecycle(
+          makeConfig({
+            enabled,
+            status: enabled ? "active" : "paused_by_user",
+          }),
+        ),
+      ).toMatchObject({ lifecycle, label: null, explanation: null });
+    },
+  );
+
+  it("clears the pause as soon as the scout is switched back on", () => {
+    // The optimistic enable patches `enabled` alone; the server clears `status`
+    // on the response, so the badge must not survive the round trip.
+    expect(
+      deriveScoutLifecycle(
+        makeConfig({
+          enabled: true,
+          status: "paused_by_system",
+          pause_reason: "repeated_failures",
+        }),
+      ),
+    ).toMatchObject({ lifecycle: "active", label: null, explanation: null });
+  });
+
+  it("falls back to enabled on backends predating the lifecycle fields", () => {
+    expect(deriveScoutLifecycle(makeConfig({ enabled: false }))).toMatchObject({
+      lifecycle: "paused_by_user",
+      label: null,
+      autoPauseExempt: false,
+      consecutiveFailureCount: 0,
+    });
   });
 });
 

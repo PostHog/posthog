@@ -1,5 +1,6 @@
 import type { ScoutConfig } from "@posthog/api-client/posthog-client";
 import {
+  deriveScoutLifecycle,
   formatRunInterval,
   RUN_INTERVAL_OPTIONS,
 } from "@posthog/core/scouts/scoutPresentation";
@@ -42,8 +43,16 @@ export function ScoutEnabledSwitch({
   config,
   onUpdate,
 }: ScoutConfigControlsProps) {
+  // Switching a system-paused scout back on is the documented recovery, so say
+  // "resume" rather than the generic "enable"; the badge beside it explains why
+  // the scout stopped.
+  const tooltip = config.enabled
+    ? "Disable scout"
+    : deriveScoutLifecycle(config).isSystemPaused
+      ? "Resume scout"
+      : "Enable scout";
   return (
-    <Tooltip content={config.enabled ? "Disable scout" : "Enable scout"}>
+    <Tooltip content={tooltip}>
       {/* Tooltip stamps its own data-state on its child, which would overwrite
           the Switch's checked/unchecked state and leave the track stuck on the
           accent color. Give it a span to stamp. */}
@@ -70,6 +79,7 @@ export function ScoutConfigForm({
   onUpdate,
 }: ScoutConfigControlsProps) {
   const intervalOptions = useIntervalOptions(config);
+  const lifecycle = deriveScoutLifecycle(config);
 
   return (
     <Flex direction="column" gap="2">
@@ -107,6 +117,22 @@ export function ScoutConfigForm({
           onValueChange={(value) =>
             onUpdate(config.id, { run_interval_minutes: Number(value) })
           }
+        />
+      </Flex>
+      <Flex align="center" justify="between" gap="4">
+        <Flex direction="column" className="min-w-0">
+          <Text className="text-[12px] text-gray-12">Never auto-pause</Text>
+          <Text className="text-[11.5px] text-gray-10">
+            Keep running even when findings go quiet or unacted on
+          </Text>
+        </Flex>
+        <Switch
+          size="1"
+          checked={lifecycle.autoPauseExempt}
+          onCheckedChange={(checked) =>
+            onUpdate(config.id, { auto_pause_exempt: checked })
+          }
+          aria-label={`${config.skill_name} exempt from auto-pause`}
         />
       </Flex>
     </Flex>

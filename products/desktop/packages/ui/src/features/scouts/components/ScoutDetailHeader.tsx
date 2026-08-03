@@ -10,7 +10,12 @@ import { skillUrl } from "@posthog/ui/utils/posthogLinks";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useState } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
-import { DryRunBadge, ScoutOriginBadge } from "./ScoutBadges";
+import {
+  DryRunBadge,
+  ScoutLifecycleBadge,
+  ScoutLifecycleNotice,
+  ScoutOriginBadge,
+} from "./ScoutBadges";
 import { ScoutConfigForm, ScoutEnabledSwitch } from "./ScoutConfigControls";
 import { ScoutChatButton } from "./ScoutRowCard";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
@@ -49,6 +54,7 @@ export function ScoutDetailHeader({
         </Text>
         <ScoutOriginBadge config={config} />
         <DryRunBadge config={config} />
+        <ScoutLifecycleBadge config={config} />
         {cloudSkillUrl ? (
           <Tooltip content="View skill in PostHog">
             <a
@@ -99,6 +105,8 @@ export function ScoutDetailHeader({
         </Tooltip>
         <ScoutEnabledSwitch config={config} onUpdate={onUpdate} />
       </Flex>
+
+      <ScoutLifecycleNotice config={config} />
 
       {runsLoading ? (
         <Box className="h-[18px] w-80 max-w-full animate-pulse rounded bg-(--gray-3)" />

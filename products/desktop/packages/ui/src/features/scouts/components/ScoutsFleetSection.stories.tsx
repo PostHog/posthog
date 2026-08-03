@@ -56,8 +56,34 @@ const CONFIGS: ScoutConfig[] = [
     skill_name: "signals-scout-weekly-digest",
     scout_origin: "custom",
     enabled: false,
+    status: "paused_by_user",
     run_interval_minutes: 10080,
     description: "Posts a weekly digest of notable product metrics.",
+  }),
+];
+
+/** The two lifecycle states the platform drives, not the user. */
+const LIFECYCLE_CONFIGS: ScoutConfig[] = [
+  ...CONFIGS,
+  config({
+    id: "config-quiet-watchdog",
+    skill_name: "signals-scout-quiet-watchdog",
+    scout_origin: "custom",
+    status: "pending_pause",
+    pause_reason: "no_output",
+    status_changed_at: "2026-07-08T06:15:00Z",
+    description: "Watches for a failure mode that has not fired in a while.",
+  }),
+  config({
+    id: "config-flaky-import",
+    skill_name: "signals-scout-flaky-import",
+    scout_origin: "custom",
+    enabled: false,
+    status: "paused_by_system",
+    pause_reason: "repeated_failures",
+    consecutive_failure_count: 6,
+    status_changed_at: "2026-07-07T00:45:00Z",
+    description: "Sweeps warehouse imports for stuck or failing syncs.",
   }),
 ];
 
@@ -155,4 +181,13 @@ export const NothingOfYours: Story = {
 /** Skills API gated for the org (creators = null) → no creator picker at all. */
 export const WithoutCreatorData: Story = {
   args: { creators: null },
+};
+
+/**
+ * A scout warned by the inactivity sweep and one the system already paused:
+ * both badged, counted in the summary line, and kept out of the "hide disabled"
+ * filter so the system pause stays recoverable.
+ */
+export const SystemPaused: Story = {
+  args: { configs: LIFECYCLE_CONFIGS },
 };

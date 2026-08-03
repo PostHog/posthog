@@ -13,9 +13,15 @@ export interface ScoutConfigUpdate {
   enabled?: boolean;
   emit?: boolean;
   run_interval_minutes?: number;
+  auto_pause_exempt?: boolean;
 }
 
-const CONFIG_SETTINGS = ["enabled", "emit", "run_interval_minutes"] as const;
+const CONFIG_SETTINGS = [
+  "enabled",
+  "emit",
+  "run_interval_minutes",
+  "auto_pause_exempt",
+] as const;
 
 function trackConfigChange(
   previousConfig: ScoutConfig | undefined,
