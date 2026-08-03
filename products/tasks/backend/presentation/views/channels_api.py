@@ -178,6 +178,11 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"detail": f"This channel has reached the maximum of {err.max_version} instruction versions."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        except tasks_facade.ChannelInstructionsTooLargeError as err:
+            return Response(
+                {"detail": f"Instructions are limited to {err.max_bytes} bytes."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if published is None:
             raise NotFound("Channel not found")
         return Response(ChannelInstructionsSerializer(published).data)

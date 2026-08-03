@@ -26,7 +26,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from posthog.storage import object_storage
 
 from products.canvas.backend.contract import artifact_csp
-from products.canvas.backend.models import Canvas, CanvasBuild
+from products.canvas.backend.models import CanvasBuild
 
 ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
 # Tokens embed a coarse time bucket instead of a per-second timestamp, so the
@@ -139,14 +139,3 @@ def _with_artifact_headers(response: HttpResponse, etag: str) -> HttpResponse:
     response["Content-Security-Policy"] = artifact_csp()
     response["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
     return response
-
-
-def published_artifact_url(canvas: Canvas) -> str | None:
-    """The signed entry-HTML URL of the canvas's live build, if it has one."""
-    build = canvas.published_build
-    if build is None or build.status != CanvasBuild.STATUS_READY or not isinstance(build.manifest, dict):
-        return None
-    entry = build.manifest.get("entryHtml")
-    if not isinstance(entry, str):
-        return None
-    return create_canvas_artifact_url(build, entry)

@@ -5643,6 +5643,11 @@ MAX_CHANNEL_INSTRUCTIONS_VERSION = 2000
 
 
 @dataclass
+class ChannelInstructionsTooLargeError(Exception):
+    max_bytes: int
+
+
+@dataclass
 class ChannelInstructionsVersionConflictError(Exception):
     current_version: int
 
@@ -5716,6 +5721,8 @@ def publish_channel_instructions(
     channel = _visible_channel(channel_id, team_id, user_id)
     if channel is None:
         return None
+    if len(content.encode("utf-8")) > CHANNEL_INSTRUCTIONS_MAX_BYTES:
+        raise ChannelInstructionsTooLargeError(max_bytes=CHANNEL_INSTRUCTIONS_MAX_BYTES)
     with transaction.atomic():
         current_latest = (
             ChannelInstructions.objects.select_for_update()

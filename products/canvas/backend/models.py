@@ -113,7 +113,6 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
     STATUS_BUILDING = "building"
     STATUS_READY = "ready"
     STATUS_FAILED = "failed"
-    STATUSES = [STATUS_QUEUED, STATUS_BUILDING, STATUS_READY, STATUS_FAILED]
     ACTIVE_STATUSES = [STATUS_QUEUED, STATUS_BUILDING]
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)

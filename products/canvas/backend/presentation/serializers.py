@@ -4,7 +4,12 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.canvas.backend.contract import canvas_sdk_version, contract_limits
 from products.canvas.backend.models import Canvas
+
+# Base64 expands 3 source bytes into 4 characters (padded); size the asset field
+# from the contract's total-source cap rather than restating the number.
+_MAX_ASSET_BASE64_LENGTH = (contract_limits()["maxSourceTotalBytes"] + 2) // 3 * 4
 
 
 class CanvasSerializer(serializers.ModelSerializer):
@@ -93,7 +98,7 @@ class CanvasSourceAssetSerializer(serializers.Serializer):
     )
     content = serializers.RegexField(
         regex=r"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-        max_length=2_796_204,
+        max_length=_MAX_ASSET_BASE64_LENGTH,
     )
 
 
@@ -142,7 +147,7 @@ class CanvasSourceProjectSerializer(serializers.Serializer):
     )
     canvasSdkVersion = serializers.CharField(
         required=False,
-        default="0.1.0",
+        default=canvas_sdk_version,
         help_text="Version of the host-injected `ph` canvas SDK the project targets.",
     )
     capabilities = CanvasCapabilitiesSerializer(

@@ -802,7 +802,8 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         assert result.task_run_id is not None
         pending_user_message = TaskRun.objects.get(id=result.task_run_id).state["pending_user_message"]
-        self.assertIn(str(self.channel.id), pending_user_message) if "update_context" in outputs else None
+        if "update_context" in outputs:
+            self.assertIn(str(self.channel.id), pending_user_message)
         for fragment in expected_tool_fragments:
             self.assertIn(fragment, pending_user_message)
 

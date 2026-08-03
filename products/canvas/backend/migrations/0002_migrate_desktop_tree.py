@@ -19,6 +19,7 @@ follow-up posthog migration.
 """
 
 import re
+from collections import defaultdict
 from datetime import UTC, datetime
 
 from django.db import migrations
@@ -58,13 +59,16 @@ def migrate_desktop_tree(apps, schema_editor):
     Loop = apps.get_model("tasks", "Loop")
     Canvas = apps.get_model("canvas", "Canvas")
 
-    folders = list(FileSystem.objects.filter(surface="desktop", type="folder"))
-    dashboards = list(FileSystem.objects.filter(surface="desktop", type="dashboard"))
-    team_ids = {row.team_id for row in folders} | {row.team_id for row in dashboards}
+    # One scan of the (large, team-indexed-only) file-system table, bucketed by
+    # team up front instead of re-filtered per team.
+    folders_by_team: dict[int, list] = defaultdict(list)
+    dashboards_by_team: dict[int, list] = defaultdict(list)
+    for row in FileSystem.objects.filter(surface="desktop", type__in=["folder", "dashboard"]).iterator(chunk_size=1000):
+        (folders_by_team if row.type == "folder" else dashboards_by_team)[row.team_id].append(row)
 
-    for team_id in sorted(team_ids):
-        team_folders = [row for row in folders if row.team_id == team_id]
-        team_dashboards = [row for row in dashboards if row.team_id == team_id]
+    for team_id in sorted(folders_by_team.keys() | dashboards_by_team.keys()):
+        team_folders = folders_by_team.get(team_id, [])
+        team_dashboards = dashboards_by_team.get(team_id, [])
 
         # 1. Top-level folders → channels. Deeper folders resolve through their
         # top-level ancestor; "Unfiled" is the tree's system folder, not a channel.

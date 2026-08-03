@@ -130,7 +130,9 @@ class LoopContextOutputsWriteSerializer(serializers.Serializer):
 
 class LoopContextTargetWriteSerializer(serializers.Serializer):
     channel_id = serializers.CharField(help_text="Id of the channel (context) this loop is attached to.")
-    name = serializers.CharField(max_length=128, help_text="Context (channel) name, used to file runs into its feed.")
+    name = serializers.CharField(
+        max_length=128, help_text="Display name of the context, shown in the loop's publish prompt."
+    )
     outputs = LoopContextOutputsWriteSerializer(
         required=False, default=dict, help_text="What the loop maintains in this context each run."
     )

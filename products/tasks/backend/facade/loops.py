@@ -120,8 +120,6 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
     return merged
 
 
-
-
 class LoopPermissionError(Exception):
     """Raised when a visible loop write is rejected by the access-control rules in this module.
 

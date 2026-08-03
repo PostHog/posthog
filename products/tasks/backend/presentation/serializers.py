@@ -23,6 +23,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES
 from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
@@ -1536,7 +1537,7 @@ class ChannelInstructionsWriteSerializer(serializers.Serializer):
     content = serializers.CharField(
         allow_blank=True,
         trim_whitespace=False,
-        max_length=100_000,
+        max_length=CHANNEL_INSTRUCTIONS_MAX_BYTES,
         help_text="The complete markdown instructions (CONTEXT.md) for the channel.",
     )
     base_version = serializers.IntegerField(
