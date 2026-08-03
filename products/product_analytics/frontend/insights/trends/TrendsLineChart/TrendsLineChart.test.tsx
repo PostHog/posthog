@@ -653,7 +653,7 @@ describe('TrendsLineChart', () => {
                 dashboardId: 42,
                 cachedInsight: {
                     short_id: shortId,
-                    query: { kind: NodeKind.InsightVizNode, source: multiSeriesFormulaQuery },
+                    query: { kind: NodeKind.InsightVizNode, source: multiSeriesFormulaQuery } as InsightVizNode,
                 },
             },
         })
