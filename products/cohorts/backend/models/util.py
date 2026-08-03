@@ -355,10 +355,10 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
 
 
 def _inline_positional_references(select_query: ast.SelectQuery) -> None:
-    """Replace positional GROUP BY/ORDER BY ordinals with the SELECT expression they point at.
+    """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
 
-    In ClickHouse a bare integer in GROUP BY/ORDER BY (`GROUP BY 2`) is a 1-based reference into
-    the SELECT list. `print_cohort_hogql_query` collapses that list to a single actor column, so
+    In ClickHouse a bare integer in GROUP BY/ORDER BY/LIMIT BY (`GROUP BY 2`) is a 1-based reference
+    into the SELECT list. `print_cohort_hogql_query` collapses that list to a single actor column, so
     any ordinal other than 1 would dangle afterwards. Resolving each ordinal against the original
     SELECT list up front keeps the grouping/ordering semantics intact once the list shrinks.
     """
@@ -381,6 +381,10 @@ def _inline_positional_references(select_query: ast.SelectQuery) -> None:
     if select_query.order_by:
         for order_expr in select_query.order_by:
             order_expr.expr = resolve(order_expr.expr)
+
+    # Only the LIMIT BY expressions are positional; `n` is the per-group row count, not an ordinal.
+    if select_query.limit_by:
+        select_query.limit_by.exprs = [resolve(expr) for expr in select_query.limit_by.exprs]
 
 
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:

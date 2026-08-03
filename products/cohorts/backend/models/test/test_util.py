@@ -787,6 +787,12 @@ class TestCohortUtils(BaseTest):
                 "SELECT person_id, count() AS cnt FROM events GROUP BY 1 ORDER BY 2 DESC LIMIT 100",
                 "order by 2",
             ),
+            # LIMIT BY is also positional and marks the query bounded, so its ordinal must be inlined too.
+            (
+                "bounded_limit_by",
+                "SELECT person_id, event FROM events ORDER BY person_id LIMIT 1 BY 2",
+                "by 2",
+            ),
         ]
     )
     def test_print_cohort_hogql_query_resolves_positional_references(self, _name, query, dangling_ordinal):
