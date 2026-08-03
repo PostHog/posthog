@@ -5,7 +5,6 @@ import { LemonButton, LemonDivider, LemonInput, LemonSwitch, LemonTag, Spinner }
 
 import { urls } from 'scenes/urls'
 
-import { AudienceEnumApi, MCPPolicyPresetEnumApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
 import { GatewayServerEntry, isTemplateOnlyServer, mcpGatewayLogic } from './mcpGatewayLogic'
 
@@ -44,23 +43,6 @@ const gatewayTeamSettingsViewLogic = kea<gatewayTeamSettingsViewLogicType>([
     }),
 ])
 
-const PRESETS: { value: MCPPolicyPresetEnumApi; label: string; description: string }[] = [
-    { value: 'allow', label: 'Allow all', description: 'Every tool runs without approval.' },
-    { value: 'user', label: 'Member decides', description: 'Every call asks first.' },
-    {
-        value: 'ask',
-        label: 'Ask for destructive',
-        description: 'Destructive tools need approval. Other tools run without approval.',
-    },
-    {
-        value: 'block',
-        label: 'Block destructive',
-        description: 'Destructive tools are blocked. Other tools run without approval.',
-    },
-]
-
-const AGENT_PRESETS = PRESETS.filter((preset) => preset.value === 'allow' || preset.value === 'block')
-
 export interface GatewayTeamSettingsProps {
     onOpenServer?: (id: string) => void
 }
@@ -72,8 +54,6 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
         allowCustomServersLoading,
         allowMemberAgentAccess,
         allowMemberAgentAccessLoading,
-        applyingPresetByAudience,
-        config,
         configLoading,
         configMutationInProgress,
         defaultServersEnabled,
@@ -82,8 +62,7 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
         serverEnabledLoadingIds,
         templateEnabledLoadingIds,
     } = useValues(mcpGatewayLogic)
-    const { setAllowCustomServers, setAllowMemberAgentAccess, applyPreset, setAllServersEnabled } =
-        useActions(mcpGatewayLogic)
+    const { setAllowCustomServers, setAllowMemberAgentAccess, setAllServersEnabled } = useActions(mcpGatewayLogic)
     const { serverSearch, serversExpanded } = useValues(gatewayTeamSettingsViewLogic)
     const { setServerSearch, toggleServersExpanded } = useActions(gatewayTeamSettingsViewLogic)
 
@@ -135,8 +114,7 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
                     <div>
                         <div className="font-semibold">Allow custom servers</div>
                         <div className="text-sm text-secondary">
-                            Members can add their own MCP servers the same way admins do. Team rules and baselines still
-                            apply.
+                            Members can add their own MCP servers the same way admins do. Team rules still apply.
                         </div>
                     </div>
                     <LemonSwitch
@@ -175,52 +153,6 @@ export function GatewayTeamSettings({ onOpenServer }: GatewayTeamSettingsProps =
                         }}
                     />
                 </div>
-            </div>
-
-            <div className="flex flex-col gap-3">
-                <div>
-                    <h3 className="mb-0">Policy baselines</h3>
-                    <p className="mb-0 text-sm text-secondary">
-                        Set the starting tool permissions for members and agents. Individual policies and organization
-                        rules can make access more restrictive.
-                    </p>
-                </div>
-                {(['members', 'agents'] as AudienceEnumApi[]).map((audience) => {
-                    const current =
-                        audience === 'members' ? config?.member_default_preset : config?.agent_default_preset
-                    const applyingPreset = applyingPresetByAudience[audience]
-                    const presets = audience === 'agents' ? AGENT_PRESETS : PRESETS
-                    return (
-                        <div key={audience} className="border rounded p-3 flex flex-col gap-2">
-                            <div className="font-semibold capitalize">{audience}</div>
-                            {audience === 'agents' && (
-                                <div className="text-sm text-secondary">
-                                    Agents cannot request approval. Allow tools to run or block destructive tools.
-                                </div>
-                            )}
-                            <div className="flex gap-2 flex-wrap">
-                                {presets.map((preset) => (
-                                    <LemonButton
-                                        key={preset.value}
-                                        size="small"
-                                        type={current === preset.value ? 'primary' : 'secondary'}
-                                        tooltip={preset.description}
-                                        loading={applyingPreset === preset.value}
-                                        disabledReason={configMutationDisabledReason}
-                                        aria-pressed={current === preset.value}
-                                        onClick={() => {
-                                            if (!configLoading && !teamSettingsMutationInProgress) {
-                                                applyPreset(audience, preset.value)
-                                            }
-                                        }}
-                                    >
-                                        {preset.label}
-                                    </LemonButton>
-                                ))}
-                            </div>
-                        </div>
-                    )
-                })}
             </div>
 
             <LemonDivider />
