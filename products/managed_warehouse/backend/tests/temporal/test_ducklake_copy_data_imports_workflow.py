@@ -625,10 +625,8 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     assert any("CREATE OR REPLACE TABLE" in str(call) for call in execute_calls)
     assert any("delta_scan" in str(call) for call in execute_calls)
 
-    # delta-kernel ignores DuckDB's proxy transport and dials the org secret's
-    # plain-HTTP endpoint directly, which worker egress silently drops (~58s
-    # failure per attempt). The session must pin an HTTPS credential-chain
-    # secret over the staging tree BEFORE any delta_scan runs.
+    # Older deployments rely on the client fallback to create the scoped HTTPS
+    # secret before delta_scan runs.
     secret_idx = next(
         i for i, call in enumerate(execute_calls) if "CREATE OR REPLACE SECRET posthog_staging_delta_https" in str(call)
     )

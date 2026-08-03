@@ -8,6 +8,7 @@ from products.managed_warehouse.backend.storage import (
     _DELTA_LOG_VERSION_RE,
     DuckLakeStorageConfig,
     _collect_delta_log_keys,
+    create_staging_read_secret,
     normalize_endpoint,
 )
 
@@ -26,6 +27,30 @@ class TestNormalizeEndpoint:
     )
     def test_normalize_endpoint(self, input_endpoint, expected):
         assert normalize_endpoint(input_endpoint) == expected
+
+
+class TestCreateStagingReadSecret:
+    @parameterized.expand(
+        [
+            ("managed_secret_exists", True, 1),
+            ("managed_secret_is_absent", False, 2),
+        ]
+    )
+    def test_preserves_managed_secret_with_legacy_fallback(
+        self, _name: str, managed_secret_exists: bool, expected_execute_count: int
+    ) -> None:
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = (managed_secret_exists,)
+
+        create_staging_read_secret(conn, "catalog-bucket")
+
+        assert "duckdb_secrets()" in str(conn.execute.call_args_list[0])
+        assert conn.execute.call_count == expected_execute_count
+        if not managed_secret_exists:
+            secret_sql = str(conn.execute.call_args_list[1])
+            assert "PROVIDER credential_chain" in secret_sql
+            assert "USE_SSL true" in secret_sql
+            assert "SCOPE 's3://catalog-bucket/__posthog_staging'" in secret_sql
 
 
 class TestDuckLakeStorageConfigLocalSetup:

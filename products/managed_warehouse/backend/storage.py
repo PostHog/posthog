@@ -509,6 +509,7 @@ def get_deltalake_storage_options(
 
 
 STAGING_PREFIX = "__posthog_staging"
+_STAGING_READ_SECRET_NAME = "posthog_staging_delta_https"
 
 
 def compute_staging_uri(source_uri: str, catalog_bucket: str) -> str:
@@ -680,20 +681,23 @@ def setup_duckgres_session(
 
 
 def create_staging_read_secret(conn: psycopg.Connection, catalog_bucket: str) -> None:
-    """Pin HTTPS for delta-kernel reads of the staging tree on this session.
+    """Ensure delta-kernel staging reads use scoped HTTPS credentials.
 
-    On cache-proxy-enabled duckgres clusters the org's ambient S3 secret carries
-    USE_SSL false so httpfs traffic flows through the logging proxy — but
-    delta_scan's delta-kernel object store ignores DuckDB's proxy and dials the
-    plain-HTTP S3 endpoint directly, which worker egress silently drops (10
-    retries, ~58s, then failure — on every attempt). This longer-SCOPE session
-    secret wins prefix resolution for the staging tree only and forces direct
-    HTTPS (allowed egress) using the worker's own ambient credentials; the
-    region also resolves from the worker's chain. Session-scoped on purpose:
-    duckgres wipes non-persistent secrets at the next session create.
+    Duckgres activation creates this secret with the worker's temporary S3
+    credentials. Replacing it with a credential-chain secret would discard
+    credentials that are intentionally unavailable through DuckDB's provider
+    chain. Older deployments do not create the managed secret, so they retain
+    the existing credential-chain fallback.
     """
+    secret_exists = conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM duckdb_secrets() WHERE name = %s)",
+        (_STAGING_READ_SECRET_NAME,),
+    ).fetchone()
+    if secret_exists is not None and secret_exists[0] is True:
+        return
+
     conn.execute(
-        "CREATE OR REPLACE SECRET posthog_staging_delta_https ("
+        f"CREATE OR REPLACE SECRET {_STAGING_READ_SECRET_NAME} ("
         "TYPE S3, PROVIDER credential_chain, USE_SSL true, "
         f"SCOPE 's3://{catalog_bucket}/{STAGING_PREFIX}')"
     )
