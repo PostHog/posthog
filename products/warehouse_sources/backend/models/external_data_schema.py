@@ -86,6 +86,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # during multi-schema migration) to their original path. Empty for rows written before this
     # column existed — readers fall back to the legacy JSON key, then the normalized schema `name`.
     s3_folder_name = models.CharField(max_length=400, null=True, blank=True)
+    duckgres_table_name = models.CharField(max_length=63, null=True, blank=True)
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(
         models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)

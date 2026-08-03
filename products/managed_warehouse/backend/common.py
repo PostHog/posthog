@@ -28,6 +28,8 @@ import psycopg
 from psycopg import sql
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
+from products.warehouse_sources.backend.facade.duckgres import duckgres_data_imports_table_name_for_version
+
 if TYPE_CHECKING:
     from clickhouse_driver import Client
 
@@ -549,12 +551,17 @@ def duckgres_data_imports_table_name(schema: ExternalDataSchema) -> str:
     Must stay byte-identical to what the copy workflow computes so the reader resolves to the same
     table the writer produced.
     """
-    source_type = schema.source.source_type
-    prefix = schema.source.prefix
-    normalized_name = schema.normalized_name
-    return sanitize_ducklake_identifier(
-        f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}",
-        default_prefix="data_import",
+    pinned_name = getattr(schema, "duckgres_table_name", None)
+    if isinstance(pinned_name, str) and pinned_name:
+        return pinned_name
+
+    from products.managed_warehouse.backend import team_state  # noqa: PLC0415
+
+    return duckgres_data_imports_table_name_for_version(
+        schema.source.source_type,
+        schema.source.prefix,
+        schema.normalized_name,
+        team_state.data_imports_table_naming_version(schema.team_id),
     )
 
 

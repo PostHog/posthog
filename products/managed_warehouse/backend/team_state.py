@@ -94,6 +94,14 @@ def data_imports_schema(team_id: int) -> str:
     return schema
 
 
+def data_imports_table_naming_version(team_id: int) -> str:
+    """The organization-stable naming version used when a Duckgres writer first binds a table."""
+    row = _get_cp_row(team_id)
+    if row is None:
+        return "copy_v1"
+    return row.data_imports_table_naming_version
+
+
 # --- backfill state (warehouse-status UI) -----------------------------------------
 
 

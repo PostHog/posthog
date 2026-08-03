@@ -32,7 +32,6 @@ from products.managed_warehouse.backend.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     duckgres_data_imports_schema,
-    duckgres_data_imports_table_name,
     get_config,
     get_duckgres_server_by_team_org,
     get_duckgres_server_for_organization,
@@ -50,6 +49,7 @@ from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_started_metric,
     record_ducklake_register_data_imports_stage_duration,
 )
+from products.warehouse_sources.backend.facade.duckgres import bind_duckgres_data_imports_table_name
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 LOGGER = get_logger(__name__)
@@ -184,7 +184,7 @@ async def prepare_ducklake_data_imports_registration_activity(
 
         prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
         ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
-        ducklake_table_name = duckgres_data_imports_table_name(schema)
+        ducklake_table_name = await database_sync_to_async(bind_duckgres_data_imports_table_name)(schema)
         landing_uri = await database_sync_to_async(_resolve_data_imports_landing_uri)(
             team_id=inputs.team_id,
             ducklake_schema_name=ducklake_schema_name,

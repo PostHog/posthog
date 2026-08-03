@@ -60,7 +60,9 @@ def _make_batch(**overrides: Any) -> PendingBatch:
 
 def _make_schema() -> Mock:
     schema = Mock()
+    schema.team_id = 1
     schema.normalized_name = "customers"
+    schema.duckgres_table_name = "stripe_customers"
     schema.source.source_type = "Stripe"
     schema.source.prefix = None
     return schema

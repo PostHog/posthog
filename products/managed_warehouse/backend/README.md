@@ -66,9 +66,11 @@ Every copy is written to a deterministic schema inside DuckLake. Each workflow n
 ### Data Imports and Data Import Registration
 
 - **Schema**: `posthog_data_imports_team_<team_id>`
-- **Table**: `<source_type>_<prefix>_<normalized_name>` (prefix is user-defined on the external data source)
+- **Table**: a physical name pinned on each imported schema
 - **Example**: `ducklake.posthog_data_imports_team_123.stripe_prod_invoices`
 - **Registered files**: `s3://<ducklake-bucket>/<ducklake-schema>/<ducklake-table>/_imports/<source-schema-id>/<job-id>/<prepared-relative-path>`
+
+Duckgres stores a table-naming version on the organization. Organizations that existed when versioning was introduced keep the batch sink's snake-case format, such as `tik_tok_ads_ad_report`. New organizations use the copy workflow format, such as `tiktokads_ad_report`. The first Duckgres writer atomically pins the resulting physical name on each imported schema. Copy, registration, the batch sink, and query binding then reuse that pin, so later policy changes cannot rename a table that already contains data.
 
 Each completed import creates a timestamped prepared Parquet snapshot in the data warehouse bucket. The registration workflow copies those objects directly into the DuckLake bucket, preserving Hive partition directories, registers the destination objects with `ducklake_add_data_files`, verifies the shadow table's row count, and only then swaps it into the stable table name through the Duckgres PostgreSQL connection. Registration, verification, and the swap share one catalog transaction, so a mismatch leaves the previous table live. Each import job gets its own object prefix and child workflow ID, so a later sync does not append into the previous snapshot.
 
