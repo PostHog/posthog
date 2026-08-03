@@ -134,6 +134,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskSerializer,
     TaskSessionResponseSerializer,
     TaskSessionSyncResponseSerializer,
+    TaskSpawnRequestSerializer,
     TaskStagedArtifactsFinalizeUploadRequestSerializer,
     TaskStagedArtifactsFinalizeUploadResponseSerializer,
     TaskStagedArtifactsPrepareUploadRequestSerializer,
@@ -352,6 +353,91 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         self._forward_signals_discussion_note(request, task, relationship)
         return Response(TaskSerializer(task).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=TaskSpawnRequestSerializer,
+        responses={201: TaskSerializer, 400: TaskRunErrorResponseSerializer, 403: TaskRunErrorResponseSerializer},
+        operation_id="tasks_spawn_create",
+        summary="Spawn a child task",
+    )
+    @action(detail=False, methods=["post"], url_path="spawn", required_scopes=["task:write"])
+    def spawn(self, request, **kwargs):
+        from products.tasks.backend.feature_flags import is_tasks_orchestration_enabled
+
+        serializer = TaskSpawnRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = dict(serializer.validated_data)
+
+        if not is_tasks_orchestration_enabled(
+            distinct_id=str(request.user.distinct_id), organization_id=str(self.organization.id)
+        ):
+            return Response({"detail": "Task orchestration is not enabled"}, status=status.HTTP_403_FORBIDDEN)
+
+        parent_run = tasks_facade.get_task_run(data.pop("parent_run_id"), self.team_id)
+        if parent_run is None:
+            raise NotFound("Parent run not found")
+        if parent_run.is_terminal:
+            raise ValidationError({"parent_run_id": "Parent run must be active"})
+        if parent_run.state.get("parent_task_id") is not None:
+            raise ValidationError({"parent_run_id": "Child runs cannot spawn tasks"})
+
+        parent_task = tasks_facade.get_task_detail(parent_run.task_id, self.team_id, self._user_id())
+        if parent_task is None:
+            raise NotFound("Parent task not found")
+
+        if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
+            return limit_response
+        if tasks_facade.spawned_task_run_rate_capped(self.team_id):
+            return Response({"detail": "Team task run rate limit exceeded"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
+        wake_on = data.pop("wake_on")
+        run_data = {
+            "environment": tasks_facade.TaskRunEnvironment.CLOUD,
+            "mode": "background",
+            "runtime_adapter": data.pop("runtime_adapter"),
+            "model": data.pop("model"),
+            "reasoning_effort": data.pop("reasoning_effort"),
+        }
+        task_data = data
+        if parent_task.channel is not None:
+            task_data["channel"] = tasks_facade.channel_queryset().filter(id=parent_task.channel).first()
+
+        child_task = tasks_facade.create_task(
+            self.team_id,
+            self._user_id(),
+            validated_data=task_data,
+            creation_event_properties={"is_spawned": True, "parent_task_id": str(parent_run.task_id)},
+        )
+        try:
+            result = tasks_facade.bootstrap_task_run(
+                child_task.id,
+                self.team_id,
+                self._user_id(),
+                validated_data=run_data,
+                trusted_extra_state={
+                    "parent_task_id": str(parent_run.task_id),
+                    "parent_run_id": str(parent_run.id),
+                    "wake_on": wake_on,
+                },
+            )
+            if result is None or result.error is not None or result.run is None:
+                detail = result.error.detail if result and result.error else "Could not create child run"
+                raise ValidationError(detail)
+            outcome, _ = tasks_facade.start_task_run(
+                result.run.id,
+                child_task.id,
+                self.team_id,
+                self._user_id(),
+                validated_data={"pending_user_message": child_task.description},
+            )
+            if outcome != "started":
+                raise ValidationError(outcome)
+        except Exception:
+            tasks_facade.soft_delete_task(child_task.id, self.team_id, self._user_id())
+            raise
+
+        created = tasks_facade.get_task_detail(child_task.id, self.team_id, self._user_id())
+        return Response(TaskSerializer(created).data, status=status.HTTP_201_CREATED)
 
     def _forward_signals_discussion_note(
         self, request, task: tasks_contracts.TaskDetailDTO, relationship: str | None

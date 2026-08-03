@@ -18,6 +18,7 @@ NATIVE_STEERING_SIGNALS_FEATURE_FLAG = "tasks-native-steering-signals"
 NATIVE_STEERING_SIGNALS_DISTINCT_ID = "tasks-native-steering-signals"
 
 DEV_STACK_IMAGE_BAKE_DISTINCT_ID = "tasks-dev-stack-image-bake"
+TASKS_ORCHESTRATION_FEATURE_FLAG = "tasks-orchestration"
 
 
 def is_dev_stack_image_bake_enabled() -> bool:
@@ -82,6 +83,23 @@ def is_agent_otel_telemetry_enabled(*, distinct_id: str, organization_id: str) -
         )
     except Exception:
         logger.exception("agent_otel_telemetry_flag_check_failed")
+        return False
+
+
+def is_tasks_orchestration_enabled(*, distinct_id: str, organization_id: str) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                TASKS_ORCHESTRATION_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("tasks_orchestration_feature_flag_check_failed")
         return False
 
 

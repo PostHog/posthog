@@ -45,6 +45,8 @@ Tracked when a new Task is saved. Additional properties:
 | Property          | Type   | Description                       |
 | ----------------- | ------ | --------------------------------- |
 | `has_json_schema` | `bool` | Whether a JSON schema is attached |
+| `is_spawned`      | `bool?` | Whether an orchestrator spawned the task |
+| `parent_task_id`  | `str?`  | Parent task UUID for spawned tasks        |
 
 ### `task_run_created`
 

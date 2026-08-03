@@ -381,7 +381,7 @@ class Task(DeletedMetaFields, models.Model):
     def _track_task_created(self) -> None:
         self.capture_event(
             "task_created",
-            {"has_json_schema": self.json_schema is not None},
+            {"has_json_schema": self.json_schema is not None, **getattr(self, "_creation_event_properties", {})},
         )
 
     @staticmethod
