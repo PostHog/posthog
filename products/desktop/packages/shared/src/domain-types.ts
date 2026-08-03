@@ -597,7 +597,8 @@ export interface PriorityJudgmentContent {
 }
 
 /** Artefact with `type: "actionability_judgment"` — actionability assessment from the agentic report. */
-export interface ActionabilityJudgmentArtefact extends SignalReportArtefactBase {
+export interface ActionabilityJudgmentArtefact
+  extends SignalReportArtefactBase {
   type: "actionability_judgment";
   content: ActionabilityJudgmentContent;
 }
