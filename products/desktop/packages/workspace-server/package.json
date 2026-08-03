@@ -35,7 +35,6 @@
     "@trpc/server": "catalog:",
     "better-sqlite3": "^12.8.0",
     "drizzle-orm": "^0.45.1",
-    "esbuild": "0.27.2",
     "fflate": "^0.8.2",
     "hono": "catalog:",
     "ignore": "^7.0.5",

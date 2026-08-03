@@ -13,6 +13,7 @@ const log = logger.scope("built-canvas");
 const EXTERNAL_OPEN_MIN_INTERVAL_MS = 1_000;
 const MAX_CONCURRENT_DATA_REQUESTS = 8;
 const MAX_DATA_REQUEST_BYTES = 64 * 1024;
+const DATA_REQUEST_TIMEOUT_MS = 30_000;
 
 function isBoundedPayload(payload: unknown): boolean {
   try {
@@ -83,10 +84,15 @@ export function BuiltCanvas({
               type: "data-response",
               id: message.id,
               ok: true,
-              result: await latest.current.onDataRequest(
-                message.method,
-                message.payload,
-              ),
+              result: await Promise.race([
+                latest.current.onDataRequest(message.method, message.payload),
+                new Promise<never>((_, reject) =>
+                  setTimeout(
+                    () => reject(new Error("Canvas data request timed out")),
+                    DATA_REQUEST_TIMEOUT_MS,
+                  ),
+                ),
+              ]),
             });
           } catch (error) {
             post({
@@ -118,7 +124,13 @@ export function BuiltCanvas({
               EXTERNAL_OPEN_MIN_INTERVAL_MS
           ) {
             lastExternalOpenRef.current = Date.now();
-            openExternalUrl(message.url);
+            if (
+              window.confirm(
+                `Open this link in your browser?\n\n${message.url}`,
+              )
+            ) {
+              openExternalUrl(message.url);
+            }
           }
           break;
         case "ready":

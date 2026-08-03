@@ -2808,7 +2808,7 @@ export class PostHogAPIClient {
 
   async getChannelInstructions(
     channelId: string,
-  ): Promise<ChannelInstructions> {
+  ): Promise<ChannelInstructions | null> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/task_channels/${encodeURIComponent(channelId)}/instructions/`;
     const response = await this.api.fetcher.fetch({
@@ -2816,6 +2816,7 @@ export class PostHogAPIClient {
       url: new URL(`${this.api.baseUrl}${urlPath}`),
       path: urlPath,
     });
+    if (response.status === 404) return null;
     if (!response.ok) {
       throw new Error(
         `Failed to fetch channel instructions: ${response.statusText}`,

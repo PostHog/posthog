@@ -29,7 +29,8 @@ const MAX_CANVAS_RESULT_BYTES = 2 * 1024 * 1024;
 function boundedResult(result: CanvasDataResult): CanvasDataResult {
   if (
     result.results.length > MAX_CANVAS_RESULT_ROWS ||
-    JSON.stringify(result).length > MAX_CANVAS_RESULT_BYTES
+    new TextEncoder().encode(JSON.stringify(result)).byteLength >
+      MAX_CANVAS_RESULT_BYTES
   ) {
     throw new Error("Canvas data result exceeds the result limit");
   }

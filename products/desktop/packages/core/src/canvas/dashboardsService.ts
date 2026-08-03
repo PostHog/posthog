@@ -121,6 +121,23 @@ function toBuildRecord(build: Record<string, unknown>): CanvasBuildRecord {
   });
 }
 
+function tryToBuildRecord(
+  build: Record<string, unknown>,
+): CanvasBuildRecord | null {
+  const parsed = canvasBuildRecordSchema.safeParse({
+    id: build.id,
+    sourceVersionId: build.source_version_id,
+    buildStatus: build.build_status,
+    diagnostics: build.diagnostics ?? [],
+    manifest: build.manifest ?? null,
+    artifactUrl: build.artifact_url,
+    pinned: build.pinned,
+    createdAt: build.created_at,
+    finishedAt: build.finished_at,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
 /**
  * Canvases backed by the PostHog canvases API. A canvas is a first-class row
  * filed into a backend channel; its source is versioned per publish
@@ -282,7 +299,9 @@ export class DashboardsService {
     return canvasBuildLifecycleSchema.parse({
       publishedBuildId: body.published_build_id,
       currentVersionId: body.current_version_id,
-      builds: body.builds.map(toBuildRecord),
+      builds: body.builds
+        .map(tryToBuildRecord)
+        .filter((build): build is CanvasBuildRecord => build !== null),
     });
   }
 

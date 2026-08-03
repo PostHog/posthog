@@ -83,11 +83,8 @@ export function currentHeadBuildFailure(
   lifecycle: CanvasBuildLifecycle,
 ): CanvasBuildRecord | null {
   if (!lifecycle.currentVersionId) return null;
-  return (
-    lifecycle.builds.find(
-      (build) =>
-        build.sourceVersionId === lifecycle.currentVersionId &&
-        build.buildStatus === "failed",
-    ) ?? null
+  const latestAttempt = lifecycle.builds.find(
+    (build) => build.sourceVersionId === lifecycle.currentVersionId,
   );
+  return latestAttempt?.buildStatus === "failed" ? latestAttempt : null;
 }

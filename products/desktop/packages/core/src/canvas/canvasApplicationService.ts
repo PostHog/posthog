@@ -7,6 +7,11 @@ import type { TitleGeneratorService } from "@posthog/core/sessions/titleGenerato
 import { TASK_SERVICE } from "@posthog/core/task-detail/identifiers";
 import type { TaskService } from "@posthog/core/task-detail/taskService";
 import {
+  ROOT_LOGGER,
+  type RootLogger,
+  type ScopedLogger,
+} from "@posthog/di/logger";
+import {
   type Adapter,
   type CloudRegion,
   getCloudUrlFromRegion,
@@ -78,6 +83,8 @@ export type GenerateCanvasResult =
  */
 @injectable()
 export class CanvasApplicationService {
+  private readonly log: ScopedLogger;
+
   constructor(
     @inject(TASK_SERVICE)
     private readonly taskService: TaskService,
@@ -85,9 +92,25 @@ export class CanvasApplicationService {
     private readonly modelResolver: ReportModelResolver,
     @inject(TITLE_GENERATOR_SERVICE)
     private readonly titleGenerator: TitleGeneratorService,
-  ) {}
+    @inject(ROOT_LOGGER) rootLogger: RootLogger,
+  ) {
+    this.log = rootLogger.scope("canvas-application");
+  }
 
   async generateCanvas(
+    input: GenerateCanvasInput,
+    gateway: CanvasGenerationGateway,
+  ): Promise<GenerateCanvasResult> {
+    try {
+      return await this.generateCanvasInternal(input, gateway);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.log.error("Canvas generation failed", { error: message });
+      return { ok: false, reason: "create-failed", error: message };
+    }
+  }
+
+  private async generateCanvasInternal(
     input: GenerateCanvasInput,
     gateway: CanvasGenerationGateway,
   ): Promise<GenerateCanvasResult> {
@@ -154,7 +177,9 @@ export class CanvasApplicationService {
     const task = result.data.task;
     // File into the channel — best-effort (a failure shouldn't undo a started
     // task).
-    void gateway.fileTask(input.channelId, task.id).catch(() => {});
+    void gateway.fileTask(input.channelId, task.id).catch((error) => {
+      this.log.warn("Failed to file canvas generation task", { error });
+    });
 
     // Canvas-side effects only apply when the surface pre-resolved a target;
     // target-less runs leave them to the agent, which resolves or creates the
@@ -164,7 +189,9 @@ export class CanvasApplicationService {
       // The generation-task write is awaited so a caller that navigates to the
       // canvas right after generate() lands on the generating view, not the
       // empty hero.
-      await gateway.setGenerationTask(dashboardId, task.id).catch(() => {});
+      await gateway.setGenerationTask(dashboardId, task.id).catch((error) => {
+        this.log.warn("Failed to record canvas generation task", { error });
+      });
 
       // Auto-name a still-unnamed canvas from its generation prompt, using the
       // same helper model that names tasks. Best-effort: a failure (or a user
@@ -179,7 +206,9 @@ export class CanvasApplicationService {
               gateway.onAutoNamed?.(task.id, title);
             }
           })
-          .catch(() => {});
+          .catch((error) => {
+            this.log.warn("Failed to auto-name canvas", { error });
+          });
       }
     }
 

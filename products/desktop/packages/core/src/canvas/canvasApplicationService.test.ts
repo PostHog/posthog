@@ -1,6 +1,7 @@
 import type { ReportModelResolver } from "@posthog/core/inbox/identifiers";
 import type { TitleGeneratorService } from "@posthog/core/sessions/titleGeneratorService";
 import type { TaskService } from "@posthog/core/task-detail/taskService";
+import type { RootLogger } from "@posthog/di/logger";
 import { describe, expect, it, vi } from "vitest";
 import {
   CanvasApplicationService,
@@ -27,6 +28,9 @@ function makeDeps(overrides?: {
     { createTask } as unknown as TaskService,
     { resolveDefaultModel } as unknown as ReportModelResolver,
     { generateCanvasName } as unknown as TitleGeneratorService,
+    {
+      scope: () => ({ warn: vi.fn(), error: vi.fn() }),
+    } as unknown as RootLogger,
   );
   return { service, createTask, resolveDefaultModel, generateCanvasName };
 }

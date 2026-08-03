@@ -18,6 +18,14 @@ const TEMPLATE_HINTS: Record<string, string> = {
     "tables, backed by the web-analytics query kinds.",
 };
 
+function escapePromptMetadata(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
 export function buildCanvasGenerationPrompt(input: {
   /**
    * Target canvas, when the surface already knows it (canvas-initiated runs).
@@ -42,19 +50,21 @@ export function buildCanvasGenerationPrompt(input: {
   // The header points back at the user's request, which leads the message —
   // without the pointer the agent can read the block as self-contained and
   // under-weight the actual instruction above it.
-  const title = name ? ` "${name}"` : "";
+  const safeName = name ? escapePromptMetadata(name) : undefined;
+  const safeChannelName = escapePromptMetadata(channelName);
+  const title = safeName ? ` "${safeName}"` : "";
   const header = dashboardId
     ? isEdit
-      ? `Edit the canvas${title} in the channel "${channelName}", per the user's request at the start of this message.`
-      : `Build the canvas${title} for the channel "${channelName}", per the user's request at the start of this message.`
-    : `Build a canvas in the channel "${channelName}", per the user's request at the start of this message.`;
+      ? `Edit the canvas${title} in the channel "${safeChannelName}", per the user's request at the start of this message.`
+      : `Build the canvas${title} for the channel "${safeChannelName}", per the user's request at the start of this message.`
+    : `Build a canvas in the channel "${safeChannelName}", per the user's request at the start of this message.`;
 
   // With a pre-resolved target the id is pinned. Target-less runs create
   // directly without exposing team-controlled canvas metadata to the agent.
   const targetBlock = dashboardId
     ? `Target canvas — already created, do NOT create another:
 - canvas id: "${dashboardId}"
-- channel: "${channelName}"`
+- channel: "${safeChannelName}"`
     : `Target canvas — none is pre-created. Create one in channel "${input.channelId}" with
 \`canvas-create\`, named with a short descriptive title drawn from the request — never "Untitled canvas".
 Do not list or inspect other canvases to choose a target.`;

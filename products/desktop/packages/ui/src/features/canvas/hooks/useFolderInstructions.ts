@@ -68,6 +68,8 @@ export function useFolderInstructionsVersions(
     },
     {
       enabled: Boolean(channelId) && (options?.enabled ?? true),
+      staleTime: 0,
+      refetchOnMount: "always",
     },
   );
 }

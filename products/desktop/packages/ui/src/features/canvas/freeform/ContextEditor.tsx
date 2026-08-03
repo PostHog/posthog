@@ -47,6 +47,7 @@ export function CanvasContextEditor({ dashboardId }: { dashboardId: string }) {
 
   return (
     <ContextEditor
+      key={dashboardId}
       value={draft ?? saved}
       onChange={setDraft}
       onCommit={commit}
