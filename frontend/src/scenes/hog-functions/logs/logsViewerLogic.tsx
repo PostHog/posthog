@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { withTimeout } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { HogQLQueryString, hogql } from '~/queries/utils'
@@ -29,6 +30,12 @@ export const POLLING_INTERVAL = 5000
 export const LOG_VIEWER_LIMIT = 100
 export const LOG_GROUP_LIMIT = 10
 export const LOG_GROUP_TOTAL_LOGS_LIMIT = 5000
+
+// Backend caps HogQL execution at 60s (`HogQLGlobalSettings.max_execution_time`), so a
+// `force_blocking` request that's still healthy always settles well within this window. A
+// stalled connection (dropped before reaching the backend, or the response never arriving)
+// wouldn't otherwise time out client-side and would leave the logs table spinning forever.
+const BLOCKING_QUERY_TIMEOUT_MS = 70000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
@@ -131,16 +138,22 @@ const loadLogs = async (request: LogEntryParams): Promise<LogEntry[]> => {
         ORDER BY timestamp ${hogql.raw(request.order)}
         LIMIT ${request.limit ?? LOG_VIEWER_LIMIT}`
 
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        {
-            refresh: 'force_blocking',
-            filtersOverride: {
-                date_from: request.dateFrom ?? '-7d',
-                date_to: request.dateTo,
-            },
-        }
+    const response = await withTimeout(
+        (signal) =>
+            api.queryHogQL(
+                query,
+                { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+                {
+                    refresh: 'force_blocking',
+                    filtersOverride: {
+                        date_from: request.dateFrom ?? '-7d',
+                        date_to: request.dateTo,
+                    },
+                    requestOptions: { signal },
+                }
+            ),
+        BLOCKING_QUERY_TIMEOUT_MS,
+        'Loading logs timed out'
     )
 
     return response.results.map(
@@ -191,16 +204,22 @@ const loadGroupedLogs = async (
 ): Promise<LogEntry[]> => {
     const query = buildGroupedLogsQuery(request, groupLimit, groupOffset)
 
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        {
-            refresh: 'force_blocking',
-            filtersOverride: {
-                date_from: request.dateFrom ?? '-7d',
-                date_to: request.dateTo,
-            },
-        }
+    const response = await withTimeout(
+        (signal) =>
+            api.queryHogQL(
+                query,
+                { scene: 'HogFunction', productKey: 'pipeline_destinations' },
+                {
+                    refresh: 'force_blocking',
+                    filtersOverride: {
+                        date_from: request.dateFrom ?? '-7d',
+                        date_to: request.dateTo,
+                    },
+                    requestOptions: { signal },
+                }
+            ),
+        BLOCKING_QUERY_TIMEOUT_MS,
+        'Loading logs timed out'
     )
 
     return response.results.map(
@@ -535,7 +554,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 loadUngroupedLogs: async (_, breakpoint) => {
                     await breakpoint(10)
                     actions.clearHiddenLogs()
-                    const results = await loadLogs(values.logEntryParams)
+                    const results = await loadLogs(values.logEntryParams).catch((e) => {
+                        lemonToast.error('Error loading logs ' + e.message)
+                        throw e
+                    })
                     await breakpoint(10)
                     return results
                 },

@@ -140,4 +140,30 @@ describe('hogInvocationsLogic', () => {
             scoped.unmount()
         })
     })
+
+    // Regression: a failed `loadRuns` used to leave `runsLoading` false with no error surfaced,
+    // which the table rendered as an indistinguishable "No invocations match these filters."
+    describe('runsLoadError', () => {
+        it('is set on a failed load and cleared once a retry succeeds', async () => {
+            let shouldFail = true
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': () =>
+                        shouldFail ? [500, { detail: 'boom' }] : [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.loadRuns(null)).toDispatchActions(['loadRunsFailure'])
+            expect(logic.values.runsLoadError).toBeTruthy()
+
+            shouldFail = false
+            await expectLogic(logic, () => logic.actions.loadRuns(null)).toDispatchActions(['loadRunsSuccess'])
+            expect(logic.values.runsLoadError).toBeNull()
+
+            logic.unmount()
+        })
+    })
 })

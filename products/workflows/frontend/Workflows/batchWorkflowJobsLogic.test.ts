@@ -70,4 +70,21 @@ describe('batchWorkflowJobsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadBatchWorkflowJobsSuccess'])
         expect(getCalls).toBe(2)
     })
+
+    // Regression: a failed fetch used to leave the panel with no way to distinguish "still
+    // loading" from "broke", so it rendered a spinner forever with no error and no retry.
+    it('surfaces a load error instead of leaving the caller with no signal', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/batch_jobs/': () => [500, { detail: 'boom' }],
+            },
+        })
+        logic.unmount()
+        logic = batchWorkflowJobsLogic({ id: WORKFLOW_ID })
+        logic.mount()
+
+        router.actions.push(urls.workflow(WORKFLOW_ID, 'invocations'))
+        await expectLogic(logic).toDispatchActions(['loadBatchWorkflowJobsFailure'])
+        expect(logic.values.batchWorkflowJobsLoadError).toBeTruthy()
+    })
 })

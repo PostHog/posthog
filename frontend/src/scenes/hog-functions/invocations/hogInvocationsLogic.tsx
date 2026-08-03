@@ -6,6 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { withTimeout } from 'lib/utils/async'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -231,6 +232,12 @@ export function buildHogInvocationsSearchParams(filters: Partial<HogInvocationsF
         Object.entries(params).filter((entry): entry is [string, string] => entry[1] !== undefined)
     )
 }
+
+// Backend caps HogQL execution at 60s (`HogQLGlobalSettings.max_execution_time`), so a
+// `force_blocking` request that's still healthy always settles well within this window. A
+// stalled connection (dropped before reaching the backend, or the response never arriving)
+// wouldn't otherwise time out client-side and would leave the table spinning forever.
+const BLOCKING_QUERY_TIMEOUT_MS = 70000
 
 const AUTO_REFRESH_INTERVAL_MS = 10000
 // After a rerun is enqueued the matching rows aren't `running` yet (the worker
@@ -527,13 +534,19 @@ async function fetchSparkline(props: HogInvocationsLogicProps, filters: HogInvoc
         GROUP BY bucket, status
         ORDER BY bucket
     `
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogInvocations', productKey: 'pipeline_destinations' },
-        {
-            refresh: 'force_blocking',
-            filtersOverride: { date_from: filters.date_from, date_to: filters.date_to },
-        }
+    const response = await withTimeout(
+        (signal) =>
+            api.queryHogQL(
+                query,
+                { scene: 'HogInvocations', productKey: 'pipeline_destinations' },
+                {
+                    refresh: 'force_blocking',
+                    filtersOverride: { date_from: filters.date_from, date_to: filters.date_to },
+                    requestOptions: { signal },
+                }
+            ),
+        BLOCKING_QUERY_TIMEOUT_MS,
+        'Loading the invocations sparkline timed out'
     )
 
     // Pivot CH results keyed on bucket-as-ms so the lookup is tolerant of
@@ -627,16 +640,22 @@ async function fetchRunsPage(
         OFFSET ${offset}
     `
 
-    const response = await api.queryHogQL(
-        query,
-        { scene: 'HogInvocations', productKey: 'pipeline_destinations' },
-        {
-            refresh: 'force_blocking',
-            filtersOverride: {
-                date_from: filters.date_from,
-                date_to: filters.date_to,
-            },
-        }
+    const response = await withTimeout(
+        (signal) =>
+            api.queryHogQL(
+                query,
+                { scene: 'HogInvocations', productKey: 'pipeline_destinations' },
+                {
+                    refresh: 'force_blocking',
+                    filtersOverride: {
+                        date_from: filters.date_from,
+                        date_to: filters.date_to,
+                    },
+                    requestOptions: { signal },
+                }
+            ),
+        BLOCKING_QUERY_TIMEOUT_MS,
+        'Loading invocations timed out'
     )
 
     const rows = (response.results ?? []).map((row): HogInvocationRow => {
@@ -757,6 +776,7 @@ export interface hogInvocationsLogicValues {
     pickedPerson: PersonType | null
     rerunableSelectedIds: string[]
     runs: HogInvocationRow[]
+    runsLoadError: string | null
     runsLoading: boolean
     selectAllState: 'all' | 'none' | 'some'
     selectableIds: string[]
@@ -1037,6 +1057,17 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
                     setFilters: (state, { filters }) =>
                         'person_uuid' in filters && filters.person_uuid !== state?.uuid ? null : state,
                     resetFilters: () => null,
+                },
+            ],
+            runsLoadError: [
+                null as string | null,
+                {
+                    loadRuns: () => null,
+                    loadMore: () => null,
+                    loadRunsFailure: (_, { error }) => error,
+                    loadMoreFailure: (_, { error }) => error,
+                    loadRunsSuccess: () => null,
+                    loadMoreSuccess: () => null,
                 },
             ],
         }

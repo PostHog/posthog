@@ -253,6 +253,7 @@ export function HogInvocations({
     const {
         runs,
         runsLoading,
+        runsLoadError,
         filters,
         selectedIds,
         selectedCount,
@@ -713,9 +714,18 @@ export function HogInvocations({
                     ),
                 }}
                 emptyState={
-                    <div className="py-8 text-center text-muted-alt">
-                        {runsLoading ? 'Loading invocations…' : 'No invocations match these filters.'}
-                    </div>
+                    runsLoadError ? (
+                        <div className="py-8 flex flex-col items-center gap-2 text-center">
+                            <span className="text-danger">Couldn't load invocations: {runsLoadError}</span>
+                            <LemonButton type="secondary" size="small" onClick={() => refresh()}>
+                                Retry
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        <div className="py-8 text-center text-muted-alt">
+                            {runsLoading ? 'Loading invocations…' : 'No invocations match these filters.'}
+                        </div>
+                    )
                 }
             />
 

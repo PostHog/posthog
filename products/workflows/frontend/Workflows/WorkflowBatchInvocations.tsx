@@ -1,9 +1,9 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { type ReactNode, useMemo } from 'react'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconClock } from '@posthog/icons'
-import { LemonCollapse, LemonDivider, LemonTag, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDivider, LemonTag, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
@@ -151,7 +151,8 @@ function UpcomingOccurrences(): JSX.Element | null {
  * occurrences. Mirrors the batch grouping the standalone Logs tab used to show.
  */
 export function WorkflowBatchInvocations({ id }: { id: string }): JSX.Element {
-    const { jobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic({ id }))
+    const { jobs, batchWorkflowJobsLoading, batchWorkflowJobsLoadError } = useValues(batchWorkflowJobsLogic({ id }))
+    const { loadBatchWorkflowJobs } = useActions(batchWorkflowJobsLogic({ id }))
     const { currentSchedule } = useValues(workflowLogic)
     const hasSchedule = !!currentSchedule?.rrule && !isOneTimeSchedule(currentSchedule.rrule)
 
@@ -159,6 +160,17 @@ export function WorkflowBatchInvocations({ id }: { id: string }): JSX.Element {
         return (
             <div className="flex justify-center">
                 <Spinner size="medium" />
+            </div>
+        )
+    }
+
+    if (batchWorkflowJobsLoadError) {
+        return (
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+                <span className="text-danger">Couldn't load invocations: {batchWorkflowJobsLoadError}</span>
+                <LemonButton type="secondary" size="small" onClick={() => loadBatchWorkflowJobs()}>
+                    Retry
+                </LemonButton>
             </div>
         )
     }

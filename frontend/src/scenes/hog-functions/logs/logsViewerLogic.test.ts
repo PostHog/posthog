@@ -1,6 +1,12 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { LogEntryLevel } from '~/types'
 
 import {
@@ -8,6 +14,7 @@ import {
     groupLogs,
     LogEntry,
     LogEntryParams,
+    logsViewerLogic,
     toAbsoluteClickhouseTimestamp,
 } from './logsViewerLogic'
 
@@ -199,6 +206,29 @@ describe('logsViewerLogic', () => {
             const secondPage = buildGroupedLogsQuery(makeParams(), 10, 10)
 
             expect(firstPage.replace('OFFSET 0', 'OFFSET 10')).toEqual(secondPage)
+        })
+    })
+
+    // Regression: `loadUngroupedLogs` used to have no `.catch`, unlike its grouped sibling —
+    // a failed fetch left the user with no toast and no indication anything went wrong.
+    describe('loadUngroupedLogs error handling', () => {
+        it('surfaces a toast on failure, matching loadGroupedLogs', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': () => [500, { detail: 'boom' }],
+                },
+            })
+            initKeaTests()
+            const logic = logsViewerLogic({ sourceType: 'hog_function', sourceId: 'fn-1' })
+            logic.mount()
+            const toastSpy = jest.spyOn(lemonToast, 'error')
+
+            await expectLogic(logic, () => {
+                logic.actions.loadUngroupedLogs(null)
+            }).toDispatchActions(['loadUngroupedLogsFailure'])
+
+            expect(toastSpy).toHaveBeenCalledWith(expect.stringContaining('Error loading logs'))
+            logic.unmount()
         })
     })
 })
