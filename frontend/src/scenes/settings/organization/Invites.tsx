@@ -12,10 +12,12 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { organizationAllowsMembersToInvite } from 'lib/utils/permissioning'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { OrganizationInviteType } from '~/types'
+import { AvailableFeature, OrganizationInviteType } from '~/types'
 
 import { inviteLogic } from './inviteLogic'
 import { EmailUnavailableForInvitesBanner } from './InviteModal'
@@ -135,13 +137,19 @@ export function Invites(): JSX.Element {
     const { showInviteModal } = useActions(inviteLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
 
-    const userCannotInvite = restrictionReason && !currentOrganization?.members_can_invite
+    const userCannotInvite =
+        !!restrictionReason &&
+        !organizationAllowsMembersToInvite(
+            currentOrganization,
+            hasAvailableFeature(AvailableFeature.ORGANIZATION_INVITE_SETTINGS)
+        )
 
     return (
         <div className="deprecated-space-y-4">
@@ -151,7 +159,7 @@ export function Invites(): JSX.Element {
                 type="primary"
                 onClick={showInviteModal}
                 data-attr="invite-teammate-button"
-                disabledReason={userCannotInvite && "You can't invite other members or view invites"}
+                disabledReason={userCannotInvite && 'Ask an organization admin to invite new members'}
             >
                 Invite team member
             </LemonButton>

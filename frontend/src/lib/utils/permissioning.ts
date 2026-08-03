@@ -1,4 +1,4 @@
-import { OrganizationBasicType, OrganizationMemberType, UserType } from '../../types'
+import { OrganizationBasicType, OrganizationMemberType, OrganizationType, UserType } from '../../types'
 import { EitherMembershipLevel, OrganizationMembershipLevel, TeamMembershipLevel } from '../constants'
 
 /** If access level change is disallowed given the circumstances, returns a reason why so. Otherwise returns null. */
@@ -55,6 +55,22 @@ export function hasMembershipLevelOrHigher(org: OrganizationBasicType, role: Org
 export function organizationAllowsPersonalApiKeysForMembers(org: OrganizationBasicType): boolean {
     // undefined means the value is missing from the API response, so we treat it as true as a fallback
     return [true, undefined].includes(org.members_can_use_personal_api_keys)
+}
+
+/**
+ * Mirrors `UserCanInvitePermission` (posthog/permissions.py): without the
+ * `ORGANIZATION_INVITE_SETTINGS` entitlement, the backend lets any org member invite others
+ * regardless of the `members_can_invite` toggle. A missing/null value defaults to permissive,
+ * matching the model's `default=True`.
+ */
+export function organizationAllowsMembersToInvite(
+    org: Pick<OrganizationType, 'members_can_invite'> | null,
+    hasOrganizationInviteSettingsEntitlement: boolean
+): boolean {
+    if (!hasOrganizationInviteSettingsEntitlement) {
+        return true
+    }
+    return org?.members_can_invite ?? true
 }
 
 export const organizationMembershipLevelIntegers = Object.values(OrganizationMembershipLevel).filter(

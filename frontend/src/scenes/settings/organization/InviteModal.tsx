@@ -11,7 +11,7 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
+import { organizationAllowsMembersToInvite, organizationMembershipLevelIntegers } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { isEmail } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -390,7 +390,7 @@ export function InviteTeamMatesComponent({
 }
 
 export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
-    const { user } = useValues(userLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { invitesToSend, canSubmit, isInviting } = useValues(inviteLogic)
@@ -403,7 +403,12 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
         scope: RestrictionScope.Organization,
     })
 
-    const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
+    const userCannotInvite =
+        !!minAdminRestrictionReason &&
+        !organizationAllowsMembersToInvite(
+            currentOrganization,
+            hasAvailableFeature(AvailableFeature.ORGANIZATION_INVITE_SETTINGS)
+        )
 
     return (
         <div className="InviteModal">
@@ -461,7 +466,7 @@ export function InviteModal({ isOpen, onClose }: { isOpen: boolean; onClose: () 
                                     loading={isInviting}
                                     disabledReason={
                                         userCannotInvite
-                                            ? "You don't have permissions to invite others."
+                                            ? 'Ask an organization admin to invite new members'
                                             : !canSubmit
                                               ? 'Please fill out all fields'
                                               : undefined
