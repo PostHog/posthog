@@ -289,8 +289,8 @@ describe('create-event-step', () => {
         })
 
         describe('$experiment_exposure duplication', () => {
-            it('duplicates multivariate $feature_flag_called events for team 2 with only the event name changed', async () => {
-                const step = createCreateEventStep(EVENTS_OUTPUT)
+            it('duplicates multivariate $feature_flag_called events for allowlisted teams', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT, '2')
                 const result = await step({
                     person: mockPerson,
                     preparedEvent: {
@@ -320,12 +320,12 @@ describe('create-event-step', () => {
             })
 
             it.each([
-                ['a different team', 1, '$feature_flag_called', 'test'],
+                ['a team outside the allowlist', 1, '$feature_flag_called', 'test'],
                 ['a boolean response', 2, '$feature_flag_called', true],
                 ['a stringified boolean response', 2, '$feature_flag_called', 'true'],
                 ['a different event', 2, '$pageview', 'test'],
             ])('does not duplicate %s', async (_, teamId, event, response) => {
-                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const step = createCreateEventStep(EVENTS_OUTPUT, '2')
                 const result = await step({
                     person: mockPerson,
                     preparedEvent: {
@@ -334,6 +334,29 @@ describe('create-event-step', () => {
                         projectId: teamId as ProjectId,
                         event,
                         properties: { $feature_flag_response: response },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                })
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.value.eventsToEmit).toHaveLength(1)
+                }
+            })
+
+            it('does not duplicate when no teams are configured', async () => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const result = await step({
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        teamId: 2,
+                        projectId: 2 as ProjectId,
+                        event: '$feature_flag_called',
+                        properties: { $feature_flag_response: 'test' },
                     },
                     processPerson: true,
                     historicalMigration: false,
