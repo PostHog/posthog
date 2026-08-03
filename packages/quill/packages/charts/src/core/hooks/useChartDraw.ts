@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useLayoutEffect } from 'react'
 
 import type {
     ChartDimensions,
@@ -46,44 +46,36 @@ export function useChartDraw({
     drawHover,
     hoverAnimationMs = 0,
 }: UseChartDrawOptions): void {
-    // Cancel the prior RAF on effect re-run — relying on cleanup ordering alone leaves a
-    // window where a stale RAF can paint after the new setup runs.
-    const staticRafRef = useRef<number | null>(null)
-
+    // Draws synchronously in a layout effect, in the same commit as a `dimensions` change,
+    // instead of deferring to a `requestAnimationFrame`. `ResizeObserver` fires and
+    // `syncCanvasSize` wipes the backing store before the browser paints the current frame,
+    // so a RAF-deferred repaint always lands one frame after that wipe. A container that keeps
+    // reporting resizes (see `syncCanvasSize`'s doc comment) therefore never gets a frame where
+    // the repaint has caught up, and the chart reads as persistently blank for as long as the
+    // resizing continues. Drawing synchronously here means the repaint lands in the same frame
+    // as the wipe, so there is no frame where the wipe is visible without it.
+    //
     // hoverIndex is deliberately not a dep — a hover sweep shouldn't repaint the static layer.
-    useEffect(() => {
-        if (staticRafRef.current != null) {
-            cancelAnimationFrame(staticRafRef.current)
-            staticRafRef.current = null
-        }
+    useLayoutEffect(() => {
         if (!ctx || !dimensions || !scales || theme.skipDraw) {
             return
         }
-        staticRafRef.current = requestAnimationFrame(() => {
-            staticRafRef.current = null
-            clearAndPrepare(ctx, dimensions)
-            try {
-                drawStatic({
-                    ctx,
-                    dimensions,
-                    scales,
-                    series,
-                    labels,
-                    hoverIndex: -1,
-                    hoverPosition: null,
-                    theme,
-                    hoverProgress: 1,
-                    resetHoverFade: () => 1,
-                })
-            } finally {
-                ctx.restore()
-            }
-        })
-        return () => {
-            if (staticRafRef.current != null) {
-                cancelAnimationFrame(staticRafRef.current)
-                staticRafRef.current = null
-            }
+        clearAndPrepare(ctx, dimensions)
+        try {
+            drawStatic({
+                ctx,
+                dimensions,
+                scales,
+                series,
+                labels,
+                hoverIndex: -1,
+                hoverPosition: null,
+                theme,
+                hoverProgress: 1,
+                resetHoverFade: () => 1,
+            })
+        } finally {
+            ctx.restore()
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ctx, dimensions, scales, series, labels, theme, drawStatic])

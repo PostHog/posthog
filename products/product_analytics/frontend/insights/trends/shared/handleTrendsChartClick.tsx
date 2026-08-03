@@ -46,6 +46,19 @@ export function resolveDataset(seriesKey: string, indexedResults: IndexedTrendRe
     return indexedResults.find((r) => String(r.id) === seriesKey) ?? null
 }
 
+/** Whether a click on this chart will actually do something — drives the pointer cursor and
+ *  whether a click handler gets wired at all. Must match the bail-out condition in
+ *  {@link handleTrendsChartClick} and {@link handleTrendsBarAggregatedChartClick} below it:
+ *  `hasPersonsModal` can be true while `querySource` is still null (e.g. mid-hydration on a
+ *  dashboard tile), in which case a click would silently do nothing. */
+export function canHandleTrendsClick(
+    onDataPointClick: unknown,
+    hasPersonsModal: boolean,
+    querySource: unknown
+): boolean {
+    return !!onDataPointClick || (hasPersonsModal && !!querySource)
+}
+
 export function handleTrendsChartClick(
     seriesKey: string,
     dataIndex: number,

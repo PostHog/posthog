@@ -37,7 +37,11 @@ import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { goalLinesToReferenceLines } from '../shared/goalLinesAdapter'
-import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/handleTrendsChartClick'
+import {
+    canHandleTrendsClick,
+    handleTrendsChartClick,
+    type TrendsChartClickDeps,
+} from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
@@ -296,7 +300,7 @@ export function TrendsBarChart({
         embedded,
     ])
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = canHandleTrendsClick(context?.onDataPointClick, !!hasPersonsModal, querySource)
 
     const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({

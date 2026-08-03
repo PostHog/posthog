@@ -24,6 +24,7 @@ import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
+    canHandleTrendsClick,
     handleTrendsChartClick,
     LIFECYCLE_PERSONS_MODAL_OPTIONS,
     type TrendsChartClickDeps,
@@ -142,7 +143,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
     const config = useChartConfig(() => baseConfig, [baseConfig])
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = canHandleTrendsClick(context?.onDataPointClick, !!hasPersonsModal, querySource)
 
     const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({

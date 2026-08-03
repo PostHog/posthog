@@ -147,7 +147,10 @@ export function TrendsPieChart({
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see
     // ActionsPie.tsx — `onClick={hasDataWarehouseSeries ? undefined : onClick}`); match that here.
-    const canHandleClick = !hasDataWarehouseSeries && (!!onDataPointClick || (showPersonsModal && !formula))
+    // Also matches handleSliceClick's own querySource check below: querySource can be null
+    // (e.g. mid-hydration on a dashboard tile), in which case a click would do nothing.
+    const canHandleClick =
+        !hasDataWarehouseSeries && (!!onDataPointClick || (showPersonsModal && !formula && !!querySource))
 
     // Click parity with ActionsPie. The legacy path builds an InsightActorsQuery from the
     // GraphDataset.breakdownValues array; here each slice is already a single result, so we

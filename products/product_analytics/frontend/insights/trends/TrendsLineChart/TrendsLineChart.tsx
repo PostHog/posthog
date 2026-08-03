@@ -29,7 +29,7 @@ import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
-import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
+import { canHandleTrendsClick, handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
@@ -127,7 +127,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [indexByResult, showMultipleYAxes]
     )
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = canHandleTrendsClick(context?.onDataPointClick, !!hasPersonsModal, querySource)
 
     const clickDeps = useMemo(
         () => ({

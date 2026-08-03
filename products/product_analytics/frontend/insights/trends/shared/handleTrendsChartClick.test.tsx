@@ -3,7 +3,7 @@ import type { IndexedTrendResult } from 'scenes/trends/types'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { CompareLabelType, EntityTypes } from '~/types'
 
-import { handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'
+import { canHandleTrendsClick, handleTrendsChartClick, type TrendsChartClickDeps } from './handleTrendsChartClick'
 
 function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTrendResult {
     return {
@@ -237,5 +237,44 @@ describe('handleTrendsChartClick', () => {
         handleTrendsChartClick(keyFor(trendResult), 1, deps)
 
         expect(openPersonsModal).not.toHaveBeenCalled()
+    })
+
+    describe('canHandleTrendsClick', () => {
+        // hasPersonsModal can be true while querySource is still null (e.g. mid-hydration on a
+        // dashboard tile) — canHandleTrendsClick drives the pointer cursor and click wiring, and
+        // must agree with handleTrendsChartClick's own bail-out above or a chart advertises a
+        // click that silently does nothing.
+        it.each([
+            {
+                name: 'hasPersonsModal true but querySource still null',
+                onDataPointClick: undefined,
+                hasPersonsModal: true,
+                querySource: null,
+                expected: false,
+            },
+            {
+                name: 'hasPersonsModal true with a resolved querySource',
+                onDataPointClick: undefined,
+                hasPersonsModal: true,
+                querySource: {},
+                expected: true,
+            },
+            {
+                name: 'querySource resolved but hasPersonsModal false',
+                onDataPointClick: undefined,
+                hasPersonsModal: false,
+                querySource: {},
+                expected: false,
+            },
+            {
+                name: 'a context onDataPointClick overrides the persons-modal checks entirely',
+                onDataPointClick: jest.fn(),
+                hasPersonsModal: false,
+                querySource: null,
+                expected: true,
+            },
+        ])('returns $expected when $name', ({ onDataPointClick, hasPersonsModal, querySource, expected }) => {
+            expect(canHandleTrendsClick(onDataPointClick, hasPersonsModal, querySource)).toBe(expected)
+        })
     })
 })
