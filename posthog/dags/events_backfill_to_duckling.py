@@ -94,11 +94,11 @@ from products.managed_warehouse.backend.facade.api import (
 )
 from products.managed_warehouse.backend.facade.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTeamMembership
+from products.managed_warehouse.backend.facade.metrics import record_duckling_backfill_workload, track_duckling_backfill
 from products.managed_warehouse.backend.facade.team_state import (
     list_enabled_backfill_team_memberships,
     resolve_events_persons_tables,
 )
-from products.managed_warehouse.backend.metrics import record_duckling_backfill_workload, track_duckling_backfill
 
 logger = structlog.get_logger(__name__)
 
