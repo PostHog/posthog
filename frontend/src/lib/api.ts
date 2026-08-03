@@ -237,6 +237,7 @@ import type {
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { ImportOptOutsCsvResultApi } from 'products/messaging/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -1999,6 +2000,20 @@ export class ApiRequest {
 
     public messagingPreferencesAddOptOut(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_preferences').addPathComponent('add_opt_out')
+    }
+
+    public messagingPreferencesExportOptOutsCsv(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('export_opt_outs_csv')
+    }
+
+    public messagingPreferencesImportOptOutsCsv(): ApiRequest {
+        return this.environments()
+            .current()
+            .addPathComponent('messaging_preferences')
+            .addPathComponent('import_opt_outs_csv')
     }
 
     public hogFlows(): ApiRequest {
@@ -6678,6 +6693,21 @@ const api = {
             return await new ApiRequest().messagingPreferencesAddOptOut().create({
                 data: { identifier, category_key: categoryKey },
             })
+        },
+        async exportOptOutsCsv(categoryKey?: string): Promise<Blob> {
+            const response = await new ApiRequest()
+                .messagingPreferencesExportOptOutsCsv()
+                .withQueryString({ category_key: categoryKey })
+                .getResponse()
+            return await response.blob()
+        },
+        async importOptOutsCsv(file: File, categoryKey?: string): Promise<ImportOptOutsCsvResultApi> {
+            const formData = new FormData()
+            formData.append('csv_file', file)
+            if (categoryKey) {
+                formData.append('category_key', categoryKey)
+            }
+            return await new ApiRequest().messagingPreferencesImportOptOutsCsv().create({ data: formData })
         },
     },
     hogFlows: {

@@ -164,6 +164,24 @@ export const MessagingPreferencesAddOptOutCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
+ * Opt every recipient in an uploaded CSV out of the category named on their row, or a default category.
+ * @summary Import an opt-out list from a CSV file
+ */
+export const MessagingPreferencesImportOptOutsCsvCreateBody = /* @__PURE__ */ zod.object({
+    csv_file: zod
+        .url()
+        .describe(
+            'CSV file with a recipient column (identifier, email, recipient or email_address) and an optional category_key column.'
+        ),
+    category_key: zod
+        .string()
+        .optional()
+        .describe(
+            "Message category key applied to rows that don't name their own category_key. If omitted, recipients are opted out of all marketing messages."
+        ),
+})
+
+/**
  * Manually suppress an email address so no workflow sends to it.
  * @summary Manually add an email address to the suppression list
  */

@@ -79,6 +79,29 @@ export interface MessagePreferencesApi {
     preferences: unknown
 }
 
+export interface MessagingErrorApi {
+    /** Human-readable description of what went wrong. */
+    error: string
+}
+
+export interface ImportOptOutsCsvRequestApi {
+    /** CSV file with a recipient column (identifier, email, recipient or email_address) and an optional category_key column. */
+    csv_file: string
+    /** Message category key applied to rows that don't name their own category_key. If omitted, recipients are opted out of all marketing messages. */
+    category_key?: string
+}
+
+export interface ImportOptOutsCsvResultApi {
+    /** Number of non-empty data rows read from the file. */
+    total_rows: number
+    /** Number of recipient and category pairs recorded as opted out. */
+    opted_out: number
+    /** Number of rows skipped because they were missing or invalid. */
+    skipped_rows: number
+    /** The first few row-level problems, so the user can fix their file. */
+    errors: string[]
+}
+
 export interface AddSuppressionRequestApi {
     /**
      * The email address to suppress. Will not receive any messages until removed.
@@ -417,6 +440,13 @@ export type MessagingCategoriesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type MessagingPreferencesExportOptOutsCsvRetrieveParams = {
+    /**
+     * Message category key to export. If omitted, exports recipients opted out of all marketing messages.
+     */
+    category_key?: string
 }
 
 export type MessagingSuppressionsSuppressionsRetrieveParams = {

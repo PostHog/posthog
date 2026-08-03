@@ -11,11 +11,14 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddOptOutRequestApi,
     AddSuppressionRequestApi,
+    ImportOptOutsCsvRequestApi,
+    ImportOptOutsCsvResultApi,
     MessageCategoryApi,
     MessagePreferencesApi,
     MessageSuppressionApi,
     MessageTemplateApi,
     MessagingCategoriesListParams,
+    MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
@@ -354,6 +357,40 @@ export const messagingPreferencesAddOptOutCreate = async (
     })
 }
 
+export const getMessagingPreferencesExportOptOutsCsvRetrieveUrl = (
+    projectId: string,
+    params?: MessagingPreferencesExportOptOutsCsvRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_preferences/export_opt_outs_csv/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_preferences/export_opt_outs_csv/`
+}
+
+/**
+ * Stream the opt-out list for a category as a CSV file that can be re-imported as-is.
+ * @summary Download the opt-out list as a CSV file
+ */
+export const messagingPreferencesExportOptOutsCsvRetrieve = async (
+    projectId: string,
+    params?: MessagingPreferencesExportOptOutsCsvRetrieveParams,
+    options?: RequestInit
+): Promise<string> => {
+    return apiMutator<string>(getMessagingPreferencesExportOptOutsCsvRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMessagingPreferencesGenerateLinkCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_preferences/generate_link/`
 }
@@ -368,6 +405,32 @@ export const messagingPreferencesGenerateLinkCreate = async (
     return apiMutator<void>(getMessagingPreferencesGenerateLinkCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getMessagingPreferencesImportOptOutsCsvCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_preferences/import_opt_outs_csv/`
+}
+
+/**
+ * Opt every recipient in an uploaded CSV out of the category named on their row, or a default category.
+ * @summary Import an opt-out list from a CSV file
+ */
+export const messagingPreferencesImportOptOutsCsvCreate = async (
+    projectId: string,
+    importOptOutsCsvRequestApi: ImportOptOutsCsvRequestApi,
+    options?: RequestInit
+): Promise<ImportOptOutsCsvResultApi> => {
+    const formData = new FormData()
+    formData.append(`csv_file`, importOptOutsCsvRequestApi.csv_file)
+    if (importOptOutsCsvRequestApi.category_key !== undefined) {
+        formData.append(`category_key`, importOptOutsCsvRequestApi.category_key)
+    }
+
+    return apiMutator<ImportOptOutsCsvResultApi>(getMessagingPreferencesImportOptOutsCsvCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
     })
 }
 
