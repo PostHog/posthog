@@ -6,7 +6,6 @@ import {
   PiExtensionDialog,
 } from "./PiExtensionDialog";
 import { PiExtensionStatuses, PiExtensionWidgets } from "./PiExtensionSurfaces";
-import { piExtensionEditorTextToContent } from "./piExtensionEditorText";
 
 describe("Pi extension presenters", () => {
   it("builds matching response wire shapes", () => {
@@ -185,14 +184,6 @@ describe("Pi extension presenters", () => {
 
     expect(onRespond).not.toHaveBeenCalled();
     expect(editor).toHaveValue("first\nsecond");
-  });
-
-  it("keeps editor replacement tags as literal plain text", () => {
-    const text = '<file path="/tmp/notes.txt" />';
-
-    expect(piExtensionEditorTextToContent(text)).toEqual({
-      segments: [{ type: "text", text }],
-    });
   });
 
   it("renders compact statuses and only widgets for the requested placement", () => {

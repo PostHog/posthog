@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { SessionManager } from "@earendil-works/pi-coding-agent";
 import { createHarnessRuntime, runRpcMode } from "@posthog/harness";
 import type { PosthogProviderOptions } from "@posthog/harness/extensions/posthog-provider/provider";
-import { createPiProjectTrustResolver } from "@posthog/harness/project-trust";
+import { createPiRuntimeTrustResolver } from "@posthog/harness/project-trust";
 import {
   POSTHOG_PI_QUEUE_ENTRY_TYPE,
   readPersistedPiQueue,
@@ -40,7 +40,7 @@ const sessionManager = sessionFile
 const runtime = await createHarnessRuntime({
   cwd,
   sessionManager,
-  projectTrusted: createPiProjectTrustResolver(
+  projectTrusted: createPiRuntimeTrustResolver(
     cwd,
     bootstrap.projectTrusted ?? false,
   ),

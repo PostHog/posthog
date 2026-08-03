@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { PiRpcClient } from "@posthog/agent/pi/rpc-client";
 import type { RpcCommand, RpcResponse } from "@posthog/agent/pi/rpc-transport";
 import type { PiRuntime } from "@posthog/agent/pi/runtime";
-import type { PiExtensionWireEvent } from "@posthog/agent/pi/types";
+import type { PiExtensionEvent } from "@posthog/agent/pi/types";
 import type { RootLogger } from "@posthog/di/logger";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ITaskMetadataRepository } from "../../db/repositories/task-metadata-repository";
@@ -389,42 +389,34 @@ describe("PiSessionService project trust", () => {
 });
 
 describe("PiSessionService extension UI", () => {
-  it("retries definite failures and dedupes concurrent and completed responses", async () => {
-    let emitExtension: (event: PiExtensionWireEvent) => void = () => {};
-    const respondToExtensionUI = vi
-      .fn()
-      .mockRejectedValueOnce(new Error("wire unavailable"))
-      .mockResolvedValue(undefined);
-    const client = {
-      start: vi.fn(async () => {
-        emitExtension({
-          type: "extension_ui_request",
-          id: "extension-1",
-          method: "confirm",
-          title: "Continue?",
-          message: "Run the extension?",
-        });
-      }),
+  it("streams current-session extension events and forwards responses", async () => {
+    const extensionHandlers: Array<(event: PiExtensionEvent) => void> = [];
+    const clients = Array.from({ length: 2 }, (_, index) => ({
+      start: vi.fn().mockResolvedValue(undefined),
       stop: vi.fn().mockResolvedValue(undefined),
       getState: vi.fn().mockResolvedValue({
         isStreaming: false,
-        sessionFile: "/tmp/session.jsonl",
-        sessionId: "session-1",
+        sessionFile: `/tmp/session-${index}.jsonl`,
+        sessionId: `session-${index}`,
       }),
-      respondToExtensionUI,
       prompt: vi.fn().mockResolvedValue(undefined),
-    } as unknown as PiRpcClient;
+      respondToExtensionUI: vi.fn().mockResolvedValue(undefined),
+    })) as unknown as PiRpcClient[];
+    let runtimeIndex = 0;
     const runtimeFactory = {
-      create: vi.fn(async () => ({
-        client,
-        process: undefined,
-        onRuntimeEvent: vi.fn(),
-        onConversationEvent: vi.fn(),
-        onExtensionEvent: vi.fn((handler) => {
-          emitExtension = handler;
-          return () => {};
-        }),
-      })),
+      create: vi.fn(async () => {
+        const client = clients[runtimeIndex++];
+        return {
+          client,
+          process: undefined,
+          onRuntimeEvent: vi.fn(),
+          onConversationEvent: vi.fn(),
+          onExtensionEvent: vi.fn((handler) => {
+            extensionHandlers.push(handler);
+            return () => {};
+          }),
+        };
+      }),
     } as unknown as PiRuntimeFactory;
     const service = new PiSessionService(
       runtimeFactory,
@@ -435,260 +427,60 @@ describe("PiSessionService extension UI", () => {
       } as unknown as ProcessTrackingService,
       rootLogger,
     );
-    const extensionListener = vi.fn();
-    service.on("extensionEvent", extensionListener);
-
+    const abortController = new AbortController();
     await service.start({ taskId: "task-1", cwd: "/tmp", prompt: "hello" });
-    expect(service.getExtensionStateSnapshot("task-1")).toEqual({
-      type: "extension_state_snapshot",
-      dialogs: [
-        {
-          type: "extension_ui_request",
-          id: "extension-1",
-          method: "confirm",
-          title: "Continue?",
-          message: "Run the extension?",
-        },
-      ],
-      statuses: [],
-      widgets: [],
-      title: undefined,
-      editorText: undefined,
-    });
+    const iterator = service
+      .extensionEvents("task-1", abortController.signal)
+      [Symbol.asyncIterator]();
+    const firstEvent = iterator.next();
+    const request: PiExtensionEvent = {
+      type: "extension_ui_request",
+      id: "extension-1",
+      method: "confirm",
+      title: "Continue?",
+      message: "Run the extension?",
+    };
+    extensionHandlers[0](request);
+
+    await expect(firstEvent).resolves.toEqual({ done: false, value: request });
 
     const response = {
       type: "extension_ui_response" as const,
       id: "extension-1",
       confirmed: true,
     };
-    await expect(
-      service.respondToExtensionUI("task-1", response),
-    ).rejects.toThrow("wire unavailable");
-    expect(service.getExtensionStateSnapshot("task-1").dialogs).toHaveLength(1);
     await service.respondToExtensionUI("task-1", response);
+    expect(clients[0].respondToExtensionUI).toHaveBeenCalledWith(response);
 
-    expect(extensionListener).toHaveBeenCalledWith({
+    extensionHandlers[0]({ ...request, id: "buffered-old-extension" });
+    await service.start({
       taskId: "task-1",
-      event: expect.objectContaining({ id: "extension-1" }),
+      cwd: "/tmp/replacement",
+      prompt: "hello again",
     });
-    expect(respondToExtensionUI).toHaveBeenCalledTimes(2);
-    expect(respondToExtensionUI).toHaveBeenLastCalledWith(response);
-    expect(service.getExtensionStateSnapshot("task-1").dialogs).toEqual([]);
-
-    await service.respondToExtensionUI("task-1", response);
-    expect(respondToExtensionUI).toHaveBeenCalledTimes(2);
-
-    emitExtension({
-      type: "extension_ui_request",
-      id: "extension-2",
-      method: "confirm",
-      title: "Continue again?",
-      message: "Run the extension again?",
+    await expect(iterator.next()).resolves.toEqual({
+      done: true,
+      value: undefined,
     });
-    const concurrentResponse = {
-      type: "extension_ui_response" as const,
+
+    const replacementRequest: PiExtensionEvent = {
+      ...request,
       id: "extension-2",
-      confirmed: false,
     };
-    await Promise.all([
-      service.respondToExtensionUI("task-1", concurrentResponse),
-      service.respondToExtensionUI("task-1", concurrentResponse),
-    ]);
-    expect(respondToExtensionUI).toHaveBeenCalledTimes(3);
+    const replacementIterator = service
+      .extensionEvents("task-1", abortController.signal)
+      [Symbol.asyncIterator]();
+    const replacementEvent = replacementIterator.next();
+    extensionHandlers[0]({ ...request, id: "stale-extension" });
+    extensionHandlers[1](replacementRequest);
 
-    emitExtension({
-      type: "extension_ui_request",
-      id: "status-1",
-      method: "setStatus",
-      statusKey: "build",
-      statusText: "Running",
-    });
-    emitExtension({
-      type: "extension_ui_request",
-      id: "status-2",
-      method: "setStatus",
-      statusKey: "build",
-      statusText: "Done",
-    });
-    emitExtension({
-      type: "extension_ui_request",
-      id: "widget-1",
-      method: "setWidget",
-      widgetKey: "summary",
-      widgetLines: ["Summary"],
-    });
-    emitExtension({
-      type: "extension_ui_request",
-      id: "title-1",
-      method: "setTitle",
-      title: "Extension title",
-    });
-    emitExtension({
-      type: "extension_ui_request",
-      id: "editor-1",
-      method: "set_editor_text",
-      text: "draft",
+    await expect(replacementEvent).resolves.toEqual({
+      done: false,
+      value: replacementRequest,
     });
 
-    expect(service.getExtensionStateSnapshot("task-1")).toMatchObject({
-      dialogs: [],
-      statuses: [
-        expect.objectContaining({ method: "setStatus", statusText: "Done" }),
-      ],
-      widgets: [
-        expect.objectContaining({ method: "setWidget", widgetKey: "summary" }),
-      ],
-      title: expect.objectContaining({
-        method: "setTitle",
-        title: "Extension title",
-      }),
-      editorText: expect.objectContaining({
-        method: "set_editor_text",
-        text: "draft",
-      }),
-    });
-
-    emitExtension({
-      type: "extension_ui_request",
-      id: "status-clear",
-      method: "setStatus",
-      statusKey: "build",
-      statusText: undefined,
-    });
-    emitExtension({
-      type: "extension_ui_request",
-      id: "widget-clear",
-      method: "setWidget",
-      widgetKey: "summary",
-      widgetLines: undefined,
-    });
-    expect(service.getExtensionStateSnapshot("task-1")).toMatchObject({
-      statuses: [],
-      widgets: [],
-    });
-
-    service.acknowledgeExtensionEditorText("task-1", "stale-editor-id");
-    expect(service.getExtensionStateSnapshot("task-1").editorText).toEqual(
-      expect.objectContaining({ id: "editor-1" }),
-    );
-    service.acknowledgeExtensionEditorText("task-1", "editor-1");
-    const reconnectSnapshot = service.getExtensionStateSnapshot("task-1");
-    expect(reconnectSnapshot.editorText).toBeUndefined();
-    const draftAfterReconnect =
-      reconnectSnapshot.editorText?.text ?? "later user draft";
-    expect(draftAfterReconnect).toBe("later user draft");
-
-    emitExtension({
-      type: "extension_ui_request",
-      id: "editor-2",
-      method: "set_editor_text",
-      text: "later draft",
-    });
-    service.acknowledgeExtensionEditorText("task-1", "editor-2");
-    expect(
-      service.getExtensionStateSnapshot("task-1").editorText,
-    ).toBeUndefined();
-
-    await service.stop("task-1");
-    expect(extensionListener).toHaveBeenLastCalledWith({
-      taskId: "task-1",
-      event: { type: "extension_session_reset" },
-    });
-    expect(service.getExtensionStateSnapshot("task-1")).toEqual({
-      type: "extension_state_snapshot",
-      dialogs: [],
-      statuses: [],
-      widgets: [],
-      title: undefined,
-      editorText: undefined,
-    });
-  });
-  it("expires timed dialogs from their original receipt time", async () => {
-    vi.useFakeTimers();
-    try {
-      let emitExtension: (event: PiExtensionWireEvent) => void = () => {};
-      const client = {
-        start: vi.fn().mockResolvedValue(undefined),
-        stop: vi.fn().mockResolvedValue(undefined),
-        getState: vi.fn().mockResolvedValue({
-          isStreaming: false,
-          sessionFile: "/tmp/session.jsonl",
-          sessionId: "session-1",
-        }),
-        prompt: vi.fn().mockResolvedValue(undefined),
-        respondToExtensionUI: vi.fn().mockResolvedValue(undefined),
-      } as unknown as PiRpcClient;
-      const runtimeFactory = {
-        create: vi.fn(async () => ({
-          client,
-          process: undefined,
-          onRuntimeEvent: vi.fn(),
-          onConversationEvent: vi.fn(),
-          onExtensionEvent: vi.fn((handler) => {
-            emitExtension = handler;
-            return () => {};
-          }),
-        })),
-      } as unknown as PiRuntimeFactory;
-      const service = new PiSessionService(
-        runtimeFactory,
-        { upsert: vi.fn() } as unknown as ITaskMetadataRepository,
-        {
-          register: vi.fn(),
-          unregister: vi.fn(),
-        } as unknown as ProcessTrackingService,
-        rootLogger,
-      );
-      const extensionListener = vi.fn();
-      service.on("extensionEvent", extensionListener);
-      const started = service.start({
-        taskId: "task-1",
-        cwd: "/tmp",
-        prompt: "hello",
-      });
-      await vi.runAllTimersAsync();
-      await started;
-      const request = {
-        type: "extension_ui_request" as const,
-        id: "timed-input",
-        method: "input" as const,
-        title: "Name",
-        timeout: 50,
-      };
-
-      emitExtension(request);
-      await vi.advanceTimersByTimeAsync(25);
-      emitExtension(request);
-      await vi.advanceTimersByTimeAsync(25);
-
-      expect(service.getExtensionStateSnapshot("task-1").dialogs).toEqual([]);
-      expect(extensionListener).toHaveBeenLastCalledWith({
-        taskId: "task-1",
-        event: { type: "extension_dialog_expired", id: "timed-input" },
-      });
-
-      emitExtension({ ...request, id: "answered-input" });
-      await service.respondToExtensionUI("task-1", {
-        type: "extension_ui_response",
-        id: "answered-input",
-        value: "Ada",
-      });
-      await vi.advanceTimersByTimeAsync(50);
-      expect(extensionListener).not.toHaveBeenCalledWith({
-        taskId: "task-1",
-        event: { type: "extension_dialog_expired", id: "answered-input" },
-      });
-
-      emitExtension({ ...request, id: "reset-input" });
-      await service.stop("task-1");
-      await vi.advanceTimersByTimeAsync(50);
-      expect(extensionListener).not.toHaveBeenCalledWith({
-        taskId: "task-1",
-        event: { type: "extension_dialog_expired", id: "reset-input" },
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+    abortController.abort();
+    await replacementIterator.return?.();
   });
 });
 

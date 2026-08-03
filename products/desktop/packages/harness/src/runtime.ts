@@ -43,7 +43,7 @@ async function createCredentialStore(
 export type HarnessRuntimeOptions = HarnessExtensionOptions & {
   credentialStore?: CredentialStore;
   posthogOAuthCredentials?: PosthogOAuthCredentials;
-  projectTrusted?: boolean | ((cwd: string) => boolean);
+  projectTrusted?: (cwd: string) => boolean;
 } & Partial<
     Pick<
       PiRuntimeTarget,
@@ -117,10 +117,7 @@ export async function createHarnessRuntime(
       settingsManager:
         options.settingsManager ??
         pi.SettingsManager.create(runtimeCwd, runtimeAgentDir, {
-          projectTrusted:
-            typeof projectTrusted === "function"
-              ? projectTrusted(runtimeCwd)
-              : (projectTrusted ?? false),
+          projectTrusted: projectTrusted?.(runtimeCwd) ?? false,
         }),
       resourceLoaderOptions: {
         ...runtimeOptions.resourceLoaderOptions,

@@ -2,8 +2,6 @@ import { publicProcedure, router } from "@posthog/host-trpc/trpc";
 import { PI_SESSION_SERVICE } from "@posthog/workspace-server/services/pi-session/identifiers";
 import type { PiSessionService } from "@posthog/workspace-server/services/pi-session/pi-session";
 import {
-  piExtensionEditorTextAckInput,
-  piExtensionEventSchema,
   piExtensionUIResponseInput,
   piProjectTrustOutput,
   piQueueSnapshotOutput,
@@ -91,15 +89,6 @@ export const piSessionRouter = router({
       ),
     ),
 
-  acknowledgeExtensionEditorText: publicProcedure
-    .input(piExtensionEditorTextAckInput)
-    .mutation(({ ctx, input }) =>
-      getService(ctx.container).acknowledgeExtensionEditorText(
-        input.taskId,
-        input.id,
-      ),
-    ),
-
   onEvent: publicProcedure
     .input(piSessionTaskInput)
     .subscription(async function* (opts) {
@@ -114,36 +103,7 @@ export const piSessionRouter = router({
 
   onExtensionEvent: publicProcedure
     .input(piSessionTaskInput)
-    .subscription(async function* (opts) {
-      const service = getService(opts.ctx.container);
-      const iterator = service
-        .toIterable("extensionEvent", { signal: opts.signal })
-        [Symbol.asyncIterator]();
-      let next = iterator.next();
-      const snapshot = service.getExtensionStateSnapshot(opts.input.taskId);
-
-      try {
-        yield piExtensionEventSchema.parse(snapshot);
-
-        while (true) {
-          const result = await next;
-          if (result.done) {
-            return;
-          }
-          if (result.value.taskId === opts.input.taskId) {
-            const event = piExtensionEventSchema.parse(result.value.event);
-            if (event.type === "extension_session_reset") {
-              yield event;
-              return;
-            }
-            next = iterator.next();
-            yield event;
-          } else {
-            next = iterator.next();
-          }
-        }
-      } finally {
-        await iterator.return?.();
-      }
-    }),
+    .subscription(({ ctx, input, signal }) =>
+      getService(ctx.container).extensionEvents(input.taskId, signal),
+    ),
 });

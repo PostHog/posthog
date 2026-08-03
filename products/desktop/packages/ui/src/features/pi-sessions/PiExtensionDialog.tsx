@@ -1,5 +1,5 @@
 import type { PiExtensionUIResponse } from "@posthog/agent/pi/types";
-import type { PiExtensionDialogRequest } from "@posthog/core/pi-runtime/piSessionStore";
+import type { PiExtensionDialogRequest } from "@posthog/core/pi-runtime/piExtensionStore";
 import {
   Button,
   Dialog,

@@ -149,39 +149,12 @@ export const piExtensionErrorSchema = z.object({
   extensionPath: z.string(),
   event: z.string(),
   error: z.string(),
-});
-
-export const piExtensionSessionResetSchema = z.object({
-  type: z.literal("extension_session_reset"),
-});
-
-export const piExtensionDialogExpiredSchema = z.object({
-  type: z.literal("extension_dialog_expired"),
-  id: z.string(),
-});
-
-export const piExtensionStateSnapshotSchema = z.object({
-  type: z.literal("extension_state_snapshot"),
-  dialogs: z.array(
-    z.union([
-      piExtensionUIRequestSchema.options[0],
-      piExtensionUIRequestSchema.options[1],
-      piExtensionUIRequestSchema.options[2],
-      piExtensionUIRequestSchema.options[3],
-    ]),
-  ),
-  statuses: z.array(piExtensionUIRequestSchema.options[5]),
-  widgets: z.array(piExtensionUIRequestSchema.options[6]),
-  title: piExtensionUIRequestSchema.options[7].optional(),
-  editorText: piExtensionUIRequestSchema.options[8].optional(),
+  stack: z.string().optional(),
 });
 
 export const piExtensionEventSchema = z.union([
   piExtensionUIRequestSchema,
   piExtensionErrorSchema,
-  piExtensionSessionResetSchema,
-  piExtensionDialogExpiredSchema,
-  piExtensionStateSnapshotSchema,
 ]);
 
 export const piExtensionUIResponseSchema = z.union([
@@ -205,9 +178,4 @@ export const piExtensionUIResponseSchema = z.union([
 export const piExtensionUIResponseInput = z.object({
   taskId: z.string(),
   response: piExtensionUIResponseSchema,
-});
-
-export const piExtensionEditorTextAckInput = z.object({
-  taskId: z.string(),
-  id: z.string(),
 });

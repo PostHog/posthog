@@ -29,14 +29,20 @@ export function writePiProjectTrust(
   new ProjectTrustStore(agentDir).set(projectTrustPath, trusted);
 }
 
-export function createPiProjectTrustResolver(
-  initialCwd: string,
-  initialTrusted: boolean,
+// Preserve the validated trust decision only for the CWD that started this
+// runtime. A replacement runtime with another CWD must resolve its own trust.
+export function createPiRuntimeTrustResolver(
+  trustedRuntimeCwd: string,
+  trusted: boolean,
   agentDir: string = getAgentDir(),
 ): (runtimeCwd: string) => boolean {
-  const resolvedInitialCwd = resolve(initialCwd);
-  return (runtimeCwd) =>
-    resolve(runtimeCwd) === resolvedInitialCwd
-      ? initialTrusted
-      : readPiProjectTrust(runtimeCwd, runtimeCwd, agentDir).trusted;
+  const resolvedTrustedRuntimeCwd = resolve(trustedRuntimeCwd);
+
+  return (runtimeCwd) => {
+    if (resolve(runtimeCwd) === resolvedTrustedRuntimeCwd) {
+      return trusted;
+    }
+
+    return readPiProjectTrust(runtimeCwd, runtimeCwd, agentDir).trusted;
+  };
 }

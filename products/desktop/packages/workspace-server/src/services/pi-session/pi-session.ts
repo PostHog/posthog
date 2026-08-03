@@ -13,10 +13,7 @@ import type { PiRuntime } from "@posthog/agent/pi/runtime";
 import {
   PI_THINKING_LEVELS,
   type PiExtensionEvent,
-  type PiExtensionStateSnapshot,
-  type PiExtensionUIRequest,
   type PiExtensionUIResponse,
-  type PiExtensionWireEvent,
   type PiPersistedSessionConfig,
   type PiQueueSnapshot,
 } from "@posthog/agent/pi/types";
@@ -37,7 +34,7 @@ import type { ITaskMetadataRepository } from "../../db/repositories/task-metadat
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
 import type { ProcessTrackingService } from "../process-tracking/process-tracking";
 import { PI_RUNTIME_FACTORY, type PiRuntimeFactory } from "./identifiers";
-import type { StartPiSessionInput } from "./schemas";
+import { piExtensionEventSchema, type StartPiSessionInput } from "./schemas";
 
 type PiPoolSessionState = "starting" | "idle" | "streaming";
 
@@ -68,22 +65,11 @@ type PiSessionEvent = Parameters<Parameters<PiRpcClient["onEvent"]>[0]>[0];
 
 interface PiSessionEvents {
   event: { taskId: string; event: AgentConversationEvent };
-  extensionEvent: { taskId: string; event: PiExtensionEvent };
-}
-
-interface PiExtensionReplayState {
-  dialogs: Map<
-    string,
-    Extract<
-      PiExtensionUIRequest,
-      { method: "select" | "confirm" | "input" | "editor" }
-    >
-  >;
-  dialogTimeouts: Map<string, ReturnType<typeof setTimeout>>;
-  statuses: Map<string, Extract<PiExtensionUIRequest, { method: "setStatus" }>>;
-  widgets: Map<string, Extract<PiExtensionUIRequest, { method: "setWidget" }>>;
-  title?: Extract<PiExtensionUIRequest, { method: "setTitle" }>;
-  editorText?: Extract<PiExtensionUIRequest, { method: "set_editor_text" }>;
+  extensionEvent: {
+    taskId: string;
+    event: PiExtensionEvent;
+    session: ManagedPiSession;
+  };
 }
 
 interface ManagedPiSession {
@@ -95,8 +81,7 @@ interface ManagedPiSession {
   lastUsedAt: number;
   activeRequestCount: number;
   stopFailed: boolean;
-  extensionResponsesInFlight: Map<string, Promise<void>>;
-  completedExtensionResponseIds: Set<string>;
+  extensionEventsAbort: AbortController;
   pid?: number;
 }
 
@@ -218,7 +203,6 @@ function readHotPoolSize(): number {
 @injectable()
 export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
   private readonly sessions = new Map<string, ManagedPiSession>();
-  private readonly extensionReplay = new Map<string, PiExtensionReplayState>();
   private readonly lifecycleLocks = new Map<string, Promise<unknown>>();
   private readonly maxHotSessions = readHotPoolSize();
   private poolMaintenance: Promise<void> = Promise.resolve();
@@ -394,51 +378,30 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     taskId: string,
     response: PiExtensionUIResponse,
   ): Promise<void> {
+    return this.withActiveRequest(taskId, (session) =>
+      session.client.respondToExtensionUI(response),
+    );
+  }
+
+  async *extensionEvents(
+    taskId: string,
+    signal?: AbortSignal,
+  ): AsyncIterable<PiExtensionEvent> {
     const session = this.requireSession(taskId);
-    if (session.completedExtensionResponseIds.has(response.id)) {
-      this.removeReplayDialog(taskId, response.id);
-      return Promise.resolve();
-    }
-    const existing = session.extensionResponsesInFlight.get(response.id);
-    if (existing) {
-      return existing;
-    }
+    const streamSignal = signal
+      ? AbortSignal.any([signal, session.extensionEventsAbort.signal])
+      : session.extensionEventsAbort.signal;
 
-    const delivery = this.withActiveRequest(taskId, (activeSession) =>
-      activeSession.client.respondToExtensionUI(response),
-    )
-      .then(() => {
-        session.completedExtensionResponseIds.add(response.id);
-        if (this.sessions.get(taskId) === session) {
-          this.removeReplayDialog(taskId, response.id);
-        }
-      })
-      .finally(() => {
-        if (session.extensionResponsesInFlight.get(response.id) === delivery) {
-          session.extensionResponsesInFlight.delete(response.id);
-        }
-      });
-    session.extensionResponsesInFlight.set(response.id, delivery);
-    return delivery;
-  }
-
-  acknowledgeExtensionEditorText(taskId: string, id: string): void {
-    const state = this.extensionReplay.get(taskId);
-    if (state?.editorText?.id === id) {
-      state.editorText = undefined;
+    for await (const payload of this.toIterable("extensionEvent", {
+      signal: streamSignal,
+    })) {
+      if (streamSignal.aborted || this.sessions.get(taskId) !== session) {
+        return;
+      }
+      if (payload.taskId === taskId && payload.session === session) {
+        yield piExtensionEventSchema.parse(payload.event) as PiExtensionEvent;
+      }
     }
-  }
-
-  getExtensionStateSnapshot(taskId: string): PiExtensionStateSnapshot {
-    const state = this.extensionReplay.get(taskId);
-    return {
-      type: "extension_state_snapshot",
-      dialogs: state ? [...state.dialogs.values()] : [],
-      statuses: state ? [...state.statuses.values()] : [],
-      widgets: state ? [...state.widgets.values()] : [],
-      title: state?.title,
-      editorText: state?.editorText,
-    };
   }
 
   async readSessionConfig(
@@ -484,7 +447,6 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     const session = this.sessions.get(taskId);
 
     if (!session) {
-      this.clearExtensionReplayState(taskId);
       return;
     }
 
@@ -499,8 +461,8 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
     }
 
     if (this.sessions.get(taskId) === session) {
+      session.extensionEventsAbort.abort();
       this.sessions.delete(taskId);
-      this.resetExtensionSession(taskId);
     }
     if (session.pid) {
       this.processTracking.unregister(session.pid, "pi-session-stopped");
@@ -570,8 +532,8 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       this.log.error("Failed to start Pi session", { taskId, error });
 
       await this.cleanupFailedClient(taskId, client);
+      session.extensionEventsAbort.abort();
       this.sessions.delete(taskId);
-      this.resetExtensionSession(taskId);
 
       throw error;
     }
@@ -606,18 +568,11 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       lastUsedAt: Date.now(),
       activeRequestCount: 0,
       stopFailed: false,
-      extensionResponsesInFlight: new Map(),
-      completedExtensionResponseIds: new Set(),
+      extensionEventsAbort: new AbortController(),
     };
 
+    this.sessions.get(taskId)?.extensionEventsAbort.abort();
     this.sessions.set(taskId, session);
-    this.clearExtensionReplayState(taskId);
-    this.extensionReplay.set(taskId, {
-      dialogs: new Map(),
-      dialogTimeouts: new Map(),
-      statuses: new Map(),
-      widgets: new Map(),
-    });
     runtime.onRuntimeEvent((event) =>
       this.handleSessionEvent(taskId, session, event),
     );
@@ -625,116 +580,12 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
       this.emit("event", { taskId, event }),
     );
     runtime.onExtensionEvent?.((event) => {
-      this.updateExtensionReplay(taskId, event);
-      this.emit("extensionEvent", { taskId, event });
+      if (this.sessions.get(taskId) === session) {
+        this.emit("extensionEvent", { taskId, event, session });
+      }
     });
 
     return session;
-  }
-
-  private updateExtensionReplay(
-    taskId: string,
-    event: PiExtensionWireEvent,
-  ): void {
-    if (event.type === "extension_error") {
-      return;
-    }
-
-    const state = this.extensionReplay.get(taskId);
-    if (!state) {
-      return;
-    }
-
-    switch (event.method) {
-      case "select":
-      case "confirm":
-      case "input":
-      case "editor":
-        if (state.dialogs.has(event.id)) {
-          return;
-        }
-        state.dialogs.set(event.id, event);
-        if ("timeout" in event && event.timeout && event.timeout > 0) {
-          state.dialogTimeouts.set(
-            event.id,
-            setTimeout(
-              () => this.expireReplayDialog(taskId, event.id, state),
-              event.timeout,
-            ),
-          );
-        }
-        return;
-      case "setStatus":
-        if (event.statusText === undefined) {
-          state.statuses.delete(event.statusKey);
-        } else {
-          state.statuses.set(event.statusKey, event);
-        }
-        return;
-      case "setWidget":
-        if (event.widgetLines === undefined) {
-          state.widgets.delete(event.widgetKey);
-        } else {
-          state.widgets.set(event.widgetKey, event);
-        }
-        return;
-      case "setTitle":
-        state.title = event;
-        return;
-      case "set_editor_text":
-        state.editorText = event;
-        return;
-      case "notify":
-        return;
-    }
-  }
-
-  private removeReplayDialog(taskId: string, id: string): void {
-    const state = this.extensionReplay.get(taskId);
-    if (!state) {
-      return;
-    }
-    state.dialogs.delete(id);
-    const timeout = state.dialogTimeouts.get(id);
-    if (timeout) {
-      clearTimeout(timeout);
-      state.dialogTimeouts.delete(id);
-    }
-  }
-
-  private expireReplayDialog(
-    taskId: string,
-    id: string,
-    expectedState: PiExtensionReplayState,
-  ): void {
-    if (this.extensionReplay.get(taskId) !== expectedState) {
-      return;
-    }
-    const expired = expectedState.dialogs.delete(id);
-    expectedState.dialogTimeouts.delete(id);
-    if (!expired) {
-      return;
-    }
-    this.emit("extensionEvent", {
-      taskId,
-      event: { type: "extension_dialog_expired", id },
-    });
-  }
-
-  private clearExtensionReplayState(taskId: string): void {
-    const state = this.extensionReplay.get(taskId);
-    for (const timeout of state?.dialogTimeouts.values() ?? []) {
-      clearTimeout(timeout);
-    }
-    this.extensionReplay.delete(taskId);
-  }
-
-  private resetExtensionSession(taskId: string): void {
-    this.clearExtensionReplayState(taskId);
-    this.emit("extensionEvent", {
-      taskId,
-      event: { type: "extension_session_reset" },
-    });
   }
 
   private trackProcess(taskId: string, session: ManagedPiSession): void {
@@ -760,8 +611,8 @@ export class PiSessionService extends TypedEventEmitter<PiSessionEvents> {
         return;
       }
 
+      session.extensionEventsAbort.abort();
       this.sessions.delete(taskId);
-      this.resetExtensionSession(taskId);
       this.log.warn("Pi RPC process exited", { taskId, code, signal });
     });
   }

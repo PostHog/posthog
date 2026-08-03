@@ -11,7 +11,7 @@ import {
 } from "./conversation/translatePiConversation";
 import { getPiRpcClientProcess, type PiRpcClient } from "./rpc-client";
 import { sendPiRpcCommand } from "./rpc-transport";
-import type { PiExtensionWireEvent } from "./types";
+import type { PiExtensionEvent } from "./types";
 
 export class PiRuntime {
   readonly client: PiRpcClient;
@@ -24,7 +24,7 @@ export class PiRuntime {
     (event: AgentConversationEvent) => void
   >();
   private readonly extensionListeners = new Set<
-    (event: PiExtensionWireEvent) => void
+    (event: PiExtensionEvent) => void
   >();
   private readonly pendingUserMessages: Array<{
     id: string;
@@ -37,7 +37,7 @@ export class PiRuntime {
     this.client = client;
     this.translator = createPiConversationTranslator();
     client.onEvent((event) =>
-      this.handleEvent(event as AgentSessionEvent | PiExtensionWireEvent),
+      this.handleEvent(event as AgentSessionEvent | PiExtensionEvent),
     );
   }
 
@@ -57,9 +57,7 @@ export class PiRuntime {
     return () => this.conversationListeners.delete(listener);
   }
 
-  onExtensionEvent(
-    listener: (event: PiExtensionWireEvent) => void,
-  ): () => void {
+  onExtensionEvent(listener: (event: PiExtensionEvent) => void): () => void {
     this.extensionListeners.add(listener);
     return () => this.extensionListeners.delete(listener);
   }
@@ -126,7 +124,7 @@ export class PiRuntime {
     }
   }
 
-  private handleEvent(event: AgentSessionEvent | PiExtensionWireEvent): void {
+  private handleEvent(event: AgentSessionEvent | PiExtensionEvent): void {
     if (
       event.type === "extension_ui_request" ||
       event.type === "extension_error"

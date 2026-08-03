@@ -66,13 +66,6 @@ class TrpcPiSession implements PiSession {
     });
   }
 
-  acknowledgeExtensionEditorText(id: string) {
-    return this.hostClient.piSession.acknowledgeExtensionEditorText.mutate({
-      taskId: this.taskId,
-      id,
-    });
-  }
-
   onExtensionEvent(
     onEvent: Parameters<NonNullable<PiSession["onExtensionEvent"]>>[0],
     onError: Parameters<NonNullable<PiSession["onExtensionEvent"]>>[1],

@@ -1,9 +1,15 @@
 import {
   contentToXml,
   isContentEmpty,
+  textToContent,
   xmlToContent,
 } from "@posthog/core/message-editor/content";
-import { PI_SESSION_CONTROLLER } from "@posthog/core/pi-runtime/identifiers";
+import {
+  PI_EXTENSION_CONTROLLER,
+  PI_SESSION_CONTROLLER,
+} from "@posthog/core/pi-runtime/identifiers";
+import type { PiExtensionController } from "@posthog/core/pi-runtime/piExtensionController";
+import { createEmptyPiExtensionTaskState } from "@posthog/core/pi-runtime/piExtensionStore";
 import {
   PiOperationError,
   type PiSessionController,
@@ -53,7 +59,6 @@ import { PiProjectTrustBanner } from "./PiProjectTrustBanner";
 import { PiQueuedMessagesDock } from "./PiQueuedMessagesDock";
 import { PiMessagingModeSelector } from "./PiSessionControls";
 import { PiSessionModelControls } from "./PiSessionModelControls";
-import { piExtensionEditorTextToContent } from "./piExtensionEditorText";
 import {
   getPiPendingConfig,
   usePiPendingConfigStore,
@@ -75,9 +80,16 @@ export function PiSessionView({
   const piSessionController = useService<PiSessionController>(
     PI_SESSION_CONTROLLER,
   );
+  const piExtensionController = useService<PiExtensionController>(
+    PI_EXTENSION_CONTROLLER,
+  );
   const session = useStore(
     piSessionController.store,
     (state) => state.sessions[taskId],
+  );
+  const extensionState = useStore(
+    piExtensionController.store,
+    (state) => state.tasks[taskId],
   );
   const draftActions = useDraftStore((state) => state.actions);
   const pendingConfig = usePiPendingConfigStore((state) =>
@@ -105,6 +117,20 @@ export function PiSessionView({
     void piSessionController.ensureConnected(taskId, taskRunId).catch(() => {});
     return () => piSessionController.disconnect(taskId);
   }, [piSessionController, taskId, taskRunId]);
+
+  useEffect(() => {
+    if (isCloud || session?.connectionState !== "connected") {
+      return;
+    }
+    void piExtensionController.connect(taskId, taskRunId).catch(() => {});
+    return () => piExtensionController.disconnect(taskId);
+  }, [
+    isCloud,
+    piExtensionController,
+    session?.connectionState,
+    taskId,
+    taskRunId,
+  ]);
 
   const status = session?.status;
   const isStreaming = status?.isStreaming ?? false;
@@ -298,9 +324,7 @@ export function PiSessionView({
       );
   }, [handleControllerError, piSessionController, taskId]);
 
-  const extensionNotification = isCloud
-    ? undefined
-    : session?.extensionNotifications[0];
+  const extensionNotification = extensionState?.notifications[0];
   useEffect(() => {
     if (!extensionNotification) {
       return;
@@ -308,31 +332,26 @@ export function PiSessionView({
     toast[extensionNotification.notifyType]("Pi extension", {
       description: extensionNotification.message,
     });
-    piSessionController.acknowledgeExtensionNotification(
+    piExtensionController.acknowledgeNotification(
       taskId,
       extensionNotification.id,
     );
-  }, [extensionNotification, piSessionController, taskId]);
+  }, [extensionNotification, piExtensionController, taskId]);
 
-  const extensionEditorText = isCloud
-    ? undefined
-    : session?.extensionEditorText;
+  const extensionEditorText = extensionState?.editorText;
   useEffect(() => {
     if (!extensionEditorText) {
       return;
     }
     draftActions.setPendingContent(
       taskId,
-      piExtensionEditorTextToContent(extensionEditorText.text),
+      textToContent(extensionEditorText.text),
     );
     draftActions.requestFocus(taskId);
-    piSessionController.acknowledgeExtensionEditorText(
-      taskId,
-      extensionEditorText.id,
-    );
-  }, [draftActions, extensionEditorText, piSessionController, taskId]);
+    piExtensionController.acknowledgeEditorText(taskId, extensionEditorText.id);
+  }, [draftActions, extensionEditorText, piExtensionController, taskId]);
 
-  const extensionTitle = isCloud ? undefined : session?.extensionTitle;
+  const extensionTitle = extensionState?.title;
   useEffect(() => {
     if (extensionTitle === undefined) {
       return;
@@ -450,7 +469,9 @@ export function PiSessionView({
     );
   }
 
-  const extensionDialog = isCloud ? undefined : session.extensionDialogs[0];
+  const currentExtensionState =
+    extensionState ?? createEmptyPiExtensionTaskState();
+  const extensionDialog = currentExtensionState.dialogs[0];
 
   return (
     <Flex direction="column" height="100%">
@@ -459,10 +480,10 @@ export function PiSessionView({
           key={extensionDialog.id}
           request={extensionDialog}
           onRespond={(response) =>
-            piSessionController.respondToExtensionUI(taskId, response)
+            piExtensionController.respondToExtensionUI(taskId, response)
           }
           onCancel={() =>
-            piSessionController.cancelExtensionUI(taskId, extensionDialog.id)
+            piExtensionController.cancelExtensionUI(taskId, extensionDialog.id)
           }
         />
       )}
@@ -498,9 +519,9 @@ export function PiSessionView({
         />
         {!isCloud && (
           <>
-            <PiExtensionStatuses statuses={session.extensionStatuses} />
+            <PiExtensionStatuses statuses={currentExtensionState.statuses} />
             <PiExtensionWidgets
-              widgets={session.extensionWidgets}
+              widgets={currentExtensionState.widgets}
               placement="aboveEditor"
             />
             {session.projectTrust?.hasProjectResources && (
@@ -561,7 +582,7 @@ export function PiSessionView({
         />
         {!isCloud && (
           <PiExtensionWidgets
-            widgets={session.extensionWidgets}
+            widgets={currentExtensionState.widgets}
             placement="belowEditor"
           />
         )}

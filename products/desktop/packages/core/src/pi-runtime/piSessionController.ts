@@ -25,7 +25,6 @@ import {
   createEmptyPiControllerSession,
   createPiSessionStore,
   type PiControllerSessionState,
-  type PiExtensionDialogRequest,
   type PiProjectTrustState,
   type PiSessionError,
   type PiSessionStore,
@@ -79,7 +78,6 @@ export interface PiSession {
     onComplete?: () => void,
   ): () => void;
   respondToExtensionUI?(response: PiExtensionUIResponse): Promise<void>;
-  acknowledgeExtensionEditorText?(id: string): Promise<void>;
 }
 
 export interface PiSessionFactory {
@@ -129,42 +127,15 @@ function normalizeSessionError(error: unknown): {
   };
 }
 
-interface PiExtensionEditorAckState {
-  attempt: number;
-  timeout?: ReturnType<typeof setTimeout>;
-}
-
-const EXTENSION_RECONNECT_STABLE_MS = 5_000;
-
 @injectable()
 export class PiSessionController {
   readonly store: PiSessionStore = createPiSessionStore();
 
   private readonly sessions = new Map<string, Promise<PiSession>>();
   private readonly subscriptions = new Map<string, () => void>();
-  private readonly extensionSubscriptions = new Map<string, () => void>();
-  private readonly extensionResponses = new Map<
-    string,
-    Map<string, Promise<void>>
-  >();
   private readonly projectTrustTransitions = new Map<
     string,
     { trusted: boolean; promise: Promise<void> }
-  >();
-  private readonly extensionVersions = new Map<string, number>();
-  private readonly extensionOneShotIds = new Map<string, Set<string>>();
-  private readonly extensionEditorAcks = new Map<
-    string,
-    Map<string, PiExtensionEditorAckState>
-  >();
-  private readonly extensionReconnectTimeouts = new Map<
-    string,
-    ReturnType<typeof setTimeout>
-  >();
-  private readonly extensionReconnectAttempts = new Map<string, number>();
-  private readonly extensionReconnectStabilityTimeouts = new Map<
-    string,
-    ReturnType<typeof setTimeout>
   >();
   private readonly liveEvents = new Map<string, AgentConversationEvent[]>();
   private readonly connections = new Map<string, Promise<void>>();
@@ -187,7 +158,6 @@ export class PiSessionController {
   ensureConnected(taskId: string, taskRunId?: string): Promise<void> {
     this.activeTaskIds.add(taskId);
     this.bindTaskRun(taskId, taskRunId);
-    this.ensureExtensionSubscription(taskId);
     this.ensureSubscription(taskId);
 
     const existing = this.readiness.get(taskId);
@@ -227,7 +197,6 @@ export class PiSessionController {
   connect(taskId: string, taskRunId?: string): Promise<void> {
     this.activeTaskIds.add(taskId);
     this.bindTaskRun(taskId, taskRunId);
-    this.ensureExtensionSubscription(taskId);
     this.ensureSubscription(taskId);
 
     const existing = this.connections.get(taskId);
@@ -248,22 +217,12 @@ export class PiSessionController {
 
   disconnect(taskId: string): void {
     this.cancelAuthRestoration.get(taskId)?.();
-    this.advanceSessionVersion(taskId);
-    this.disposeConversationSubscription(taskId);
-    this.connections.delete(taskId);
-    this.readiness.delete(taskId);
+    this.resetTransport(taskId);
+    this.taskRunIds.delete(taskId);
     this.liveEvents.delete(taskId);
     this.queueRevisions.delete(taskId);
     this.queuesToRestore.delete(taskId);
     this.activeTaskIds.delete(taskId);
-    this.cancelExtensionReconnect(taskId);
-    this.cancelExtensionReconnectStability(taskId);
-
-    if (!this.extensionSubscriptions.has(taskId)) {
-      this.sessions.delete(taskId);
-      this.taskRunIds.delete(taskId);
-      this.clearExtensionState(taskId);
-    }
   }
 
   async retry(taskId: string): Promise<void> {
@@ -619,89 +578,6 @@ export class PiSessionController {
     }
   }
 
-  respondToExtensionUI(
-    taskId: string,
-    response: PiExtensionUIResponse,
-  ): Promise<void> {
-    const request = this.getSession(taskId).extensionDialogs.find(
-      (dialog) => dialog.id === response.id,
-    );
-    if (!request) {
-      return Promise.resolve();
-    }
-
-    const taskResponses = this.extensionResponses.get(taskId) ?? new Map();
-    const existing = taskResponses.get(response.id);
-    if (existing) {
-      return existing;
-    }
-
-    const extensionVersion = this.getExtensionVersion(taskId);
-    const delivery = this.sendExtensionResponse(taskId, response)
-      .then(() => {
-        if (this.getExtensionVersion(taskId) === extensionVersion) {
-          this.removeExtensionDialog(taskId, response.id);
-        }
-      })
-      .catch((error) => {
-        if (this.getExtensionVersion(taskId) === extensionVersion) {
-          this.addExtensionNotification(
-            taskId,
-            `Failed to respond to Pi extension: ${String(error)}`,
-            "error",
-          );
-        }
-        throw error;
-      })
-      .finally(() => {
-        if (taskResponses.get(response.id) === delivery) {
-          taskResponses.delete(response.id);
-          if (
-            taskResponses.size === 0 &&
-            this.extensionResponses.get(taskId) === taskResponses
-          ) {
-            this.extensionResponses.delete(taskId);
-          }
-        }
-      });
-    taskResponses.set(response.id, delivery);
-    this.extensionResponses.set(taskId, taskResponses);
-    return delivery;
-  }
-
-  cancelExtensionUI(taskId: string, requestId: string): Promise<void> {
-    return this.respondToExtensionUI(taskId, {
-      type: "extension_ui_response",
-      id: requestId,
-      cancelled: true,
-    });
-  }
-
-  acknowledgeExtensionNotification(taskId: string, id: string): void {
-    const session = this.getSession(taskId);
-    this.updateSession(taskId, {
-      extensionNotifications: session.extensionNotifications.filter(
-        (notification) => notification.id !== id,
-      ),
-    });
-  }
-
-  acknowledgeExtensionEditorText(taskId: string, id: string): void {
-    if (this.getSession(taskId).extensionEditorText?.id !== id) {
-      return;
-    }
-    this.updateSession(taskId, { extensionEditorText: undefined });
-
-    const taskAcks = this.extensionEditorAcks.get(taskId) ?? new Map();
-    if (taskAcks.has(id)) {
-      return;
-    }
-    const acknowledgement: PiExtensionEditorAckState = { attempt: 0 };
-    taskAcks.set(id, acknowledgement);
-    this.extensionEditorAcks.set(taskId, taskAcks);
-    this.deliverExtensionEditorAck(taskId, id, acknowledgement);
-  }
-
   private async ensureConnectedInternal(taskId: string): Promise<void> {
     const session = await this.getPiSession(taskId);
     const health = await session.health();
@@ -750,175 +626,6 @@ export class PiSessionController {
       disposed = true;
       unsubscribe?.();
     });
-  }
-
-  private ensureExtensionSubscription(taskId: string): void {
-    if (this.extensionSubscriptions.has(taskId)) {
-      return;
-    }
-    this.cancelExtensionReconnect(taskId, false);
-
-    let disposed = false;
-    let unsubscribe: (() => void) | undefined;
-    const dispose = () => {
-      disposed = true;
-      unsubscribe?.();
-    };
-    this.extensionSubscriptions.set(taskId, dispose);
-
-    void this.getPiSession(taskId)
-      .then((session) => {
-        if (disposed || !session.onExtensionEvent) {
-          this.extensionReconnectAttempts.delete(taskId);
-          if (this.extensionSubscriptions.get(taskId) === dispose) {
-            this.extensionSubscriptions.delete(taskId);
-          }
-          if (!disposed && !this.activeTaskIds.has(taskId)) {
-            this.sessions.delete(taskId);
-            this.taskRunIds.delete(taskId);
-            this.clearExtensionState(taskId);
-          }
-          return;
-        }
-        const nextUnsubscribe = session.onExtensionEvent(
-          (event) => this.handleExtensionEvent(taskId, event, dispose),
-          (error) => this.endExtensionSubscription(taskId, dispose, error),
-          () => this.endExtensionSubscription(taskId, dispose),
-        );
-        if (disposed) {
-          nextUnsubscribe();
-        } else {
-          unsubscribe = nextUnsubscribe;
-        }
-      })
-      .catch((error) => this.endExtensionSubscription(taskId, dispose, error));
-  }
-
-  private endExtensionSubscription(
-    taskId: string,
-    dispose: () => void,
-    error?: unknown,
-  ): void {
-    if (this.extensionSubscriptions.get(taskId) !== dispose) {
-      return;
-    }
-    this.extensionSubscriptions.delete(taskId);
-    dispose();
-    this.sessions.delete(taskId);
-    this.cancelExtensionReconnectStability(taskId);
-    if (error !== undefined && this.activeTaskIds.has(taskId)) {
-      if ((this.extensionReconnectAttempts.get(taskId) ?? 0) === 0) {
-        this.addExtensionNotification(
-          taskId,
-          `Pi extension UI disconnected: ${String(error)}`,
-          "error",
-          `extension-ui-disconnected:${taskId}`,
-        );
-      }
-      this.scheduleExtensionReconnect(taskId);
-    } else {
-      this.cancelExtensionReconnect(taskId);
-      this.clearExtensionState(taskId);
-    }
-  }
-
-  private scheduleExtensionReconnect(taskId: string): void {
-    if (
-      !this.activeTaskIds.has(taskId) ||
-      this.extensionReconnectTimeouts.has(taskId)
-    ) {
-      return;
-    }
-    const attempt = this.extensionReconnectAttempts.get(taskId) ?? 0;
-    const delay = Math.min(100 * 2 ** attempt, 1_000);
-    this.extensionReconnectAttempts.set(taskId, Math.min(attempt + 1, 4));
-    this.extensionReconnectTimeouts.set(
-      taskId,
-      setTimeout(() => {
-        this.extensionReconnectTimeouts.delete(taskId);
-        if (this.activeTaskIds.has(taskId)) {
-          this.ensureExtensionSubscription(taskId);
-        }
-      }, delay),
-    );
-  }
-
-  private cancelExtensionReconnect(taskId: string, resetAttempts = true): void {
-    const timeout = this.extensionReconnectTimeouts.get(taskId);
-    if (timeout) {
-      clearTimeout(timeout);
-      this.extensionReconnectTimeouts.delete(taskId);
-    }
-    if (resetAttempts) {
-      this.extensionReconnectAttempts.delete(taskId);
-    }
-  }
-
-  private scheduleExtensionReconnectStability(
-    taskId: string,
-    dispose: () => void,
-  ): void {
-    if (this.extensionReconnectStabilityTimeouts.has(taskId)) {
-      return;
-    }
-    this.extensionReconnectStabilityTimeouts.set(
-      taskId,
-      setTimeout(() => {
-        this.extensionReconnectStabilityTimeouts.delete(taskId);
-        if (this.extensionSubscriptions.get(taskId) === dispose) {
-          this.extensionReconnectAttempts.delete(taskId);
-        }
-      }, EXTENSION_RECONNECT_STABLE_MS),
-    );
-  }
-
-  private cancelExtensionReconnectStability(taskId: string): void {
-    const timeout = this.extensionReconnectStabilityTimeouts.get(taskId);
-    if (timeout) {
-      clearTimeout(timeout);
-      this.extensionReconnectStabilityTimeouts.delete(taskId);
-    }
-  }
-
-  private deliverExtensionEditorAck(
-    taskId: string,
-    id: string,
-    acknowledgement: PiExtensionEditorAckState,
-  ): void {
-    void this.getPiSession(taskId)
-      .then((session) => session.acknowledgeExtensionEditorText?.(id))
-      .then(() => {
-        const taskAcks = this.extensionEditorAcks.get(taskId);
-        if (taskAcks?.get(id) !== acknowledgement) {
-          return;
-        }
-        taskAcks.delete(id);
-        if (taskAcks.size === 0) {
-          this.extensionEditorAcks.delete(taskId);
-        }
-      })
-      .catch(() => {
-        const taskAcks = this.extensionEditorAcks.get(taskId);
-        if (taskAcks?.get(id) !== acknowledgement) {
-          return;
-        }
-        const delay = Math.min(100 * 2 ** acknowledgement.attempt, 1_000);
-        acknowledgement.attempt = Math.min(acknowledgement.attempt + 1, 4);
-        acknowledgement.timeout = setTimeout(() => {
-          acknowledgement.timeout = undefined;
-          this.deliverExtensionEditorAck(taskId, id, acknowledgement);
-        }, delay);
-      });
-  }
-
-  private clearExtensionEditorAcks(taskId: string): void {
-    const taskAcks = this.extensionEditorAcks.get(taskId);
-    for (const acknowledgement of taskAcks?.values() ?? []) {
-      if (acknowledgement.timeout) {
-        clearTimeout(acknowledgement.timeout);
-      }
-    }
-    this.extensionEditorAcks.delete(taskId);
   }
 
   private applyPersistedConfig(taskId: string, session: PiSession): void {
@@ -1029,12 +736,6 @@ export class PiSessionController {
         authRestoring: currentSession.authRestoring,
         isBashRunning: false,
         projectTrust,
-        extensionDialogs: currentSession.extensionDialogs,
-        extensionNotifications: currentSession.extensionNotifications,
-        extensionStatuses: currentSession.extensionStatuses,
-        extensionWidgets: currentSession.extensionWidgets,
-        extensionTitle: currentSession.extensionTitle,
-        extensionEditorText: currentSession.extensionEditorText,
       });
 
       await this.restoreQueueIfNeeded(taskId, session, resolvedStatus);
@@ -1081,224 +782,6 @@ export class PiSessionController {
       }
       throw error;
     }
-  }
-
-  private handleExtensionEvent(
-    taskId: string,
-    event: PiExtensionEvent,
-    dispose?: () => void,
-  ): void {
-    if (event.type === "extension_state_snapshot") {
-      this.applyExtensionSnapshot(taskId, event);
-      if (dispose) {
-        this.scheduleExtensionReconnectStability(taskId, dispose);
-      }
-      return;
-    }
-
-    this.extensionReconnectAttempts.delete(taskId);
-    this.cancelExtensionReconnectStability(taskId);
-
-    if (event.type === "extension_dialog_expired") {
-      this.removeExtensionDialog(taskId, event.id);
-      return;
-    }
-
-    if (event.type === "extension_session_reset") {
-      const dispose = this.extensionSubscriptions.get(taskId);
-      if (dispose) {
-        this.endExtensionSubscription(taskId, dispose);
-      } else {
-        this.clearExtensionState(taskId);
-      }
-      return;
-    }
-
-    if (event.type === "extension_error") {
-      const extensionName = event.extensionPath.split(/[\\/]/).pop();
-      this.addExtensionNotification(
-        taskId,
-        `${extensionName ?? event.extensionPath} failed during ${event.event}: ${event.error}`,
-        "error",
-      );
-      return;
-    }
-
-    switch (event.method) {
-      case "select":
-      case "confirm":
-      case "input":
-      case "editor":
-        this.enqueueExtensionDialog(taskId, event);
-        return;
-      case "notify":
-        this.addExtensionNotification(
-          taskId,
-          event.message,
-          event.notifyType ?? "info",
-          event.id,
-        );
-        return;
-      case "setStatus": {
-        const statuses = { ...this.getSession(taskId).extensionStatuses };
-        if (event.statusText === undefined) {
-          delete statuses[event.statusKey];
-        } else {
-          statuses[event.statusKey] = event.statusText;
-        }
-        this.updateSession(taskId, { extensionStatuses: statuses });
-        return;
-      }
-      case "setWidget": {
-        const widgets = { ...this.getSession(taskId).extensionWidgets };
-        if (event.widgetLines === undefined) {
-          delete widgets[event.widgetKey];
-        } else {
-          widgets[event.widgetKey] = {
-            lines: event.widgetLines,
-            placement: event.widgetPlacement ?? "aboveEditor",
-          };
-        }
-        this.updateSession(taskId, { extensionWidgets: widgets });
-        return;
-      }
-      case "setTitle":
-        this.updateSession(taskId, { extensionTitle: event.title });
-        return;
-      case "set_editor_text":
-        if (!this.markExtensionOneShot(taskId, event.id)) {
-          return;
-        }
-        this.updateSession(taskId, {
-          extensionEditorText: { id: event.id, text: event.text },
-        });
-        return;
-    }
-  }
-
-  private applyExtensionSnapshot(
-    taskId: string,
-    snapshot: Extract<PiExtensionEvent, { type: "extension_state_snapshot" }>,
-  ): void {
-    const current = this.getSession(taskId);
-    const currentDialogIds = new Set(
-      current.extensionDialogs.map((dialog) => dialog.id),
-    );
-    const dialogs = snapshot.dialogs.filter(
-      (dialog) =>
-        currentDialogIds.has(dialog.id) ||
-        this.markExtensionOneShot(taskId, dialog.id),
-    );
-    const statuses: Record<string, string> = {};
-    for (const status of snapshot.statuses) {
-      if (status.statusText !== undefined) {
-        statuses[status.statusKey] = status.statusText;
-      }
-    }
-    const widgets: PiControllerSessionState["extensionWidgets"] = {};
-    for (const widget of snapshot.widgets) {
-      if (widget.widgetLines !== undefined) {
-        widgets[widget.widgetKey] = {
-          lines: widget.widgetLines,
-          placement: widget.widgetPlacement ?? "aboveEditor",
-        };
-      }
-    }
-
-    let editorText: PiControllerSessionState["extensionEditorText"];
-    if (snapshot.editorText) {
-      if (current.extensionEditorText?.id === snapshot.editorText.id) {
-        editorText = current.extensionEditorText;
-      } else if (this.markExtensionOneShot(taskId, snapshot.editorText.id)) {
-        editorText = {
-          id: snapshot.editorText.id,
-          text: snapshot.editorText.text,
-        };
-      }
-    }
-
-    this.updateSession(taskId, {
-      extensionDialogs: dialogs,
-      extensionStatuses: statuses,
-      extensionWidgets: widgets,
-      extensionTitle: snapshot.title?.title,
-      extensionEditorText: editorText,
-    });
-  }
-
-  private enqueueExtensionDialog(
-    taskId: string,
-    request: PiExtensionDialogRequest,
-  ): void {
-    const session = this.getSession(taskId);
-    if (!this.markExtensionOneShot(taskId, request.id)) {
-      return;
-    }
-    this.updateSession(taskId, {
-      extensionDialogs: [...session.extensionDialogs, request],
-    });
-  }
-
-  private markExtensionOneShot(taskId: string, id: string): boolean {
-    const ids = this.extensionOneShotIds.get(taskId) ?? new Set();
-    if (ids.has(id)) {
-      return false;
-    }
-    ids.add(id);
-    this.extensionOneShotIds.set(taskId, ids);
-    return true;
-  }
-
-  private removeExtensionDialog(taskId: string, requestId: string): void {
-    const session = this.getSession(taskId);
-    this.updateSession(taskId, {
-      extensionDialogs: session.extensionDialogs.filter(
-        (dialog) => dialog.id !== requestId,
-      ),
-    });
-  }
-
-  private async sendExtensionResponse(
-    taskId: string,
-    response: PiExtensionUIResponse,
-  ): Promise<void> {
-    const session = await this.getPiSession(taskId);
-    if (!session.respondToExtensionUI) {
-      throw new Error("Pi session does not support extension UI responses");
-    }
-    await session.respondToExtensionUI(response);
-  }
-
-  private clearExtensionState(taskId: string): void {
-    this.extensionVersions.set(taskId, this.getExtensionVersion(taskId) + 1);
-    this.extensionResponses.delete(taskId);
-    this.extensionOneShotIds.delete(taskId);
-    this.clearExtensionEditorAcks(taskId);
-    this.updateSession(taskId, {
-      extensionDialogs: [],
-      extensionNotifications: [],
-      extensionStatuses: {},
-      extensionWidgets: {},
-      extensionTitle: undefined,
-      extensionEditorText: undefined,
-    });
-  }
-
-  private addExtensionNotification(
-    taskId: string,
-    message: string,
-    notifyType: "info" | "warning" | "error",
-    id: string = globalThis.crypto.randomUUID(),
-  ): void {
-    const session = this.getSession(taskId);
-    this.updateSession(taskId, {
-      extensionNotifications: [
-        ...session.extensionNotifications.filter(
-          (notification) => notification.id !== id,
-        ),
-        { id, message, notifyType },
-      ],
-    });
   }
 
   private handleEvent(taskId: string, event: AgentConversationEvent): void {
@@ -1796,15 +1279,10 @@ export class PiSessionController {
 
   private resetTransport(taskId: string): void {
     this.advanceSessionVersion(taskId);
-    this.cancelExtensionReconnect(taskId);
-    this.cancelExtensionReconnectStability(taskId);
     this.disposeConversationSubscription(taskId);
-    this.extensionSubscriptions.get(taskId)?.();
-    this.extensionSubscriptions.delete(taskId);
     this.sessions.delete(taskId);
     this.connections.delete(taskId);
     this.readiness.delete(taskId);
-    this.clearExtensionState(taskId);
   }
 
   private disposeConversationSubscription(taskId: string): void {
@@ -1837,10 +1315,6 @@ export class PiSessionController {
 
   private getSessionVersion(taskId: string): number {
     return this.sessionVersions.get(taskId) ?? 0;
-  }
-
-  private getExtensionVersion(taskId: string): number {
-    return this.extensionVersions.get(taskId) ?? 0;
   }
 
   private advanceSessionVersion(taskId: string): void {

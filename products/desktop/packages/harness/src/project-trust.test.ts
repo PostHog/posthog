@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  createPiProjectTrustResolver,
+  createPiRuntimeTrustResolver,
   readPiProjectTrust,
   writePiProjectTrust,
 } from "./project-trust";
@@ -50,7 +50,7 @@ describe("Pi project trust", () => {
     const agentDir = await temporaryDirectory();
     const initialRepository = await temporaryDirectory();
     const unrelatedRepository = await temporaryDirectory();
-    const resolveTrust = createPiProjectTrustResolver(
+    const resolveTrust = createPiRuntimeTrustResolver(
       initialRepository,
       true,
       agentDir,

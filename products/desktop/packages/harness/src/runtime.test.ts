@@ -70,13 +70,8 @@ describe("createHarnessRuntime", () => {
   );
 
   it.each([
-    { label: "false", projectTrusted: false, loaded: false },
-    { label: "true", projectTrusted: true, loaded: true },
-    {
-      label: "resolved true for the runtime cwd",
-      projectTrusted: (_cwd: string) => true,
-      loaded: true,
-    },
+    { label: "false", projectTrusted: () => false, loaded: false },
+    { label: "true", projectTrusted: () => true, loaded: true },
   ])(
     "loads project-local extensions when project trust is $label",
     async ({ projectTrusted, loaded }) => {

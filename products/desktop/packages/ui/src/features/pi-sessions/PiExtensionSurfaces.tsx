@@ -1,4 +1,4 @@
-import type { PiExtensionWidget } from "@posthog/core/pi-runtime/piSessionStore";
+import type { PiExtensionWidget } from "@posthog/core/pi-runtime/piExtensionStore";
 
 interface PiExtensionWidgetsProps {
   widgets: Record<string, PiExtensionWidget>;
