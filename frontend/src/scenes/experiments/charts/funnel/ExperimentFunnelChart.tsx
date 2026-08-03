@@ -6,6 +6,7 @@ import {
     RATE_TO_PERCENT,
     type Series,
     type TooltipContext,
+    TooltipFooter,
     TooltipSurface,
     TooltipSwatch,
     funnelConversionRate,
@@ -63,11 +64,19 @@ function getStepName(step: ExperimentFunnelMetricStep | undefined, stepNumber: n
 }
 
 /**
- * Opens the persons modal for a funnel step. The frontend prepends an "Experiment exposure"
- * step at index 0 that the backend actors funnel doesn't have, so frontend step index N maps
- * to backend step number N. The exposure step itself can't be queried, and neither can
- * drop-offs at the first metric step ("exposed but never entered the funnel").
+ * `funnelStep` for the actors query behind a click on frontend step `stepIndex`, or null when the
+ * click isn't queryable. The frontend prepends an "Experiment exposure" step at index 0 that the
+ * backend actors funnel doesn't have, so frontend index N maps to backend step number N, negated
+ * for drop-offs. The exposure step itself can't be queried, and neither can drop-offs at the first
+ * metric step ("exposed but never entered the funnel").
  */
+export function experimentActorsFunnelStep(stepIndex: number, converted: boolean): number | null {
+    if (stepIndex < 1 || (!converted && stepIndex === 1)) {
+        return null
+    }
+    return converted ? stepIndex : -stepIndex
+}
+
 function openExperimentPersonsModal({
     stepIndex,
     stepName,
@@ -85,15 +94,15 @@ function openExperimentPersonsModal({
     experimentQuery: ExperimentQuery
     experiment: Experiment
 }): void {
-    const backendStepNo = stepIndex
-    if (backendStepNo < 1 || (!converted && backendStepNo === 1)) {
+    const funnelStep = experimentActorsFunnelStep(stepIndex, converted)
+    if (funnelStep == null) {
         return
     }
 
     const query: ExperimentActorsQuery = {
         kind: NodeKind.ExperimentActorsQuery,
         source: experimentQuery,
-        funnelStep: converted ? backendStepNo : -backendStepNo,
+        funnelStep,
         funnelStepBreakdown: variantKey,
         includeRecordings: true,
         exposureConfig: experiment.exposure_criteria?.exposure_config || {
@@ -270,11 +279,7 @@ export function ExperimentFunnelChart({
                             />
                         </>
                     )}
-                    {!!experimentQuery && stepIndex > 0 && (
-                        <div className="mt-1 pt-1 border-t border-current/25 text-xs opacity-60 text-center">
-                            Click to view users
-                        </div>
-                    )}
+                    {!!experimentQuery && stepIndex > 0 && <TooltipFooter>Click to view users</TooltipFooter>}
                 </TooltipSurface>
             )
         },
