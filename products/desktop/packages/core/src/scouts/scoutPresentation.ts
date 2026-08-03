@@ -31,7 +31,7 @@ export function getScoutOrigin(
  */
 export type ScoutLifecycle =
   | "active"
-  /** Still running, but the inactivity sweep will pause it unless this changes. */
+  /** Still running, but the system has flagged it. See `willPause`. */
   | "warned"
   | "paused_by_user"
   | "paused_by_system";
@@ -45,31 +45,61 @@ export interface ScoutLifecycleState {
   explanation: string | null;
   /** The system stopped this scout — switching it back on resumes it. */
   isSystemPaused: boolean;
-  /** The scout still runs, but is queued to be auto-paused. */
+  /** The scout still runs, but the system has flagged it. */
   isWarned: boolean;
+  /**
+   * The warning actually advances to a pause. False for a `no_output` warning,
+   * which the sweep raises for a look but never escalates: silence alone never
+   * pauses a scout, because a watchdog's silence is the job.
+   */
+  willPause: boolean;
   /** ISO timestamp of the transition into this state, when the backend has one. */
   changedAt: string | null;
   consecutiveFailureCount: number;
-  autoPauseExempt: boolean;
+  /**
+   * Null when the backend never sent the field, which is not the same as false:
+   * a PATCH it does not understand cannot persist, so the control has nothing to
+   * write and should not be offered.
+   */
+  autoPauseExempt: boolean | null;
 }
 
 function failureCountClause(count: number): string {
   return count > 1 ? `${count} runs in a row failed` : "its runs kept failing";
 }
 
-function warnedExplanation(
+function warnedCopy(
   reason: ScoutPauseReason | null,
   failureCount: number,
-): string {
+): { label: string; explanation: string; willPause: boolean } {
   switch (reason) {
     case "ignored":
-      return "Its findings have been going unacted on, so the inactivity sweep will pause this scout soon. Act on a finding, or exempt it from auto-pause, to keep it running.";
+      return {
+        label: "Pausing soon",
+        explanation:
+          "Its findings have been going unacted on, so the inactivity sweep will pause this scout soon. Act on a finding, or exempt it from inactivity pauses, to keep it running.",
+        willPause: true,
+      };
     case "no_output":
-      return "It has stopped emitting findings, so the inactivity sweep will pause this scout soon. Exempt it from auto-pause if staying quiet is the point.";
+      return {
+        label: "Quiet",
+        explanation:
+          "This scout has surfaced nothing lately, so the inactivity sweep flagged it for a look. Staying quiet on its own never pauses a scout, so nothing happens unless someone acts.",
+        willPause: false,
+      };
     case "repeated_failures":
-      return `PostHog will pause this scout soon because ${failureCountClause(failureCount)}. Fix the skill to keep it running.`;
+      return {
+        label: "Pausing soon",
+        explanation: `PostHog will pause this scout soon because ${failureCountClause(failureCount)}. Fix the skill to keep it running.`,
+        willPause: true,
+      };
     default:
-      return "PostHog is about to pause this scout. Exempt it from auto-pause to keep it running.";
+      return {
+        label: "Pausing soon",
+        explanation:
+          "PostHog is about to pause this scout. Exempt it from inactivity pauses to keep it running.",
+        willPause: true,
+      };
   }
 }
 
@@ -79,11 +109,13 @@ function systemPausedExplanation(
 ): string {
   switch (reason) {
     case "ignored":
-      return "PostHog paused this scout because its findings were going unacted on. Switch it back on to resume, and exempt it from auto-pause to stop it happening again.";
+      return "PostHog paused this scout because its findings were going unacted on. Switch it back on to resume — that also exempts it from inactivity pauses, so it will not happen again.";
     case "no_output":
-      return "PostHog paused this scout because it stopped emitting findings. Switch it back on to resume, and exempt it from auto-pause if staying quiet is the point.";
+      return "PostHog paused this scout because it stopped emitting findings. Switch it back on to resume — that also exempts it from inactivity pauses, so it will not happen again.";
     case "repeated_failures":
-      return `PostHog paused this scout because ${failureCountClause(failureCount)}. Fix the skill, then switch it back on to resume.`;
+      // The breaker keeps a half-open probe on this reason, so this one recovers
+      // without anyone touching it. Say so, or the badge reads as terminal.
+      return `PostHog paused this scout because ${failureCountClause(failureCount)}. It retries about once a day and resumes on its own once a run succeeds. Fix the skill, or switch it back on to retry right away.`;
     default:
       return "PostHog paused this scout. Switch it back on to resume.";
   }
@@ -102,7 +134,7 @@ export function deriveScoutLifecycle(config: ScoutConfig): ScoutLifecycleState {
     reason,
     changedAt: config.status_changed_at ?? null,
     consecutiveFailureCount: failureCount,
-    autoPauseExempt: config.auto_pause_exempt ?? false,
+    autoPauseExempt: config.auto_pause_exempt ?? null,
   };
   // A system pause always leaves the scout switched off and a warning always
   // leaves it switched on, so `enabled` breaks the tie where the two disagree.
@@ -116,16 +148,19 @@ export function deriveScoutLifecycle(config: ScoutConfig): ScoutLifecycleState {
       explanation: systemPausedExplanation(reason, failureCount),
       isSystemPaused: true,
       isWarned: false,
+      willPause: false,
     };
   }
   if (config.enabled && config.status === "pending_pause") {
+    const copy = warnedCopy(reason, failureCount);
     return {
       ...base,
       lifecycle: "warned",
-      label: "Pausing soon",
-      explanation: warnedExplanation(reason, failureCount),
+      label: copy.label,
+      explanation: copy.explanation,
       isSystemPaused: false,
       isWarned: true,
+      willPause: copy.willPause,
     };
   }
   return {
@@ -137,6 +172,7 @@ export function deriveScoutLifecycle(config: ScoutConfig): ScoutLifecycleState {
     explanation: null,
     isSystemPaused: false,
     isWarned: false,
+    willPause: false,
   };
 }
 
@@ -470,8 +506,12 @@ export function computeScoutRollups(
 export interface FleetSummary {
   totalCount: number;
   enabledCount: number;
-  /** Enabled scouts the inactivity sweep has flagged for auto-pause. */
-  warnedCount: number;
+  /**
+   * Enabled scouts heading for a pause unless something changes. Excludes a
+   * `no_output` warning, which never escalates — counting it here would promise
+   * a pause that is not coming.
+   */
+  pausingSoonCount: number;
   /** Scouts the platform switched off; a user has to switch them back on. */
   systemPausedCount: number;
   runningCount: number;
@@ -507,7 +547,8 @@ export function computeFleetSummary(
   return {
     totalCount: configs.length,
     enabledCount: configs.filter((config) => config.enabled).length,
-    warnedCount: lifecycles.filter((lifecycle) => lifecycle.isWarned).length,
+    pausingSoonCount: lifecycles.filter((lifecycle) => lifecycle.willPause)
+      .length,
     systemPausedCount: lifecycles.filter(
       (lifecycle) => lifecycle.isSystemPaused,
     ).length,

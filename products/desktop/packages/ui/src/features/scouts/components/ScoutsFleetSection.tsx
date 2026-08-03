@@ -127,8 +127,7 @@ export function ScoutsFleetSection() {
               {enabledCount} of {configs.length} scouts enabled
               {systemPausedCount > 0 ? (
                 <span className="text-(--red-11)">
-                  {" · "}
-                  {systemPausedCount} auto-paused
+                  {` · ${systemPausedCount} auto-paused`}
                 </span>
               ) : null}
               {lastRunAt ? (
@@ -270,14 +269,14 @@ export function ScoutsFleetListView({
         {/* Auto-paused scouts sink below the enabled ones and vanish entirely
             under "Hide disabled", so the count has to lead here. */}
         {summary.systemPausedCount > 0 ? (
-          <Text className="whitespace-nowrap text-(--red-11) text-[12.5px]">
+          <span className="whitespace-nowrap text-(--red-11) text-[12.5px]">
             {summary.systemPausedCount} auto-paused
-          </Text>
+          </span>
         ) : null}
-        {summary.warnedCount > 0 ? (
-          <Text className="whitespace-nowrap text-(--amber-11) text-[12.5px]">
-            {summary.warnedCount} pausing soon
-          </Text>
+        {summary.pausingSoonCount > 0 ? (
+          <span className="whitespace-nowrap text-(--amber-11) text-[12.5px]">
+            {summary.pausingSoonCount} pausing soon
+          </span>
         ) : null}
         <span className="flex-1" />
         {creatorOptions.length > 0 ? (

@@ -4,6 +4,7 @@ import {
   formatRunInterval,
   RUN_INTERVAL_OPTIONS,
 } from "@posthog/core/scouts/scoutPresentation";
+import { Switch as QuillSwitch, Text as QuillText } from "@posthog/quill";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { Flex, Switch, Text, Tooltip } from "@radix-ui/themes";
 import { useMemo } from "react";
@@ -119,22 +120,29 @@ export function ScoutConfigForm({
           }
         />
       </Flex>
-      <Flex align="center" justify="between" gap="4">
-        <Flex direction="column" className="min-w-0">
-          <Text className="text-[12px] text-gray-12">Never auto-pause</Text>
-          <Text className="text-[11.5px] text-gray-10">
-            Keep running even when findings go quiet or unacted on
-          </Text>
-        </Flex>
-        <Switch
-          size="1"
-          checked={lifecycle.autoPauseExempt}
-          onCheckedChange={(checked) =>
-            onUpdate(config.id, { auto_pause_exempt: checked })
-          }
-          aria-label={`${config.skill_name} exempt from auto-pause`}
-        />
-      </Flex>
+      {/* Null means the backend never sent the field, so a PATCH carrying it
+          could not persist. Offer the control only where it writes. */}
+      {lifecycle.autoPauseExempt !== null ? (
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex min-w-0 flex-col">
+            <QuillText size="xs" className="text-gray-12">
+              Never pause for inactivity
+            </QuillText>
+            <QuillText size="xxs" className="text-gray-10">
+              Keep running when the scout goes quiet or its findings go unacted
+              on. Repeated failures still pause it.
+            </QuillText>
+          </div>
+          <QuillSwitch
+            size="sm"
+            checked={lifecycle.autoPauseExempt}
+            onCheckedChange={(checked) =>
+              onUpdate(config.id, { auto_pause_exempt: checked })
+            }
+            aria-label={`${config.skill_name} exempt from inactivity pauses`}
+          />
+        </div>
+      ) : null}
     </Flex>
   );
 }

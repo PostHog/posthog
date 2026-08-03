@@ -10,13 +10,12 @@ import { skillUrl } from "@posthog/ui/utils/posthogLinks";
 import { Box, Flex, Text, Tooltip } from "@radix-ui/themes";
 import { useState } from "react";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
+import { DryRunBadge, ScoutOriginBadge } from "./ScoutBadges";
+import { ScoutConfigForm, ScoutEnabledSwitch } from "./ScoutConfigControls";
 import {
-  DryRunBadge,
   ScoutLifecycleBadge,
   ScoutLifecycleNotice,
-  ScoutOriginBadge,
-} from "./ScoutBadges";
-import { ScoutConfigForm, ScoutEnabledSwitch } from "./ScoutConfigControls";
+} from "./ScoutLifecycleBadges";
 import { ScoutChatButton } from "./ScoutRowCard";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
 

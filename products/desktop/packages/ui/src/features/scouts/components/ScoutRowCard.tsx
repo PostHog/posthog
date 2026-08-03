@@ -20,12 +20,9 @@ import { Link } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { useScoutChatTask } from "../hooks/useScoutChatTask";
 import type { ScoutConfigUpdate } from "../hooks/useScoutConfigMutations";
-import {
-  DryRunBadge,
-  ScoutLifecycleBadge,
-  ScoutOriginBadge,
-} from "./ScoutBadges";
+import { DryRunBadge, ScoutOriginBadge } from "./ScoutBadges";
 import { ScoutConfigForm, ScoutEnabledSwitch } from "./ScoutConfigControls";
+import { ScoutLifecycleBadge } from "./ScoutLifecycleBadges";
 import { ScoutRunBoxes } from "./ScoutRunBoxes";
 
 /**

@@ -303,9 +303,11 @@ describe("rollups", () => {
     expect(summary.emitRate).toBeNull();
   });
 
-  it("counts warned and system-paused scouts", () => {
+  it("counts only the warnings that actually pause, plus system pauses", () => {
     const configs = [
       makeConfig({ status: "active" }),
+      // Quiet: flagged, but the sweep never escalates it, so it must not be
+      // counted as pausing soon.
       makeConfig({
         id: "config-2",
         skill_name: "signals-scout-logs",
@@ -314,13 +316,19 @@ describe("rollups", () => {
       }),
       makeConfig({
         id: "config-3",
+        skill_name: "signals-scout-quiet",
+        status: "pending_pause",
+        pause_reason: "ignored",
+      }),
+      makeConfig({
+        id: "config-4",
         skill_name: "signals-scout-apm",
         enabled: false,
         status: "paused_by_system",
         pause_reason: "repeated_failures",
       }),
       makeConfig({
-        id: "config-4",
+        id: "config-5",
         skill_name: "signals-scout-surveys",
         enabled: false,
         status: "paused_by_user",
@@ -328,9 +336,9 @@ describe("rollups", () => {
     ];
     expect(computeFleetSummary(configs, computeScoutRollups([]))).toMatchObject(
       {
-        totalCount: 4,
-        enabledCount: 2,
-        warnedCount: 1,
+        totalCount: 5,
+        enabledCount: 3,
+        pausingSoonCount: 1,
         systemPausedCount: 1,
       },
     );
@@ -412,11 +420,39 @@ describe("lifecycle", () => {
       changedAt: "2026-06-09T00:00:00Z",
     });
     expect(state.explanation).toContain(fragment);
-    // The recovery has to be spelled out — it is the only way back.
-    expect(state.explanation).toMatch(/switch it back on to resume/i);
+    // Re-enabling is the recovery on every reason, so it always gets named.
+    expect(state.explanation).toMatch(/switch it back on/i);
   });
 
-  it("flags a warned scout that is still running", () => {
+  it("says an inactivity pause never lifts itself", () => {
+    // The sweep has no probe: a human re-enable is the only exit, and that
+    // re-enable also marks the scout exempt.
+    const state = deriveScoutLifecycle(
+      makeConfig({
+        enabled: false,
+        status: "paused_by_system",
+        pause_reason: "ignored",
+      }),
+    );
+    expect(state.explanation).toContain("exempts it from inactivity pauses");
+    expect(state.explanation).not.toMatch(/retries|on its own/i);
+  });
+
+  it("says a failure pause retries on its own", () => {
+    // The breaker keeps a half-open probe, so presenting a manual re-enable as
+    // the only way back would be wrong.
+    const state = deriveScoutLifecycle(
+      makeConfig({
+        enabled: false,
+        status: "paused_by_system",
+        pause_reason: "repeated_failures",
+        consecutive_failure_count: 6,
+      }),
+    );
+    expect(state.explanation).toContain("resumes on its own");
+  });
+
+  it("flags an ignored warning as heading for a pause", () => {
     const state = deriveScoutLifecycle(
       makeConfig({ status: "pending_pause", pause_reason: "ignored" }),
     );
@@ -425,8 +461,24 @@ describe("lifecycle", () => {
       label: "Pausing soon",
       isWarned: true,
       isSystemPaused: false,
+      willPause: true,
     });
-    expect(state.explanation).toContain("exempt it from auto-pause");
+    expect(state.explanation).toContain("exempt it from inactivity pauses");
+  });
+
+  it("does not promise a pause for a quiet scout", () => {
+    // `no_output` is warning-only on the backend: silence alone never pauses a
+    // scout, because a watchdog's silence is the job.
+    const state = deriveScoutLifecycle(
+      makeConfig({ status: "pending_pause", pause_reason: "no_output" }),
+    );
+    expect(state).toMatchObject({
+      lifecycle: "warned",
+      label: "Quiet",
+      isWarned: true,
+      willPause: false,
+    });
+    expect(state.explanation).not.toMatch(/will pause|pausing soon/i);
   });
 
   it.each([
@@ -464,9 +516,20 @@ describe("lifecycle", () => {
     expect(deriveScoutLifecycle(makeConfig({ enabled: false }))).toMatchObject({
       lifecycle: "paused_by_user",
       label: null,
-      autoPauseExempt: false,
+      // Null, not false: an absent field cannot be written back, so the UI has
+      // to be able to tell "unsupported" from "off".
+      autoPauseExempt: null,
       consecutiveFailureCount: 0,
     });
+  });
+
+  it.each([
+    [true, true],
+    [false, false],
+  ])("reads auto_pause_exempt=%s as %s", (sent, expected) => {
+    expect(
+      deriveScoutLifecycle(makeConfig({ auto_pause_exempt: sent })),
+    ).toMatchObject({ autoPauseExempt: expected });
   });
 });
 
