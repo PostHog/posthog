@@ -14,6 +14,11 @@ from products.product_analytics.backend.hogql_queries.paths_v2.funnel_converter 
     anchored_segment_to_funnels_query,
     edge_to_funnels_query,
 )
+from products.product_analytics.backend.hogql_queries.paths_v2.path_item import (
+    item_label,
+    resolve_step_sources,
+    step_source_for_event,
+)
 
 # Matches the PathsV2Filter maxSteps upper bound: a displayed segment can never be longer.
 _MAX_SEGMENT_ITEMS = 20
@@ -115,7 +120,7 @@ class PathsV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     )
                 funnels_query = edge_to_funnels_query(query, self.team, items[0], items[1])
             else:
-                if (items[0].event, items[0].label) != (anchor.item.event, anchor.item.label):
+                if not self._starts_at_anchor(query, items[0], anchor.item):
                     raise ValidationError(
                         {"items": "An anchored segment has an exact funnel only when it starts at the anchor."}
                     )
@@ -127,3 +132,13 @@ class PathsV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise ValidationError({"items": str(error)})
 
         return Response({"funnels_query": funnels_query.model_dump(exclude_none=True)})
+
+    @staticmethod
+    def _starts_at_anchor(query: PathsV2Query, first: PathsV2Item, anchor_item: PathsV2Item) -> bool:
+        """Compare `(event, label)` identities the way the converter does — `item_label` normalizes
+        a missing label to "" for sources without a naming property — so the guard cannot diverge
+        from the converter over a null-vs-empty label."""
+        if first.event != anchor_item.event:
+            return False
+        source = step_source_for_event(resolve_step_sources(query), anchor_item.event)
+        return item_label(first, source) == item_label(anchor_item, source)

@@ -124,6 +124,15 @@ class TestSegmentToFunnelAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("anchor", response.json()["detail"])
 
+    def test_anchor_guard_normalizes_null_and_empty_labels(self) -> None:
+        # For a source without a naming property the converter ignores labels entirely, so a
+        # ""-labelled first item must still match a null-labelled anchor.
+        query = _query(anchor=PathsV2Anchor(item=PathsV2Item(event="a"), type=PathsV2AnchorType.START))
+
+        response = self._post(query, [{"event": "a", "label": ""}, {"event": "b"}])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
     @parameterized.expand(
         [
             ("other_row_item", _items("a", PATHS_V2_OTHER)),
