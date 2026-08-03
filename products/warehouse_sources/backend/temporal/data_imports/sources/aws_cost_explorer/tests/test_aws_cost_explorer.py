@@ -158,7 +158,9 @@ class TestResolveEndDate:
         assert resolve_end_date(COST_DAILY, self.TODAY) == dt.date(2024, 6, 2)
 
     @pytest.mark.parametrize("endpoint_config", [RESERVATION, SAVINGS_PLANS])
-    def test_utilization_endpoints_stop_at_today(self, endpoint_config: Any) -> None:
+    def test_utilization_endpoints_stop_at_today(
+        self, endpoint_config: aws_cost_explorer.CostExplorerEndpointConfig
+    ) -> None:
         # AWS rejects an `End` date that isn't strictly before today for these operations with
         # DataUnavailableException, unlike Cost and Usage which returns partial estimated data.
         assert resolve_end_date(endpoint_config, self.TODAY) == self.TODAY

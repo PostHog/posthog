@@ -141,8 +141,8 @@ def resolve_end_date(endpoint_config: CostExplorerEndpointConfig, today: dt.date
 
     Cost and Usage reports return a partial, `Estimated`-flagged row for the still-open current
     day, so requesting through tomorrow captures it. Utilization reports (Reservation, Savings
-    Plans) have no such estimate: AWS rejects an `End` date that isn't strictly before today with
-    `DataUnavailableException`, so the window must stop at today instead.
+    Plans) reject any range that includes the current day with `DataUnavailableException`, so
+    their window must end at `today` (exclusive), requesting only through yesterday.
     """
     return today + dt.timedelta(days=1) if endpoint_config.metrics else today
 
