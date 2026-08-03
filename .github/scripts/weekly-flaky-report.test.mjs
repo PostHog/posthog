@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 
-import { buildBlocks, enrich, flakyTestsUrl, selectReportCandidates, tableRows } from './weekly-flaky-report.mjs'
+import {
+    buildBlocks,
+    enrich,
+    fetchTrunkQuarantined,
+    flakyTestsUrl,
+    partitionParked,
+    selectReportCandidates,
+    tableRows,
+} from './weekly-flaky-report.mjs'
 
 describe('weekly flaky report', () => {
     it('requests pytest candidates for the current repository before the endpoint limit', () => {
@@ -113,5 +121,94 @@ describe('weekly flaky report', () => {
             'products/example/backend/test_report.py::test_report',
             'backend/test_report.py::test_report',
         ])
+    })
+
+    it('reports without Trunk state when uploads are off, the table is missing, or it is empty', async () => {
+        const item = { selector: 'posthog/test/test_example.py::test_report' }
+        const cases = [
+            {
+                label: 'uploads off',
+                enabled: false,
+                runHogql: () => assert.fail('must not query Trunk while uploads are disabled'),
+            },
+            {
+                label: 'table missing',
+                enabled: true,
+                runHogql: async () => {
+                    throw new Error('Unknown table trunkio.quarantinedtests')
+                },
+            },
+            { label: 'no rows', enabled: true, runHogql: async () => ({ results: [] }) },
+        ]
+
+        for (const { label, enabled, runHogql } of cases) {
+            const trunkFor = await fetchTrunkQuarantined(runHogql, enabled)
+
+            assert.equal(trunkFor(item), null, label)
+        }
+    })
+
+    it('matches Trunk rows to a product suite reported product-relative', async () => {
+        const trunkFor = await fetchTrunkQuarantined(
+            async () => ({
+                results: [
+                    [
+                        'products/example/backend/tests/test_migration.py::MigrationTest::test_backfill',
+                        '2026-07-29T09:14:22.000Z',
+                        'AUTO_QUARANTINE',
+                    ],
+                ],
+            }),
+            true
+        )
+
+        assert.equal(
+            trunkFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_backfill' }).quarantinedAt,
+            '2026-07-29T09:14:22.000Z'
+        )
+        assert.equal(trunkFor({ selector: 'backend/tests/test_migration.py::MigrationTest::test_other' }), null)
+    })
+
+    it('parks Trunk-quarantined tests only while masking is on, and labels them otherwise', () => {
+        const items = [
+            { selector: 'masked.py::test_masked', failed_run_count: 9 },
+            { selector: 'plain.py::test_plain', failed_run_count: 1 },
+        ]
+        const trunkFor = (item) =>
+            item.selector === 'masked.py::test_masked' ? { quarantinedAt: '2026-07-13T17:12:22.000Z' } : null
+        const selectors = (list) => list.map((item) => item.selector)
+
+        const masked = partitionParked(items, trunkFor, true)
+        const unmasked = partitionParked(items, trunkFor, false)
+
+        assert.deepEqual(selectors(masked.queue), ['plain.py::test_plain'])
+        assert.deepEqual(selectors(masked.parked), ['masked.py::test_masked'])
+        // Masking off leaves the failure reddening CI, so it stays ranked and carries a label.
+        assert.deepEqual(selectors(unmasked.queue), selectors(items))
+        assert.deepEqual(unmasked.parked, [])
+        const [ownerCell] = tableRows(
+            [items[0]],
+            () => ({ owner: 'team-devex', repoPath: null }),
+            () => ({ runsRescued: null, evidence: [] }),
+            trunkFor
+        ).map((row) => row[1])
+        assert.equal(ownerCell.text, 'devex (Trunk flagged)')
+    })
+
+    it('keeps parked tests visible below the table instead of dropping them', () => {
+        const blocks = buildBlocks(
+            new Date('2026-07-27T00:00:00Z'),
+            [],
+            [{ selector: 'masked.py::test_masked', trunk: { quarantinedAt: '2026-07-13T17:12:22.000Z' } }]
+        )
+
+        assert.equal(
+            blocks.find((block) => block.type === 'table'),
+            undefined
+        )
+        const note = blocks.at(-1).elements[0].text
+        assert.match(note, /1 test is quarantined in Trunk/)
+        assert.match(note, /test_masked/)
+        assert.match(note, /Oldest parked 2026-07-13\./)
     })
 })
