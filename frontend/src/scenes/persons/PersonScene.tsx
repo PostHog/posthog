@@ -343,6 +343,7 @@ export function PersonScene(): JSX.Element | null {
                                 onDelete={(key) => deleteProperty(key)}
                                 filterable
                                 collapsible
+                                emptyStateMessage={person.id ? undefined : 'This distinct ID has no person profile'}
                             />
                         ),
                     },

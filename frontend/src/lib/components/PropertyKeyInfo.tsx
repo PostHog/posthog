@@ -11,11 +11,26 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { pluralize } from 'lib/utils/strings'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { CoreFilterDefinition, PropertyDefinitionType } from '~/types'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
 const SURVEY_RESPONSE_PREFIX = '$survey_response_'
+
+/** Maps the taxonomic group types that carry a corresponding `propertyDefinitionsModel` type, so
+ * non-taxonomy (custom) property keys can still resolve a definition from the team's own metadata. */
+const TAXONOMIC_GROUP_TYPE_TO_PROPERTY_DEFINITION_TYPE: Partial<
+    Record<TaxonomicFilterGroupType, PropertyDefinitionType>
+> = {
+    [TaxonomicFilterGroupType.EventProperties]: PropertyDefinitionType.Event,
+    [TaxonomicFilterGroupType.PersonProperties]: PropertyDefinitionType.Person,
+    [TaxonomicFilterGroupType.EventMetadata]: PropertyDefinitionType.EventMetadata,
+    [TaxonomicFilterGroupType.PersonMetadata]: PropertyDefinitionType.PersonMetadata,
+    [TaxonomicFilterGroupType.SessionProperties]: PropertyDefinitionType.Session,
+}
+const GROUP_TAXONOMIC_TYPE_REGEX = /^groups_(\d+)$/
 
 function SourceLogo({ source }: { source: 'posthog' | 'langfuse' }): JSX.Element {
     if (source === 'posthog') {
@@ -54,7 +69,22 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
     value = value?.toString() ?? ''
 
     const coreDefinition = getCoreFilterDefinition(value, type)
-    const valueDisplayText = displayText || ((coreDefinition ? coreDefinition.label : value)?.trim() ?? '')
+
+    const groupMatch = type.match(GROUP_TAXONOMIC_TYPE_REGEX)
+    const propertyDefinitionType = groupMatch
+        ? PropertyDefinitionType.Group
+        : TAXONOMIC_GROUP_TYPE_TO_PROPERTY_DEFINITION_TYPE[type]
+    const { getPropertyDefinition } = useValues(propertyDefinitionsModel)
+    const customPropertyDefinition =
+        !coreDefinition && propertyDefinitionType
+            ? getPropertyDefinition(value, propertyDefinitionType, groupMatch ? Number(groupMatch[1]) : undefined)
+            : null
+    const customDefinition: CoreFilterDefinition | null = customPropertyDefinition
+        ? { label: customPropertyDefinition.name, description: customPropertyDefinition.description }
+        : null
+    const effectiveDefinition = coreDefinition || customDefinition
+
+    const valueDisplayText = displayText || ((effectiveDefinition ? effectiveDefinition.label : value)?.trim() ?? '')
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
     const recognizedSource: 'posthog' | 'langfuse' | null =
@@ -74,7 +104,7 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
         </span>
     )
 
-    return !coreDefinition || disablePopover ? (
+    return !effectiveDefinition || disablePopover ? (
         innerContent
     ) : (
         <Popover
@@ -83,27 +113,28 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                 <div className="PropertyKeyInfo__overlay">
                     <div className="PropertyKeyInfo__header">
                         {recognizedSource && <SourceLogo source={recognizedSource} />}
-                        {coreDefinition.label}
+                        {effectiveDefinition.label}
                     </div>
-                    {coreDefinition.description || coreDefinition.examples ? (
+                    {effectiveDefinition.description || effectiveDefinition.examples ? (
                         <>
                             <LemonDivider className="my-3" />
                             <div>
-                                {coreDefinition.description ? <p>{coreDefinition.description}</p> : null}
-                                {coreDefinition.examples ? (
+                                {effectiveDefinition.description ? <p>{effectiveDefinition.description}</p> : null}
+                                {effectiveDefinition.examples ? (
                                     <p>
                                         <i>
                                             Example{' '}
-                                            {pluralize(coreDefinition.examples.length, 'value', 'values', false)}:{' '}
+                                            {pluralize(effectiveDefinition.examples.length, 'value', 'values', false)}
+                                            :{' '}
                                         </i>
-                                        {coreDefinition.examples.join(', ')}
+                                        {effectiveDefinition.examples.join(', ')}
                                     </p>
                                 ) : null}
                             </div>
                         </>
                     ) : null}
 
-                    {!coreDefinition.virtual && (
+                    {!effectiveDefinition.virtual && (
                         <>
                             <LemonDivider className="my-3" />
                             <div>
@@ -114,12 +145,13 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                 </div>
             }
             visible={popoverVisible}
+            onClickOutside={() => setPopoverVisible(false)}
             showArrow
             placement="right"
         >
             {React.cloneElement(innerContent, {
-                onMouseEnter: () => setPopoverVisible(true),
-                onMouseLeave: () => setPopoverVisible(false),
+                className: clsx(innerContent.props.className, 'cursor-pointer'),
+                onClick: () => setPopoverVisible((visible) => !visible),
             })}
         </Popover>
     )

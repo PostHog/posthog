@@ -166,10 +166,7 @@ export const asLink = (person?: PersonPropType | null): string | undefined => {
  * [id, distinct_ids, properties, is_identified, created_at, last_seen_at]
  */
 export function parsePersonFromHogQLRow(row: any[]): PersonType {
-    let properties = {}
-    try {
-        properties = JSON.parse(row[2] || '{}')
-    } catch {}
+    const properties = JSON.parse(row[2] || '{}')
     return {
         id: row[0],
         uuid: row[0],

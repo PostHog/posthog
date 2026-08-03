@@ -237,19 +237,29 @@ export function renderColumn(
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         // TODO: remove after removing the old events table
         const propertyKey = trimQuotes(key.substring('properties.'.length))
-        if (setQuery && (isEventsQuery(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
+        if (
+            setQuery &&
+            (isEventsQuery(query.source) || isPersonsNode(query.source) || isActorsQuery(query.source)) &&
+            query.showPropertyFilter
+        ) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
                 value: record.properties[propertyKey],
                 operator: PropertyOperator.Exact,
-                type: isPersonsNode(query.source) ? PropertyFilterType.Person : PropertyFilterType.Event,
+                type:
+                    isPersonsNode(query.source) || isActorsQuery(query.source)
+                        ? PropertyFilterType.Person
+                        : PropertyFilterType.Event,
             }
-            const matchingProperty = (query.source.properties || []).find(
+            // ActorsQuery.properties is typed as AnyPersonScopeFilter[] | PropertyGroupFilterValue, but the
+            // Persons scene (the only ActorsQuery user of this branch) always sends a flat array.
+            const sourceProperties = (query.source.properties || []) as AnyPropertyFilter[]
+            const matchingProperty = sourceProperties.find(
                 (p) => p.key === newProperty.key && p.type === newProperty.type
             )
             const newProperties = matchingProperty
-                ? (query.source.properties || []).filter((p) => p !== matchingProperty)
-                : [...(query.source.properties || []), newProperty]
+                ? sourceProperties.filter((p) => p !== matchingProperty)
+                : [...sourceProperties, newProperty]
             const newUrl = query.propertiesViaUrl
                 ? combineUrl(
                       router.values.location.pathname,

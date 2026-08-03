@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { Provider } from 'kea'
 import { useState } from 'react'
 
+import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
+
 import { initKeaTests } from '~/test/init'
 import { PropertyDefinitionType } from '~/types'
 
@@ -235,6 +237,53 @@ describe('PropertiesTable inline editor', () => {
         it('masks collapsed complex values from capture', () => {
             const { container } = renderWith(true)
             expect(container.querySelector('.ph-no-capture')).not.toBeNull()
+        })
+    })
+
+    describe('empty state', () => {
+        it('shows the generic message when there are no properties at all, even with a filter preference active', () => {
+            // Regression: the "hide PostHog properties" preference is persisted and can be on
+            // by default. It removed nothing here (there was nothing to remove), so the
+            // "clear filters" prompt would be misleading.
+            userPreferencesLogic.mount()
+            userPreferencesLogic.actions.setHidePostHogPropertiesInTable(true)
+            render(
+                <Provider>
+                    <PropertiesTable type={PropertyDefinitionType.Person} properties={{}} searchable filterable />
+                </Provider>
+            )
+            expect(screen.getByText('No properties set yet')).toBeInTheDocument()
+            expect(screen.queryByText('Clear filters')).not.toBeInTheDocument()
+        })
+
+        it('shows a clear-filters prompt only when a search term actually removed rows', () => {
+            render(
+                <Provider>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Person}
+                        properties={{ email: 'a@b.com' }}
+                        searchable
+                    />
+                </Provider>
+            )
+            fireEvent.change(screen.getByPlaceholderText('Search property keys and values'), {
+                target: { value: 'no-match' },
+            })
+            expect(screen.getByText('No properties found')).toBeInTheDocument()
+            expect(screen.getByText('Clear filters')).toBeInTheDocument()
+        })
+
+        it('lets a caller override the true-empty message (e.g. for a person with no profile)', () => {
+            render(
+                <Provider>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Person}
+                        properties={{}}
+                        emptyStateMessage="This distinct ID has no person profile"
+                    />
+                </Provider>
+            )
+            expect(screen.getByText('This distinct ID has no person profile')).toBeInTheDocument()
         })
     })
 })

@@ -268,10 +268,9 @@ describe('parsePersonFromHogQLRow', () => {
         expect(person.is_identified).toBe(false)
     })
 
-    it('handles malformed JSON properties gracefully', () => {
+    it('throws on malformed JSON properties instead of masking the failure as an empty profile', () => {
         const row = ['uuid-1', [], '{not valid json', false, null, null]
-        const person = parsePersonFromHogQLRow(row)
-        expect(person.properties).toEqual({})
+        expect(() => parsePersonFromHogQLRow(row)).toThrow(SyntaxError)
     })
 })
 

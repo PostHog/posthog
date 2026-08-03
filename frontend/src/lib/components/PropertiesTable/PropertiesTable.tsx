@@ -229,6 +229,8 @@ export interface PropertiesTableProps extends BasePropertyType {
      * that can be expanded on demand, rather than being expanded inline. Threads through nesting.
      */
     collapsible?: boolean
+    /** Message shown when there are no properties at all (as opposed to the search/filter removing every row). */
+    emptyStateMessage?: string
 }
 
 export function PropertiesTable({
@@ -249,11 +251,15 @@ export function PropertiesTable({
     type,
     parent,
     collapsible = false,
+    emptyStateMessage = 'No properties set yet',
 }: PropertiesTableProps): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+
+    const hasAnyProperties =
+        !!properties && !Array.isArray(properties) && isObject(properties) && Object.keys(properties).length > 0
 
     const objectProperties = useMemo(() => {
         if (!properties || Array.isArray(properties) || !isObject(properties)) {
@@ -567,7 +573,7 @@ export function PropertiesTable({
                     className={className}
                     emptyState={
                         <>
-                            {hidePostHogPropertiesInTable || searchTerm ? (
+                            {hasAnyProperties && objectProperties.length === 0 ? (
                                 <span className="flex gap-2">
                                     <span>No properties found</span>
                                     <LemonButton
@@ -582,7 +588,7 @@ export function PropertiesTable({
                                     </LemonButton>
                                 </span>
                             ) : (
-                                'No properties set yet'
+                                emptyStateMessage
                             )}
                         </>
                     }
