@@ -30,6 +30,7 @@ import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger }
 import { Label } from 'lib/ui/Label/Label'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -221,7 +222,7 @@ interface SearchContextValue {
     isSearching: boolean
     isActive: boolean
     inputRef: RefObject<HTMLInputElement>
-    handleItemClick: (item: SearchItem) => void
+    handleItemClick: (item: SearchItem, openInNewTab?: boolean) => void
     showAskAiLink: boolean
     onAskAiClick?: () => void
     highlightedItemRef: MutableRefObject<SearchItem | null>
@@ -371,8 +372,8 @@ export interface SearchRootProps {
     logicKey?: SearchLogicProps['logicKey']
     /** Whether the search is active (for placeholder animation) */
     isActive?: boolean
-    /** Callback when an item is selected */
-    onItemSelect?: (item: SearchItem) => void
+    /** Callback when an item is selected. `openInNewTab` is true when activated with Cmd/Ctrl. */
+    onItemSelect?: (item: SearchItem, openInNewTab?: boolean) => void
     /** Whether to show the Ask AI link */
     showAskAiLink?: boolean
     /** Callback when Ask AI is clicked */
@@ -501,7 +502,7 @@ function SearchRoot({
     }, [isActive, setSearch])
 
     const handleItemClick = useCallback(
-        (item: SearchItem) => {
+        (item: SearchItem, openInNewTab: boolean = false) => {
             if (item.disabledReason) {
                 return
             }
@@ -529,9 +530,13 @@ function SearchRoot({
                 }
             }
             if (onItemSelect) {
-                onItemSelect(item)
+                onItemSelect(item, openInNewTab)
             } else if (item.href) {
-                router.actions.push(item.href)
+                if (openInNewTab) {
+                    newInternalTab(item.href)
+                } else {
+                    router.actions.push(item.href)
+                }
             }
         },
         [onItemSelect, onAskAiClick, updateUser, toggleTheme, logicKey]
@@ -663,7 +668,17 @@ export interface SearchInputProps {
 }
 
 function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
-    const { searchValue, setSearchValue, isActive, inputRef, showAskAiLink, onAskAiClick } = useSearchContext()
+    const {
+        searchValue,
+        setSearchValue,
+        isActive,
+        inputRef,
+        showAskAiLink,
+        onAskAiClick,
+        handleItemClick,
+        highlightedItemRef,
+        filteredItems,
+    } = useSearchContext()
 
     const { text: placeholderText, isVisible: placeholderVisible } = useRotatingPlaceholder(isActive && !searchValue)
 
@@ -680,9 +695,23 @@ function SearchInput({ autoFocus, className }: SearchInputProps): JSX.Element {
                 e.preventDefault()
                 onAskAiClick?.()
                 router.actions.push(urls.ai(undefined, searchValue.trim()))
+                return
+            }
+            // Cmd/Ctrl+Enter opens the highlighted result in a new tab. Base UI's combobox input
+            // ignores modified Enter (so plain Enter still navigates in place), leaving this to us.
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                const highlighted = highlightedItemRef.current
+                if (
+                    highlighted &&
+                    !highlighted.disabledReason &&
+                    filteredItems.some((item) => item.id === highlighted.id)
+                ) {
+                    e.preventDefault()
+                    handleItemClick(highlighted, true)
+                }
             }
         },
-        [showAskAiLink, searchValue, onAskAiClick]
+        [showAskAiLink, searchValue, onAskAiClick, handleItemClick, highlightedItemRef, filteredItems]
     )
 
     useEffect(() => {
@@ -887,7 +916,7 @@ function SearchResults({
                                                             value={item}
                                                             onClick={(e) => {
                                                                 e.preventDefault()
-                                                                handleItemClick(item)
+                                                                handleItemClick(item, e.metaKey || e.ctrlKey)
                                                             }}
                                                             render={(props) => {
                                                                 const isHighlighted =
@@ -1016,6 +1045,11 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut enter /> to activate
                     </span>
+                    {filteredItems.length > 0 && (
+                        <span>
+                            <KeyboardShortcut command enter /> to open in new tab
+                        </span>
+                    )}
                     {searchValue.trim() && (
                         <span>
                             <KeyboardShortcut tab /> to ask AI
