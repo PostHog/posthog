@@ -47,6 +47,10 @@ class CostExplorerEndpointConfig:
     # Response sub-structures to flatten into the row, as (member name, column prefix) pairs.
     # An empty prefix keeps the sub-structure's own field names.
     nested_keys: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    # Only cost-and-usage operations return a flagged-`Estimated` figure for the current,
+    # still-in-progress day. The utilization operations have no such concept and reject a
+    # request whose window includes today with DataUnavailableException.
+    includes_current_day: bool = False
 
 
 AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
@@ -61,6 +65,7 @@ AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
         group_by=("SERVICE", "LINKED_ACCOUNT"),
         window_days=92,
         restatement_lookback_days=7,
+        includes_current_day=True,
     ),
     "cost_and_usage_monthly": CostExplorerEndpointConfig(
         name="cost_and_usage_monthly",
@@ -73,6 +78,7 @@ AWS_COST_EXPLORER_ENDPOINTS: dict[str, CostExplorerEndpointConfig] = {
         group_by=("SERVICE", "LINKED_ACCOUNT"),
         window_days=366,
         restatement_lookback_days=45,
+        includes_current_day=True,
     ),
     "reservation_utilization_daily": CostExplorerEndpointConfig(
         name="reservation_utilization_daily",
