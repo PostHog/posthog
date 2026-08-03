@@ -8,11 +8,12 @@ import { expectLogic } from 'kea-test-utils'
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AppContext } from '~/types'
+import { AppContext, BillingType, StartupProgramLabel } from '~/types'
 
 import { projectNoticeLogic } from './projectNoticeLogic'
 
@@ -344,6 +345,47 @@ describe('projectNoticeLogic', () => {
             expect(router.values.location.pathname).toMatch(/\/settings\/organization-proxy$/)
 
             logic.unmount()
+        })
+    })
+
+    describe('startup program acceptance banner', () => {
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/organizations/:organization_id/proxy_records': [200, { results: [] }],
+                },
+            })
+            initKeaTests()
+        })
+
+        it('shows the acceptance notice once billing reflects an approved startup program label', async () => {
+            const logic = projectNoticeLogic()
+            logic.mount()
+            billingLogic.actions.loadBillingSuccess({
+                startup_program_label: StartupProgramLabel.Startup,
+            } as BillingType)
+
+            expect(logic.values.projectNoticeVariant).toEqual('startup_program_accepted')
+            expect(logic.values.projectNotice?.type).toEqual('success')
+
+            logic.unmount()
+        })
+
+        it('stays hidden once dismissed, even though the label is still set', async () => {
+            jest.spyOn(Storage.prototype, 'getItem').mockImplementation((key: string) =>
+                key === 'project-notice-dismissed.startup_program_accepted' ? 'true' : null
+            )
+
+            const logic = projectNoticeLogic()
+            logic.mount()
+            billingLogic.actions.loadBillingSuccess({
+                startup_program_label: StartupProgramLabel.Startup,
+            } as BillingType)
+
+            expect(logic.values.projectNoticeVariant).not.toEqual('startup_program_accepted')
+
+            logic.unmount()
+            jest.restoreAllMocks()
         })
     })
 })

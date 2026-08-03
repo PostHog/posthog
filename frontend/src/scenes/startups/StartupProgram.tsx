@@ -404,8 +404,9 @@ export function StartupProgram(): JSX.Element {
                                             <span>Application submitted successfully!</span>
                                         </div>
                                         <p className="text-muted">
-                                            Thank you for your application! We'll review it and get back to you as soon
-                                            as possible. In the meantime, you can continue using PostHog.
+                                            Thank you for your application. We'll email you with a decision. If you're
+                                            accepted, you'll also see a banner in PostHog and your credits on your
+                                            billing page. In the meantime, you can continue using PostHog.
                                         </p>
                                         <LemonButton type="primary" to={urls.projectRoot()}>
                                             Return to PostHog

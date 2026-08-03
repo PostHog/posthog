@@ -29,10 +29,11 @@ import { userLogic } from 'scenes/userLogic'
 import { brandingForProduct } from 'scenes/welcome/productBranding'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey, UserType } from '~/types'
+import { OnboardingStepKey, StartupProgramLabel, UserType } from '~/types'
 
 export type ProjectNoticeVariant =
     | 'billing_alert'
+    | 'startup_program_accepted'
     | 'demo_project'
     | 'provisioned_welcome'
     | 'real_project_with_no_events'
@@ -171,6 +172,10 @@ export interface projectNoticeLogicValues {
     hasReverseProxy: boolean | null // reverseProxyCheckerLogic
     user: UserType | null // userLogic
     effectiveBillingAlert: BillingAlertConfig | null
+    billingNoticeInputs: {
+        effectiveBillingAlert: BillingAlertConfig | null
+        startupProgramLabelCurrent: StartupProgramLabel | null
+    }
     noticeDismissedThisSession: boolean
     projectNotice: ProjectNoticeBlueprint | null
     projectNoticeDismissKey: string | null
@@ -220,6 +225,13 @@ export interface projectNoticeLogicMeta {
             billingAlert: BillingAlertConfig | null,
             fakeBillingAlert: import('lib/components/Superpowers/superpowersLogic').FakeBillingAlert
         ) => BillingAlertConfig | null
+        billingNoticeInputs: (
+            effectiveBillingAlert: BillingAlertConfig | null,
+            startupProgramLabelCurrent: StartupProgramLabel | null
+        ) => {
+            effectiveBillingAlert: BillingAlertConfig | null
+            startupProgramLabelCurrent: StartupProgramLabel | null
+        }
         projectNoticeVariant: (
             currentOrganization: null | import('~/types').OrganizationType,
             currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType,
@@ -230,7 +242,10 @@ export interface projectNoticeLogicMeta {
             internetConnectionIssue: boolean,
             hasProjectNoticeRestriction: boolean,
             proxyRecords: ProxyRecord[] | null,
-            effectiveBillingAlert: BillingAlertConfig | null,
+            billingNoticeInputs: {
+                effectiveBillingAlert: BillingAlertConfig | null
+                startupProgramLabelCurrent: StartupProgramLabel | null
+            },
             currentLocation: {
                 hash: string
                 hashParams: Record<string, any>
@@ -348,6 +363,14 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 return billingAlert
             },
         ],
+        // Bundled into one selector so projectNoticeVariant stays within kea's 16-arg selector tuple limit.
+        billingNoticeInputs: [
+            (s) => [s.effectiveBillingAlert, billingLogic.selectors.startupProgramLabelCurrent],
+            (
+                effectiveBillingAlert: BillingAlertConfig | null,
+                startupProgramLabelCurrent: StartupProgramLabel | null
+            ) => ({ effectiveBillingAlert, startupProgramLabelCurrent }),
+        ],
         projectNoticeVariant: [
             (s) => [
                 organizationLogic.selectors.currentOrganization,
@@ -359,7 +382,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 apiStatusLogic.selectors.internetConnectionIssue,
                 eventIngestionRestrictionLogic.selectors.hasProjectNoticeRestriction,
                 s.proxyRecords,
-                s.effectiveBillingAlert,
+                s.billingNoticeInputs,
                 router.selectors.currentLocation,
                 s.noticeDismissedThisSession,
                 sceneLogic.selectors.activeSceneId,
@@ -378,7 +401,10 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 internetConnectionIssue: boolean,
                 hasEventIngestionRestriction: boolean,
                 proxyRecords: ProxyRecord[] | null,
-                effectiveBillingAlert: BillingAlertConfig | null,
+                billingNoticeInputs: {
+                    effectiveBillingAlert: BillingAlertConfig | null
+                    startupProgramLabelCurrent: StartupProgramLabel | null
+                },
                 currentLocation: {
                     hash: string
                     hashParams: Record<string, any>
@@ -393,6 +419,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                 hasReverseProxy: boolean | null,
                 isProvisionedUser: boolean
             ): ProjectNoticeVariant | null => {
+                const { effectiveBillingAlert, startupProgramLabelCurrent } = billingNoticeInputs
+
                 if (!organization) {
                     return null
                 }
@@ -412,6 +440,8 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     )
                 ) {
                     return 'billing_alert'
+                } else if (startupProgramLabelCurrent && !isNoticeDismissed('startup_program_accepted')) {
+                    return 'startup_program_accepted'
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,
@@ -467,6 +497,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     case 'missing_reverse_proxy':
                     case 'invite_teammates':
                     case 'provisioned_welcome':
+                    case 'startup_program_accepted':
                         return variant
                     default:
                         return null
@@ -530,6 +561,19 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                                 : undefined,
                         }
                     }
+                    case 'startup_program_accepted':
+                        return {
+                            message: 'Your organization has been accepted into the PostHog Startup Program.',
+                            type: 'success',
+                            action: canAccessBilling
+                                ? {
+                                      to: urls.organizationBilling(),
+                                      'data-attr': 'startup-program-accepted-billing_link',
+                                      children: 'View billing',
+                                  }
+                                : undefined,
+                            onClose: dismiss,
+                        }
                     case 'demo_project': {
                         const altTeam = currentOrganization?.teams?.find(
                             (team) => !team.is_demo && !team.ingested_event
