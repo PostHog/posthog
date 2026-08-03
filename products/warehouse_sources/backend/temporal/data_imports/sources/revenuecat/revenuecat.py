@@ -189,8 +189,8 @@ def _format_http_error(error: requests.HTTPError) -> str:
         )
     if status_code == 403:
         return (
-            "RevenueCat denied the request (403). Make sure the v2 secret API key "
-            "has the permissions required for this resource."
+            "RevenueCat denied the request (403). The v2 secret API key is missing read access — "
+            "give it read permission for the data you want to sync, then reconnect."
         )
     if status_code == 404:
         return "RevenueCat could not find the project (404). Double-check the project id."
