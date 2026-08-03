@@ -40,7 +40,7 @@ import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
 import type { DatasetItemReadApi as DatasetItem, DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { truncateValue } from '../utils'
@@ -435,17 +435,7 @@ function DatasetItems({ dataset }: { dataset: Dataset }): JSX.Element {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && (
-                            <ProfilePicture
-                                user={{
-                                    email: created_by.email,
-                                    first_name: created_by.first_name,
-                                    last_name: created_by.last_name,
-                                }}
-                                size="md"
-                                showName
-                            />
-                        )}
+                        {created_by && <ProfilePicture user={created_by as UserBasicType} size="md" showName />}
                     </div>
                 )
             },

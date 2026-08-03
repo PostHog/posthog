@@ -15,7 +15,7 @@ import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type UserBasicType } from '~/types'
 
 import type { DatasetReadApi as Dataset } from '../generated/api.schemas'
 import { DATASETS_PER_PAGE, aiObservabilityDatasetsLogic } from './aiObservabilityDatasetsLogic'
@@ -63,17 +63,7 @@ export function AIObservabilityDatasetsScene(): JSX.Element {
                 const { created_by } = item
                 return (
                     <div className="flex flex-row items-center flex-nowrap">
-                        {created_by && (
-                            <ProfilePicture
-                                user={{
-                                    email: created_by.email,
-                                    first_name: created_by.first_name,
-                                    last_name: created_by.last_name,
-                                }}
-                                size="md"
-                                showName
-                            />
-                        )}
+                        {created_by && <ProfilePicture user={created_by as UserBasicType} size="md" showName />}
                     </div>
                 )
             },

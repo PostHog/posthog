@@ -12,6 +12,7 @@ jest.mock('./datasetsApi', () => ({
     datasetsApi: {
         listDatasets: jest.fn(),
         archiveDataset: jest.fn(),
+        restoreDataset: jest.fn(),
     },
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -58,6 +59,7 @@ describe('aiObservabilityDatasetsLogic', () => {
 
         mockDatasetsApi.listDatasets.mockResolvedValue(mockDatasetsResponse)
         mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset1, archived: true })
+        mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset1)
     })
 
     describe('filters functionality', () => {
@@ -147,7 +149,6 @@ describe('aiObservabilityDatasetsLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
-                search: '',
                 order_by: '-created_at',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
@@ -180,7 +181,6 @@ describe('aiObservabilityDatasetsLogic', () => {
 
             expect(logic.values.filters.page).toBe(3)
             expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
-                search: '',
                 order_by: '-created_at',
                 offset: DATASETS_PER_PAGE * 2,
                 limit: DATASETS_PER_PAGE,
@@ -194,7 +194,6 @@ describe('aiObservabilityDatasetsLogic', () => {
             logic.actions.setFilters({ order_by: 'name' }, false)
 
             expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
-                search: '',
                 order_by: 'name',
                 offset: 0,
                 limit: DATASETS_PER_PAGE,
@@ -203,7 +202,7 @@ describe('aiObservabilityDatasetsLogic', () => {
     })
 
     describe('dataset archiving', () => {
-        it('archives a dataset', async () => {
+        it('archives and restores a dataset from Undo', async () => {
             const logic = aiObservabilityDatasetsLogic()
             logic.mount()
 
@@ -215,7 +214,14 @@ describe('aiObservabilityDatasetsLogic', () => {
             }).toFinishAllListeners()
 
             expect(mockDatasetsApi.archiveDataset).toHaveBeenCalledWith(mockDataset1.id)
-            expect(lemonToast.info).toHaveBeenCalledWith(`${mockDataset1.name} has been archived.`)
+            const toastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => Promise<void> }
+            }
+
+            await toastOptions.button.action()
+
+            expect(mockDatasetsApi.restoreDataset).toHaveBeenCalledWith(mockDataset1.id)
+            expect(lemonToast.success).toHaveBeenCalledWith(`${mockDataset1.name} has been restored.`)
         })
 
         it('surfaces an archive error', async () => {

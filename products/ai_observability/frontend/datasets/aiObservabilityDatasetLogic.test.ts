@@ -21,6 +21,8 @@ jest.mock('./datasetsApi', () => ({
         listItems: jest.fn(),
         archiveDataset: jest.fn(),
         restoreDataset: jest.fn(),
+        archiveItem: jest.fn(),
+        restoreItem: jest.fn(),
     },
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -103,6 +105,8 @@ describe('aiObservabilityDatasetLogic', () => {
         mockDatasetsApi.listItems.mockResolvedValue({ results: [], count: 0 })
         mockDatasetsApi.archiveDataset.mockResolvedValue({ ...mockDataset, archived: true })
         mockDatasetsApi.restoreDataset.mockResolvedValue(mockDataset)
+        mockDatasetsApi.archiveItem.mockResolvedValue({ ...mockDatasetItem1, archived: true, version: 2 })
+        mockDatasetsApi.restoreItem.mockResolvedValue({ ...mockDatasetItem1, version: 3 })
     })
 
     describe('new dataset creation', () => {
@@ -374,6 +378,29 @@ describe('aiObservabilityDatasetLogic', () => {
             await toastOptions.button.action()
 
             expect(lemonToast.error).toHaveBeenCalledWith("Couldn't restore dataset. Try again.")
+        })
+    })
+
+    describe('dataset item archiving', () => {
+        it('shows an error when Undo cannot restore the item', async () => {
+            const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            mockDatasetsApi.restoreItem.mockRejectedValue(new Error('Network error'))
+
+            await expectLogic(logic, () => {
+                logic.actions.archiveDatasetItem(mockDatasetItem1.id, mockDatasetItem1.version)
+            }).toFinishAllListeners()
+
+            const toastOptions = (lemonToast.info as jest.Mock).mock.calls.at(-1)?.[1] as {
+                button: { action: () => Promise<void> }
+            }
+            await toastOptions.button.action()
+
+            expect(mockDatasetsApi.restoreItem).toHaveBeenCalledWith(mockDatasetItem1.id, { base_version: 2 })
+            expect(lemonToast.error).toHaveBeenCalledWith(
+                "Couldn't restore dataset item. Refresh the dataset and try again."
+            )
         })
     })
 

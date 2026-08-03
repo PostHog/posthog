@@ -530,8 +530,14 @@ export const aiObservabilityDatasetLogic = kea<aiObservabilityDatasetLogicType>(
                             label: 'Undo',
                             dataAttr: 'undo-archive-dataset-item',
                             action: async () => {
-                                await datasetsApi.restoreItem(itemId, { base_version: archivedItem.version })
-                                await asyncActions.loadDatasetItems(false)
+                                try {
+                                    await datasetsApi.restoreItem(itemId, { base_version: archivedItem.version })
+                                    await asyncActions.loadDatasetItems(false)
+                                } catch {
+                                    lemonToast.error(
+                                        "Couldn't restore dataset item. Refresh the dataset and try again."
+                                    )
+                                }
                             },
                         },
                     })

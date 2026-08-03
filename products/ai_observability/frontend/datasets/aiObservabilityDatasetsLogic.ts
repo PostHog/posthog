@@ -153,7 +153,7 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
 
                     const { filters } = values
                     const params = {
-                        search: filters.search,
+                        search: filters.search || undefined,
                         order_by: filters.order_by,
                         offset: Math.max(0, (filters.page - 1) * DATASETS_PER_PAGE),
                         limit: DATASETS_PER_PAGE,
@@ -240,7 +240,21 @@ export const aiObservabilityDatasetsLogic = kea<aiObservabilityDatasetsLogicType
             try {
                 const datasetName = values.datasets.results.find((dataset) => dataset.id === datasetId)?.name
                 await datasetsApi.archiveDataset(datasetId)
-                lemonToast.info(`${datasetName || 'Dataset'} has been archived.`)
+                lemonToast.info(`${datasetName || 'Dataset'} has been archived.`, {
+                    button: {
+                        label: 'Undo',
+                        dataAttr: 'undo-archive-dataset',
+                        action: async () => {
+                            try {
+                                await datasetsApi.restoreDataset(datasetId)
+                                await asyncActions.loadDatasets(false)
+                                lemonToast.success(`${datasetName || 'Dataset'} has been restored.`)
+                            } catch {
+                                lemonToast.error("Couldn't restore dataset. Try again.")
+                            }
+                        },
+                    },
+                })
                 await asyncActions.loadDatasets(false)
             } catch {
                 lemonToast.error("Couldn't archive dataset. Try again.")

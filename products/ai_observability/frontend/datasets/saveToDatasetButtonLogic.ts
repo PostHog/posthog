@@ -248,7 +248,7 @@ export const saveToDatasetButtonLogic = kea<saveToDatasetButtonLogicType>([
                     const params = {
                         limit: DATASETS_PER_PAGE,
                         offset: 0,
-                        search: values.searchForm.search,
+                        search: values.searchForm.search || undefined,
                     }
                     const storageKey = getStorageKey(values.searchForm.search)
                     const response = await datasetsApi.listDatasets(params)

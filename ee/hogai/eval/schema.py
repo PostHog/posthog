@@ -217,7 +217,7 @@ class EvalsDockerImageConfig(BaseModel):
     """
     ID of the dataset.
     """
-    dataset_revision: int | None
+    dataset_revision: int | None = None
     """
     Dataset revision used to prepare this evaluation.
     """

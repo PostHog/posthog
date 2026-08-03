@@ -477,7 +477,6 @@ describe('saveToDatasetButtonLogic', () => {
                 expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
                     limit: DATASETS_PER_PAGE,
                     offset: 0,
-                    search: '',
                 })
             })
 
@@ -523,7 +522,6 @@ describe('saveToDatasetButtonLogic', () => {
                 expect(mockDatasetsApi.listDatasets).toHaveBeenCalledWith({
                     limit: DATASETS_PER_PAGE,
                     offset: 0,
-                    search: '',
                 })
             })
 
