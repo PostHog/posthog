@@ -10,7 +10,7 @@ export interface LiveWidgetSeedBucket {
 }
 
 const toEpochSeconds = (iso: string): number | null => {
-    const ms = new Date(iso).getTime()
+    const ms = Date.parse(iso)
     return Number.isFinite(ms) ? ms / 1000 : null
 }
 
@@ -33,18 +33,20 @@ const toMinuteBucket = (seconds: number): number => Math.floor(seconds / 60) * 6
  */
 export class LiveWidgetSlidingWindow<D extends string = string> {
     private readonly windowMinutes: number
-    private readonly extractors: Record<D, LiveWidgetEventExtractor>
+    private readonly domainEntries: [D, LiveWidgetEventExtractor][]
     private countsByMinute = new Map<number, number>()
     private breakdowns: Record<D, Map<number, Map<string, number>>>
     private newerThan: Record<string, number>
 
     constructor(options: { windowMinutes: number; breakdowns: Record<D, LiveWidgetEventExtractor> }) {
         this.windowMinutes = options.windowMinutes
-        this.extractors = options.breakdowns
+        this.domainEntries = Object.entries(options.breakdowns) as [D, LiveWidgetEventExtractor][]
         this.breakdowns = Object.fromEntries(
-            Object.keys(options.breakdowns).map((domain) => [domain, new Map<number, Map<string, number>>()])
+            this.domainEntries.map(([domain]) => [domain, new Map<number, Map<string, number>>()])
         ) as Record<D, Map<number, Map<string, number>>>
-        this.newerThan = Object.fromEntries(['counts', ...Object.keys(options.breakdowns)].map((key) => [key, 0]))
+        this.newerThan = Object.fromEntries(
+            ['counts', ...this.domainEntries.map(([domain]) => domain)].map((key) => [key, 0])
+        )
     }
 
     addEvent(event: LiveEvent): void {
@@ -58,9 +60,9 @@ export class LiveWidgetSlidingWindow<D extends string = string> {
             this.countsByMinute.set(minute, (this.countsByMinute.get(minute) ?? 0) + 1)
         }
 
-        for (const domain of Object.keys(this.extractors) as D[]) {
+        for (const [domain, extract] of this.domainEntries) {
             if (seconds > this.newerThan[domain]) {
-                const value = this.extractors[domain](event)
+                const value = extract(event)
                 if (value !== null) {
                     this.incrementBreakdown(domain, minute, value)
                 }

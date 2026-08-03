@@ -75,6 +75,17 @@ class WidgetSpec:
     # feature_flags.widget_flag_enabled in widget_create). Existing tiles keep rendering when it's off.
     creation_flag: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.is_live:
+            forbidden = [field for field in _LIVE_FORBIDDEN_CONFIG_FIELDS if field in self.config_model.model_fields]
+            if forbidden:
+                raise ValueError(
+                    f"{self.widget_type}: live widgets show a fixed real-time window and the stream cannot "
+                    f"apply test-account filters; remove {', '.join(forbidden)} from {self.config_model.__name__}"
+                )
+
+
+_LIVE_FORBIDDEN_CONFIG_FIELDS = ("dateRange", "filterTestAccounts")
 
 # Status filters use this sentinel for "no status filter applied" — it must not count as an active filter.
 _STATUS_ANY_SENTINEL = "all"

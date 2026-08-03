@@ -101,18 +101,6 @@ def main() -> int:
             )
             return 1
 
-        if spec.is_live:
-            forbidden_live_fields = [
-                field for field in ("dateRange", "filterTestAccounts") if field in spec.form_fields
-            ]
-            if forbidden_live_fields:
-                print(
-                    f"{widget_type}: live widgets show a fixed real-time window and cannot apply test-account "
-                    f"filters to the stream; remove {', '.join(forbidden_live_fields)} from form_fields",
-                    file=sys.stderr,
-                )
-                return 1
-
         config_model_name = spec.config_model.__name__
         config_schema_export = _friendly_config_schema_export(config_model_name)
         form_fields_manifest[widget_type] = {

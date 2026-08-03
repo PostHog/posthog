@@ -1,5 +1,5 @@
 import { connect, events, listeners } from 'kea'
-import type { BuiltLogic, Logic, LogicBuilder } from 'kea'
+import type { Logic, LogicBuilder } from 'kea'
 
 import { createStreamConnection } from 'lib/api-stream'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { LiveEvent, TeamPublicType, TeamType } from '~/types'
 
-const DEFAULT_FLUSH_INTERVAL_MS = 300
+const FLUSH_INTERVAL_MS = 300
 const MINUTE_TICK_INTERVAL_MS = 60_000
 
 export interface LiveWidgetStreamSpec {
@@ -22,13 +22,12 @@ export interface LiveWidgetStreamOptions {
     getStreamSpec: (team: TeamType | TeamPublicType) => LiveWidgetStreamSpec | null
     /**
      * Receives streamed events, batched on a flush interval while the tab is visible. Dispatch into
-     * the consuming logic here — via its wrapper for unkeyed logics, or the passed built logic
-     * (`logic.actions.x(...)`) for keyed ones.
+     * the consuming logic here via its wrapper (`myLogic.actions.x(...)`) — live widget logics are
+     * unkeyed shared logics by contract, so one connection serves every tile of the family.
      */
-    onEvents: (liveEvents: LiveEvent[], logic: BuiltLogic) => void
+    onEvents: (liveEvents: LiveEvent[]) => void
     /** Fires every 60s so time-windowed state can prune old minutes even without traffic. */
-    onMinuteTick?: (logic: BuiltLogic) => void
-    flushIntervalMs?: number
+    onMinuteTick?: () => void
 }
 
 /**
@@ -50,11 +49,8 @@ export interface LiveWidgetStreamOptions {
  * dispatches into them through the callbacks.
  */
 export function liveWidgetStream<L extends Logic = Logic>(options: LiveWidgetStreamOptions): LogicBuilder<L> {
-    const flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS
-
     return (logic) => {
         connect(() => ({
-            values: [teamLogic, ['currentTeam']],
             actions: [teamLogic, ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess']],
         }))(logic)
 
@@ -110,16 +106,16 @@ export function liveWidgetStream<L extends Logic = Logic>(options: LiveWidgetStr
             cache.disposables.add(() => {
                 const intervalId = setInterval(() => {
                     if (batch.length) {
-                        options.onEvents(batch, logic)
+                        options.onEvents(batch)
                         batch = []
                     }
-                }, flushIntervalMs)
+                }, FLUSH_INTERVAL_MS)
                 return () => clearInterval(intervalId)
             }, 'liveWidgetStream.flush')
 
             if (options.onMinuteTick) {
                 cache.disposables.add(() => {
-                    const intervalId = setInterval(() => options.onMinuteTick?.(logic), MINUTE_TICK_INTERVAL_MS)
+                    const intervalId = setInterval(() => options.onMinuteTick?.(), MINUTE_TICK_INTERVAL_MS)
                     return () => clearInterval(intervalId)
                 }, 'liveWidgetStream.tick')
             }

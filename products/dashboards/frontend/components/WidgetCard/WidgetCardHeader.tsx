@@ -13,7 +13,7 @@ import { dateFilterToText } from 'lib/utils/dateFilters'
 import { DashboardPlacement } from '~/types'
 
 import type { DashboardWidgetHeaderLayout, DashboardWidgetHeaderMeta } from '../../widget_types/catalog'
-import { LiveWidgetIndicator } from '../../widgets/live/LiveWidgetIndicator'
+import { LiveWidgetIndicator } from '../../widgets/live/components'
 import type { DashboardWidgetSlot } from '../../widgets/registry'
 
 /** Props a widget type's optional TopHeading override receives so it can compose its own
@@ -206,13 +206,13 @@ export function WidgetCardHeader({
                     />
                 </Suspense>
             ) : (
-                <CardTopHeadingRow typeLabel={widgetTypeLabel} showTypeLabel={showWidgetType} dateText={dateText}>
-                    {isLive ? (
-                        <>
-                            {showWidgetType && widgetTypeLabel ? <span>•</span> : null}
-                            <LiveWidgetIndicator />
-                        </>
-                    ) : null}
+                <CardTopHeadingRow
+                    typeLabel={widgetTypeLabel}
+                    showTypeLabel={showWidgetType}
+                    dateText={dateText}
+                    separateChildren
+                >
+                    {isLive ? <LiveWidgetIndicator /> : null}
                 </CardTopHeadingRow>
             )
         ) : null
