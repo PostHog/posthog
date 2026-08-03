@@ -39,12 +39,10 @@ class VariableInHavingClauseError(MaterializationNotSupportedError):
 
 
 class VariableComparedToPlaceholderExprError(MaterializationNotSupportedError):
-    """Raised when a variable is compared against an expression that itself contains a variable.
+    """Raised when a variable is compared against an expression that itself reads a variable.
 
-    The compared expression becomes the materialized key column, so it has to be fixed at
-    materialization time. One that reads a variable, such as
-    `toDate(toTimeZone(timestamp, {variables.timezone})) >= {variables.date_from}`, only takes
-    a value per request and cannot be a key column.
+    That expression would be the materialized key column, which has to be fixed at
+    materialization time, so it can't depend on a per-request value.
     """
 
 

@@ -102,8 +102,7 @@ def build_materialization_info(version: EndpointVersion, endpoint_name: str | No
             "saved_query_id": str(version.saved_query.id),
         }
     else:
-        # This runs per endpoint while serializing a list response, so an eligibility check that
-        # blows up on one query must not take down the whole page. Report it and move on.
+        # Runs per endpoint when listing, so one unanalyzable query must not fail the whole page.
         try:
             can_mat, reason = version.can_materialize()
         except Exception as e:

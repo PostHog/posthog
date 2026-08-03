@@ -1906,7 +1906,7 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
                 },
                 created_by=self.user,
             )
-            # Pre-populate so serialization doesn't lazily DESCRIBE against ClickHouse per endpoint.
+            # Unset columns would make serialization DESCRIBE against ClickHouse per endpoint.
             endpoint.versions.update(columns=[{"name": "c", "type": "integer"}])
 
     def _list_query_count(self, endpoint_count: int) -> int:
