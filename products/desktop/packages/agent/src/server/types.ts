@@ -16,6 +16,7 @@ export interface AgentServerConfig {
   agentStateDir?: string;
   repositoryPath?: string;
   repoReadyFile?: string;
+  skillInstallRoot?: string;
   apiUrl: string;
   apiKey: string;
   projectId: number;

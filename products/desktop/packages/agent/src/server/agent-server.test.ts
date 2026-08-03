@@ -421,6 +421,7 @@ describe("AgentServer HTTP Mode", () => {
       port,
       jwtPublicKey: TEST_PUBLIC_KEY,
       repositoryPath: repo.path,
+      skillInstallRoot: join(repo.path, ".posthog", "test-skill-installs"),
       apiUrl: "http://localhost:8000",
       apiKey: "test-api-key",
       projectId: 1,
@@ -2379,6 +2380,18 @@ describe("AgentServer HTTP Mode", () => {
       expect(sentMeta?.localSkillContext).toContain("LOCAL_SKILL_MARKER");
       expect(sentMeta?.localSkillContext).toContain("with context");
       expect(sentMeta?.localSkillName).toBe("local-test-skill");
+      await expect(
+        readFile(
+          join(
+            repo.path,
+            ".posthog",
+            "test-skill-installs",
+            "local-test-skill",
+            "SKILL.md",
+          ),
+          "utf-8",
+        ),
+      ).resolves.toBe(skillDefinition);
     }, 20000);
 
     it("lists co-installed dependency skills with their paths in the skill context", async () => {

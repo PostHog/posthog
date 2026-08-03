@@ -3184,6 +3184,10 @@ export class AgentServer {
   }
 
   private getSkillInstallDirectories(skillName: string): string[] {
+    if (this.config.skillInstallRoot) {
+      return [join(this.config.skillInstallRoot, skillName)];
+    }
+
     const home = process.env.HOME ?? "/tmp";
     return [
       join("/scripts", "plugins", "posthog", "skills", skillName),
