@@ -194,9 +194,8 @@ class TestTeamJoinRouting(_SlackRoutingTestBase):
 
     JOINER_ID = "U_NEW"
 
-    def _event(self, *, email: str | None = MEMBER_EMAIL, **user_flags) -> dict:
-        profile = {"email": email} if email is not None else {}
-        return {"type": "team_join", "user": {"id": self.JOINER_ID, "profile": profile, **user_flags}}
+    def _event(self, **user_flags) -> dict:
+        return {"type": "team_join", "user": {"id": self.JOINER_ID, **user_flags}}
 
     def _mock_slack(self, slack_cls_mock, *, post_ok: bool = True):
         instance = MagicMock()
@@ -235,21 +234,12 @@ class TestTeamJoinRouting(_SlackRoutingTestBase):
         slack_cls.assert_not_called()
         assert cache.get(_team_join_onboarding_cache_key(self.SLACK_TEAM_ID, self.JOINER_ID)) is None
 
-    @parameterized.expand(
-        [
-            ("no_org_membership", "stranger@example.com", True),
-            ("assistant_flag_off", MEMBER_EMAIL, False),
-        ]
-    )
-    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled")
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=False)
     @patch("products.slack_app.backend.api.SlackIntegration")
-    def test_ineligible_joiner_gets_no_dm(self, _name, email, flag_enabled, slack_cls, flag_mock):
-        flag_mock.return_value = flag_enabled
+    def test_assistant_flag_off_gets_no_dm(self, slack_cls, _flag):
         instance = self._mock_slack(slack_cls)
 
-        result = route_posthog_code_event_to_relevant_region(
-            self._request(), self._event(email=email), self.SLACK_TEAM_ID
-        )
+        result = route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
 
         assert result == ROUTE_HANDLED_LOCALLY
         instance.client.chat_postMessage.assert_not_called()

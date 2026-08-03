@@ -2420,12 +2420,13 @@ def _route_team_join(
     """DM a personal welcome to a new workspace member, at most once.
 
     Slack fires ``team_join`` for every account added to the workspace —
-    including bots and single/multi-channel guests, which we skip. To avoid
-    spamming coworkers who have nothing to do with PostHog, the DM only goes
-    to joiners whose Slack email belongs to a member of an organization
-    connected to this workspace, and only when the assistant is enabled for
-    that install. The DM lands in the app's Messages tab, so replying drops
-    the joiner straight into the assistant flow.
+    including bots and single/multi-channel guests, which we skip. Every full
+    member gets the DM: it grants no access on its own — the assistant
+    resolves and authorizes the user on every interaction, offering the
+    account-linking flow when their email doesn't match — so eligibility
+    sorts itself out on first use. The ``slack-app-assistant`` flag is the
+    per-install opt-in that keeps the DM dark for workspaces that haven't
+    enabled the assistant.
     """
     joiner = event.get("user") if isinstance(event.get("user"), dict) else None
     slack_user_id = joiner.get("id") if joiner else None
@@ -2441,9 +2442,7 @@ def _route_team_join(
     if _us_should_handle_instead(slack_team_id, [SLACK_INTEGRATION_KIND], can_defer_to_other_region, incoming_host):
         return _proxy_event_and_return_route(request, other_domain)
 
-    integration = _find_team_join_integration(
-        workspace_result.candidates, slack_user_id, (joiner.get("profile") or {}).get("email")
-    )
+    integration = next((c for c in workspace_result.candidates if is_slack_app_assistant_enabled(c.team)), None)
     if integration is None:
         return ROUTE_HANDLED_LOCALLY
 
@@ -2461,41 +2460,6 @@ def _route_team_join(
         cache.delete(_team_join_onboarding_cache_key(slack_team_id, slack_user_id))
 
     return ROUTE_HANDLED_LOCALLY
-
-
-def _find_team_join_integration(
-    candidates: list[Integration], slack_user_id: str, profile_email: str | None
-) -> Integration | None:
-    """Pick the install to welcome the joiner from, or ``None`` to stay silent.
-
-    The joiner qualifies for an install when their Slack email matches an
-    active member of the install's organization and the assistant is enabled
-    for its team. The membership check runs first: it is a local indexed
-    query, while the flag eval is a remote call that the typical joiner (a
-    coworker with no PostHog account) should never trigger. ``team_join``
-    carries the full user object, so the email usually comes straight off the
-    event; ``users.info`` is the fallback for hidden profiles.
-    """
-    email = profile_email or get_slack_email_for_user(candidates[0], slack_user_id)
-    if not email:
-        return None
-    try:
-        member_org_ids = set(
-            OrganizationMembership.objects.filter(
-                organization_id__in={c.team.organization_id for c in candidates},
-                user__email__iexact=email,
-                user__is_active=True,
-            ).values_list("organization_id", flat=True)
-        )
-    except Exception:
-        # Don't propagate transient DB errors to the Slack webhook — Slack
-        # retries 5xx and would replay the event.
-        logger.warning("slack_app_team_join_membership_check_failed", slack_user_id=slack_user_id, exc_info=True)
-        return None
-    for candidate in candidates:
-        if candidate.team.organization_id in member_org_ids and is_slack_app_assistant_enabled(candidate.team):
-            return candidate
-    return None
 
 
 def _team_join_onboarding_cache_key(slack_team_id: str, slack_user_id: str) -> str:
