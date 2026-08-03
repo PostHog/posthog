@@ -605,6 +605,7 @@ async fn guarded_handoff_delete_skips_recreated_handoff() {
             router_name: "router-0".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -677,6 +678,7 @@ async fn ack_for_previous_handoff_does_not_satisfy_quorum() {
             router_name: "r-live".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "a-previous-handoff".to_string(),
         })
         .await
@@ -716,6 +718,7 @@ async fn ack_for_previous_handoff_does_not_satisfy_quorum() {
             router_name: "r-live".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -795,6 +798,7 @@ async fn router_departure_advances_a_waiting_freeze() {
             router_name: "r-live".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -911,6 +915,7 @@ async fn legacy_ack_without_handoff_id_does_not_satisfy_quorum() {
             router_name: "r-legacy".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1229,6 +1234,7 @@ async fn freezing_handoff_advances_when_unacked_router_departs() {
             router_name: "router-acked".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1371,6 +1377,7 @@ async fn stale_freeze_ack_does_not_satisfy_quorum_for_live_router() {
             router_name: "router-departed".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await
@@ -1428,6 +1435,7 @@ async fn stale_freeze_ack_does_not_satisfy_quorum_for_live_router() {
             router_name: "router-silent".to_string(),
             partition: 0,
             acked_at: 0,
+            acked_at_ms: 0,
             handoff_id: "test-handoff-0".to_string(),
         })
         .await

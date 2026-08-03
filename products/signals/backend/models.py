@@ -1105,9 +1105,10 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         """
 
         ACTIVE = "active", "Active"
-        # Warned by a system writer: will be paused on a set date unless something changes.
-        # Still scheduled. A state rather than a notification so the sweep that sets it is
-        # idempotent and any human touch has something concrete to clear.
+        # Warned by a system writer. Still scheduled; whether the warning later advances to a
+        # pause depends on its reason (an `ignored` warning pauses after a grace period, a
+        # `no_output` one only ever warns). A state rather than a notification so the sweep
+        # that sets it is idempotent and any human touch has something concrete to clear.
         PENDING_PAUSE = "pending_pause", "Pending pause"
         PAUSED_BY_SYSTEM = "paused_by_system", "Paused by system"
         # A human switched the scout off. No system writer may resume or re-pause it.
@@ -1125,9 +1126,28 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         IGNORED = "ignored", "Ignored"
         REPEATED_FAILURES = "repeated_failures", "Repeated failures"
 
+    class NetworkAccess(models.TextChoices):
+        """What the scout's sandbox can reach over the network during a run.
+
+        `trusted` maps to the Tasks sandbox `TRUSTED` level (the platform's default
+        trusted-domain allowlist); `full` maps to `FULL` (unrestricted egress). Room is
+        deliberately left for a `custom` choice carrying a user-supplied domain allowlist
+        later — mirror the Tasks `SandboxEnvironment.NetworkAccessLevel` vocabulary when
+        adding it so the mapping in the runner stays one-to-one.
+        """
+
+        TRUSTED = "trusted", "Trusted domains only"
+        FULL = "full", "Full"
+
     # The `status` side of the `enabled` dual-write: a scout in one of these statuses is
     # scheduled by the coordinator. `pending_pause` still runs; the warning is not a pause.
     RUNNABLE_STATUSES = (Status.ACTIVE, Status.PENDING_PAUSE)
+
+    # The pause reasons the inactivity sweep owns (`scout_harness/inactivity.py`): `no_output`
+    # for a scout that surfaced nothing, `ignored` for one whose output nobody picked up. On the
+    # model rather than the sweep because the update serializer also reads them — a human
+    # re-enable of a pause carrying one of these marks the scout `auto_pause_exempt`.
+    INACTIVITY_PAUSE_REASONS = (PauseReason.NO_OUTPUT, PauseReason.IGNORED)
 
     # How long a scout is treated as provisional after creation or a human re-enable, during
     # which system writers should leave it alone (`in_cold_start_grace`).
@@ -1196,6 +1216,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         db_constraint=False,
         db_index=False,
     )
+    # Opt-out from the inactivity sweep (`scout_harness/inactivity.py`) — a watchdog whose whole
+    # value is staying quiet (health checks, inbox validation) is *supposed* to surface nothing
+    # most weeks, so silence must never read as waste. Also set by the update serializer when a
+    # human re-enables a scout the sweep paused: that re-enable is a human overruling the rule,
+    # and the sweep must not undo it one window later. `db_default` alongside `default` keeps the
+    # AddField non-blocking and the column populated for writers that don't know about it yet.
+    auto_pause_exempt = models.BooleanField(default=False, db_default=False)
     # Dry-run vs emit. Defaults emit-on so a freshly authored scout is live from its first
     # tick. Flip to False for dry-run — the scout runs and logs but `emit_finding` writes
     # nothing — to validate it on a team before its findings reach the inbox.
@@ -1215,6 +1242,19 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         default=1440,
         db_default=1440,
         validators=[MinValueValidator(30), MaxValueValidator(43200)],
+    )
+    # What the scout's sandbox can reach over the network. The runner maps this to the Tasks
+    # sandbox environment the run is provisioned into: `trusted` (default) keeps runs on the
+    # platform's trusted-domain allowlist, `full` lifts the restriction for scouts whose skill
+    # needs arbitrary external reads (docs, papers, status pages). Deliberately NOT excluded
+    # from activity logging — flipping a scout to full network is a security-relevant change.
+    # `db_default` alongside `default` keeps the AddField non-blocking and the column
+    # populated for writers that don't know about it yet.
+    network_access = models.CharField(
+        max_length=20,
+        choices=NetworkAccess.choices,
+        default=NetworkAccess.TRUSTED,
+        db_default=NetworkAccess.TRUSTED,
     )
     # Optional destinations for each finding or report this scout emits. Kept as a typed JSON object at
     # the API boundary so adding another destination does not require another pair of nullable
@@ -1320,6 +1360,16 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 kwargs["update_fields"] = fields | touched
         super().save(*args, **kwargs)
 
+    @classmethod
+    def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
+        """The ownership rule compares writers, not exact reasons: the inactivity sweep owns
+        both `no_output` and `ignored`, and must be able to reclassify its own warning from
+        one to the other without being refused as a foreign writer."""
+        if current == incoming:
+            return True
+        inactivity: set[str] = set(cls.INACTIVITY_PAUSE_REASONS)
+        return current in inactivity and incoming in inactivity
+
     def transition_status_by_system(
         self,
         new_status: "SignalScoutConfig.Status",
@@ -1329,11 +1379,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     ) -> bool:
         """Apply a system-driven status transition under the reason-scoped ownership rule.
 
-        `pause_reason` names the calling writer (an inactivity sweep passes `no_output`, a
-        failure breaker `repeated_failures`) as well as the reason recorded on a pause. The
-        rule: a system writer may never touch `paused_by_user`, and may only move a scout
-        whose current pause carries its own reason, so independent pause mechanisms cannot
-        clear or overwrite each other's state. The checks run against a freshly locked row,
+        `pause_reason` names the calling writer (an inactivity sweep passes `no_output` or
+        `ignored`, a failure breaker `repeated_failures`) as well as the reason recorded on a
+        pause. The rule: a system writer may never touch `paused_by_user`, and may only move a
+        scout whose current pause carries a reason it owns (`_pause_reasons_share_writer`), so
+        independent pause mechanisms cannot clear or overwrite each other's state. The checks run against a freshly locked row,
         not the caller's instance, so a human pause or another writer's claim that landed
         after the caller read the row cannot be overwritten. Pass `evaluated_at` (when the
         caller read the state its decision is based on) to also refuse the transition if the
@@ -1358,7 +1408,9 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 return False
             if locked.status == self.Status.PAUSED_BY_USER:
                 return False
-            if locked.status != self.Status.ACTIVE and locked.pause_reason != pause_reason:
+            if locked.status != self.Status.ACTIVE and not self._pause_reasons_share_writer(
+                locked.pause_reason, pause_reason
+            ):
                 return False
             # A warning is weaker than a pause: a delayed or retried warn must not reopen a
             # scout its own writer already paused (pending_pause is runnable).

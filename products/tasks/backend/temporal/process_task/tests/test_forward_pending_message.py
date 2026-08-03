@@ -89,6 +89,13 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert run.state == {"mode": "background"}
 
+    def test_missing_run_raises_non_retryable(self):
+        # A run deleted mid-run (team deletion cascade) must fail the workflow at the
+        # first forward, not leave the agent session running headless.
+        with self.assertRaises(ApplicationError) as ctx:
+            forward_pending_user_message("550e8400-e29b-41d4-a716-446655440000")
+        assert ctx.exception.non_retryable is True
+
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     def test_pending_message_delivered_successfully(self, mock_send, mock_token):

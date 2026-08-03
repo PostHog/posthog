@@ -97,8 +97,12 @@ Guarding it inside the workflow is worse: skipping the gate job cascades to the 
 
 #### Stacked PRs
 
+GitHub's native stacked PRs are enabled on this repo — use the `gh stack` CLI and the `/stacking-prs` skill instead of hand-managing branch chains.
+A stack lands bottom-first: merge the layer based on `master` the usual way (see "Merging PRs" below), then `gh stack sync --prune` and repeat.
+Never `gh stack merge` — it merges the whole chain straight through GitHub's API, so the bottom layer reaches `master` outside that path.
+
 Restacking force-pushes every branch, and each push triggers a full CI fan-out.
-If the Trunk merge queue is re-enabled (it is paused, see below), never restack while any branch in the stack is sitting in it: the force-push removes the PR from the queue.
+Never restack while any branch in the stack is sitting in the merge queue — the force-push removes it from the queue.
 Pushing a deep stack at once can exceed GitHub's per-repo dispatch cap (500 workflow runs / 10s).
 The overflow fails as `startup_failure` and takes unrelated runs in the same window down too.
 Draft status doesn't help, since runs are dispatched before draft/skip logic applies.
@@ -115,15 +119,14 @@ In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix
 
 ### Merging PRs
 
-Merges into `master` currently go through `gh pr merge <number> --squash`.
-Squash is the only merge method the repo allows, so `--merge` and `--rebase` are rejected.
+All merges into `master` go through the Trunk merge queue.
+Never run `gh pr merge` or click the GitHub merge button — both are blocked by branch ruleset.
 
-**The Trunk merge queue is paused.** Its ruleset is disabled, so `/trunk merge` and `/trunk cancel` comments and the `trunk-merge-queue-submit` label are no-ops: no `Trunk Merge Queue (master)` check run appears and the bot never replies. Don't reach for them.
-
-- Branch protection on `master` is unchanged and still enforced: an approving review, code owner review, the required status checks, and signed commits. `gh pr merge` refuses until all of those pass.
-- Shortly after a force-push or a label change, GitHub's mergeability cache can be stale and the first attempt fails with "the base branch policy prohibits the merge". Retrying a moment later works.
-- [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) is still written for the Trunk flow, so it's stale pending a follow-up. Its preflight and CI failure-handling advice still applies; its enqueue and queue-watching steps don't.
-- If Trunk is re-enabled, the old flow was: enqueue with `gh pr comment <number> --body "/trunk merge"`, watch the `Trunk Merge Queue (master)` check run on the head commit rather than the PR's own checks, and never force-push while the PR sits in the queue.
+- Enqueue: `gh pr comment <number> --body "/trunk merge"`. Cancel: `gh pr comment <number> --body "/trunk cancel"`.
+- After enqueueing, babysit the PR until it merges or fails — follow [`.agents/skills/merging-prs/SKILL.md`](./.agents/skills/merging-prs/SKILL.md) for the preflight, watch, and failure-handling loop.
+- Queue progress is the `Trunk Merge Queue (master)` check run on the PR's head commit. The PR's own checks don't reflect the queue's testing — it runs CI on a `trunk-merge/**` branch.
+- On failure the Trunk bot comments with links to the failing workflows; fix, push, and re-enqueue.
+- Never force-push a branch while it is in the queue — it removes the PR from the queue.
 
 ### Public open source repo guidance
 
@@ -179,7 +182,7 @@ See [.agents/security.md](.agents/security.md) for security guidelines — least
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Frontend (quill design system): before writing UI that imports `@posthog/quill` / `lib/ui/quill`, read [packages/quill/packages/primitives/AGENTS.md](packages/quill/packages/primitives/AGENTS.md) — component choice (dropdown vs select vs combobox, accordion vs collapsible, etc.), composition, and spacing rules. Charts: [packages/quill/packages/charts/AGENTS.md](packages/quill/packages/charts/AGENTS.md); DataTable/DateTimePicker: [packages/quill/packages/components/AGENTS.md](packages/quill/packages/components/AGENTS.md)
-- Frontend (quill vs LemonUI): LemonUI is the default in the main app. Use quill for menus, comboboxes, and autocompletes (`DropdownMenu`, `Combobox`, `Autocomplete` from `@posthog/quill`), with the trigger styled to match the surrounding scene's existing UI (LemonButton / ButtonPrimitive). Don't add new `LemonMenu` or `lib/ui/DropdownMenu` (Radix) menus — those are legacy. Don't mix quill and Lemon components within one component's internals. Quill uses Base UI's `render` prop, not Radix's `asChild` — don't carry `asChild` over when converting
+- Frontend (quill vs LemonUI): quill is for MCP apps and the desktop app. It is deliberately more compact than LemonUI, so its components look out of place in the main app, and there is no active migration of the main app onto it. In `frontend/src/` and `products/*/frontend/`, use LemonUI, including for menus — `LemonMenu` with a `LemonButton` trigger is the default there. `lib/ui/DropdownMenu` (Radix) is legacy; don't add new ones. Where quill is the right library, don't mix quill and Lemon components within one component's internals, and note that quill uses Base UI's `render` prop rather than Radix's `asChild`, so don't carry `asChild` over when converting
 - Frontend: Any button or form submit that triggers a network request must guard against double-submission — disable the button and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight. Never leave a submit button clickable during an active mutation; reset the state in both success and error paths. This applies to `<form onSubmit>` handlers, `onClick` handlers that call `api.*`, and any kea `listener` that issues a request — wire the in-flight state (loader `*Loading` selectors, local `useState`, or a reducer) into the trigger's disabled/loading props.
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
@@ -234,7 +237,8 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 
 **Invoke when in the area:**
 
-- `/merging-prs` — merging a PR, or babysitting one through CI (written for the Trunk queue, so partly stale while it's paused)
+- `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
+- `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
 - `/sending-notifications` — adding notification support

@@ -301,6 +301,22 @@ describe('llmPromptLogic', () => {
         logic.unmount()
     })
 
+    it('drops prompt-scene params from the breadcrumb link back to the list', async () => {
+        router.actions.push('/prompt-management/prompts/existing-prompt', {
+            edit: true,
+            version: 2,
+            tab: 'code',
+            search: 'checkout',
+        })
+
+        const logic = llmPromptLogic({ promptName: 'existing-prompt', selectedVersion: 2 })
+        logic.mount()
+
+        expect(logic.values.breadcrumbs[0].path).toBe('/prompt-management/prompts?search=checkout')
+
+        logic.unmount()
+    })
+
     it('preserves form edits and advances the base version on a publish conflict', async () => {
         const { versions, has_more, ...promptFields } = mockPrompt
         const conflictingLatest = {

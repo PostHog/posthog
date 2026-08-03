@@ -228,6 +228,25 @@ impl ServerHandle {
         config.kafka.kafka_historical_topic = historical.topic_name().to_string();
         Self::for_config(config).await
     }
+    /// Like `for_topics`, with the synthetic ingestion warnings emitter enabled
+    /// and pointed at its own topic via the emitter's dedicated config, so
+    /// legacy-path warning envelopes are readable independently of the events
+    /// that triggered them.
+    pub async fn for_topics_with_warnings(
+        main: &EphemeralTopic,
+        historical: &EphemeralTopic,
+        warnings_topic: &EphemeralTopic,
+    ) -> Self {
+        let mut config = DEFAULT_CONFIG.clone();
+        config.kafka.kafka_topic = main.topic_name().to_string();
+        config.kafka.kafka_historical_topic = historical.topic_name().to_string();
+        config.capture_ingestion_warnings_enabled = true;
+        config.capture_ingestion_warnings_kafka_hosts = config.kafka.kafka_hosts.clone();
+        config.capture_ingestion_warnings_kafka_tls = config.kafka.kafka_tls;
+        config.capture_ingestion_warnings_kafka_topic = warnings_topic.topic_name().to_string();
+        Self::for_config(config).await
+    }
+
     pub async fn for_recordings(main: &EphemeralTopic) -> Self {
         let mut config = DEFAULT_CONFIG.clone();
         config.kafka.kafka_topic = main.topic_name().to_string();

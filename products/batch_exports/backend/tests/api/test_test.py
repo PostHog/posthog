@@ -65,8 +65,8 @@ def bucket_name(request) -> str:
 
 
 @pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
+async def object_storage_client(bucket_name):
+    """Manage an S3 client to interact with a local object storage bucket.
 
     Yields the client after creating a bucket. Upon resuming, we delete
     the contents and the bucket itself.
@@ -75,28 +75,28 @@ async def minio_client(bucket_name):
         "s3",
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
-    ) as minio_client:
-        await minio_client.create_bucket(Bucket=bucket_name)
+    ) as object_storage_client:
+        await object_storage_client.create_bucket(Bucket=bucket_name)
 
-        yield minio_client
+        yield object_storage_client
 
-        await delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
+        await delete_all_from_s3(object_storage_client, bucket_name, key_prefix="/")
 
-        await minio_client.delete_bucket(Bucket=bucket_name)
+        await object_storage_client.delete_bucket(Bucket=bucket_name)
 
 
-async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
+async def delete_all_from_s3(object_storage_client, bucket_name: str, key_prefix: str):
     """Delete all objects in bucket_name under key_prefix."""
-    response = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
+    response = await object_storage_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
 
     if "Contents" in response:
         for obj in response["Contents"]:
             if "Key" in obj:
-                await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
+                await object_storage_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
 def test_can_run_s3_test_step_for_new_destination(
-    client: HttpClient, bucket_name, minio_client, organization, team, user
+    client: HttpClient, bucket_name, object_storage_client, organization, team, user
 ):
     destination_data = {
         "type": "S3Compatible",
@@ -133,7 +133,7 @@ def test_can_run_s3_test_step_for_new_destination(
 
 
 def test_can_run_s3_test_step_for_destination(
-    client: HttpClient, bucket_name, minio_client, temporal, organization, team, user
+    client: HttpClient, bucket_name, object_storage_client, temporal, organization, team, user
 ):
     destination_data = {
         "type": "S3Compatible",
@@ -338,7 +338,7 @@ def test_can_run_snowflake_test_step_for_partial_config(
 
 
 def test_can_run_s3_test_step_with_additional_fields(
-    client: HttpClient, bucket_name, minio_client, temporal, organization, team, user
+    client: HttpClient, bucket_name, object_storage_client, temporal, organization, team, user
 ):
     """Test we can run test steps successfully even with additional configuration fields.
 

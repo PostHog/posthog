@@ -1701,8 +1701,9 @@ class SignalScoutViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Create a scout",
         description=(
             "Create a `signals-scout-*` skill and its runnable config atomically. The skill always receives the "
-            "report-channel tools. The optional config controls schedule, enablement, dry-run posture, and typed "
-            "destinations such as Slack. Repeating the same definition is safe and applies any supplied config fields; "
+            "report-channel tools. The optional config controls schedule, enablement, dry-run posture, network "
+            "access, and typed destinations such as Slack. Repeating the same definition is safe and applies any "
+            "supplied config fields; "
             "reusing its name for a different definition returns 409."
         ),
         operation_id="signals_scout_create",
@@ -1787,7 +1788,10 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     serializer_class = SignalScoutConfigSerializer
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
-    permission_classes = [IsAuthenticated, APIScopePermission]
+    # Every action resolves `_canonical_team_id`, so the rows read and written belong to the
+    # parent project even on a child-environment URL — and config writes drive spend and the
+    # sandbox network posture, so authorization must anchor to the data-owning team.
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
     scope_object = "signal_scout"
     queryset = SignalScoutConfig.objects.unscoped()
     lookup_field = "id"
@@ -1845,7 +1849,8 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description=(
             "Register the config for a `signals-scout-*` skill immediately, without waiting "
             "for the coordinator to auto-register it. The same call can optionally set "
-            "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, and output destinations. "
+            "`run_interval_minutes`, a cron `run_cron_schedule`, `enabled`, `emit`, `network_access`, "
+            "and output destinations. "
             "The skill must already exist on this project. Upsert: if a config already exists "
             "for the skill, the provided fields are applied to it."
         ),
@@ -1892,8 +1897,9 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Update a scout config",
         description=(
             "Tune one scout: change its schedule (rolling `run_interval_minutes`, or a cron "
-            "`run_cron_schedule` that takes precedence when set), `enabled`, or `emit` (dry-run) "
-            "posture, or output destinations. `skill_name` is fixed. Enabling records `enabled_by` "
+            "`run_cron_schedule` that takes precedence when set), `enabled`, `emit` (dry-run) "
+            "posture, `network_access` (trusted-domain allowlist vs full access for the scout's "
+            "sandbox), or output destinations. `skill_name` is fixed. Enabling records `enabled_by` "
             "and is activity-logged since it drives spend."
         ),
         operation_id="signals_scout_config_update",
