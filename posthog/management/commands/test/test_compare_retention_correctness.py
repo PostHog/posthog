@@ -18,7 +18,9 @@ from posthog.management.commands.compare_retention_correctness import (
     parse_journal_lines,
     revalidate_mismatches,
     scope_signature,
+    unabsorbed_journal_rows,
 )
+from posthog.management.commands.test.test_compare_retention_legacy_vs_dwh import FakeObjectStorage
 from posthog.models import Team
 
 from products.product_analytics.backend.models.insight import Insight
@@ -89,17 +91,49 @@ class TestJournal(TestCase):
         cmd = Command(stdout=StringIO())
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "sweep.json.journal")
-            handle = cmd._open_journal(path, scope="S")
-            assert handle is not None
-            handle.write(journal_line(_row(1, "OK")) + "\n")
-            handle.write('{"id": 2, "sho')
-            handle.close()
-            handle = cmd._open_journal(path, scope="S")
-            assert handle is not None
-            handle.write(journal_line(_row(2, "OK")) + "\n")
-            handle.close()
+            sink = cmd._open_journal(path, scope="S", recovered=[])
+            assert sink is not None
+            sink.append(journal_line(_row(1, "OK")))
+            sink.close()
+            with open(path, "a") as handle:
+                handle.write('{"id": 2, "sho')  # the interrupt tears a write mid-line
+            sink = cmd._open_journal(path, scope="S", recovered=[])
+            assert sink is not None
+            sink.append(journal_line(_row(2, "OK")))
+            sink.close()
             recovered = cmd._load_journal(path, scope="S", restart=False)
             self.assertEqual([r.id for r in recovered], [1, 2])
+
+    def test_remote_journal_reseeds_recovered_rows_on_resume(self):
+        # Each object-storage upload replaces the whole journal, so a resumed run that fails to
+        # seed the recovered rows erases them with its first upload.
+        cmd = Command(stdout=StringIO())
+        path = "s3://retention/sweep.json.journal"
+        fake = FakeObjectStorage()
+        with patch("posthog.management.commands.compare_retention_legacy_vs_dwh.object_storage", fake):
+            sink = cmd._open_journal(path, scope="S", recovered=[])
+            assert sink is not None
+            sink.append(journal_line(_row(1, "OK")))
+            sink.close()  # stands in for the SIGTERM flush of an evicted pod
+            recovered = cmd._load_journal(path, scope="S", restart=False)
+            self.assertEqual([r.id for r in recovered], [1])
+            sink = cmd._open_journal(path, scope="S", recovered=recovered)
+            assert sink is not None
+            sink.append(journal_line(_row(2, "OK")))
+            sink.close()
+            self.assertEqual([r.id for r in cmd._load_journal(path, scope="S", restart=False)], [1, 2])
+
+
+class TestUnabsorbedJournalRows(TestCase):
+    def test_rows_already_folded_into_the_checkpoint_are_dropped(self):
+        # A journal outlives its absorb only when the post-save delete failed; folding those
+        # rows again would double-count every one of them.
+        rows = [_row(5, "OK"), _row(10, "OK"), _row(15, "OK")]
+        self.assertEqual([r.id for r in unabsorbed_journal_rows(rows, 10)], [15])
+
+    def test_without_a_checkpoint_every_row_is_pending(self):
+        rows = [_row(5, "OK")]
+        self.assertEqual(unabsorbed_journal_rows(rows, None), rows)
 
 
 class TestProgressStateRoundTrip(TestCase):
@@ -107,6 +141,8 @@ class TestProgressStateRoundTrip(TestCase):
         state = merge_progress_state(
             None, [_row(1, "OK"), _row(2, "MISMATCH", "d")], next_cursor=2, complete=False, scope="SC"
         )
+        state.writer = "pod-a"
+        state.updated_at = "2026-08-03T00:00:00+00:00"
         self.assertEqual(ProgressState.from_dict(state.to_dict()), state)
 
     def test_from_dict_tolerates_missing_keys(self):

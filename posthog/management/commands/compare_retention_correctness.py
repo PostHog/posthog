@@ -64,12 +64,24 @@ sweep.json`` is a single resumable run. The journal is absorbed into the state f
 finishes. The cursor alone can't provide this: teams run in parallel lanes, so an interrupted run's
 completed ids are scattered across the id range, not a contiguous prefix a cursor could describe.
 
+Pods are ephemeral, so a state file on the pod's own disk dies with the pod. Prefix ``--state-file``
+with ``s3://`` (e.g. ``s3://retention_compare/sweep.json``, a key in the default object-storage
+bucket) to keep the checkpoint and journal in object storage instead: any other pod with the same
+command then resumes the sweep. Object storage can't append, so the remote journal is uploaded whole
+at most every ~30s and on SIGTERM (evictions grant a grace period); a hard kill (OOM) loses at most
+that window of finished insights, which the resumed run simply re-checks. The state file records
+which host last wrote it, and resuming from a different host prints a notice, since nothing stops
+two pods from writing the same key.
+
 Examples:
     # All retention insights, up to 8 teams in parallel
     python manage.py compare_retention_correctness
 
     # Every matching insight in one run; Ctrl-C safe — re-run the same command to resume
     python manage.py compare_retention_correctness --all --state-file /tmp/retention_sweep.json
+
+    # Same, but the state survives the pod: resume from any other pod with the same command
+    python manage.py compare_retention_correctness --all --state-file s3://retention_compare/sweep.json
 
     # Resumable sweep over every insight: run this repeatedly until it reports "complete"
     python manage.py compare_retention_correctness --state-file /tmp/retention_sweep.json --limit 500
@@ -87,6 +99,7 @@ Examples:
 import os
 import sys
 import json
+import socket
 import argparse
 import threading
 import contextvars
@@ -94,10 +107,11 @@ import dataclasses
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from copy import deepcopy
 from datetime import UTC, datetime
 from time import perf_counter
-from typing import Any, Optional, TextIO
+from typing import Any, Optional
 
 from unittest.mock import patch
 
@@ -115,12 +129,21 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     HEARTBEAT_EVERY,
     RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
+    FileLineSink,
+    LineSink,
+    ObjectStorageLineSink,
     _fmt_duration,
     attribute_variant_errors,
     classify_insight,
     compute_interval_context,
+    delete_state_path,
     diff_retention_results,
+    flush_on_sigterm,
     intersect_stable_mismatch,
+    is_object_storage_path,
+    object_storage_key,
+    read_state_text,
+    write_state_text,
 )
 
 from products.product_analytics.backend.models.insight import Insight
@@ -152,6 +175,8 @@ class ProgressState:
     ``cursor`` is a keyset position: the next run checks insights with ``id`` greater than it. Counts and
     findings accumulate across runs, so a completed file is itself the full report. ``scope`` fingerprints
     the filter set the sweep was started with, so resuming under different filters can be refused.
+    ``writer`` is the host that last saved the checkpoint: a shared (object-storage) state file has no
+    locking, so a resume from a different host prints a notice in case the previous pod is still running.
     """
 
     cursor: int = 0  # highest insight id checked so far; next run filters id > cursor
@@ -164,6 +189,7 @@ class ProgressState:
     errors: list[dict[str, Any]] = dataclasses.field(default_factory=list)
     complete: bool = False
     scope: str = ""
+    writer: str = ""
     updated_at: Optional[str] = None
 
     @classmethod
@@ -178,6 +204,7 @@ class ProgressState:
             errors=list(data.get("errors") or []),
             complete=bool(data.get("complete", False)),
             scope=str(data.get("scope", "")),
+            writer=str(data.get("writer", "")),
             updated_at=data.get("updated_at"),
         )
 
@@ -324,18 +351,35 @@ def parse_journal_lines(lines: list[str], scope: str) -> list[Row]:
 
 
 def load_progress_state(path: str) -> Optional[ProgressState]:
-    if not os.path.exists(path):
+    text = read_state_text(path)
+    if text is None:
         return None
-    with open(path) as f:
-        return ProgressState.from_dict(json.load(f))
+    return ProgressState.from_dict(json.loads(text))
 
 
 def save_progress_state(path: str, state: ProgressState) -> None:
-    # Write-then-replace so a crash mid-write can't corrupt an in-progress sweep's checkpoint.
-    tmp = f"{path}.tmp"
-    with open(tmp, "w") as f:
-        json.dump(state.to_dict(), f, indent=2, sort_keys=True)
-    os.replace(tmp, path)
+    write_state_text(path, json.dumps(state.to_dict(), indent=2, sort_keys=True))
+
+
+def stamp_progress_state(state: ProgressState) -> ProgressState:
+    state.updated_at = datetime.now(UTC).isoformat()
+    state.writer = socket.gethostname()
+    return state
+
+
+def unabsorbed_journal_rows(rows: list[Row], cursor: Optional[int]) -> list[Row]:
+    """Journal rows not yet folded into the checkpoint. Pure.
+
+    A journal normally disappears when its batch completes (the absorb deletes it right after the
+    state write). If that delete never lands — a crash between the two writes, or an object-storage
+    delete failing — the next run would fold the leftover rows a second time and double-count every
+    one of them. Absorbed rows are exactly those at or below the checkpoint cursor: a batch only
+    journals ids above the cursor it started from, and the cursor only advances when a batch's rows
+    are absorbed.
+    """
+    if cursor is None:
+        return rows
+    return [row for row in rows if row.id > cursor]
 
 
 def _run_variant(
@@ -465,7 +509,10 @@ class Command(BaseCommand):
             "afterwards it is rewritten with the new cursor plus accumulated counts and findings. Re-run the "
             "same command to walk every matching insight in --limit-sized batches until it reports complete. "
             "Interrupted runs resume too: each finished insight is journaled to <state-file>.journal as it "
-            "completes, and the next run skips the journaled insights and keeps their results.",
+            "completes, and the next run skips the journaled insights and keeps their results. Prefix with "
+            "s3:// to keep the checkpoint and journal in object storage (the key lands in the default "
+            "bucket), so the sweep outlives an ephemeral pod and any other pod can resume it; the journal "
+            "is uploaded every ~30s and on SIGTERM.",
         )
         parser.add_argument(
             "--after-id",
@@ -522,6 +569,7 @@ class Command(BaseCommand):
         prev_state, already_complete = self._load_resume_state(state_file, scope, after_id, options["restart"])
         journal_file = f"{state_file}{JOURNAL_SUFFIX}" if state_file else None
         journal_rows = self._load_journal(journal_file, scope, restart=options["restart"])
+        journal_rows = unabsorbed_journal_rows(journal_rows, prev_state.cursor if prev_state else None)
 
         # Re-verify mismatches recorded by earlier batches before doing new work: enough time has
         # usually passed for in-motion data (merges, replica divergence) to settle, so artifacts
@@ -529,8 +577,7 @@ class Command(BaseCommand):
         # command on an already-complete sweep does just this re-verification.
         if state_file and prev_state is not None and prev_state.mismatches and options["recheck_mismatches"]:
             prev_state = self._revalidate_previous_mismatches(prev_state, options)
-            prev_state.updated_at = datetime.now(UTC).isoformat()
-            save_progress_state(state_file, prev_state)
+            save_progress_state(state_file, stamp_progress_state(prev_state))
 
         if already_complete:
             assert prev_state is not None  # already_complete implies a loaded checkpoint
@@ -545,16 +592,20 @@ class Command(BaseCommand):
             self._handle_empty(options, state_file, scope, prev_state, cursor, journal_rows, journal_file)
             return
 
-        journal = self._open_journal(journal_file, scope)
+        journal = self._open_journal(journal_file, scope, recovered=journal_rows)
+        # A local journal flushes every row to disk, so only the buffering object-storage sink
+        # needs the eviction (SIGTERM) flush.
+        sigterm_guard = flush_on_sigterm(journal.flush) if isinstance(journal, ObjectStorageLineSink) else nullcontext()
         try:
-            rows = self._run(
-                insights,
-                options["base_url"].rstrip("/"),
-                options["freeze_window"],
-                options["recheck_mismatches"],
-                options["concurrency"],
-                journal,
-            )
+            with sigterm_guard:
+                rows = self._run(
+                    insights,
+                    options["base_url"].rstrip("/"),
+                    options["freeze_window"],
+                    options["recheck_mismatches"],
+                    options["concurrency"],
+                    journal,
+                )
         finally:
             if journal is not None:
                 journal.close()
@@ -569,8 +620,7 @@ class Command(BaseCommand):
             new_state = merge_progress_state(
                 prev_state, all_rows, next_cursor=next_cursor, complete=fresh_exhausted, scope=scope
             )
-            new_state.updated_at = datetime.now(UTC).isoformat()
-            save_progress_state(state_file, new_state)
+            save_progress_state(state_file, stamp_progress_state(new_state))
             self._absorb_journal(journal_file)
             self._print_checkpoint(state_file, new_state)
             self._print_cumulative(new_state)
@@ -604,29 +654,45 @@ class Command(BaseCommand):
                 )
             )
             return prev, True
+        # A shared state file has no locking; two writers would silently clobber each other's batches.
+        if prev.writer and prev.writer != socket.gethostname():
+            self.stdout.write(
+                self.style.WARNING(
+                    f"Resuming a sweep last written by {prev.writer} at {prev.updated_at or 'an unknown time'}. "
+                    "Make sure that run is no longer active before continuing."
+                )
+            )
         return prev, False
 
     def _load_journal(self, path: Optional[str], scope: str, restart: bool) -> list[Row]:
         """Rows persisted per-insight by an interrupted run. They are excluded from this run's
         selection and their recorded results folded into the checkpoint when the batch completes."""
-        if path is None or not os.path.exists(path):
+        if path is None:
             return []
         if restart:
-            os.remove(path)
+            delete_state_path(path)
             return []
-        with open(path) as f:
-            lines = f.read().splitlines()
+        text = read_state_text(path)
+        if text is None:
+            return []
         try:
-            rows = parse_journal_lines(lines, scope)
+            rows = parse_journal_lines(text.splitlines(), scope)
         except ValueError as exc:
             raise CommandError(f"{path}: {exc}. Use a separate --state-file, or pass --restart to overwrite it.")
         if rows:
             self.stdout.write(f"Recovered {len(rows)} finished insight(s) from the interrupted run in {path}.")
         return rows
 
-    def _open_journal(self, path: Optional[str], scope: str) -> Optional[TextIO]:
+    def _open_journal(self, path: Optional[str], scope: str, recovered: list[Row]) -> Optional[LineSink]:
         if path is None:
             return None
+        if is_object_storage_path(path):
+            # Every upload replaces the whole object, so the buffer must start with everything the
+            # journal still needs to hold: the scope header plus the interrupted run's recovered
+            # rows, which are only safe to drop once the batch-end absorb folds them into the
+            # state file.
+            lines = [json.dumps({"scope": scope}), *(journal_line(row) for row in recovered)]
+            return ObjectStorageLineSink(object_storage_key(path), lines)
         handle = open(path, "a")
         if handle.tell() == 0:
             handle.write(json.dumps({"scope": scope}) + "\n")
@@ -639,12 +705,12 @@ class Command(BaseCommand):
                 # record isn't glued onto the fragment (which would corrupt both).
                 handle.write("\n")
         handle.flush()
-        return handle
+        return FileLineSink(handle)
 
     def _absorb_journal(self, path: Optional[str]) -> None:
         # The batch's rows are in the state file now; a leftover journal would double-fold them.
-        if path is not None and os.path.exists(path):
-            os.remove(path)
+        if path is not None:
+            delete_state_path(path)
 
     def _revalidate_previous_mismatches(self, state: ProgressState, options: dict[str, Any]) -> ProgressState:
         self.stdout.write(f"Re-verifying {len(state.mismatches)} previously recorded mismatch(es)…")
@@ -693,8 +759,7 @@ class Command(BaseCommand):
             new_state = merge_progress_state(
                 prev_state, journal_rows, next_cursor=next_cursor, complete=True, scope=scope
             )
-            new_state.updated_at = datetime.now(UTC).isoformat()
-            save_progress_state(state_file, new_state)
+            save_progress_state(state_file, stamp_progress_state(new_state))
             self._absorb_journal(journal_file)
             self.stdout.write(
                 self.style.SUCCESS(
@@ -714,7 +779,7 @@ class Command(BaseCommand):
         freeze: bool,
         recheck: bool,
         concurrency_opt: int,
-        journal: Optional[TextIO] = None,
+        journal: Optional[LineSink] = None,
     ) -> list[Row]:
         urls = {i.id: f"{base_url}/project/{i.team_id}/insights/{i.short_id}/edit" for i in insights}
 
@@ -739,10 +804,10 @@ class Command(BaseCommand):
             nonlocal done
             with progress_lock:
                 if journal is not None:
-                    # Persist before printing, flushed per row, so an interrupt loses at most the
-                    # insights still in flight.
-                    journal.write(journal_line(row) + "\n")
-                    journal.flush()
+                    # Persist before printing: a local journal flushes every row to disk, the
+                    # object-storage one uploads on its cadence and on SIGTERM, so an interrupt
+                    # loses at most the in-flight window.
+                    journal.append(journal_line(row))
                 done += 1
                 counts[row.status] += 1
                 self._print_progress(done, total, row)

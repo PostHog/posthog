@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 from unittest import TestCase
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,6 +16,7 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     CellDiff,
     CorrectnessDiff,
     InsightFinding,
+    ObjectStorageLineSink,
     ResourceStats,
     _cell_is_trailing,
     _clickhouse_seconds,
@@ -31,8 +33,31 @@ from posthog.management.commands.compare_retention_legacy_vs_dwh import (
     load_progress_findings,
     parse_query_log_rows,
     referenced_ids,
+    save_progress_findings,
     summarize_samples,
 )
+
+
+# In-memory stand-in for posthog.storage.object_storage, matching the module-level helper signatures.
+class FakeObjectStorage:
+    def __init__(self):
+        self.store: dict[str, str] = {}
+        self.writes = 0
+
+    def read(self, file_name, missing_ok=False):
+        if file_name not in self.store:
+            if missing_ok:
+                return None
+            raise Exception(f"missing object: {file_name}")
+        return self.store[file_name]
+
+    def write(self, file_name, content, extras=None):
+        self.writes += 1
+        self.store[file_name] = content
+
+    def delete(self, file_name):
+        self.store.pop(file_name, None)
+
 
 _DT = datetime(2024, 1, 1, tzinfo=UTC)
 
@@ -603,3 +628,34 @@ class TestProgressState(TestCase):
                     handle.write(finding_to_json_line(finding) + "\n")
             loaded = load_progress_findings(path)
         self.assertEqual({f.insight_id: f.status for f in loaded}, {7: "OK", 8: "OK"})
+
+
+class TestObjectStoragePersistence(TestCase):
+    def test_progress_findings_round_trip_through_object_storage(self):
+        # The s3:// scheme must be stripped from the stored key, or a resuming pod reads a
+        # different object than the one the interrupted run wrote.
+        finding = InsightFinding(insight_id=1, short_id="s1", team_id=1, name="", url="", status="OK")
+        fake = FakeObjectStorage()
+        with patch("posthog.management.commands.compare_retention_legacy_vs_dwh.object_storage", fake):
+            save_progress_findings("s3://retention/progress.jsonl", [finding])
+            self.assertEqual(list(fake.store), ["retention/progress.jsonl"])
+            self.assertEqual(load_progress_findings("s3://retention/progress.jsonl"), [finding])
+
+    def test_sink_batches_uploads_by_time_window_and_keeps_seeded_lines(self):
+        # Uploading on every append re-sends the whole object per insight; never uploading until
+        # close loses everything on a hard kill; dropping the seeded lines erases the work a
+        # resumed run loaded. All three would pass a naive implementation of one of the others.
+        clock = {"now": 0.0}
+        fake = FakeObjectStorage()
+        with patch("posthog.management.commands.compare_retention_legacy_vs_dwh.object_storage", fake):
+            sink = ObjectStorageLineSink("journal", ["seeded"], flush_seconds=30.0, now=lambda: clock["now"])
+            sink.append("row1")
+            self.assertEqual(fake.writes, 0)
+            clock["now"] = 31.0
+            sink.append("row2")
+            self.assertEqual(fake.writes, 1)
+            self.assertEqual(fake.store["journal"], "seeded\nrow1\nrow2\n")
+            sink.append("row3")
+            self.assertEqual(fake.writes, 1)
+            sink.close()
+            self.assertEqual(fake.store["journal"], "seeded\nrow1\nrow2\nrow3\n")

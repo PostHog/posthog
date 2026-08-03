@@ -39,6 +39,12 @@ Examples:
     python manage.py compare_retention_legacy_vs_dwh --all --progress-path retention_cmp.jsonl
     python manage.py compare_retention_legacy_vs_dwh --all --progress-path retention_cmp.jsonl --resume
 
+    # Progress state in object storage (the path names a key in the default OBJECT_STORAGE_BUCKET),
+    # for ephemeral pods: the recorded findings survive the pod, and any other pod resumes the run
+    # with the same command. Uploaded every ~30s, on SIGTERM (evictions), and at the end of the run.
+    python manage.py compare_retention_legacy_vs_dwh --all \\
+        --progress-path s3://retention_compare/perf_run.jsonl --resume
+
 (For a correctness-only sweep over everything, the concurrent ``compare_retention_correctness``
 command with ``--state-file`` is much faster — this command is the one that also measures perf.)
 """
@@ -48,16 +54,18 @@ import re
 import json
 import time
 import uuid
+import signal
 import argparse
+import threading
 import statistics
 import dataclasses
 from collections import Counter
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import perf_counter
-from typing import Any, Optional
+from typing import Any, Optional, TextIO, Union
 
 from unittest.mock import patch
 
@@ -76,6 +84,7 @@ from posthog.hogql_queries.insights.retention.retention_base_query_fixed import 
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.storage import object_storage
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -816,6 +825,153 @@ def build_perf_aggregate(findings: list[InsightFinding], *, worst_n: int) -> Per
 
 
 # --------------------------------------------------------------------------------------
+# Pod-survivable state storage: plain local paths, or "s3://<key>" in object storage
+# --------------------------------------------------------------------------------------
+
+OBJECT_STORAGE_PATH_PREFIX = "s3://"
+# Object storage has no append, so buffered progress lines are re-uploaded whole at most this
+# often. A pod killed without SIGTERM (an OOM kill) loses at most this window of finished
+# insights; re-checking them on resume is safe because these commands are read-only.
+OBJECT_STORAGE_FLUSH_SECONDS = 30.0
+
+
+def is_object_storage_path(path: str) -> bool:
+    return path.startswith(OBJECT_STORAGE_PATH_PREFIX)
+
+
+def object_storage_key(path: str) -> str:
+    key = path.removeprefix(OBJECT_STORAGE_PATH_PREFIX)
+    if not key:
+        raise CommandError(f"{path!r} names no object storage key")
+    return key
+
+
+def read_state_text(path: str) -> Optional[str]:
+    """Contents of a local or object-storage state path, or ``None`` when nothing is stored there.
+
+    ``s3://<key>`` addresses <key> in the default object-storage bucket (``OBJECT_STORAGE_BUCKET``),
+    not an arbitrary S3 bucket. State kept there outlives the pod, so a sweep interrupted by an
+    eviction can be resumed from any other pod.
+    """
+    if is_object_storage_path(path):
+        return object_storage.read(object_storage_key(path), missing_ok=True)
+    if not os.path.exists(path):
+        return None
+    with open(path) as handle:
+        return handle.read()
+
+
+def write_state_text(path: str, content: str) -> None:
+    if is_object_storage_path(path):
+        object_storage.write(object_storage_key(path), content)
+        return
+    # Write-then-replace so a crash mid-write can't corrupt the previous good state (an object
+    # storage PUT is already all-or-nothing).
+    tmp_path = f"{path}.tmp"
+    with open(tmp_path, "w") as handle:
+        handle.write(content)
+    os.replace(tmp_path, path)
+
+
+def delete_state_path(path: str) -> None:
+    if is_object_storage_path(path):
+        object_storage.delete(object_storage_key(path))
+    elif os.path.exists(path):
+        os.remove(path)
+
+
+class FileLineSink:
+    """Append-only line log on local disk; every line is flushed as written, so an interrupt
+    loses only the insights still in flight."""
+
+    def __init__(self, handle: TextIO) -> None:
+        self._handle = handle
+
+    def append(self, line: str) -> None:
+        self._handle.write(line + "\n")
+        self._handle.flush()
+
+    def flush(self) -> None:
+        return None  # append() already flushed every line to disk
+
+    def close(self) -> None:
+        self._handle.close()
+
+
+class ObjectStorageLineSink:
+    """Append-only line log mirrored to object storage, for pods whose disk dies with them.
+
+    An S3 object can't be appended to, so lines accumulate in memory and the whole log is
+    re-uploaded at most every ``flush_seconds`` plus on ``flush()``/``close()``. Because each
+    upload replaces the object outright, the buffer is seeded with the object's prior lines;
+    starting empty would erase the recorded work the moment the first re-upload lands. Worker
+    threads append while a SIGTERM handler may flush from the main thread, hence the lock.
+    """
+
+    def __init__(
+        self,
+        key: str,
+        initial_lines: list[str],
+        *,
+        flush_seconds: float = OBJECT_STORAGE_FLUSH_SECONDS,
+        now: Callable[[], float] = perf_counter,
+    ) -> None:
+        self._key = key
+        self._lines = list(initial_lines)
+        self._flush_seconds = flush_seconds
+        self._now = now
+        self._last_upload = now()
+        self._dirty = False
+        self._lock = threading.Lock()
+
+    def append(self, line: str) -> None:
+        with self._lock:
+            self._lines.append(line)
+            self._dirty = True
+            if self._now() - self._last_upload >= self._flush_seconds:
+                self._upload()
+
+    def flush(self) -> None:
+        with self._lock:
+            if self._dirty:
+                self._upload()
+
+    def close(self) -> None:
+        self.flush()
+
+    def _upload(self) -> None:
+        # Callers hold self._lock.
+        object_storage.write(self._key, "\n".join(self._lines) + "\n")
+        self._dirty = False
+        self._last_upload = self._now()
+
+
+LineSink = Union[FileLineSink, ObjectStorageLineSink]
+
+
+@contextmanager
+def flush_on_sigterm(flush: Callable[[], None]) -> Iterator[None]:
+    """Upload buffered progress when the pod is told to shut down.
+
+    Pod evictions and deletions deliver SIGTERM and wait out a grace period before SIGKILL, so
+    flushing here hands the interrupted run's full progress to whichever pod resumes it. The
+    handler hard-exits via ``os._exit`` because worker threads may be blocked mid-query and the
+    process is being killed regardless. SIGKILL itself can't be caught; the periodic upload
+    bounds that loss instead.
+    """
+
+    def _handler(_signum: int, _frame: Any) -> None:
+        flush()
+        os._exit(143)
+
+    previous = signal.signal(signal.SIGTERM, _handler)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+
+
+# --------------------------------------------------------------------------------------
 # Progress state (JSONL: one finding per line, appended as each insight finishes)
 # --------------------------------------------------------------------------------------
 
@@ -877,32 +1033,44 @@ def finding_from_dict(payload: dict[str, Any]) -> InsightFinding:
     )
 
 
-def load_progress_findings(path: str) -> list[InsightFinding]:
+def parse_progress_findings(text: str, path: str) -> list[InsightFinding]:
     """Findings recorded by a previous run. On duplicate insight ids the last record wins — a crash
     between the per-insight append and the end-of-run rewrite can leave the same insight twice."""
     by_id: dict[int, InsightFinding] = {}
-    with open(path) as handle:
-        for line_number, line in enumerate(handle, start=1):
-            if not line.strip():
-                continue
-            try:
-                finding = finding_from_dict(json.loads(line))
-            except Exception as exc:
-                raise CommandError(
-                    f"Cannot parse {path}:{line_number} ({_fmt_exception(exc)}) — was it written by a "
-                    "different version of this command? Remove the file to start over."
-                ) from exc
-            by_id[finding.insight_id] = finding
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            finding = finding_from_dict(json.loads(line))
+        except Exception as exc:
+            raise CommandError(
+                f"Cannot parse {path}:{line_number} ({_fmt_exception(exc)}) — was it written by a "
+                "different version of this command? Remove the file to start over."
+            ) from exc
+        by_id[finding.insight_id] = finding
     return list(by_id.values())
 
 
+def load_progress_findings(path: str) -> list[InsightFinding]:
+    text = read_state_text(path)
+    if text is None:
+        raise CommandError(f"No progress state found at {path}")
+    return parse_progress_findings(text, path)
+
+
 def save_progress_findings(path: str, findings: list[InsightFinding]) -> None:
-    # Write-then-replace so a crash mid-write can't corrupt the progress file.
-    tmp_path = f"{path}.tmp"
-    with open(tmp_path, "w") as handle:
-        for finding in findings:
-            handle.write(finding_to_json_line(finding) + "\n")
-    os.replace(tmp_path, path)
+    write_state_text(path, "".join(finding_to_json_line(finding) + "\n" for finding in findings))
+
+
+def open_findings_sink(path: Optional[str]) -> Optional[LineSink]:
+    if not path:
+        return None
+    if is_object_storage_path(path):
+        # Seed with the object's current lines: every upload replaces the object, so starting
+        # empty would erase the findings a resumed run just loaded.
+        existing = read_state_text(path)
+        return ObjectStorageLineSink(object_storage_key(path), existing.splitlines() if existing else [])
+    return FileLineSink(open(path, "a"))
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -1471,7 +1639,10 @@ class Command(BaseCommand):
             type=str,
             default=None,
             help="JSONL progress state: each finding is appended (and flushed) the moment its insight "
-            "finishes, so an interrupted run keeps its work. Pass the same path with --resume to continue.",
+            "finishes, so an interrupted run keeps its work. Pass the same path with --resume to continue. "
+            "Prefix with s3:// to keep it in object storage (the key lands in the default bucket) so the "
+            "state outlives an ephemeral pod and any other pod can resume the run; it is uploaded every "
+            "~30s, on SIGTERM, and at the end of the run.",
         )
         parser.add_argument(
             "--resume",
@@ -1556,21 +1727,26 @@ class Command(BaseCommand):
         all_query_ids: list[str] = [qid for f in loaded for qid in (*f.legacy_query_ids, *f.dwh_query_ids)]
         started_at = perf_counter()
 
-        progress_handle = open(options["progress_path"], "a") if options["progress_path"] else None
+        progress_sink = open_findings_sink(options["progress_path"])
+        # A local file needs no SIGTERM handling (every line is flushed as written); the
+        # object-storage sink buffers, so an evicted pod must upload before dying.
+        sigterm_guard = (
+            flush_on_sigterm(progress_sink.flush) if isinstance(progress_sink, ObjectStorageLineSink) else nullcontext()
+        )
         try:
-            for index, insight in enumerate(insights, start=1):
-                finding = self._process_insight(insight, run_id, options)
-                findings.append(finding)
-                all_query_ids.extend(finding.legacy_query_ids)
-                all_query_ids.extend(finding.dwh_query_ids)
-                if progress_handle is not None:
-                    progress_handle.write(finding_to_json_line(finding) + "\n")
-                    progress_handle.flush()
-                self._print_progress(index, len(insights), finding, options["verbosity"])
-                self._print_heartbeat(index, len(insights), started_at, findings)
+            with sigterm_guard:
+                for index, insight in enumerate(insights, start=1):
+                    finding = self._process_insight(insight, run_id, options)
+                    findings.append(finding)
+                    all_query_ids.extend(finding.legacy_query_ids)
+                    all_query_ids.extend(finding.dwh_query_ids)
+                    if progress_sink is not None:
+                        progress_sink.append(finding_to_json_line(finding))
+                    self._print_progress(index, len(insights), finding, options["verbosity"])
+                    self._print_heartbeat(index, len(insights), started_at, findings)
         finally:
-            if progress_handle is not None:
-                progress_handle.close()
+            if progress_sink is not None:
+                progress_sink.close()
 
         if options["clickhouse_stats"] and not options["no_perf"] and all_query_ids:
             self._attach_resource_stats(findings, all_query_ids, options)
@@ -1600,11 +1776,14 @@ class Command(BaseCommand):
             raise CommandError("--resume requires --progress-path")
         if options["resume"] and options["sample"]:
             raise CommandError("--sample picks a random set and cannot resume a sweep")
-        if not path or not os.path.exists(path):
+        if not path:
+            return []
+        text = read_state_text(path)
+        if text is None:
             return []
         if not options["resume"]:
-            raise CommandError(f"{path} already exists — pass --resume to continue that run, or remove the file")
-        return load_progress_findings(path)
+            raise CommandError(f"{path} already exists — pass --resume to continue that run, or delete it")
+        return parse_progress_findings(text, path)
 
     def _select_insights(self, options: dict[str, Any], exclude_ids: Optional[set[int]] = None) -> list[Insight]:
         queryset = Insight.objects.filter(saved=True, deleted=False, query__source__kind="RetentionQuery")
