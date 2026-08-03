@@ -50,7 +50,7 @@ def resolve_dependency_to_node(
     dependency_name: str,
     team: "Team",
     database: Database,
-    dag: DAG | None = None,
+    dag: DAG,
 ) -> Node:
     """
     Resolve a dependency name to a Node following HogQL's resolution priority.
@@ -66,9 +66,6 @@ def resolve_dependency_to_node(
     Raises UnknownParentError if the dependency cannot be resolved.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-
-    if dag is None:
-        dag = DAG.get_or_create_default(team)
 
     # get hogql's understanding of this table
     try:
