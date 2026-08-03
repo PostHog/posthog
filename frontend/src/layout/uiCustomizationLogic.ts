@@ -542,6 +542,8 @@ export const uiCustomizationLogic = kea<uiCustomizationLogicType>([
                 stage(withSidebarPatch(values.userUiConfiguration, { toolOrder: order }))
                 captureChange({ element_kind: 'tool_order' })
             },
+            // Group mutations read the effective groups (they only ever live in the user layer,
+            // since project defaults are stripped of groups) and write them back to the user layer.
             createSidebarGroup: ({ label, shortcutId }) => {
                 const group: SidebarCustomGroup = { id: uuid(), label, items: shortcutId ? [shortcutId] : [] }
                 const groups = shortcutId
