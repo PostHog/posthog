@@ -203,6 +203,10 @@ export interface McpGatewayMemberSummary {
 export interface McpGatewayInstallSharingOptions {
   /** Whether the server starts enabled for the whole team. */
   team_enabled?: boolean;
-  /** Service accounts to grant the server to at install time, when team settings allow it. */
+  /**
+   * Service accounts to grant the server to at install time, when team settings
+   * allow it. Omitting the field grants every PostHog agent; send an explicit
+   * list (empty for none) to choose.
+   */
   agent_ids?: string[];
 }

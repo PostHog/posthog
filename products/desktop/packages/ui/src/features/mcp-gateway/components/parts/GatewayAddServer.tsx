@@ -59,6 +59,7 @@ export function GatewayAddServer({
     const request = buildGatewayInstallRequest(values, {
       isAdmin,
       canManageAgentAccess,
+      agentIds: accounts.map((account) => account.id),
     });
     register(
       { request },
@@ -259,7 +260,7 @@ export function GatewayAddServer({
                   </Text>
                   <div className="overflow-hidden rounded border border-gray-5 bg-gray-2">
                     {accounts.map((account) => {
-                      const on = values.agentIds.includes(account.id);
+                      const on = !values.excludedAgentIds.includes(account.id);
                       return (
                         <Flex
                           key={account.id}
@@ -285,12 +286,12 @@ export function GatewayAddServer({
                             checked={on}
                             onCheckedChange={(checked) =>
                               set(
-                                "agentIds",
+                                "excludedAgentIds",
                                 checked
-                                  ? [...values.agentIds, account.id]
-                                  : values.agentIds.filter(
+                                  ? values.excludedAgentIds.filter(
                                       (id) => id !== account.id,
-                                    ),
+                                    )
+                                  : [...values.excludedAgentIds, account.id],
                               )
                             }
                           />

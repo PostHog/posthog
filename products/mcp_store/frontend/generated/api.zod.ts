@@ -471,7 +471,7 @@ export const McpServerInstallationsInstallCustomCreateBody = /* @__PURE__ */ zod
         .array(zod.uuid())
         .optional()
         .describe(
-            'Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access.'
+            'Service accounts to share the server with at install time. Omit to share with every PostHog agent; send an explicit list (empty for none) to choose. Available to members when team settings allow member-managed agent access.'
         ),
     return_path: zod
         .string()
@@ -511,7 +511,7 @@ export const McpServerInstallationsInstallTemplateCreateBody = /* @__PURE__ */ z
         .array(zod.uuid())
         .optional()
         .describe(
-            'Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access.'
+            'Service accounts to share the server with at install time. Omit to share with every PostHog agent; send an explicit list (empty for none) to choose. Available to members when team settings allow member-managed agent access.'
         ),
     return_path: zod
         .string()

@@ -3,8 +3,10 @@ import hashlib
 import secrets
 from collections.abc import Mapping
 from datetime import timedelta
+from functools import cached_property
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -376,9 +378,9 @@ class InstallCustomSerializer(serializers.Serializer):
     agent_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
-        default=list,
         help_text=(
-            "Service accounts to share the server with at install time. "
+            "Service accounts to share the server with at install time. Omit to share with every "
+            "PostHog agent; send an explicit list (empty for none) to choose. "
             "Available to members when team settings allow member-managed agent access."
         ),
     )
@@ -422,9 +424,9 @@ class InstallTemplateSerializer(serializers.Serializer):
     agent_ids = serializers.ListField(
         child=serializers.UUIDField(),
         required=False,
-        default=list,
         help_text=(
-            "Service accounts to share the server with at install time. "
+            "Service accounts to share the server with at install time. Omit to share with every "
+            "PostHog agent; send an explicit list (empty for none) to choose. "
             "Available to members when team settings allow member-managed agent access."
         ),
     )
@@ -727,18 +729,38 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def _wants_team_gateway_options(data: dict) -> bool:
         return not data.get("team_enabled", True)
 
+    @cached_property
+    def _built_in_agents(self) -> list[MCPServiceAccount]:
+        return sync_built_in_agents(self.team)
+
+    def _agent_ids_to_share_with(self, data: dict) -> set[UUID]:
+        """The agents this install should be shared with.
+
+        An explicit ``agent_ids`` list is honored as sent, an empty one included.
+        Omitting the field shares the connection with every built-in agent, so a
+        server is usable by agents from the moment it is connected. That default
+        is skipped for a caller who may not manage agent access, because it was
+        never asked for and a 403 would block an otherwise valid install.
+        """
+        requested = data.get("agent_ids")
+        if requested is not None:
+            return set(requested)
+        if not self._is_project_admin() and not members_can_manage_agent_access(self.team_id):
+            return set()
+        return {account.id for account in self._built_in_agents}
+
     def _validate_gateway_options(self, data: dict) -> None:
         """Validate team-level options and agent grants before creating rows."""
         if self._wants_team_gateway_options(data) and not self._is_project_admin():
             raise PermissionDenied("Only project admins can set team availability.")
 
-        agent_ids = set(data.get("agent_ids") or [])
+        agent_ids = self._agent_ids_to_share_with(data)
         if not agent_ids:
             return
         if not self._is_project_admin() and not members_can_manage_agent_access(self.team_id):
             raise PermissionDenied("Only project admins can share servers with agents in this project.")
 
-        built_in_agent_ids = {account.id for account in sync_built_in_agents(self.team)}
+        built_in_agent_ids = {account.id for account in self._built_in_agents}
         if not agent_ids.issubset(built_in_agent_ids):
             raise serializers.ValidationError({"agent_ids": "Select only the PostHog agents listed for this project."})
 
@@ -749,7 +771,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         Called only once the install is persisted for good; `_validate_gateway_options`
         has already gated team options and agent grants.
         """
-        agent_ids = set(data.get("agent_ids") or [])
+        agent_ids = self._agent_ids_to_share_with(data)
         accounts_by_id = {
             account.id: account for account in MCPServiceAccount.objects.for_team(self.team_id).filter(id__in=agent_ids)
         }

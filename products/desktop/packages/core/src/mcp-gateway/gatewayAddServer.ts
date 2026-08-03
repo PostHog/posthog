@@ -12,9 +12,10 @@ export interface GatewayAddServerValues {
   apiKey: string;
   clientId: string;
   clientSecret: string;
-  /** Team sharing options are admin-only; agentIds follows the team setting. */
+  /** Team sharing is admin-only; agent sharing follows the team setting. */
   teamEnabled: boolean;
-  agentIds: string[];
+  /** Agents turned off by the installer. Every other agent is shared with. */
+  excludedAgentIds: string[];
 }
 
 export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
@@ -26,7 +27,7 @@ export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
   clientId: "",
   clientSecret: "",
   teamEnabled: true,
-  agentIds: [],
+  excludedAgentIds: [],
 };
 
 export function canSubmitGatewayServer(
@@ -50,10 +51,20 @@ export interface GatewayInstallRequest extends McpGatewayInstallSharingOptions {
  * credential is always personal to the installer. Team-wide options are
  * attached only for admins; agent grants are attached whenever the team
  * allows this member to manage agent access.
+ *
+ * A new server is shared with every agent by default. The explicit list is only
+ * sent once the agent catalog has loaded, so turning every agent off still means
+ * "none"; until then the field is omitted and the backend applies the same
+ * all-agents default.
  */
 export function buildGatewayInstallRequest(
   values: GatewayAddServerValues,
-  options: { isAdmin: boolean; canManageAgentAccess: boolean },
+  options: {
+    isAdmin: boolean;
+    canManageAgentAccess: boolean;
+    /** Every agent available to the project. */
+    agentIds: string[];
+  },
 ): GatewayInstallRequest {
   return {
     name: values.name.trim(),
@@ -70,8 +81,12 @@ export function buildGatewayInstallRequest(
       ? { client_secret: values.clientSecret.trim() }
       : {}),
     ...(options.isAdmin ? { team_enabled: values.teamEnabled } : {}),
-    ...(options.canManageAgentAccess && values.agentIds.length
-      ? { agent_ids: values.agentIds }
+    ...(options.canManageAgentAccess && options.agentIds.length
+      ? {
+          agent_ids: options.agentIds.filter(
+            (id) => !values.excludedAgentIds.includes(id),
+          ),
+        }
       : {}),
   };
 }

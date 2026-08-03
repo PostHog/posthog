@@ -1212,6 +1212,72 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert installation.scope == "personal"
         assert access_rows == {(account.id, installation.id) for account in accounts}
 
+    @parameterized.expand(
+        [
+            ("omitted", None, True),
+            ("empty", [], False),
+        ]
+    )
+    @ALLOW_URL
+    def test_install_shares_with_every_agent_unless_a_list_is_sent(
+        self, scenario: str, agent_ids: list[str] | None, expect_shared: bool, _mock_is_url_allowed
+    ) -> None:
+        self._make_member()
+        accounts = sync_built_in_agents(self.team)
+        install_url = f"https://mcp.agent-default-{scenario}.example.com/mcp"
+        payload: dict[str, object] = {
+            "name": "Agent default",
+            "url": install_url,
+            "auth_type": "api_key",
+            "api_key": "secret",
+            "scope": "personal",
+        }
+        if agent_ids is not None:
+            payload["agent_ids"] = agent_ids
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data=payload,
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        installation = MCPServerInstallation.objects.get(team=self.team, url=install_url)
+        shared_with = set(
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id)
+            .filter(gateway_server=installation.gateway_server)
+            .values_list("service_account_id", flat=True)
+        )
+        assert shared_with == ({account.id for account in accounts} if expect_shared else set())
+
+    @ALLOW_URL
+    def test_install_skips_the_agent_default_when_members_cannot_manage_agent_access(
+        self, _mock_is_url_allowed
+    ) -> None:
+        self._make_member()
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(team=self.team, allow_member_agent_access=False)
+        install_url = "https://mcp.agent-default-restricted.example.com/mcp"
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "Restricted default",
+                "url": install_url,
+                "auth_type": "api_key",
+                "api_key": "secret",
+                "scope": "personal",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        installation = MCPServerInstallation.objects.get(team=self.team, url=install_url)
+        assert (
+            not MCPServiceAccountServerAccess.objects.for_team(self.team.id)
+            .filter(gateway_server=installation.gateway_server)
+            .exists()
+        )
+
     @ALLOW_URL
     def test_install_rejects_member_agent_grant_when_team_setting_is_off(self, _mock_is_url_allowed) -> None:
         self._make_member()
@@ -3319,6 +3385,25 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
         installation = MCPServerInstallation.objects.get(id=body["id"])
         assert installation.sensitive_configuration["api_key"] == "sk-template"
+
+    def test_install_template_shares_with_every_agent(self):
+        template = self._template(auth_type="api_key", oauth_credentials={}, oauth_metadata={})
+        accounts = sync_built_in_agents(self.team)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id), "api_key": "sk-template"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        installation = MCPServerInstallation.objects.get(id=response.json()["id"])
+        shared_with = set(
+            MCPServiceAccountServerAccess.objects.for_team(self.team.id)
+            .filter(gateway_server=installation.gateway_server)
+            .values_list("service_account_id", flat=True)
+        )
+        assert shared_with == {account.id for account in accounts}
 
     def test_install_template_api_key_requires_key(self):
         template = self._template(auth_type="api_key", oauth_credentials={}, oauth_metadata={})

@@ -37601,7 +37601,7 @@ export namespace Schemas {
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
+      /** Service accounts to share the server with at install time. Omit to share with every PostHog agent; send an explicit list (empty for none) to choose. Available to members when team settings allow member-managed agent access. */
       agent_ids?: string[];
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
@@ -37619,7 +37619,7 @@ export namespace Schemas {
       scope?: MCPInstallationScopeEnum;
       /** Whether the server starts enabled for the whole team. Non-default values are admin-only. */
       team_enabled?: boolean;
-      /** Service accounts to share the server with at install time. Available to members when team settings allow member-managed agent access. */
+      /** Service accounts to share the server with at install time. Omit to share with every PostHog agent; send an explicit list (empty for none) to choose. Available to members when team settings allow member-managed agent access. */
       agent_ids?: string[];
       /** In-app path to land back on after the OAuth round-trip. Must be a same-app relative path. */
       return_path?: string;
