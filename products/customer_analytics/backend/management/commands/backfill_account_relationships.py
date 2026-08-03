@@ -16,6 +16,7 @@ Idempotent. Run once per environment, with --dry-run first:
 from typing import Any
 
 from django.core.management.base import BaseCommand
+from django.db import transaction
 
 from posthog.models import User
 
@@ -86,23 +87,35 @@ class Command(BaseCommand):
             user_id = assignment.get("id") if isinstance(assignment, dict) else None
             if user_id is None:
                 continue
-            # The relationships table has been authoritative since the cutover deploy, so only
-            # fill gaps and never overwrite an assignment made after it.
-            if (
-                definition is not None
-                and AccountRelationship.objects.for_team(team_id)
-                .filter(account=account, definition=definition, ended_at__isnull=True)
-                .exists()
-            ):
-                continue
             # Only org members resolve because the relationships endpoint returns real emails,
             # so assigning arbitrary global user ids would leak emails of users outside the org.
             user = User.objects.filter(id=user_id, organization_membership__organization__team__id=team_id).first()
             if user is None:
                 continue
-            if not dry_run and definition is not None:
+            if dry_run:
+                if definition is None or not _has_active_holder(team_id, account, definition):
+                    assigned += 1
+                continue
+            if definition is None:
+                continue
+            # The relationships table has been authoritative since the cutover deploy, so only
+            # fill gaps and never overwrite an assignment made after it. The check runs under
+            # assign's definition lock, or a concurrent assign landing between check and assign
+            # would be replaced by the stale JSON holder.
+            with transaction.atomic():
+                AccountRelationshipDefinition.objects.for_team(team_id).select_for_update().get(id=definition.id)
+                if _has_active_holder(team_id, account, definition):
+                    continue
                 relationships_logic.assign(
                     team_id=team_id, account=account, definition=definition, user=user, created_by=None
                 )
             assigned += 1
         return assigned
+
+
+def _has_active_holder(team_id: int, account: Account, definition: AccountRelationshipDefinition) -> bool:
+    return (
+        AccountRelationship.objects.for_team(team_id)
+        .filter(account=account, definition=definition, ended_at__isnull=True)
+        .exists()
+    )
