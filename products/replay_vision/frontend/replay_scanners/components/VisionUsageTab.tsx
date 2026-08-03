@@ -11,13 +11,7 @@ import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-ge
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import {
-    creditsToUsd,
-    formatCreditCount,
-    formatCreditsMaybeUsd,
-    formatCreditsRange,
-    freeTierNote,
-} from '../../utils/credits'
+import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
@@ -73,10 +67,6 @@ export function VisionUsageTab(): JSX.Element {
             spendTooltip.push(
                 `≈ ${creditsToUsd(billedCredits)} billed${hasCap ? ` of ${creditsToUsd(billedLimitCredits)}` : ''}.`
             )
-        }
-        const freeNote = freeTierNote(quota.free_monthly_credits)
-        if (freeNote) {
-            spendTooltip.push(`${freeNote}.`)
         }
     }
 

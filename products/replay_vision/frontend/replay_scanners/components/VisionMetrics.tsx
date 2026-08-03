@@ -10,9 +10,10 @@ import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-ge
 import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
+import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { creditsToUsd, formatCreditCount, freeTierNote } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
@@ -31,7 +32,6 @@ export function VisionMetrics(): JSX.Element {
     const projection = projectQuota(quota)
     const { resetsOn, status, percentLabel, usedPct, usedFreePct, projectedPct } = projection
     const hasCap = hasCreditLimit(quota)
-    const freeNote = quota ? freeTierNote(quota.free_monthly_credits) : null
     // Same input the bar clamps, so a legend chip can never outlive its segment.
     const [freeWidth, billedWidth, projectedWidth] = clampSegmentWidths([
         usedFreePct,
@@ -140,7 +140,6 @@ export function VisionMetrics(): JSX.Element {
                                     {hasCap ? ` / ${creditsToUsd(billedLimitCredits)} limit` : ''}
                                 </div>
                             )}
-                            {freeNote && <div className="text-muted text-xs">{freeNote}</div>}
                             {hasCap ? (
                                 <>
                                     <Tooltip
@@ -195,6 +194,11 @@ export function VisionMetrics(): JSX.Element {
                                             <QuotaStatusLine projection={projection} />
                                         </span>
                                     </div>
+                                    {projection.exhausted && (
+                                        <div className="mt-1.5">
+                                            <QuotaExhaustedNote canBeBilled={showUsd} />
+                                        </div>
+                                    )}
                                 </>
                             ) : (
                                 <div className="mt-2">

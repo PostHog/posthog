@@ -6,7 +6,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { NoBillingLimitNote } from '../../components/NoBillingLimitNote'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { creditsToUsd, formatCreditCount, freeTierNote } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import {
     QUOTA_STATUS_STYLES,
     type QuotaStatus,
@@ -39,7 +39,6 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     const hasCap = hasCreditLimit(quota)
     const used = quota?.credits_used ?? 0
     const cap = quota?.credit_limit ?? 0
-    const freeNote = freeTierNote(quota?.free_monthly_credits ?? 0)
 
     // `other_enabled_scanners_monthly_credits` comes from the same estimate response as `projectedCredits`, so the
     // two are a consistent snapshot. Subtracting this scanner's stored estimate from the live fleet sum instead would
@@ -79,7 +78,6 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                     Monthly limit: <strong>{formatCreditCount(cap)}</strong>
                 </div>
             )}
-            {freeNote && <div className="text-muted">{freeNote}</div>}
             {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
         </div>
     )
