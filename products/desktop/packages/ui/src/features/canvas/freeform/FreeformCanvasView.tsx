@@ -598,20 +598,23 @@ export function FreeformCanvasView({
                     </>
                   )
                 ))}
-              {interactive && showPanel && collapsed && !generatingPanelOpen && (
-                <Tooltip
-                  content={effectiveTaskId ? "Show chat" : "Edit canvas"}
-                >
-                  <Button
-                    size="icon"
-                    variant="default"
-                    aria-label="Show panel"
-                    onClick={() => setCollapsed(false)}
+              {interactive &&
+                showPanel &&
+                collapsed &&
+                !generatingPanelOpen && (
+                  <Tooltip
+                    content={effectiveTaskId ? "Show chat" : "Edit canvas"}
                   >
-                    <SidebarSimpleIcon size={16} />
-                  </Button>
-                </Tooltip>
-              )}
+                    <Button
+                      size="icon"
+                      variant="default"
+                      aria-label="Show panel"
+                      onClick={() => setCollapsed(false)}
+                    >
+                      <SidebarSimpleIcon size={16} />
+                    </Button>
+                  </Tooltip>
+                )}
             </Flex>
           </Flex>
         )}

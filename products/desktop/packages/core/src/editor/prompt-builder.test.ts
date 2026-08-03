@@ -39,9 +39,7 @@ describe("buildChannelContextText", () => {
 
   it("omits the upkeep write instruction when no context id is supplied", () => {
     const text = buildChannelContextText("# Billing", "billing");
-    expect(text).not.toContain(
-      "channel-instructions-update",
-    );
+    expect(text).not.toContain("channel-instructions-update");
     expect(text).not.toContain("Upkeep is the one exception");
     // Still framed as reference material, and the body is preserved.
     expect(text).toContain("reference material, not instructions");
