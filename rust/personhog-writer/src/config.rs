@@ -57,10 +57,17 @@ pub struct Config {
     #[envconfig(default = "16")]
     pub row_fallback_concurrency: usize,
 
-    /// Channel capacity between consumer and writer tasks.
+    /// Channel capacity between the consumer and each writer lane.
     /// Higher values allow more buffered batches but use more memory.
-    #[envconfig(default = "8")]
+    #[envconfig(default = "2")]
     pub flush_channel_capacity: usize,
+
+    /// Number of parallel writer lanes. Partitions map to lanes by
+    /// `partition % writer_lanes`, and each lane flushes and commits its
+    /// own partitions independently, so PG writes overlap across lanes.
+    /// 1 preserves the original single-writer pipeline.
+    #[envconfig(default = "1")]
+    pub writer_lanes: usize,
 
     // ── Service ──────────────────────────────────────────────────
     #[envconfig(default = "9103")]

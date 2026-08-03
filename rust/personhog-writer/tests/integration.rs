@@ -9,7 +9,6 @@ use common::{
     KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
 };
 use personhog_proto::personhog::types::v1::Person;
-use personhog_writer::buffer::PersonBuffer;
 use personhog_writer::consumer::{ConsumerTask, FlushBatch};
 use personhog_writer::kafka::PersonConsumer;
 use personhog_writer::pg::PgStore;
@@ -243,8 +242,8 @@ async fn consumer_flushes_on_buffer_size_threshold() {
     // Start consumer with flush_buffer_size=3 (flushes at exactly 3 and 6)
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(100),
-        flush_tx,
+        vec![flush_tx],
+        100,
         Duration::from_secs(60), // long timer so only size triggers flush
         3,                       // flush at 3 messages
         consumer_handle,
@@ -338,8 +337,8 @@ async fn consumer_flushes_on_timer() {
     // Start consumer with high size threshold but short timer (500ms)
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(100),
-        flush_tx,
+        vec![flush_tx],
+        100,
         Duration::from_millis(500), // short timer triggers flush
         1000,                       // high threshold so only timer triggers
         consumer_handle,
@@ -434,8 +433,8 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
     // Start consumer with high size threshold, short timer
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(100),
-        flush_tx,
+        vec![flush_tx],
+        100,
         Duration::from_millis(500),
         1000,
         consumer_handle,
@@ -937,8 +936,8 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
 
     let consumer_task = ConsumerTask::new(
         kafka_consumer,
-        PersonBuffer::new(50000),
-        flush_tx,
+        vec![flush_tx],
+        50000,
         Duration::from_millis(500), // fast flush for test
         1,                          // flush after every message
         consumer_handle,
