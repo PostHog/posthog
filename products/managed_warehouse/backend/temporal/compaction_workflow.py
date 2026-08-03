@@ -1,14 +1,16 @@
 import re
+import asyncio
 from datetime import timedelta
 from typing import NamedTuple
 
 import structlog
 from temporalio import activity, common, workflow
 
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 
-from products.managed_warehouse.backend.common import attach_catalog, get_config
+from products.managed_warehouse.backend.common import attach_catalog, get_config, get_org_config, is_dev_mode
 from products.managed_warehouse.backend.storage import configure_connection
 from products.managed_warehouse.backend.temporal.compaction_types import DucklakeCompactionInput
 
@@ -45,7 +47,7 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
         dry_run=input.dry_run,
     )
 
-    config = get_config()
+    config = get_org_config(input.organization_id) if input.organization_id is not None else get_config()
     tables_to_compact: list[TableInfo] = []
     compaction_results: dict = {}
 
@@ -131,6 +133,34 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
     }
 
 
+@database_sync_to_async
+def _list_ducklake_compaction_organizations_sync() -> list[str | None]:
+    from django.db import close_old_connections
+
+    from products.managed_warehouse.backend.models import DuckgresServer
+
+    # Temporal activities run in a thread pool where DB connections can go stale
+    # between executions. close_old_connections() ensures we get a fresh connection.
+    close_old_connections()
+
+    return [
+        str(organization_id) for organization_id in DuckgresServer.objects.values_list("organization_id", flat=True)
+    ]
+
+
+@activity.defn
+async def list_ducklake_compaction_organizations() -> list[str | None]:
+    """List the organizations whose DuckLake catalog should be compacted.
+
+    One entry per provisioned DuckgresServer row. In dev mode there are no such
+    rows, so a single `None` entry is returned to run compaction against the
+    local env-var config instead.
+    """
+    if is_dev_mode():
+        return [None]
+    return await _list_ducklake_compaction_organizations_sync()
+
+
 @workflow.defn(name="ducklake-compaction")
 class DucklakeCompactionWorkflow(PostHogWorkflow):
     """Workflow to compact DuckLake parquet files.
@@ -147,15 +177,45 @@ class DucklakeCompactionWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, input: DucklakeCompactionInput) -> dict:
         """Run the DuckLake compaction workflow."""
-        result = await workflow.execute_activity(
-            run_ducklake_compaction,
-            input,
-            start_to_close_timeout=timedelta(hours=2),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=timedelta(minutes=1),
-                maximum_interval=timedelta(minutes=10),
-            ),
-            heartbeat_timeout=timedelta(minutes=5),
+        if not workflow.patched("ducklake-compaction-per-org-2026-08"):
+            return await workflow.execute_activity(
+                run_ducklake_compaction,
+                input,
+                start_to_close_timeout=timedelta(hours=2),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(minutes=1),
+                    maximum_interval=timedelta(minutes=10),
+                ),
+                heartbeat_timeout=timedelta(minutes=5),
+            )
+
+        organization_ids = await workflow.execute_activity(
+            list_ducklake_compaction_organizations,
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=common.RetryPolicy(maximum_attempts=3),
         )
-        return result
+
+        async def compact_for_org(organization_id: str | None) -> dict:
+            return await workflow.execute_activity(
+                run_ducklake_compaction,
+                input.model_copy(update={"organization_id": organization_id}),
+                start_to_close_timeout=timedelta(hours=2),
+                retry_policy=common.RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(minutes=1),
+                    maximum_interval=timedelta(minutes=10),
+                ),
+                heartbeat_timeout=timedelta(minutes=5),
+            )
+
+        results = await asyncio.gather(
+            *(compact_for_org(organization_id) for organization_id in organization_ids), return_exceptions=True
+        )
+
+        return {
+            (organization_id or "default"): (
+                {"status": "error", "error": str(result)} if isinstance(result, BaseException) else result
+            )
+            for organization_id, result in zip(organization_ids, results)
+        }

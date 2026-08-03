@@ -1,5 +1,6 @@
 from products.managed_warehouse.backend.temporal.compaction_workflow import (
     DucklakeCompactionWorkflow,
+    list_ducklake_compaction_organizations,
     run_ducklake_compaction,
 )
 from products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow import (
@@ -40,6 +41,7 @@ ACTIVITIES = [
     ducklake_copy_data_imports_gate_activity,
     ducklake_copy_workflow_gate_activity,
     ducklake_register_data_imports_gate_activity,
+    list_ducklake_compaction_organizations,
     prepare_data_imports_ducklake_metadata_activity,
     prepare_data_modeling_ducklake_metadata_activity,
     prepare_ducklake_data_imports_registration_activity,
