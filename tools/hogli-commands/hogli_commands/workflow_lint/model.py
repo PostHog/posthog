@@ -12,6 +12,8 @@ Quirks hidden here:
 - Reusable workflow calls (jobs with `uses:` at the job level) have no steps
   and no `timeout-minutes` — surfaced as `is_reusable_call` so checks can skip
   cleanly.
+- Parallel task groups are flattened so policy checks inspect their nested
+  steps exactly like ordinary sequential steps.
 """
 
 from __future__ import annotations
@@ -134,7 +136,16 @@ def _build_job(name: str, raw: object) -> Job | None:
     raw_steps = raw.get("steps")
     steps: list[Step] = []
     if isinstance(raw_steps, list):
-        for idx, step_raw in enumerate(raw_steps):
+        flattened_steps = [
+            nested_step
+            for step_raw in raw_steps
+            for nested_step in (
+                step_raw.get("parallel", [])
+                if isinstance(step_raw, dict) and isinstance(step_raw.get("parallel"), list)
+                else [step_raw]
+            )
+        ]
+        for idx, step_raw in enumerate(flattened_steps):
             step = _build_step(idx, step_raw)
             if step is not None:
                 steps.append(step)

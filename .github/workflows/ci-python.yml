@@ -136,26 +136,10 @@ jobs:
               run: |
                   ./bin/download-mmdb
 
-            - name: Check for syntax errors, import sort, and code style violations
-              shell: bash
-              run: |
-                  ruff check .
-
-            - name: Check formatting
-              shell: bash
-              run: |
-                  ruff format --check --diff .
-
             - name: Add ty Problem Matcher
               shell: bash
               run: |
                   echo "::add-matcher::.github/ty-problem-matcher.json"
-
-            - name: Check ty type checking
-              shell: bash
-              run: |
-                  echo "📊 Feedback welcome in #team-devex"
-                  uv run ty check
 
             - name: Add mypy Problem Matcher
               shell: bash
@@ -170,12 +154,59 @@ jobs:
                   restore-keys: |
                       mypy-cache-${{ runner.os }}-3.12-mypy2-
 
-            - name: Check static typing
-              shell: bash -e {0}
-              env:
-                  MYPY_NUM_WORKERS: 2
+            - name: Check if "schema.py" is up to date
+              shell: bash
               run: |
-                  mypy --version && mypy --cache-fine-grained .
+                  npm run schema:build:python && git diff --exit-code
+
+            - parallel:
+                  - name: Check for syntax errors, import sort, and code style violations
+                    shell: bash
+                    run: ruff check .
+
+                  - name: Check formatting
+                    shell: bash
+                    run: ruff format --check --diff .
+
+                  - name: Check ty type checking
+                    shell: bash
+                    run: |
+                        echo "📊 Feedback welcome in #team-devex"
+                        uv run ty check
+
+                  - name: Check static typing
+                    shell: bash -e {0}
+                    env:
+                        MYPY_NUM_WORKERS: 2
+                    run: mypy --version && mypy --cache-fine-grained .
+
+                  - name: Check hogli manifest completeness
+                    shell: bash
+                    run: ./bin/hogli meta:check
+
+                  - name: Run hogli framework tests
+                    shell: bash
+                    run: pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
+
+                  - name: Run hogli extension tests
+                    shell: bash
+                    run: pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
+
+                  - name: Run owners resolver tests
+                    shell: bash
+                    run: pytest tools/owners/tests -v --junitxml=junit-owners.xml
+
+                  - name: Run query-performance-ai tests
+                    shell: bash
+                    run: pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+
+                  - name: Run pr-approval-agent (stamphog) tests
+                    shell: bash
+                    run: pytest tools/pr-approval-agent -v --junitxml=junit-pr-approval-agent.xml
+
+                  - name: Run dependency detection script tests
+                    shell: bash
+                    run: pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
 
             - name: Save mypy cache
               if: github.ref == 'refs/heads/master'
@@ -183,41 +214,6 @@ jobs:
               with:
                   path: .mypy_cache
                   key: mypy-cache-${{ runner.os }}-3.12-mypy2-${{ hashFiles('**/pyproject.toml', '**/mypy.ini') }}
-
-            - name: Check if "schema.py" is up to date
-              shell: bash
-              run: |
-                  npm run schema:build:python && git diff --exit-code
-
-            - name: Check hogli manifest completeness
-              shell: bash
-              run: |
-                  ./bin/hogli meta:check
-
-            - name: Run hogli framework tests
-              shell: bash
-              run: |
-                  pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
-
-            - name: Run hogli extension tests
-              shell: bash
-              run: |
-                  pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
-
-            - name: Run owners resolver tests
-              shell: bash
-              run: |
-                  pytest tools/owners/tests -v --junitxml=junit-owners.xml
-
-            - name: Run query-performance-ai tests
-              shell: bash
-              run: |
-                  pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
-
-            - name: Run pr-approval-agent (stamphog) tests
-              shell: bash
-              run: |
-                  pytest tools/pr-approval-agent -v --junitxml=junit-pr-approval-agent.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -230,11 +226,6 @@ jobs:
                       junit-owners.xml
                       junit-query-performance-ai.xml
                       junit-pr-approval-agent.xml
-
-            - name: Run dependency detection script tests
-              shell: bash
-              run: |
-                  pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
 
             - name: Upload test results for dependency detection
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
