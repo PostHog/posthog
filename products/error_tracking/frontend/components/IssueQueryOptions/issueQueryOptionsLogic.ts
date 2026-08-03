@@ -188,9 +188,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 }
             }
             if (params.status && !equal(params.status, values.status)) {
-                if (isValidStatus(params.status)) {
-                    actions.setStatus(params.status)
-                }
+                // Fall back to the default (which also lets actionToUrl scrub the param) so a
+                // stale link doesn't silently keep querying the previously persisted status.
+                actions.setStatus(isValidStatus(params.status) ? params.status : DEFAULT_STATUS)
             }
             if (params.assignee && !equal(params.assignee, values.assignee)) {
                 actions.setAssignee(params.assignee)

@@ -35,13 +35,17 @@ describe('issueQueryOptionsLogic', () => {
         }
     )
 
-    it.each([
-        ['open', 'active'],
-        ['resolved', 'resolved'],
-    ])('URL param status=%p results in status %p', (param, expected) => {
+    it('applies a valid status from the URL', () => {
         const logic = mountLogic()
-        router.actions.push('/error_tracking', { status: param })
-        expect(logic.values.status).toBe(expected)
+        router.actions.push('/error_tracking', { status: 'resolved' })
+        expect(logic.values.status).toBe('resolved')
+    })
+
+    it('falls back to the default when the URL has an invalid status, overriding the persisted one', () => {
+        localStorage.setItem(PERSISTED_STATUS_KEY, JSON.stringify('resolved'))
+        const logic = mountLogic()
+        router.actions.push('/error_tracking', { status: 'open' })
+        expect(logic.values.status).toBe('active')
     })
 
     it('resets an invalid persisted status on mount', () => {
