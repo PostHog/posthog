@@ -170,7 +170,7 @@ export function MessageInput({
           : isEmpty
             ? 'No message'
             : isUploading
-              ? 'Uploading image...'
+              ? 'Uploading attachment...'
               : undefined
     const sendControlDisabledReason =
         typeof sendDisabledReason === 'string'
