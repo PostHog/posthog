@@ -17,6 +17,11 @@
             "description": "A UUID string identifying this Signal scout config.",
             "type": "string"
         },
+        "network_access": {
+            "description": "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
+            "enum": ["trusted", "full"],
+            "type": "string"
+        },
         "output_destinations": {
             "description": "Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery.",
             "properties": {
