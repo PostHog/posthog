@@ -312,6 +312,18 @@ describe("exportSkill", () => {
     });
   });
 
+  it("carries disable-model-invocation out of the frontmatter", async () => {
+    const skillPath = await createSkill(
+      repoSkillsDir,
+      "manual-only",
+      "---\nname: manual-only\ndescription: Manual\ndisable-model-invocation: true\n---\n\n# Body",
+    );
+
+    const exported = await makeService().exportSkill(skillPath);
+
+    expect(exported.disableModelInvocation).toBe(true);
+  });
+
   it("refuses to export non-writable skills", async () => {
     await createSkill(path.join(pluginPath, "skills"), "bundled-skill");
 
@@ -349,6 +361,18 @@ describe("installTeamSkill", () => {
     expect(manifest).toContain("# Team body");
     const guide = await service.readSkillFile(target, "references/guide.md");
     expect(guide).toBe("guide");
+  });
+
+  it("writes disable-model-invocation back into the frontmatter", async () => {
+    const service = makeService();
+    const { path: target } = await service.installTeamSkill({
+      ...input,
+      name: "manual-team-skill",
+      disableModelInvocation: true,
+    });
+
+    const manifest = await service.readSkillFile(target, "SKILL.md");
+    expect(manifest).toContain("disable-model-invocation: true");
   });
 
   it("rejects invalid names and unsafe file paths", async () => {

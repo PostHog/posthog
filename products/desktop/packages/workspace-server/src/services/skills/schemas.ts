@@ -102,6 +102,7 @@ export const exportSkillOutput = z.object({
   description: z.string(),
   body: z.string(),
   files: z.array(exportedSkillFile),
+  disableModelInvocation: z.boolean().optional(),
   /** Files excluded from the export (binary or oversized). */
   skipped: z.array(z.string()),
 }) satisfies z.ZodType<SharedExportedSkill & { skipped: string[] }>;
@@ -116,6 +117,7 @@ export const installTeamSkillInput = z.object({
   description: z.string(),
   body: z.string(),
   files: z.array(exportedSkillFile),
+  disableModelInvocation: z.boolean().optional(),
   overwrite: z.boolean().optional(),
 }) satisfies z.ZodType<SharedExportedSkill & { overwrite?: boolean }>;
 

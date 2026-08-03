@@ -37,7 +37,15 @@ export interface ExportedSkill {
   description: string;
   body: string;
   files: ExportedSkillFile[];
+  /** Frontmatter `disable-model-invocation: true`, carried so reconstruction keeps it. */
+  disableModelInvocation?: boolean;
 }
+
+/**
+ * Where `disableModelInvocation` rides in the team-skills API's metadata dict.
+ * Named after the frontmatter key so the stored value reads the same everywhere.
+ */
+export const DISABLE_MODEL_INVOCATION_METADATA_KEY = "disable-model-invocation";
 
 /**
  * Serializes a SKILL.md file from frontmatter metadata plus a markdown body.

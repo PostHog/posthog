@@ -277,6 +277,9 @@ export class SkillsService {
       name,
       description,
       body,
+      ...(frontmatter?.disableModelInvocation
+        ? { disableModelInvocation: true }
+        : {}),
       files: results.filter(
         (r): r is { path: string; content: string } => r.content !== null,
       ),
@@ -312,7 +315,11 @@ export class SkillsService {
       await fs.promises.writeFile(
         path.join(staging, "SKILL.md"),
         serializeSkillMarkdown(
-          { name, description: input.description },
+          {
+            name,
+            description: input.description,
+            disableModelInvocation: input.disableModelInvocation,
+          },
           input.body,
         ),
         "utf-8",
