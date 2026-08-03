@@ -33,9 +33,10 @@ The gateway experience has these pages and workflows:
   Admins can also configure member and agent policy baselines, enable or disable servers for the team, and manage organization rules.
 - **Audit log**: Project admins can review all gateway activity. Members can review calls made through their own connections, including calls made by agents using connections they shared. The log supports quick filters, agent caller filters, and pagination.
 
-The standalone gateway routes under `/mcp-servers` use the same data and page components and wait for `MCP_GATEWAY` before rendering.
-When the flag is off, detail routes return to the Settings page.
-Server details are available to members, while agent and member details require project admin access.
+The standalone gateway routes under `/mcp-servers` use the same data and page components.
+When `MCP_GATEWAY` is off, the top-level scene renders a "not enabled" banner in place, while the detail routes (wrapped in `GatewayRouteGuard`) redirect to the Settings page.
+Server details are available to members, while agent and member details require project admin access — the guard sends non-admins back to the gateway home.
+The flag gates the frontend only: the gateway REST API has no flag check and stays reachable when the flag is off.
 Settings supplies its own navigation shell so the gateway workflows fit the main PostHog application without importing the PostHog Code layout.
 
 ## How the catalog works
