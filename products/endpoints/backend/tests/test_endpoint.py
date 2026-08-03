@@ -1925,6 +1925,28 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(few, many, f"listing 8 endpoints cost {many} queries vs {few} for 2, so something N+1s")
 
+    def test_list_reports_the_latest_version_and_the_full_history_count(self):
+        endpoint = create_endpoint_with_version(
+            name="versioned",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+        )
+        for i in range(2, 4):
+            self.client.put(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"query": {"kind": "HogQLQuery", "query": f"SELECT {i}"}},
+                format="json",
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/endpoints/")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        result = response.json()["results"][0]
+        self.assertEqual(3, result["current_version"])
+        self.assertEqual(3, result["versions_count"])
+        self.assertEqual("SELECT 3", result["query"]["query"])
+
     def test_list_survives_an_endpoint_whose_eligibility_check_raises(self):
         self._create_endpoints(2)
 
