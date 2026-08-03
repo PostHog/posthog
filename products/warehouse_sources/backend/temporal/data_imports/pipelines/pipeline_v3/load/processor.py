@@ -14,6 +14,8 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.utils import get_machine_id
@@ -24,6 +26,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
+    SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
@@ -38,6 +41,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     pyarrow_schema_from_arrow_exportable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -448,6 +453,14 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     _release_pipeline_lock_for_job(export_signal)
 
 
+def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
+    # These fire-and-forget starts run outside a Temporal workflow, so unlike
+    # `workflow.start_child_workflow` they get none of the server-side retry a durable
+    # workflow command would have — a bare client RPC timeout would otherwise drop the
+    # trigger permanently.
+    return isinstance(exc, RPCError) and exc.status in (RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE)
+
+
 def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, prepared_queryable_folder: str) -> None:
     """Fire-and-forget start of `ducklake-register.data-imports` after a V3 final batch lands.
 
@@ -468,7 +481,8 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
 
     try:
         from posthog.temporal.common.client import async_connect
-        from posthog.temporal.ducklake.ducklake_register_data_imports_workflow import (
+
+        from products.managed_warehouse.backend.facade.temporal import (
             DuckLakeRegisterDataImportsInputs,
             DuckLakeRegisterDataImportsWorkflow,
             build_register_data_imports_workflow_id,
@@ -477,6 +491,12 @@ def _trigger_ducklake_register_data_imports(export_signal: ExportSignalMessage, 
         # Connect and start inside one event loop: sync_connect() builds the client in
         # asgiref's loop, and the start would then run on the loop async_to_sync spins up
         # here. Start is fire-and-forget — we only need the start ack, not the result.
+        @retry(
+            retry=retry_if_exception(_is_retryable_temporal_rpc_error),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential_jitter(initial=1, max=5),
+            reraise=True,
+        )
         async def _start() -> None:
             temporal = await async_connect()
             await temporal.start_workflow(
@@ -553,6 +573,12 @@ def _trigger_post_import_workflow(export_signal: ExportSignalMessage) -> None:
         # Connect and start inside one event loop (see the DuckLake trigger above).
         # ALLOW_DUPLICATE_FAILED_ONLY keyed by job id: a redelivered final batch can't
         # double-run a completed post-import, but can retry a failed one.
+        @retry(
+            retry=retry_if_exception(_is_retryable_temporal_rpc_error),
+            stop=stop_after_attempt(3),
+            wait=wait_exponential_jitter(initial=1, max=5),
+            reraise=True,
+        )
         async def _start() -> None:
             temporal = await async_connect()
             await temporal.start_workflow(
@@ -662,7 +688,7 @@ def process_message(
 
         # Build the helper early so the idempotency check can use it as a
         # delta-history fallback when the Redis dedup flag is missing — the case
-        # where the writer crashed between `write_to_deltalake` committing and
+        # where the writer crashed between `DeltaWriter.write` committing and
         # `mark_batch_as_processed` being called.
         job = ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").get(
             id=export_signal.job_id
@@ -784,7 +810,12 @@ def process_message(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type="scd2_append"
             ).time():
-                delta_table = async_to_sync(delta_table_helper.write_scd2_to_deltalake)(
+                scd2_writer = Scd2DeltaWriter(
+                    delta_table_helper,
+                    valid_from_column=SCD2_VALID_FROM_COLUMN,
+                    valid_to_column=SCD2_VALID_TO_COLUMN,
+                )
+                delta_table = async_to_sync(scd2_writer.write)(
                     data=pa_table,
                     primary_keys=primary_keys or [],
                     commit_metadata=commit_metadata,
@@ -806,7 +837,7 @@ def process_message(
             with DELTA_WRITE_DURATION_SECONDS.labels(
                 team_id=team_id_str, schema_id=schema_id_str, write_type=write_type
             ).time():
-                delta_table = async_to_sync(delta_table_helper.write_to_deltalake)(
+                delta_table = async_to_sync(DeltaWriter(delta_table_helper).write)(
                     data=pa_table,
                     write_type=write_type,
                     should_overwrite_table=should_overwrite_table,

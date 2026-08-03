@@ -411,6 +411,40 @@ export function getMetricSessionFilters(metric: ExperimentMetric): UniversalFilt
         .filter((filter): filter is UniversalFiltersGroupValue => filter !== null)
 }
 
+export const NOT_A_FUNNEL_REASON =
+    'This filter compares a funnel’s first and last step, so it needs a funnel metric with at least two steps that can be matched to recordings.'
+
+export const FUNNEL_SERVER_SIDE_BOUNDARY_REASON =
+    "This filter compares a funnel's first and last step. One of them is captured server-side without a session ID, so recordings can't be matched."
+
+export const FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON =
+    "This filter compares a funnel's first and last step. One of them is measured in the data warehouse, which has no session events to match recordings on."
+
+/**
+ * Why drop-off can't be asked of this metric, or null when it can. It compares the funnel's first
+ * step against its last, so both of those have to be matchable — which the whole-metric
+ * linkability check can't stand in for, since a funnel stays matchable on the steps between them.
+ * Mirrors the `session_buckets` endpoint, which refuses the same shapes rather than counting a
+ * completion no recording can show as zero in every session.
+ */
+export function getFunnelDropoffReason(metric: ExperimentMetric, unlinkableEventNames: Set<string>): string | null {
+    if (!isExperimentFunnelMetric(metric) || getMetricSessionFilters(metric).length < 2) {
+        return NOT_A_FUNNEL_REASON
+    }
+    const boundaries = [metric.series[0], metric.series[metric.series.length - 1]]
+    if (boundaries.some((step) => step.kind === NodeKind.ExperimentDataWarehouseNode)) {
+        return FUNNEL_DATA_WAREHOUSE_BOUNDARY_REASON
+    }
+    if (
+        boundaries.some(
+            (step) => step.kind === NodeKind.EventsNode && step.event && unlinkableEventNames.has(step.event)
+        )
+    ) {
+        return FUNNEL_SERVER_SIDE_BOUNDARY_REASON
+    }
+    return null
+}
+
 /**
  * Whether a recordings event filter can only match zero sessions: the project has never seen the
  * event with a `$session_id` (e.g. it is captured server-side). Action and data warehouse filters

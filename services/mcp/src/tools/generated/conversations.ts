@@ -36,6 +36,7 @@ const conversationsTicketsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/`,
             query: {
+                ai_triage_result: params.ai_triage_result,
                 assignee: params.assignee,
                 channel_detail: params.channel_detail,
                 channel_source: params.channel_source,
@@ -49,10 +50,12 @@ const conversationsTicketsList = (): ToolBase<
                 priority: params.priority,
                 search: params.search,
                 sla: params.sla,
+                snoozed: params.snoozed,
                 status: params.status,
                 tags: params.tags,
                 tags_all: params.tags_all,
                 tags_exclude: params.tags_exclude,
+                view: params.view,
             },
         })
         const filtered = {
