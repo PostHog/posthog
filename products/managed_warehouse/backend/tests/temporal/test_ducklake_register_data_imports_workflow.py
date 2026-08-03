@@ -10,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
 
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
 from products.managed_warehouse.backend.temporal import ducklake_register_data_imports_workflow as registration_module
 from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DUCKLAKE_DATA_IMPORTS_REGISTRATION_WORKFLOW_FLAG,
@@ -69,6 +70,23 @@ async def test_registration_gate_uses_independent_feature_flag(monkeypatch, atea
     }
     assert captured["only_evaluate_locally"] is True
     assert captured["send_feature_flag_events"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("server_provisioned", [True, False])
+async def test_registration_gate_requires_provisioned_duckgres_server(monkeypatch, ateam, server_provisioned):
+    monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
+    monkeypatch.setattr(
+        registration_module,
+        "get_duckgres_server_by_team_org",
+        lambda team_id: MagicMock() if server_provisioned else None,
+    )
+
+    result = await ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
+
+    assert result is server_provisioned
 
 
 @pytest.mark.asyncio
@@ -290,10 +308,14 @@ async def test_workflow_does_not_record_duration_when_disabled(monkeypatch):
 async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
     started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
     finished_at = started_at + dt.timedelta(minutes=7, seconds=12)
-    execute_activity = AsyncMock(side_effect=[True, _activity_inputs().metadata, True])
+    execute_activity = AsyncMock(side_effect=[True, None, _activity_inputs().metadata, True, None])
     metrics = _mock_workflow_metrics(monkeypatch)
     monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
-    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(side_effect=[started_at, finished_at]))
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, finished_at, finished_at]),
+    )
 
     await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
 
@@ -306,16 +328,87 @@ async def test_workflow_records_end_to_end_duration_after_gate(monkeypatch):
     metrics.duration.record.assert_called_once_with(432.0)
     metrics.last_success_getter.assert_called_once_with(**metric_identifiers)
     metrics.last_success.set.assert_called_once_with(finished_at.timestamp())
+    assert _recorded_source_job_statuses(execute_activity) == [
+        registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        registration_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_skips_source_job_state_for_pre_patch_history(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    finished_at = started_at + dt.timedelta(minutes=7)
+    execute_activity = AsyncMock(side_effect=[True, _activity_inputs().metadata, True])
+    metrics = _mock_workflow_metrics(monkeypatch)
+    patched = MagicMock(return_value=False)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(registration_module.workflow, "patched", patched)
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, finished_at]),
+    )
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    patched.assert_called_once_with(registration_module._SOURCE_JOB_STATE_PATCH_ID)
+    assert _recorded_source_job_statuses(execute_activity) == []
+    metrics.finished_getter.assert_called_once_with(
+        team_id=1,
+        schema_id=str(_workflow_inputs().schema_id),
+        status="completed",
+    )
+
+
+@pytest.mark.asyncio
+async def test_workflow_retries_completed_state_without_recording_failure(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    completed_at = started_at + dt.timedelta(minutes=6)
+    finished_at = started_at + dt.timedelta(minutes=7)
+    execute_activity = AsyncMock(
+        side_effect=[
+            True,
+            None,
+            _activity_inputs().metadata,
+            True,
+            RuntimeError("completion write failed"),
+            None,
+        ]
+    )
+    metrics = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, completed_at, finished_at]),
+    )
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    assert _recorded_source_job_statuses(execute_activity) == [
+        registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        registration_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+        registration_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+    ]
+    metrics.finished_getter.assert_called_once_with(
+        team_id=1,
+        schema_id=str(_workflow_inputs().schema_id),
+        status="completed",
+    )
 
 
 @pytest.mark.asyncio
 async def test_workflow_records_end_to_end_duration_on_post_gate_failure(monkeypatch):
     started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
     failed_at = started_at + dt.timedelta(seconds=5)
-    execute_activity = AsyncMock(side_effect=[True, RuntimeError("prepare failed")])
+    execute_activity = AsyncMock(side_effect=[True, None, RuntimeError("prepare failed"), None])
     metrics = _mock_workflow_metrics(monkeypatch)
     monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
-    monkeypatch.setattr(registration_module.workflow, "now", MagicMock(side_effect=[started_at, failed_at]))
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, failed_at, failed_at]),
+    )
 
     with pytest.raises(RuntimeError, match="prepare failed"):
         await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
@@ -328,10 +421,40 @@ async def test_workflow_records_end_to_end_duration_on_post_gate_failure(monkeyp
     metrics.duration_getter.assert_called_once_with(**metric_identifiers, status="failed")
     metrics.duration.record.assert_called_once_with(5.0)
     metrics.last_success_getter.assert_not_called()
+    assert _recorded_source_job_statuses(execute_activity) == [
+        registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        registration_module.ManagedWarehouseSourceJobStatus.FAILED,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_records_stale_prepared_generation(monkeypatch):
+    started_at = dt.datetime(2026, 7, 30, 12, 0, 0)
+    finished_at = started_at + dt.timedelta(seconds=2)
+    execute_activity = AsyncMock(side_effect=[True, None, None, None])
+    metrics = _mock_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(registration_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(
+        registration_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, finished_at, finished_at]),
+    )
+
+    await DuckLakeRegisterDataImportsWorkflow().run(_workflow_inputs())
+
+    metric_identifiers = {"team_id": 1, "schema_id": str(_workflow_inputs().schema_id)}
+    metrics.finished_getter.assert_called_once_with(**metric_identifiers, status="stale")
+    metrics.duration.record.assert_called_once_with(2.0)
+    metrics.last_success_getter.assert_not_called()
+    assert _recorded_source_job_statuses(execute_activity) == [
+        registration_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        registration_module.ManagedWarehouseSourceJobStatus.STALE,
+    ]
 
 
 def _mock_workflow_metrics(monkeypatch):
     metrics = MagicMock()
+    monkeypatch.setattr(registration_module.workflow, "patched", MagicMock(return_value=True))
     metrics.duration_getter = MagicMock(return_value=metrics.duration)
     metrics.finished_getter = MagicMock(return_value=metrics.finished)
     metrics.started_getter = MagicMock(return_value=metrics.started)
@@ -404,6 +527,14 @@ def _workflow_inputs() -> DuckLakeRegisterDataImportsInputs:
         schema_id=uuid.UUID("019ef5df-e4c7-0000-b543-8ef7f13b5f15"),
         prepared_queryable_folder="customers__query",
     )
+
+
+def _recorded_source_job_statuses(execute_activity: AsyncMock) -> list[ManagedWarehouseSourceJobStatus]:
+    return [
+        call.args[1].status
+        for call in execute_activity.await_args_list
+        if call.args[0] is registration_module.record_managed_warehouse_source_job_activity
+    ]
 
 
 def _workflow_id(prepared_queryable_folder: str) -> str:
