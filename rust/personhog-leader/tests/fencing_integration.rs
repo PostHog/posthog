@@ -96,26 +96,34 @@ fn fenced_producers(topic: &str) -> FencedChangelogProducers {
 /// landing in the changelog.
 #[tokio::test]
 async fn second_acquisition_fences_the_first_producer() {
-    let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
+    // Bounded for the same reason as the turnover test below: a write
+    // that parks instead of answering reports as a stuck runner rather
+    // than a failure, and the stale owner's produce is exactly the call
+    // that would park.
+    tokio::time::timeout(Duration::from_secs(60), async {
+        let topic = format!("fence_test_{}", uuid::Uuid::new_v4().simple());
 
-    let first = fenced_producers(&topic);
-    first.acquire(0).await.expect("first owner acquires");
-    first
-        .produce(0, &test_person(1))
-        .await
-        .expect("first owner produces while unfenced");
+        let first = fenced_producers(&topic);
+        first.acquire(0).await.expect("first owner acquires");
+        first
+            .produce(0, &test_person(1))
+            .await
+            .expect("first owner produces while unfenced");
 
-    let second = fenced_producers(&topic);
-    second.acquire(0).await.expect("second owner acquires");
-    second
-        .produce(0, &test_person(2))
-        .await
-        .expect("new owner produces");
+        let second = fenced_producers(&topic);
+        second.acquire(0).await.expect("second owner acquires");
+        second
+            .produce(0, &test_person(2))
+            .await
+            .expect("new owner produces");
 
-    match first.produce(0, &test_person(3)).await {
-        Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
-        other => panic!("stale owner must be fenced, got {other:?}"),
-    }
+        match first.produce(0, &test_person(3)).await {
+            Err(FencedProduceError::Fenced) | Err(FencedProduceError::NotAcquired) => {}
+            other => panic!("stale owner must be fenced, got {other:?}"),
+        }
+    })
+    .await
+    .expect("writes parked forever — a window_closed wakeup was lost");
 }
 
 /// Concurrent same-partition writes share a transaction window: both
@@ -172,6 +180,42 @@ async fn sustained_writes_across_window_boundaries() {
     })
     .await
     .expect("writes parked forever — a window_closed wakeup was lost");
+}
+
+/// A commit nobody observed is not a commit that did not happen.
+///
+/// The committer can stop without answering — its task dropped at runtime
+/// teardown, or unwound — and `spawn_blocking` work is not cancelled when
+/// its handle is dropped, so the commit it was running may well have
+/// landed. Reporting that as a definite abort frees a version whose record
+/// may exist: the retry derives the same number, and the writer's
+/// first-wins guard then discards whichever record arrived second, which
+/// is the acked one.
+#[tokio::test]
+async fn a_committer_that_vanishes_leaves_the_outcome_in_doubt() {
+    let topic = format!("fence_orphan_{}", uuid::Uuid::new_v4().simple());
+    // A long window keeps the committer asleep, so the write is parked on
+    // an outcome that is still nobody's to report.
+    let producers = Arc::new(fenced_producers_with_window(
+        &topic,
+        Duration::from_secs(30),
+    ));
+    producers.acquire(0).await.expect("acquire the fence");
+
+    let writing = {
+        let p = Arc::clone(&producers);
+        tokio::spawn(async move { p.produce(0, &test_person(1)).await })
+    };
+    sleep(Duration::from_millis(300)).await;
+
+    producers.abandon_waiters_for_test(0);
+
+    match writing.await.expect("the write task must not panic") {
+        Err(FencedProduceError::Indeterminate(_)) => {}
+        other => {
+            panic!("an unobserved commit must not be reported as a definite abort, got {other:?}")
+        }
+    }
 }
 
 /// A request that vanishes mid-produce — tonic drops the handler future
@@ -416,6 +460,37 @@ async fn a_writer_woken_onto_a_condemned_producer_is_bounced() {
         Err(FencedProduceError::NotAcquired) => {}
         other => {
             panic!("a writer woken onto a condemned producer must answer as unowned, got {other:?}")
+        }
+    }
+}
+
+/// A commit task that never reports its outcome must condemn the producer.
+///
+/// `spawn_blocking` work is not cancelled when its handle drops, so the
+/// commit may well have landed — the caller therefore learns nothing, and
+/// the version stays spent. What matters here is the producer: its
+/// transaction is left open, and without the condemn `holds()` keeps
+/// answering yes, the repair pass sees nothing to do, and every later
+/// write for the partition fails for the life of the process.
+#[tokio::test]
+async fn a_committer_that_never_reports_condemns_its_producer() {
+    let topic = format!("fence_lost_commit_{}", uuid::Uuid::new_v4().simple());
+    let producers = fenced_producers(&topic);
+    producers.acquire(0).await.expect("acquire the fence");
+
+    producers.panic_next_commit_for_test(0);
+
+    match producers.produce(0, &test_person(1)).await {
+        Err(FencedProduceError::Indeterminate(_)) => {}
+        other => panic!("a lost committer settles nothing, got {other:?}"),
+    }
+
+    // The partition must now read as unfenced, which is what lets the
+    // repair pass re-acquire it.
+    match producers.produce(0, &test_person(2)).await {
+        Err(FencedProduceError::NotAcquired) => {}
+        other => {
+            panic!("a producer with an open transaction still claimed the partition: {other:?}")
         }
     }
 }

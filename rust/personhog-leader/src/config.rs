@@ -804,10 +804,13 @@ mod fencing_timescale_tests {
             }
             assert!(
                 config.fencing_init_timeout() >= Duration::from_secs(2),
-                "LEASE_TTL={lease_ttl}: acquisition needs room for two broker round trips"
+                "LEASE_TTL={lease_ttl}: acquisition needs room for a broker round trip"
             );
+            // The timeout bounds each of the two calls acquisition makes
+            // — `fetch_metadata` then `init_transactions` — so the budget
+            // the lease has to cover is twice what it names.
             assert!(
-                config.fencing_init_timeout() <= config.lease_fence_runway(),
+                config.fencing_init_timeout() * 2 <= config.lease_fence_runway(),
                 "LEASE_TTL={lease_ttl}: a warm cannot outlive the lease it warms for"
             );
         }

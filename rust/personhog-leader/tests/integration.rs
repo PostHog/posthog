@@ -2647,3 +2647,100 @@ async fn a_fenced_write_that_bounces_does_not_hand_its_version_back() {
         "a write that provably never left the pod must not burn its version"
     );
 }
+
+/// A window fenced with its own outcome unknown answers two questions at
+/// once, and the handler has to honour both: the router gets the
+/// ownership bounce, and the version stays spent because the commit may
+/// have landed on an attempt librdkafka re-issued internally. Handing the
+/// version back would put a second record at the same number behind one
+/// that may be committed, and the writer's first-wins guard then discards
+/// whichever arrived second — which is the acked one.
+///
+/// The cached entry stays. Evicting it resolves nothing, since recovery
+/// reads the last *marked* offset — the previous write that did succeed —
+/// and it would answer NOT_FOUND outright once that mark is pruned on a
+/// pod with no fallback pool configured.
+#[tokio::test]
+async fn a_fence_with_an_unknown_outcome_keeps_both_its_version_and_its_cache_entry() {
+    let topic = format!("fenced_uncertain_{}", uuid::Uuid::new_v4().simple());
+    let cache = Arc::new(PartitionedCache::new(1 << 20));
+    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let fenced = Arc::new(common::fenced_producers_for(&topic));
+    let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
+
+    let service = PersonHogLeaderService::new(
+        Arc::clone(&cache),
+        kafka_producer.clone(),
+        topic.clone(),
+        None,
+        Arc::new(DashMap::new()),
+        Arc::new(InflightTracker::new()),
+        NUM_PARTITIONS,
+        Arc::new(DirtyIndex::new(1_000_000)),
+        test_recovery(KAFKA_BOOTSTRAP),
+        PropertySizeLimits::new(655360, 524288),
+        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        Some(Arc::clone(&fenced)),
+        Arc::clone(&emitted_versions),
+    );
+
+    cache.create_partition(0);
+    let person = test_cached_person();
+    let base_version = person.version;
+    seed_person(&cache, 0, person);
+    fenced.acquire(0).await.expect("take the partition's fence");
+
+    let cache_key = PersonCacheKey {
+        team_id: 1,
+        person_id: 42,
+    };
+    let update = |n: i64| {
+        let mut request = Request::new(UpdatePersonPropertiesRequest {
+            team_id: 1,
+            person_id: 42,
+            event_name: "$set".to_string(),
+            set_properties: serde_json::to_vec(&serde_json::json!({"n": n})).unwrap(),
+            set_once_properties: vec![],
+            unset_properties: vec![],
+        });
+        request
+            .metadata_mut()
+            .insert("x-partition", "0".parse().unwrap());
+        request
+    };
+
+    service
+        .update_person_properties(update(1))
+        .await
+        .expect("a fenced write with a held fence must succeed");
+
+    // The outcome a broker fault inside a transaction would produce.
+    fenced.stage_failure_for_test(
+        0,
+        personhog_leader::fencing::FencedProduceError::FencedUncertain(
+            "staged for test".to_string(),
+        ),
+    );
+    let bounced = service
+        .update_person_properties(update(2))
+        .await
+        .expect_err("an uncertain fence must not be acked");
+    assert_eq!(
+        bounced.code(),
+        tonic::Code::FailedPrecondition,
+        "the router still needs the ownership answer"
+    );
+
+    assert_eq!(
+        emitted_versions.floor_for(0, &cache_key, 0),
+        base_version + 2,
+        "a version whose record may be committed must stay spent"
+    );
+    assert!(
+        matches!(
+            cache.get(0, &cache_key),
+            personhog_leader::cache::CacheLookup::Found(_)
+        ),
+        "the entry must survive, or a pruned mark leaves the person unreadable"
+    );
+}

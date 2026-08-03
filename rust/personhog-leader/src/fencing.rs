@@ -126,6 +126,11 @@ struct Gate {
 
 struct PartitionFence {
     producer: TransactionalProducer,
+    /// Makes the next commit task panic, so tests can reach the arm that
+    /// handles a committer which never reports. Scoped to the fence
+    /// rather than a global: the tests in this binary run concurrently.
+    #[cfg(any(test, feature = "test-support"))]
+    panic_next_commit: AtomicBool,
     /// A std mutex, deliberately: every critical section is a handful of
     /// field updates with no await inside, and `WindowSlot`'s `Drop` must
     /// be able to release its seat synchronously.
@@ -359,6 +364,14 @@ pub struct FencedChangelogProducers {
     /// How long an open window admits joiners before committing.
     window: Duration,
     partitions: DashMap<u32, Arc<PartitionFence>>,
+    /// Outcomes a test stages for the next produce on a partition.
+    ///
+    /// The uncertain outcomes need a broker fault landing inside a
+    /// transaction, which no test can stage against a healthy cluster —
+    /// but what the caller *does* with them is the reason they are
+    /// distinguished at all, so the answers have to be reachable.
+    #[cfg(any(test, feature = "test-support"))]
+    staged_failures: DashMap<u32, FencedProduceError>,
 }
 
 impl FencedChangelogProducers {
@@ -378,6 +391,8 @@ impl FencedChangelogProducers {
             broker_txn_timeout,
             window,
             partitions: DashMap::new(),
+            #[cfg(any(test, feature = "test-support"))]
+            staged_failures: DashMap::new(),
         }
     }
 
@@ -415,6 +430,8 @@ impl FencedChangelogProducers {
                 }),
                 sends_settled: Notify::new(),
                 window_closed: Notify::new(),
+                #[cfg(any(test, feature = "test-support"))]
+                panic_next_commit: AtomicBool::new(false),
                 unusable: AtomicBool::new(false),
                 commit_timeout: self.commit_timeout,
             }),
@@ -467,6 +484,34 @@ impl FencedChangelogProducers {
         }
     }
 
+    /// Stage a committer that never reports its outcome. The real path
+    /// needs the runtime to tear the task down mid-commit, which no test
+    /// can arrange against a live producer.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn panic_next_commit_for_test(&self, partition: u32) {
+        if let Some(fence) = self.installed(partition) {
+            fence.panic_next_commit.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Drop the open window's commit-outcome subscribers without
+    /// answering them, as a committer that vanished mid-commit leaves
+    /// them. `spawn_blocking` work is not cancelled when its handle is
+    /// dropped, so the commit it was running may well have landed.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn abandon_waiters_for_test(&self, partition: u32) {
+        if let Some(fence) = self.partitions.get(&partition) {
+            let taken = mem::take(&mut fence.gate.lock().unwrap().waiters);
+            drop(taken);
+        }
+    }
+
+    /// Make the next produce on this partition answer with `outcome`.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn stage_failure_for_test(&self, partition: u32, outcome: FencedProduceError) {
+        self.staged_failures.insert(partition, outcome);
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn condemn_for_test(&self, partition: u32) {
         if let Some(fence) = self.partitions.get(&partition) {
@@ -481,6 +526,10 @@ impl FencedChangelogProducers {
         partition: u32,
         person: &Person,
     ) -> Result<i64, FencedProduceError> {
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some((_, staged)) = self.staged_failures.remove(&partition) {
+            return Err(staged);
+        }
         let durable_start = Instant::now();
         let fence = self
             .partitions
@@ -875,7 +924,13 @@ async fn commit_window_after(
     let producer = fence.producer.inner().clone();
     let timeout = fence.commit_timeout;
     let commit_start = Instant::now();
+    #[cfg(any(test, feature = "test-support"))]
+    let panic_next = fence.panic_next_commit.swap(false, Ordering::SeqCst);
     let result = spawn_blocking(move || {
+        #[cfg(any(test, feature = "test-support"))]
+        if panic_next {
+            panic!("staged commit task failure");
+        }
         if poisoned {
             // One attempt. A producer left in its abortable state fails
             // every later `begin_transaction`, so a failed abort costs
@@ -1099,6 +1154,23 @@ mod tests {
     /// answer it bounces on, and the version stays spent. Collapsing it
     /// into `Fenced` frees a version whose record may be committed, and
     /// collapsing it into `Indeterminate` throws away the bounce.
+    /// The arrow *into* the condemned state. A producer left in a
+    /// transaction it cannot leave must be given up, or `holds()` keeps
+    /// answering yes, the repair pass sees nothing to do, and the
+    /// partition stays unwritable for the life of the process.
+    #[test]
+    fn a_producer_that_cannot_begin_another_window_is_condemned() {
+        assert_eq!(condemn_reason(CommitOutcome::Aborted), None);
+        assert_eq!(
+            condemn_reason(CommitOutcome::AbortedProducerDead),
+            Some("abort_failed")
+        );
+        assert_eq!(
+            condemn_reason(CommitOutcome::Unknown),
+            Some("commit_indeterminate")
+        );
+    }
+
     #[test]
     fn a_fence_only_settles_the_records_when_the_window_also_aborted() {
         for (outcome, fenced, expected) in [
