@@ -776,15 +776,21 @@ impl PersonHogLeader for PersonHogLeaderService {
                 // cache entry goes so a retry re-derives rather than
                 // building on a version whose fate is in doubt.
                 Err(e @ FencedProduceError::FencedUncertain(_)) => {
-                    self.cache.remove(partition, &cache_key);
-                    counter!("personhog_leader_indeterminate_evictions_total").increment(1);
+                    // Deliberately not settled: the partition moved and
+                    // the window's own outcome never came back, so the
+                    // record may or may not be in the log. Keeping the
+                    // version spent is the whole of what safety needs.
+                    counter!(
+                        "personhog_leader_indeterminate_outcomes_total",
+                        "fenced" => "true"
+                    )
+                    .increment(1);
                     tracing::error!(
                         team_id = cache_key.team_id,
                         person_id = cache_key.person_id,
                         partition,
                         error = %e,
-                        "changelog producer fenced with an unknown outcome; evicting the cached \
-                         person so a retry cannot reuse its version"
+                        "changelog producer fenced with an unknown outcome; version kept spent"
                     );
                     return Err(Status::failed_precondition(format!(
                         "partition ownership fenced: {e}"
@@ -816,15 +822,17 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // Deliberately not settled: whether the record exists
                     // is exactly what is unknown, so the version stays
                     // spent and the retry derives past it.
-                    self.cache.remove(partition, &cache_key);
-                    counter!("personhog_leader_indeterminate_evictions_total").increment(1);
+                    counter!(
+                        "personhog_leader_indeterminate_outcomes_total",
+                        "fenced" => "false"
+                    )
+                    .increment(1);
                     tracing::error!(
                         team_id = cache_key.team_id,
                         person_id = cache_key.person_id,
                         partition,
                         error = %e,
-                        "changelog commit outcome unknown; evicting the cached person so a \
-                         retry cannot reuse its version"
+                        "changelog commit outcome unknown; version kept spent"
                     );
                     return Err(Status::unknown(format!(
                         "person state may or may not have been stored: {e}"
@@ -864,10 +872,16 @@ impl PersonHogLeader for PersonHogLeaderService {
                     // log — the writer's strict guard then keeps whichever
                     // arrived first and discards the acked one.
                     //
-                    // The floor alone is enough: the next write derives
-                    // past it whether or not the cache still holds the
-                    // pre-write state, so the entry stays and reads carry
-                    // on serving the last durable version.
+                    // The floor alone carries that: the next write
+                    // derives past it whether or not the cache still
+                    // holds the pre-write state. The entry stays, so
+                    // reads may answer with a version older than the
+                    // changelog until a later write for this person
+                    // settles one. Evicting instead would resolve
+                    // nothing — recovery reads the last *marked* offset,
+                    // which is the previous write that did succeed — and
+                    // would answer NOT_FOUND outright once that mark is
+                    // pruned and no fallback pool is configured.
                     tracing::error!(
                         team_id = cache_key.team_id,
                         person_id = cache_key.person_id,
