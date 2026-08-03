@@ -13,10 +13,12 @@ from posthog.llm.gateway_client import get_llm_client
 
 from products.growth.backend.enrichment.labels import (
     UNKNOWN,
+    PromptConfigError,
     classify_payload,
     get_active_config,
     recent_latest_fetches_qs,
     signup_domain_for_organization,
+    validate_output_fields,
     verdict_field_key,
 )
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig
@@ -72,6 +74,10 @@ class Command(BaseCommand):
         config = get_active_config(label)
         if config is None:
             raise CommandError(f"No active EnrichmentPromptConfig for label {label!r}")
+        try:
+            validate_output_fields(config)
+        except PromptConfigError as e:
+            raise CommandError(str(e)) from e
 
         display_version = config.version
         if prompt_file:
@@ -82,7 +88,9 @@ class Command(BaseCommand):
             # Never saved — an in-memory override for iteration, not a new version.
             display_version = f"{config.version}+file"
 
-        client = get_llm_client(product="growth")
+        # tenacity in labels.py already owns retries; the SDK's own internal retries underneath
+        # would multiply that budget nine-fold per row.
+        client = get_llm_client(product="growth").with_options(max_retries=0)
         # A custom output schema's pass/fail key differs from `label` - see
         # verdict_field_key's docstring.
         verdict_key = verdict_field_key(config)
@@ -113,12 +121,15 @@ class Command(BaseCommand):
 
         classified = unknown = errors = 0
         for fetch in ordered_fetches:
-            company = fetch.payload.get("name") or fetch.organization.name
             try:
+                # Inside the guard too: an archived payload that isn't a dict (classify_payload
+                # already tolerates this) must print one ERROR row, not kill the whole sample.
+                company = fetch.payload.get("name") or fetch.organization.name
                 signup_domain = signup_domain_for_organization(fetch.organization)
                 output = classify_payload(config, fetch.payload, signup_domain, client)
             except Exception as e:
                 errors += 1
+                company = fetch.organization.name
                 row = [_truncate(company, _COMPANY_WIDTH), _MISSING, f"ERROR: {_truncate(str(e), 40)}"]
                 row += [_MISSING] * (len(headers) - len(row))
                 self.stdout.write(row_fmt.format(*row))
@@ -154,3 +165,5 @@ class Command(BaseCommand):
 
         summary = f"classified {classified}, unknown {unknown}, errors {errors}"
         self.stdout.write(self.style.SUCCESS(summary) if errors == 0 else self.style.WARNING(summary))
+        if ordered_fetches and errors == len(ordered_fetches):
+            raise CommandError(f"every sampled row errored ({summary})")

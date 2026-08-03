@@ -33,6 +33,10 @@ def _mock_llm_client(
     verdict: bool = True, confidence: float = 0.9, reasoning: str = "builds ai software", verdict_key: str = "is_ai"
 ) -> MagicMock:
     client = MagicMock()
+    # The command call sites chain .with_options(max_retries=0) onto get_llm_client(...); without
+    # this, that call returns a fresh, unconfigured child mock and every assertion below silently
+    # checks the wrong object.
+    client.with_options.return_value = client
     response = MagicMock()
     response.choices[0].message.content = json.dumps(
         {verdict_key: verdict, "confidence": confidence, "reasoning": reasoning}
@@ -291,6 +295,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._config()
         self._fetch()
         client = MagicMock()
+        client.with_options.return_value = client
         response = MagicMock()
         response.choices[0].message.content = json.dumps({"is_ai": True, "confidence": 0.8, "reasoning": "x"})
         response.model = "gpt-5-mini-2026-07-01"
@@ -409,6 +414,7 @@ class TestEnrichmentLabelBatch(BaseTest):
         self._config()
         self._fetch()
         client = MagicMock()
+        client.with_options.return_value = client
         response = MagicMock()
         response.choices[0].message.content = "not json at all"
         client.chat.completions.create.return_value = response
@@ -559,6 +565,7 @@ class TestEnrichmentLabelDryRun(BaseTest):
             is_active=True,
         )
         client = MagicMock()
+        client.with_options.return_value = client
         response = MagicMock()
         response.choices[0].message.content = json.dumps({"is_ai": False})
         client.chat.completions.create.return_value = response
