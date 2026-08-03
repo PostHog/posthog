@@ -523,19 +523,17 @@ def capture_ticket_assigned(
     )
 
 
-def capture_message_sent(
+def _capture_team_message(
     ticket: Ticket,
     message_id: str,
     message_content: str,
-    author: User | None = None,
-    is_private: bool = False,
+    author: User | None,
+    event_name: str,
 ) -> None:
-    """Team member sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
-    properties["is_private"] = is_private
     properties.update(_get_actor_properties(author, "user"))
     properties.update(_get_customer_properties(ticket, include_distinct_id=True))
     properties.update(_get_assignment_properties(ticket))
@@ -543,12 +541,37 @@ def capture_message_sent(
 
     capture_internal(
         token=ticket.team.api_token,
-        event_name="$conversation_message_sent",
+        event_name=event_name,
         event_source=EVENT_SOURCE,
         distinct_id=_get_actor_distinct_id(ticket, author, "user"),
         timestamp=None,
         properties=properties,
     )
+
+
+def capture_message_sent(
+    ticket: Ticket,
+    message_id: str,
+    message_content: str,
+    author: User | None = None,
+) -> None:
+    """Team member sent a public reply on a ticket."""
+    _capture_team_message(ticket, message_id, message_content, author, "$conversation_message_sent")
+
+
+def capture_private_message_sent(
+    ticket: Ticket,
+    message_id: str,
+    message_content: str,
+    author: User | None = None,
+) -> None:
+    """Team member sent a private internal note on a ticket.
+
+    Deliberately a separate event from `$conversation_message_sent`: existing
+    workflows trigger on that event to notify customers, and private notes must
+    never flow through those.
+    """
+    _capture_team_message(ticket, message_id, message_content, author, "$conversation_private_message_sent")
 
 
 def capture_message_received(ticket: Ticket, message_id: str, message_content: str) -> None:

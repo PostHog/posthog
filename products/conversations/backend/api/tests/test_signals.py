@@ -209,15 +209,14 @@ class TestTicketMessageSignals(BaseTest):
         assert self.ticket.updated_at == public_msg.created_at  # Unchanged
 
     @patch("products.conversations.backend.events.capture_internal")
-    def test_private_team_note_emits_message_sent_event(self, mock_capture, mock_on_commit):
+    def test_private_team_note_emits_private_message_sent_event(self, mock_capture, mock_on_commit):
         self._create_team_message("Private note", is_private=True)
 
         self.ticket.refresh_from_db()
         assert self.ticket.message_count == 0
         mock_capture.assert_called_once()
         call_kwargs = mock_capture.call_args.kwargs
-        assert call_kwargs["event_name"] == "$conversation_message_sent"
-        assert call_kwargs["properties"]["is_private"] is True
+        assert call_kwargs["event_name"] == "$conversation_private_message_sent"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
 
     @patch("products.conversations.backend.events.capture_internal")

@@ -171,7 +171,6 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["message_id"] == "msg-123"
         assert call_kwargs["properties"]["message_content"] == "Hello customer"
         assert call_kwargs["properties"]["author_type"] == "team"
-        assert call_kwargs["properties"]["is_private"] is False
         assert call_kwargs["properties"]["actor_type"] == "user"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
