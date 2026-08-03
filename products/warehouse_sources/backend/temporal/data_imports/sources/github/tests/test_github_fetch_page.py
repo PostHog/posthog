@@ -89,6 +89,35 @@ def test_fetch_page_raises_repository_too_large_for_code_frequency_422():
             github._fetch_page("https://api.github.com/repos/o/r/stats/code_frequency", {}, mock.Mock())
 
 
+def _empty_repository_response() -> mock.Mock:
+    response = mock.Mock(spec=requests.Response)
+    response.status_code = 409
+    response.ok = False
+    response.headers = {}
+    response.text = json.dumps({"message": "Git Repository is empty."})
+    response.json.return_value = {"message": "Git Repository is empty."}
+    response.request = None
+    # If the empty-repo 409 check ever regresses, this must raise instead of silently falling
+    # through to a passing empty page list, so the test actually fails on that regression.
+    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        "409 Client Error: Conflict for url", response=response
+    )
+    return response
+
+
+def test_iter_pages_stops_on_empty_repository():
+    # commits is a fan_out_parent (check_runs, commit_statuses walk it via _iter_pages), so the same
+    # empty-repo 409 that get_rows handles directly for a bare `commits` read must also be swallowed
+    # here rather than propagating out of the fan-out walk.
+    session = mock.Mock()
+    session.request.return_value = _empty_repository_response()
+
+    with mock.patch.object(github, "make_tracked_session", return_value=session):
+        pages = list(github._iter_pages("https://api.github.com/repos/o/r/commits", {}, None, mock.Mock()))
+
+    assert pages == []
+
+
 def test_fetch_page_reraises_other_422_errors():
     # A generic 422 (e.g. malformed request params) is a real, fixable problem and must stay fatal
     # rather than being swallowed by the too-large-repository check.
