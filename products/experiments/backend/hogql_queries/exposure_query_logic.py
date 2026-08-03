@@ -150,7 +150,9 @@ def get_test_accounts_filter(
 
 
 def get_exposure_event_and_property(
-    feature_flag_key: str, exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None
+    feature_flag_key: str,
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None] = None,
+    default_exposure_event: str = DEFAULT_EXPOSURE_EVENT,
 ) -> tuple[Optional[str], str]:
     """
     Determines which event and feature flag variant property to use for exposures.
@@ -158,6 +160,10 @@ def get_exposure_event_and_property(
     Args:
         feature_flag_key: The feature flag key
         exposure_criteria: Experiment exposure criteria configuration
+        default_exposure_event: What the experiment's default exposure resolves to
+            (`resolve_default_exposure_event`). Callers serving one experiment should resolve and
+            pass it so the $experiment_exposure rollout is honored; the parameter defaults to the
+            pre-rollout event, which keeps consumers that don't resolve on $feature_flag_called.
 
     Returns:
         Tuple of (event_name, feature_flag_variant_property)
@@ -178,27 +184,40 @@ def get_exposure_event_and_property(
         exposure_config
         and hasattr(exposure_config, "event")
         and exposure_config.event
-        and exposure_config.event != "$feature_flag_called"
+        and exposure_config.event not in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
     ):
         # For custom exposure events, we extract the event name from the exposure config
         # and get the variant from the $feature/<key> property
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
         event = exposure_config.event
     else:
-        # For the default $feature_flag_called event, we need to get the variant from $feature_flag_response
+        # $experiment_exposure is an ingestion-side duplicate of $feature_flag_called and carries
+        # the same properties, so both resolve the variant from $feature_flag_response. A config
+        # naming $feature_flag_called is the stored default rather than a custom choice, so it
+        # follows the resolved default event the same way an absent config does.
         feature_flag_variant_property = "$feature_flag_response"
-        event = DEFAULT_EXPOSURE_EVENT
+        if exposure_config is not None and getattr(exposure_config, "event", None) == EXPERIMENT_EXPOSURE_EVENT:
+            event = EXPERIMENT_EXPOSURE_EVENT
+        else:
+            event = default_exposure_event
 
     return event, feature_flag_variant_property
 
 
-def _get_event_name_from_config(exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]]) -> str:
-    """Extract event name from exposure config, defaulting to DEFAULT_EXPOSURE_EVENT."""
+def _get_event_name_from_config(
+    exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
+    default_exposure_event: str = DEFAULT_EXPOSURE_EVENT,
+) -> str:
+    """Extract event name from exposure config, defaulting to the resolved default exposure event."""
     if not exposure_config or not hasattr(exposure_config, "event"):
-        return DEFAULT_EXPOSURE_EVENT
+        return default_exposure_event
 
     event = exposure_config.event
-    return str(event) if event and event != "$feature_flag_called" else "$feature_flag_called"
+    # An explicit $feature_flag_called config is the stored default, so it resolves like an
+    # absent config instead of pinning the pre-rollout event.
+    if not event or event == DEFAULT_EXPOSURE_EVENT:
+        return default_exposure_event
+    return str(event)
 
 
 def _build_action_filter(action_id: int, team: Team) -> ast.Expr:
@@ -215,6 +234,7 @@ def _build_event_filters(
     exposure_config: Optional[Union[ActionsNode, ExperimentEventExposureConfig]],
     team: Team,
     feature_flag_key: Optional[str],
+    default_exposure_event: str = DEFAULT_EXPOSURE_EVENT,
 ) -> list[ast.Expr]:
     """Build event/action filters based on exposure config."""
     # Handle action-based exposure
@@ -222,7 +242,7 @@ def _build_event_filters(
         return [_build_action_filter(int(exposure_config.id), team)]
 
     # Handle event-based exposure
-    event = _get_event_name_from_config(exposure_config)
+    event = _get_event_name_from_config(exposure_config, default_exposure_event)
     filters: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -231,8 +251,10 @@ def _build_event_filters(
         )
     ]
 
-    # Add feature flag key filter for $feature_flag_called events
-    if event == "$feature_flag_called" and feature_flag_key:
+    # Add feature flag key filter for $feature_flag_called events. $experiment_exposure gets the
+    # same treatment: ingestion emits it for every experiment, so without this filter exposures
+    # of other experiments would count too.
+    if event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT) and feature_flag_key:
         filters.append(
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
@@ -259,6 +281,7 @@ def build_exposure_event_conditions(
     exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
     team: Team,
     feature_flag_key: Optional[str],
+    default_exposure_event: str = DEFAULT_EXPOSURE_EVENT,
 ) -> list[ast.Expr]:
     """
     Builds the event/action and property filters that define what counts as an exposure event —
@@ -266,11 +289,15 @@ def build_exposure_event_conditions(
     conditions (date range, variant filter, test-account exclusion). Used directly by consumers
     that need "who was exposed" for serving decisions rather than metric analysis, such as the
     freeze-exposure snapshot scan.
+
+    `default_exposure_event` follows the same contract as in `get_exposure_event_and_property`:
+    resolve it per experiment to honor the $experiment_exposure rollout, or leave it to keep the
+    pre-rollout default.
     """
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config = criteria.exposure_config if criteria else None
     return [
-        *_build_event_filters(exposure_config, team, feature_flag_key),
+        *_build_event_filters(exposure_config, team, feature_flag_key, default_exposure_event),
         *_build_property_filters(exposure_config, team),
     ]
 

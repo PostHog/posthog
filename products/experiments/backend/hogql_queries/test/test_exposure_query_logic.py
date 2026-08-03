@@ -2,7 +2,57 @@ import pytest
 
 from posthog.schema import ExperimentEventExposureConfig, ExperimentExposureCriteria
 
-from products.experiments.backend.hogql_queries.exposure_query_logic import normalize_to_exposure_criteria
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    EXPERIMENT_EXPOSURE_EVENT,
+    get_exposure_event_and_property,
+    normalize_to_exposure_criteria,
+)
+
+
+def _event_config(event):
+    return {"exposure_config": {"kind": "ExperimentEventExposureConfig", "event": event, "properties": []}}
+
+
+class TestGetExposureEventAndProperty:
+    @pytest.mark.parametrize(
+        "exposure_criteria,default_exposure_event,expected",
+        [
+            # Default-shaped configs must follow the resolved event the analysis queries count on,
+            # or the replay surfaces that resolve (session buckets) read a different population.
+            (None, EXPERIMENT_EXPOSURE_EVENT, (EXPERIMENT_EXPOSURE_EVENT, "$feature_flag_response")),
+            (
+                _event_config("$feature_flag_called"),
+                EXPERIMENT_EXPOSURE_EVENT,
+                (EXPERIMENT_EXPOSURE_EVENT, "$feature_flag_response"),
+            ),
+            # An explicit $experiment_exposure config keeps its event either side of the rollout,
+            # with the variant on $feature_flag_response since the event duplicates flag calls.
+            (
+                _event_config("$experiment_exposure"),
+                DEFAULT_EXPOSURE_EVENT,
+                (EXPERIMENT_EXPOSURE_EVENT, "$feature_flag_response"),
+            ),
+            # Custom events and actions are untouched by the rollout.
+            (
+                _event_config("checkout_started"),
+                EXPERIMENT_EXPOSURE_EVENT,
+                ("checkout_started", "$feature/my-flag"),
+            ),
+            (
+                {"exposure_config": {"kind": "ActionsNode", "id": 42}},
+                EXPERIMENT_EXPOSURE_EVENT,
+                (None, "$feature/my-flag"),
+            ),
+            # Callers that don't resolve keep the pre-rollout default.
+            (None, None, (DEFAULT_EXPOSURE_EVENT, "$feature_flag_response")),
+        ],
+    )
+    def test_resolves_default_exposure_against_the_rollout_event(
+        self, exposure_criteria, default_exposure_event, expected
+    ):
+        kwargs = {} if default_exposure_event is None else {"default_exposure_event": default_exposure_event}
+        assert get_exposure_event_and_property("my-flag", exposure_criteria, **kwargs) == expected
 
 
 class TestNormalizeToExposureCriteria:
