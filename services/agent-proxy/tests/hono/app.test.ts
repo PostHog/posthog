@@ -87,13 +87,10 @@ describe('app onError', () => {
             makeConfig({ djangoCallbackBaseUrl: 'http://django', agentProxyCallbackSecret: 'secret' }),
             []
         )
-        const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
-            if (String(url) === 'http://django/internal/tasks/port-forward/resolve/') {
-                expect(init?.headers).toMatchObject({
-                    'Content-Type': 'application/json',
-                    'X-Agent-Proxy-Secret': 'secret',
-                })
-                return Response.json({
+        const fetchMock = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(
+                Response.json({
                     run_id: 'run-123',
                     task_id: 'task-abc',
                     team_id: 42,
@@ -103,13 +100,15 @@ describe('app onError', () => {
                     connection_token: 'sandbox-jwt',
                     sandbox_connect_token: 'connect-token',
                 })
-            }
-            expect(String(url)).toBe(
-                'https://sandbox.modal.run/ports/8000/some/path?x=1&_modal_connect_token=connect-token'
             )
-            expect((init?.headers as Headers).get('Authorization')).toBe('Bearer sandbox-jwt')
-            return new Response('ok', { status: 201, headers: { 'X-Test': 'yes' } })
-        })
+            .mockImplementationOnce(async (url, init) => {
+                expect(String(url)).toBe(
+                    'https://sandbox.modal.run/ports/8000/some/path?x=1&_modal_connect_token=connect-token'
+                )
+                expect(init).not.toBeUndefined()
+                expect(((init as RequestInit).headers as Headers).get('Authorization')).toBe('Bearer sandbox-jwt')
+                return new Response('ok', { status: 201, headers: { 'X-Test': 'yes' } })
+            })
 
         const res = await app.request('/v1/ports/forward-123/some/path?x=1', {
             headers: { Authorization: 'Bearer tok' },
@@ -118,6 +117,16 @@ describe('app onError', () => {
         expect(res.status).toBe(201)
         expect(await res.text()).toBe('ok')
         expect(res.headers.get('X-Test')).toBe('yes')
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            1,
+            'http://django/internal/tasks/port-forward/resolve/',
+            expect.objectContaining({
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Agent-Proxy-Secret': 'secret',
+                },
+            })
+        )
         expect(fetchMock).toHaveBeenCalledTimes(2)
         fetchMock.mockRestore()
     })

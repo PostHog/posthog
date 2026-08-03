@@ -82,9 +82,15 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
     } = opts
 
     const claims: Record<string, unknown> = { run_id: runId, task_id: taskId, team_id: teamId }
-    if (forwardId !== undefined) claims.forward_id = forwardId
-    if (port !== undefined) claims.port = port
-    if (userId !== undefined) claims.user_id = userId
+    if (forwardId !== undefined) {
+        claims.forward_id = forwardId
+    }
+    if (port !== undefined) {
+        claims.port = port
+    }
+    if (userId !== undefined) {
+        claims.user_id = userId
+    }
 
     const builder = new SignJWT(claims).setProtectedHeader({
         alg: 'RS256',

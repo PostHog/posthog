@@ -4672,13 +4672,16 @@ class TestTaskRunAPI(BaseTaskAPITest):
             created_by=self.user,
             port=8000,
         )
+        distinct_id = self.user.distinct_id
+        if distinct_id is None:
+            raise AssertionError("Expected test user to have a distinct_id")
         token, _preview_url = tasks_facade.create_task_run_port_forward_token(
             run.id,
             task.id,
             self.team.id,
             forward_id=port_forward.id,
             user_id=self.user.id,
-            distinct_id=self.user.distinct_id,
+            distinct_id=distinct_id,
         )
 
         with self.settings(DEBUG=True, AGENT_PROXY_CALLBACK_SECRET=""):

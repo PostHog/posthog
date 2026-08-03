@@ -192,7 +192,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
 
     const handlePortForward = async (c: HonoCtx): Promise<Response> => {
         const { forwardId } = c.req.param() as { forwardId: string }
-        const token = extractPortForwardToken(c, forwardId)
+        const token = extractPortForwardToken(c)
         if (token === null) {
             return c.json({ error: 'Missing port forward token' }, 401)
         }
@@ -277,10 +277,7 @@ function extractStreamReadToken(c: { req: { header: (name: string) => string | u
     return token || null
 }
 
-function extractPortForwardToken(
-    c: { req: { header: (name: string) => string | undefined } },
-    forwardId: string
-): string | null {
+function extractPortForwardToken(c: { req: { header: (name: string) => string | undefined } }): string | null {
     const bearer = extractStreamReadToken(c)
     if (bearer) {
         return bearer

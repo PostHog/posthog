@@ -2132,13 +2132,19 @@ def resolve_task_run_port_forward(token: str) -> contracts.TaskRunPortForwardRes
         payload = validate_task_port_forward_token(token)
     except Exception:
         return None
+    try:
+        run_id = UUID(payload.run_id)
+        task_id = UUID(payload.task_id)
+        forward_id = UUID(payload.forward_id)
+    except ValueError:
+        return None
 
     port_forward = (
         TaskRunPortForward.objects.select_related("task_run")
         .filter(
-            id=payload.forward_id,
-            task_run_id=payload.run_id,
-            task_id=payload.task_id,
+            id=forward_id,
+            task_run_id=run_id,
+            task_id=task_id,
             team_id=payload.team_id,
             port=payload.port,
             status=TaskRunPortForward.Status.ACTIVE,
