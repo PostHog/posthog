@@ -43,13 +43,14 @@ import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 
 export type BusinessType = 'b2c' | 'b2b'
 
-type ActiveTab = 'dashboard' | 'journeys' | 'accounts' | 'notes' | 'announcements'
+type ActiveTab = 'dashboard' | 'journeys' | 'accounts' | 'notes' | 'announcements' | 'reports'
 
 const SCENE_KEY_TO_TAB: Record<string, ActiveTab> = {
     customerAnalyticsJourneys: 'journeys',
     customerAnalyticsAccounts: 'accounts',
     customerAnalyticsNotes: 'notes',
     customerAnalyticsAnnouncements: 'announcements',
+    customerAnalyticsReports: 'reports',
 }
 
 export interface InsightDefinition {

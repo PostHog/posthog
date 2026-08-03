@@ -39,6 +39,7 @@ import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorL
 import { FeedbackButton } from './components/FeedbackButton'
 import { ActiveUsersInsights } from './components/Insights/ActiveUsersInsights'
 import { SignupInsights } from './components/Insights/SignupInsights'
+import { ReportsTabContent } from './components/Reports/ReportsTabContent'
 import { CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID } from './constants'
 import { CustomerAnalyticsFilters } from './CustomerAnalyticsFilters'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
@@ -79,10 +80,14 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         reportCustomerAnalyticsViewed()
     })
 
-    // Accounts, Notes and Announcements are gated by CUSTOMER_ANALYTICS_CSP; without it the tabs do
-    // not exist, so guessed `/customer_analytics/{accounts,notes,announcements}` URLs are 404s.
+    // Accounts, Notes, Announcements and Reports are gated by CUSTOMER_ANALYTICS_CSP; without it the
+    // tabs do not exist, so guessed `/customer_analytics/{accounts,notes,announcements,reports}` URLs
+    // are 404s.
     if (
-        (activeTab === 'accounts' || activeTab === 'notes' || activeTab === 'announcements') &&
+        (activeTab === 'accounts' ||
+            activeTab === 'notes' ||
+            activeTab === 'announcements' ||
+            activeTab === 'reports') &&
         !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]
     ) {
         return <NotFound object="page" />
@@ -125,6 +130,12 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
             label: 'Announcements',
             content: <AnnouncementsTabContent />,
             link: combineUrl(urls.customerAnalyticsAnnouncements(), searchParams).url,
+        })
+        tabs.push({
+            key: 'reports',
+            label: 'Reports',
+            content: <ReportsTabContent />,
+            link: combineUrl(urls.customerAnalyticsReports(), searchParams).url,
         })
     }
 
