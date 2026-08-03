@@ -3,7 +3,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    VisionActionsCreateBody,
+    VisionActionsDestroyParams,
     VisionActionsListQueryParams,
+    VisionActionsPartialUpdateBody,
+    VisionActionsPartialUpdateParams,
     VisionActionsRetrieveParams,
     VisionActionsRunsListParams,
     VisionActionsRunsListQueryParams,
@@ -41,6 +45,71 @@ import {
 } from '@/generated/replay_vision/api'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const VisionActionsCreateSchema = VisionActionsCreateBody
+
+const visionActionsCreate = (): ToolBase<typeof VisionActionsCreateSchema, Schemas.VisionAction> => ({
+    name: 'vision-actions-create',
+    schema: VisionActionsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.scanner !== undefined) {
+            body['scanner'] = params.scanner
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.is_scanner_digest !== undefined) {
+            body['is_scanner_digest'] = params.is_scanner_digest
+        }
+        if (params.trigger_type !== undefined) {
+            body['trigger_type'] = params.trigger_type
+        }
+        if (params.mode !== undefined) {
+            body['mode'] = params.mode
+        }
+        if (params.trigger_config !== undefined) {
+            body['trigger_config'] = params.trigger_config
+        }
+        if (params.selection !== undefined) {
+            body['selection'] = params.selection
+        }
+        if (params.synthesis_config !== undefined) {
+            body['synthesis_config'] = params.synthesis_config
+        }
+        if (params.alert_config !== undefined) {
+            body['alert_config'] = params.alert_config
+        }
+        if (params.delivery_config !== undefined) {
+            body['delivery_config'] = params.delivery_config
+        }
+        const result = await context.api.request<Schemas.VisionAction>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const VisionActionsDeleteSchema = VisionActionsDestroyParams.omit({ project_id: true })
+
+const visionActionsDelete = (): ToolBase<typeof VisionActionsDeleteSchema, unknown> => ({
+    name: 'vision-actions-delete',
+    schema: VisionActionsDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
 
 const VisionActionsListSchema = VisionActionsListQueryParams
 
@@ -114,6 +183,58 @@ const visionActionsRunsRetrieve = (): ToolBase<typeof VisionActionsRunsRetrieveS
         const result = await context.api.request<Schemas.VisionActionRun>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.vision_action_id))}/runs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const VisionActionsUpdateSchema = VisionActionsPartialUpdateParams.omit({ project_id: true }).extend(
+    VisionActionsPartialUpdateBody.shape
+)
+
+const visionActionsUpdate = (): ToolBase<typeof VisionActionsUpdateSchema, Schemas.VisionAction> => ({
+    name: 'vision-actions-update',
+    schema: VisionActionsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof VisionActionsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.scanner !== undefined) {
+            body['scanner'] = params.scanner
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.is_scanner_digest !== undefined) {
+            body['is_scanner_digest'] = params.is_scanner_digest
+        }
+        if (params.trigger_type !== undefined) {
+            body['trigger_type'] = params.trigger_type
+        }
+        if (params.mode !== undefined) {
+            body['mode'] = params.mode
+        }
+        if (params.trigger_config !== undefined) {
+            body['trigger_config'] = params.trigger_config
+        }
+        if (params.selection !== undefined) {
+            body['selection'] = params.selection
+        }
+        if (params.synthesis_config !== undefined) {
+            body['synthesis_config'] = params.synthesis_config
+        }
+        if (params.alert_config !== undefined) {
+            body['alert_config'] = params.alert_config
+        }
+        if (params.delivery_config !== undefined) {
+            body['delivery_config'] = params.delivery_config
+        }
+        const result = await context.api.request<Schemas.VisionAction>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/actions/${encodeURIComponent(String(params.id))}/`,
+            body,
         })
         return result
     },
@@ -695,10 +816,13 @@ const visionScannersUpdate = (): ToolBase<typeof VisionScannersUpdateSchema, Sch
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'vision-actions-create': visionActionsCreate,
+    'vision-actions-delete': visionActionsDelete,
     'vision-actions-list': visionActionsList,
     'vision-actions-retrieve': visionActionsRetrieve,
     'vision-actions-runs-list': visionActionsRunsList,
     'vision-actions-runs-retrieve': visionActionsRunsRetrieve,
+    'vision-actions-update': visionActionsUpdate,
     'vision-observations-label-create': visionObservationsLabelCreate,
     'vision-observations-label-destroy': visionObservationsLabelDestroy,
     'vision-observations-list': visionObservationsList,

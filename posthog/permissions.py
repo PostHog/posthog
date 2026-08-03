@@ -31,7 +31,12 @@ from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeature
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl, ordered_access_levels
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject, APIScopeObjectOrNotSupported
+from posthog.scopes import (
+    INTERNAL_API_SCOPE_OBJECTS,
+    MCP_BUILT_IN_AGENT_SCOPE,
+    APIScopeObject,
+    APIScopeObjectOrNotSupported,
+)
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
@@ -623,6 +628,21 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
     return None
 
 
+def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
+    """The teams a scoped token is confined to, or None when the credential carries no team
+    restriction (session auth, or a token scoped to every team in the organization).
+
+    The companion of `get_authenticator_scopes` for the other half of a token's authority, so a
+    check that has to re-derive a credential's reach outside `TeamAndOrgViewSetMixin` reads both
+    legs from one place.
+    """
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
+        return list(authenticator.personal_api_key.scoped_teams or []) or None
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return list(authenticator.access_token.scoped_teams or []) or None
+    return None
+
+
 class APIScopePermission(ScopeBasePermission):
     """
     The request is via an API key or OAuth token and the user has the appropriate scopes.
@@ -1114,3 +1134,22 @@ class UserCanCreateProjectPermission(BasePermission):
             return False
 
         return bool(organization.members_can_create_projects)
+
+
+def is_mcp_built_in_agent_oauth_request(request: Request) -> bool:
+    """Whether the request authenticated with an OAuth token minted for one of
+    PostHog's built-in agents (carries the server-only `mcp_builtin_agent` scope)."""
+    authenticator = request.successful_authenticator
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return False
+    return MCP_BUILT_IN_AGENT_SCOPE in authenticator.access_token.scope.split()
+
+
+class DenyMCPBuiltInAgentOAuth(BasePermission):
+    """Denies built-in agent sandbox tokens on human/member surfaces they must
+    not reach — their access goes through explicit MCP gateway grants instead."""
+
+    message = "Built-in agents must use their explicitly granted MCP gateway connections."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        return not is_mcp_built_in_agent_oauth_request(request)

@@ -191,6 +191,8 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             resolve_field="slug",
             include_from_parent=["id", "slug"],
             parent_field_renames={"id": "project_id", "slug": "project_slug"},
+            # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
+            child_params={"full": "true"},
         ),
     ),
     "project_users": SentryEndpointConfig(
@@ -248,6 +250,8 @@ SENTRY_ENDPOINTS: dict[str, SentryEndpointConfig] = {
             include_from_parent=["id"],
             parent_field_renames={"id": "issue_id"},
             parent_params={"query": "", "sort": "date"},
+            # full=true makes Sentry return complete event bodies (incl. stacktrace entries).
+            child_params={"full": "true"},
         ),
     ),
     "issue_hashes": SentryEndpointConfig(

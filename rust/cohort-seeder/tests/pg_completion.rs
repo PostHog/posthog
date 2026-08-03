@@ -25,10 +25,11 @@ use cohort_seeder::store::completion::{
     cas_run_reconciling, confirm_reconciling, discover_completions, load_current_behavioral_hashes,
     load_observation_participations, mark_chunks_planned, mark_participation_completed,
     mark_run_observed, mark_run_observed_unreconcilable, persist_marker_observations,
-    persist_observation_ends, record_participation_partial, record_participation_shortfall,
-    runs_with_all_chunks_confirmed, CompletionStoreError, CurrentBehavioralHash,
-    PlanningStampOutcome,
+    persist_observation_ends, read_planning_stamp, record_participation_partial,
+    record_participation_shortfall, runs_with_all_chunks_confirmed, CompletionStoreError,
+    CurrentBehavioralHash, PlanningStampOutcome,
 };
+use cohort_seeder::store::runs::RunKind;
 use cohort_seeder::store::RenderedError;
 use cohort_seeder::test_support;
 use common_types::cohort::TeamAllowlist;
@@ -37,8 +38,8 @@ use sqlx::PgPool;
 
 mod support;
 use support::{
-    empty_pinned, ensure_fence_lost, insert_cohort, insert_participation, insert_reconciling_run,
-    insert_run, set_marker_bits, with_db,
+    empty_pinned, ensure_fence_lost, insert_cohort, insert_participation, insert_person_run,
+    insert_reconciling_run, insert_run, person_pinned, set_marker_bits, with_db,
 };
 
 const ONE_BAND: NonZeroU16 = NonZeroU16::MIN;
@@ -80,19 +81,59 @@ async fn planning_stamp_is_idempotent_and_refuses_non_seeding() -> Result<()> {
         let seeding =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         ensure!(matches!(
-            mark_chunks_planned(&pool, seeding).await?,
+            mark_chunks_planned(&pool, seeding, RunKind::Behavioral).await?,
             PlanningStampOutcome::Stamped
         ));
         ensure!(matches!(
-            mark_chunks_planned(&pool, seeding).await?,
+            mark_chunks_planned(&pool, seeding, RunKind::Behavioral).await?,
             PlanningStampOutcome::Skipped
         ));
 
         let reconciling = insert_reconciling_run(&pool, 3).await?;
         ensure!(matches!(
-            mark_chunks_planned(&pool, reconciling).await?,
+            mark_chunks_planned(&pool, reconciling, RunKind::Behavioral).await?,
             PlanningStampOutcome::Skipped
         ));
+        Ok(())
+    })
+    .await
+}
+
+/// The person-kind inertness contract: `discover_completions` never surfaces a person run — the
+/// reconcile protocol stays behavioral-only by design — while the kind-parameterized stamp pair
+/// lets a person run earn its planning proof and refuses the wrong kind.
+#[tokio::test]
+async fn completion_discovery_excludes_person_runs_but_the_stamp_is_kind_aware() -> Result<()> {
+    with_db(|pool| async move {
+        let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
+
+        ensure!(discover_completions(&pool, &TeamAllowlist::All)
+            .await?
+            .iter()
+            .all(|completion| completion.run_id != person_run));
+
+        ensure!(matches!(
+            mark_chunks_planned(&pool, person_run, RunKind::Behavioral).await?,
+            PlanningStampOutcome::Skipped
+        ));
+        ensure!(
+            read_planning_stamp(&pool, person_run, RunKind::PersonProperty)
+                .await?
+                .is_none()
+        );
+        ensure!(matches!(
+            mark_chunks_planned(&pool, person_run, RunKind::PersonProperty).await?,
+            PlanningStampOutcome::Stamped
+        ));
+        ensure!(
+            read_planning_stamp(&pool, person_run, RunKind::PersonProperty)
+                .await?
+                .is_some()
+        );
+        // The behavioral-filtered read still refuses to see it.
+        ensure!(read_planning_stamp(&pool, person_run, RunKind::Behavioral)
+            .await?
+            .is_none());
         Ok(())
     })
     .await
@@ -106,7 +147,7 @@ async fn cas_reconciling_is_single_winner_and_gated_on_planned_and_confirmed() -
         // Planned, no chunks: two racing CAS attempts, exactly one wins.
         let ready =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
-        mark_chunks_planned(&pool, ready).await?;
+        mark_chunks_planned(&pool, ready, RunKind::Behavioral).await?;
         let (left, right) = tokio::join!(
             cas_run_reconciling(&pool, ready),
             cas_run_reconciling(&pool, ready)
@@ -125,7 +166,7 @@ async fn cas_reconciling_is_single_winner_and_gated_on_planned_and_confirmed() -
         // Planned but with an unconfirmed chunk: CAS refused.
         let pending =
             insert_run(&pool, 4, "team_enablement", "seeding", true, empty_pinned()).await?;
-        mark_chunks_planned(&pool, pending).await?;
+        mark_chunks_planned(&pool, pending, RunKind::Behavioral).await?;
         PgChunkStore::new(pool.clone())
             .plan_chunks(pending, [100], ONE_BAND)
             .await?;
@@ -681,7 +722,7 @@ async fn discovery_classifies_each_phase_including_undispatched_rows() -> Result
 
         let planned =
             insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
-        mark_chunks_planned(&pool, planned).await?;
+        mark_chunks_planned(&pool, planned, RunKind::Behavioral).await?;
 
         let dispatched = insert_reconciling_run(&pool, 4).await?;
         insert_participation(&pool, dispatched, 4, 401, false, empty_pinned()).await?;

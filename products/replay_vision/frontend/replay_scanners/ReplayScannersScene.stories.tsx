@@ -5,8 +5,16 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
+import { StartupProgramLabel } from '~/types'
 
-import type { ReplayScannerApi, UserBasicApi, VisionQuotaApi } from '../generated/api.schemas'
+import type {
+    ObservationStatsApi,
+    ReplayScannerApi,
+    ScannerStatsResponseApi,
+    UserBasicApi,
+    VisionQuotaApi,
+} from '../generated/api.schemas'
 
 const alice: UserBasicApi = {
     id: 1,
@@ -98,8 +106,80 @@ const quota: VisionQuotaApi = {
     remaining: 7600,
     exhausted: false,
     projected_monthly_credits: 5200,
+    free_monthly_credits: 2500,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
+}
+
+const scannerStats: ScannerStatsResponseApi = {
+    total: 4,
+    enabled: 3,
+    by_type: {
+        monitor: { total: 1, enabled: 1 },
+        classifier: { total: 1, enabled: 0 },
+        scorer: { total: 1, enabled: 1 },
+        summarizer: { total: 1, enabled: 1 },
+    },
+}
+
+const summarizerScanner = scanners.results[2]
+
+const summarizerStats: ObservationStatsApi = {
+    status_counts: { total: 148, succeeded: 142, failed: 4, ineligible: 2, in_flight: 0, success_rate: 0.97 },
+    coverage: { recent_sessions: 142, total_sessions: 1840, recent_days: 14 },
+    labels: { up_total: 0, down_total: 0, by_day: [], by_rating_day: [], version_markers: [] },
+    available_tags: [],
+    monitor: null,
+    classifier: null,
+    scorer: null,
+    summarizer: {
+        friction_ranked: [
+            { term: 'checkout stalls after applying a coupon', count: 21 },
+            { term: 'search returns no results for valid skus', count: 14 },
+            { term: 'filter selection resets on back navigation', count: 9 },
+            { term: 'payment form rejects valid card numbers', count: 6 },
+            { term: 'session times out mid-signup', count: 3 },
+        ],
+        keyword_ranked: [
+            { term: 'checkout', count: 68 },
+            { term: 'coupon', count: 41 },
+            { term: 'abandoned', count: 33 },
+            { term: 'search', count: 27 },
+            { term: 'signup', count: 12 },
+        ],
+        total_with_facets: 138,
+        total_with_friction: 53,
+    },
+} as ObservationStatsApi
+
+// A daily observation volume so the chart has something to draw above the panels.
+const trendDays = [
+    '2026-04-29',
+    '2026-04-30',
+    '2026-05-01',
+    '2026-05-02',
+    '2026-05-03',
+    '2026-05-04',
+    '2026-05-05',
+    '2026-05-06',
+    '2026-05-07',
+    '2026-05-08',
+    '2026-05-09',
+    '2026-05-10',
+    '2026-05-11',
+    '2026-05-12',
+]
+const observationsTrend = {
+    results: [
+        {
+            action: { id: '$recording_observed', type: 'events', order: 0, name: '$recording_observed' },
+            label: 'Observations',
+            count: 142,
+            data: [8, 11, 9, 14, 10, 12, 7, 13, 9, 11, 10, 8, 12, 8],
+            labels: trendDays,
+            days: trendDays,
+        },
+    ],
 }
 
 const meta: Meta = {
@@ -124,3 +204,41 @@ const meta: Meta = {
 export default meta
 
 export const ScannersList: StoryObj = {}
+
+// Nothing else renders the summarizer's friction/keyword panels, so this story is what catches regressions there.
+export const SummarizerOverview: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVision(summarizerScanner.id),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:id/': summarizerScanner,
+                '/api/projects/:team_id/vision/scanners/:id/observations/': {
+                    count: 0,
+                    next: null,
+                    previous: null,
+                    results: [],
+                },
+                '/api/projects/:team_id/vision/scanners/:id/observations/stats/': summarizerStats,
+            },
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': observationsTrend,
+            },
+        }),
+    ],
+}
+
+// Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.
+export const StartupProgramCap: StoryObj = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/': scanners,
+                '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
+                '/api/projects/:team_id/vision/quota/': { ...quota, credit_limit: null, remaining: null },
+                '/api/billing/': { ...billingJson, startup_program_label: StartupProgramLabel.YC },
+            },
+        }),
+    ],
+}

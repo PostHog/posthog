@@ -37,13 +37,13 @@ from ee.api.agentic_provisioning.wizard import (
 
 
 def partner_label(partner: OAuthApplication | None) -> str:
-    if partner is None:
+    """How a partner is named to a user, in the org it provisions and on the consent screen.
+
+    The app's own name, which is what the user already saw when they authorized it.
+    """
+    if partner is None or not partner.name:
         return "Partner"
-    if partner.provisioning_partner_type:
-        return partner.provisioning_partner_type.capitalize()
-    if partner.name:
-        return partner.name
-    return "Partner"
+    return partner.name
 
 
 def get_callback_url(app: OAuthApplication | None) -> str | None:
@@ -135,7 +135,7 @@ def handle_existing_user(
     Consent also picks the project (see agentic_authorize), so nothing the partner sends can
     select a team for an account it did not create.
     """
-    if partner.provisioning_skip_existing_user_consent:
+    if partner.provisioning.skip_existing_user_consent:
         capture_provisioning_event(
             "account_request",
             "silent_blocked_existing_user",
@@ -335,6 +335,17 @@ def process_wizard_block(*, partner: OAuthApplication, user: User, team: Team, w
     {"error": {code, message}} for the partner to branch on and retry granularly.
     """
     try:
+        # create_wizard_run refuses an ungranted partner anyway, but checking before the grant
+        # is linked keeps a refused request from consuming a single-use grant the partner
+        # would then have to mint again.
+        if not partner.provisioning.can_start_wizard_runs:
+            return {
+                "error": {
+                    "code": "forbidden",
+                    "message": "Starting wizard runs is not enabled for this partner",
+                }
+            }
+
         grant_id = wizard_config.get("grant_id")
         installation_id = wizard_config.get("installation_id")
         repository = wizard_config.get("repository")

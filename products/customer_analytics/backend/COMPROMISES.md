@@ -32,6 +32,18 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 - **Initial sync is best-effort.** Saving an enabled source enqueues a sync on commit so values
   populate without waiting for the next materialization. If the broker is down the save still
   succeeds and the enqueue is dropped (logged to error tracking) — the next materialization recovers.
+- **Create-path sync is synchronous, best-effort, and workflow-only.** When the external create
+  endpoint is called by a workflow "Create account" step (the `X-PostHog-Hog-Flow-Id` header),
+  it syncs warehouse-backed custom properties for the new account inline — scoped to its external
+  id, materialized views only — so the next workflow step can read the values. Creates without the
+  header skip the sync, which keeps the per-request warehouse fan-out off the general create path;
+  the header is caller-supplied, so a token holder can opt in by faking it — same trust level as
+  the existing workflow attribution. Failures are captured and swallowed: creation never fails,
+  and no sync outcome is recorded (streaks and `last_synced_at` belong to the scheduled full
+  sync). Values are as fresh as the last materialization. All enabled sources sync, not just
+  properties the workflow references — read-side usage isn't indexed, and one filtered query per
+  view is cheap. If the added request latency bites, narrow to workflow-referenced properties or
+  make the step poll.
 - **v2 materialization only.** v1 `run_workflow.py` is frozen and does not dispatch the sync; v1
   teams get it after migrating to v2.
 
