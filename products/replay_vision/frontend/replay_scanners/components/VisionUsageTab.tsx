@@ -196,7 +196,7 @@ export function VisionUsageTab(): JSX.Element {
                     <h3 className="text-base font-semibold m-0">Spend over time</h3>
                     <div className="flex items-center gap-3">
                         {quota && (
-                            <Tooltip title={spendTooltip.join(' ')}>
+                            <Tooltip title={spendTooltip.join(' ') || undefined}>
                                 <span className="text-xs text-muted tabular-nums">
                                     {hasCap
                                         ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)

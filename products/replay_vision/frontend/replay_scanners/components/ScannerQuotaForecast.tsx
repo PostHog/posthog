@@ -119,7 +119,9 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
                 )}
             </div>
 
-            {!hasCap && projectedCredits !== null && (
+            {/* `hasCap` is also false while quota is still loading, so require a resolved snapshot before
+                telling anyone their billing limit is missing. */}
+            {quota !== null && !hasCap && projectedCredits !== null && (
                 <Tooltip title={breakdown}>
                     <div>
                         <NoBillingLimitNote projectedCredits={newFleetMonthly} />

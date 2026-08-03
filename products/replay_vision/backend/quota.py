@@ -44,7 +44,8 @@ class QuotaSnapshot:
     period_end: datetime
     # Credit-weighted sum of enabled scanners' persisted estimates across the org; uncomputed estimates count 0.
     projected_monthly_credits: int
-    # Display-only: credits per period that don't bill (already inside `credit_limit`); see FREE_TIER_MONTHLY_CREDITS.
+    # Display-only: the slice of `credit_limit` that never bills — the plan's free allocation plus any active
+    # grant, since both extend the limit without extending what the org owes.
     free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
 
     @property
@@ -206,4 +207,5 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         period_start=period_start,
         period_end=period_end,
         projected_monthly_credits=projected,
+        free_monthly_credits=FREE_TIER_MONTHLY_CREDITS + bonus,
     )
