@@ -529,7 +529,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         # The user belongs to ``self.organization`` only, so only that integration
         # should be the mention target — ``other_integration`` is filtered out.
         assert workflow_inputs.integration_id == self.posthog_code_integration.id
@@ -583,7 +583,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.integration_id == self.posthog_code_integration.id
         assert workflow_inputs.integration_id != private_integration.id
 
@@ -600,7 +600,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         route_posthog_code_event_to_relevant_region(request, self.event, "T12345")
 
         mock_sync_connect.return_value.start_workflow.assert_called_once()
-        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.args[1]
+        workflow_inputs = mock_sync_connect.return_value.start_workflow.call_args.kwargs["start_signal_args"][0]
         assert workflow_inputs.user_id == self.user.id
 
     @patch("products.slack_app.backend.api.asyncio.run")
