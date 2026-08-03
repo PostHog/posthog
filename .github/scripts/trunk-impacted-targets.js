@@ -290,8 +290,8 @@ function listIsolatedProducts(repoRoot, products) {
 // today) has an apps/ + packages/ layout instead of the backend/ + frontend/
 // split the product rules assume. Its manifests, configs, and assets are none
 // of .py, backend/, or .tsx, so they land in the "could be either" bucket and
-// widen to every backend lane — a package.json under packages/ serializing a
-// TypeScript-only PR against all of Python.
+// widen to every backend lane, which is how a package.json under packages/
+// serializes a TypeScript-only PR against all of Python.
 //
 // The workspace file is the product's own declaration of which subtrees are JS
 // packages, so it is a safer signal than an extension allowlist: a path only
@@ -299,6 +299,22 @@ function listIsolatedProducts(repoRoot, products) {
 // outside those subtrees (the product's root manifests, scripts/, backend/)
 // keeps the old widening behavior.
 const WORKSPACE_DECLARATION = 'pnpm-workspace.yaml'
+
+// pnpm's own two files at the product root. A pnpm-workspace.yaml makes that
+// directory a workspace root rather than a member of the repo-root one, so the
+// lockfile beside it resolves that workspace's packages and nothing else. The
+// repo-root lockfile is a separate file and stays a tripwire in its own right.
+// Neither of these is importable from Python, and neither is a contract
+// declaration, so without this rule they fall through the layout checks below
+// and claim every backend lane: a desktop dependency bump lands in the same
+// lane as all of Python.
+//
+// The self-gating hazard that keeps CONTRACT_DECLARATIONS widening does not
+// transfer here. turbo.json and package.json declare a Python import surface,
+// so a PR that narrows one and edits under it in the same commit would gate
+// itself against its own new contract. This pair declares no Python surface,
+// and the .py carve-out below applies whatever the globs say.
+const WORKSPACE_OWN_FILES = [WORKSPACE_DECLARATION, 'pnpm-lock.yaml']
 
 // Minimal reader for the `packages:` block of a pnpm workspace file. Only the
 // list-of-globs form is understood; anything else yields no globs, which leaves
@@ -378,7 +394,11 @@ function loadProductWorkspaces(repoRoot, products) {
 
 function isInProductWorkspace(product, file, productWorkspaces) {
     const matcher = productWorkspaces.get(product)
-    return matcher ? matcher(file.slice(`products/${product}/`.length)) : false
+    if (!matcher) {
+        return false
+    }
+    const relativePath = file.slice(`products/${product}/`.length)
+    return WORKSPACE_OWN_FILES.includes(relativePath) || matcher(relativePath)
 }
 
 // --- Contract surfaces ---

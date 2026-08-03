@@ -437,6 +437,21 @@ test('files outside the declared workspace packages keep widening', () => {
     }
 })
 
+// The workspace declaration and its lockfile sit at the product root, so the
+// glob matcher alone leaves them in the "claims both domains" case and a
+// dependency bump in the vendored workspace still claims every backend lane.
+// The second assertion is the boundary: a product with no declaration keeps
+// the old widening, which a basename-only version of this rule would lose.
+test('the vendored workspace files claim only the product lane', () => {
+    for (const file of ['products/gamma/pnpm-workspace.yaml', 'products/gamma/pnpm-lock.yaml']) {
+        assert.deepEqual(computeTargets([file], WORKSPACE_CONTEXT), ['fe:product:gamma'], file)
+    }
+    assert.equal(
+        computeTargets(['products/alpha/pnpm-lock.yaml'], WORKSPACE_CONTEXT).includes('py:product:alpha'),
+        true
+    )
+})
+
 // A real pnpm-workspace.yaml carries a catalog: block right after packages:,
 // and reading past the list would turn catalog entries into package globs.
 test('workspace globs are read only from the packages block', () => {
