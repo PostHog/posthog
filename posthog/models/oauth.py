@@ -719,26 +719,48 @@ def generate_random_token_cimd_verification() -> str:
     return "phvt_" + generate_random_token()
 
 
+# Never a real normalized URL, so it only ever equals another call that hit the same
+# unparseable-input branch. Issuance validates and normalizes before storing (see
+# `CIMDVerificationTokenCreateSerializer` in posthog/api/cimd_verification_token.py), so no
+# stored `CIMDVerificationToken.cimd_url` can ever equal this — it exists only to give the
+# refresh path (which normalizes `OAuthApplication.cimd_metadata_url` read straight from the
+# database, unrevalidated) a value to compare against instead of raising.
+UNNORMALIZABLE_CIMD_URL = "\x00unnormalizable"
+
+
 def normalize_cimd_url(url: str) -> str:
     """Canonicalize a CIMD URL so issuance and verification compare equal.
 
     Both sides store/compare the output of this function, so the only thing that
     matters is that it is deterministic and collapses the variations a partner
     can plausibly produce for the same document: scheme and host case, an
-    explicit `:443`, and a trailing slash. `validate_cimd_url` already rejects
-    query strings, fragments, and userinfo, so nothing else can vary.
+    explicit `:443` (and `:0` — `port and port != 443` treats a falsy port the same as
+    "no port"), and any number of trailing slashes. Reconstructing from `parsed.path`
+    also drops a `;params` segment `urlparse` splits off the last path element, so
+    `.../x.json`, `.../x.json;evil`, and `.../x.json///` all collapse to the same value.
+    This is canonicalization for a database comparison, not a security boundary:
+    `fetch_cimd_metadata` still requires `client_id == url` byte for byte against the
+    real fetch URL.
 
     Deliberately does not touch path case or percent-encoding — those are
     server-defined and two paths differing there are legitimately different
     documents.
+
+    The output is a persisted format, not just a comparison helper: it is stored in
+    `CIMDVerificationToken.cimd_url`, and migration
+    `1283_backfill_cimd_verification_token_url` keeps a frozen copy of this function's
+    logic. Changing this function's output for any input silently unverifies every
+    stored binding of that shape with no test failure elsewhere — see the golden-value
+    table in `TestNormalizeCimdUrl` (posthog/models/test/test_oauth.py) before editing.
     """
-    parsed = urlparse(url.strip())
     try:
+        parsed = urlparse(url.strip())
         port = parsed.port
     except ValueError:
-        # An unparseable port ("h:abc", "h:99999"). Nothing can be served there, so
-        # normalizing it consistently is enough — it just never matches a real fetch.
-        return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path.rstrip('/')}"
+        # Covers both an unparseable port ("h:abc", "h:99999") and a urlparse failure on
+        # the whole URL ("https://[::1/x.json" raises "Invalid IPv6 URL"). Nothing can be
+        # served at either, so a sentinel that matches no real fetch is enough.
+        return UNNORMALIZABLE_CIMD_URL
     host = (parsed.hostname or "").lower()
     if port and port != 443:
         host = f"{host}:{port}"

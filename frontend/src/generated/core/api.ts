@@ -12,6 +12,7 @@ import type {
     BulkUpdateTagsRequestApi,
     BulkUpdateTagsResponseApi,
     CIMDVerificationTokenApi,
+    CIMDVerificationTokenCreateApi,
     CIMDVerificationTokenWithValueApi,
     CimdVerificationTokensListParams,
     ContextGenerationApi,
@@ -56,6 +57,7 @@ import type {
     PaginatedProjectSecretAPIKeyListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
+    PatchedCIMDVerificationTokenUpdateApi,
     PatchedCanvasPublishApi,
     PatchedEnterprisePropertyDefinitionApi,
     PatchedFileSystemApi,
@@ -136,8 +138,8 @@ export const getCimdVerificationTokensListUrl = (organizationId: string, params?
  * grants a higher default rate limit for account provisioning.
  *
  * Each token is scoped at creation to the one `cimd_url` it will be published at,
- * and verifies nowhere else. Two organizations may name the same URL — only the one
- * whose token is actually served there verifies — so claiming a URL cannot be used
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
  * to block a partner from verifying theirs.
  *
  * The plaintext value is only available on creation; we store a hash.
@@ -167,22 +169,22 @@ export const getCimdVerificationTokensCreateUrl = (organizationId: string) => {
  * grants a higher default rate limit for account provisioning.
  *
  * Each token is scoped at creation to the one `cimd_url` it will be published at,
- * and verifies nowhere else. Two organizations may name the same URL — only the one
- * whose token is actually served there verifies — so claiming a URL cannot be used
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
  * to block a partner from verifying theirs.
  *
  * The plaintext value is only available on creation; we store a hash.
  */
 export const cimdVerificationTokensCreate = async (
     organizationId: string,
-    cIMDVerificationTokenApi: NonReadonly<CIMDVerificationTokenApi>,
+    cIMDVerificationTokenCreateApi: CIMDVerificationTokenCreateApi,
     options?: RequestInit
 ): Promise<CIMDVerificationTokenWithValueApi> => {
     return apiMutator<CIMDVerificationTokenWithValueApi>(getCimdVerificationTokensCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(cIMDVerificationTokenApi),
+        body: JSON.stringify(cIMDVerificationTokenCreateApi),
     })
 }
 
@@ -200,8 +202,8 @@ export const getCimdVerificationTokensRetrieveUrl = (organizationId: string, id:
  * grants a higher default rate limit for account provisioning.
  *
  * Each token is scoped at creation to the one `cimd_url` it will be published at,
- * and verifies nowhere else. Two organizations may name the same URL — only the one
- * whose token is actually served there verifies — so claiming a URL cannot be used
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
  * to block a partner from verifying theirs.
  *
  * The plaintext value is only available on creation; we store a hash.
@@ -214,6 +216,40 @@ export const cimdVerificationTokensRetrieve = async (
     return apiMutator<CIMDVerificationTokenApi>(getCimdVerificationTokensRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCimdVerificationTokensPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/cimd_verification_tokens/${id}/`
+}
+
+/**
+ * Manage CIMD verification tokens for an organization.
+ *
+ * A partner embeds the plaintext token in their CIMD metadata document as
+ * `verification_token` inside the `com.posthog` object (the legacy top-level
+ * `posthog_verification_token` field still works as a fallback). When PostHog fetches
+ * the metadata, matching the token links the partner app to this organization and
+ * grants a higher default rate limit for account provisioning.
+ *
+ * Each token is scoped at creation to the one `cimd_url` it will be published at,
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
+ * to block a partner from verifying theirs.
+ *
+ * The plaintext value is only available on creation; we store a hash.
+ */
+export const cimdVerificationTokensPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedCIMDVerificationTokenUpdateApi?: PatchedCIMDVerificationTokenUpdateApi,
+    options?: RequestInit
+): Promise<CIMDVerificationTokenApi> => {
+    return apiMutator<CIMDVerificationTokenApi>(getCimdVerificationTokensPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCIMDVerificationTokenUpdateApi),
     })
 }
 
@@ -231,8 +267,8 @@ export const getCimdVerificationTokensDestroyUrl = (organizationId: string, id: 
  * grants a higher default rate limit for account provisioning.
  *
  * Each token is scoped at creation to the one `cimd_url` it will be published at,
- * and verifies nowhere else. Two organizations may name the same URL — only the one
- * whose token is actually served there verifies — so claiming a URL cannot be used
+ * and verifies nowhere else. Two organizations may name the same URL; only the one
+ * whose token is actually served there verifies, so claiming a URL cannot be used
  * to block a partner from verifying theirs.
  *
  * The plaintext value is only available on creation; we store a hash.
