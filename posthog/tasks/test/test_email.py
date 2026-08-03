@@ -24,6 +24,7 @@ from posthog.tasks.email import (
     login_from_new_device_notification,
     send_async_migration_complete_email,
     send_async_migration_errored_email,
+    send_batch_export_paused,
     send_batch_export_run_failure,
     send_canary_email,
     send_discussions_mentioned,
@@ -692,6 +693,43 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         self.user.save()
         send_batch_export_run_failure(batch_export_run.id, failure_rate=1.0)
         assert len(mocked_email_messages) == 0
+
+    def test_send_batch_export_paused(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = BatchExport.objects.create(  # type: ignore
+            team=self.user.team, name="A batch export", destination=batch_export_destination, paused=True
+        )
+
+        send_batch_export_paused(str(batch_export.id), backfills_cancelled=2)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+    def test_send_batch_export_paused_per_pipeline_opt_out(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        batch_export_destination = BatchExportDestination.objects.create(
+            type=BatchExportDestination.Destination.S3, config={"bucket_name": "my_production_s3_bucket"}
+        )
+        batch_export = BatchExport.objects.create(  # type: ignore
+            team=self.user.team, name="A batch export", destination=batch_export_destination, paused=True
+        )
+        user2 = self._create_user("test2@posthog.com")
+
+        self.user.partial_notification_settings = {
+            "plugin_disabled": True,
+            "pipeline_notifications_disabled": {f"batch_export:{batch_export.id}": True},
+        }
+        self.user.save()
+
+        send_batch_export_paused(str(batch_export.id))
+
+        assert mocked_email_messages[0].to == [
+            {"recipient": "test2@posthog.com", "raw_email": "test2@posthog.com", "distinct_id": str(user2.distinct_id)}
+        ]
 
     def test_send_external_data_failure_digest(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

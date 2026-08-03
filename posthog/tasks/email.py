@@ -701,6 +701,53 @@ def send_batch_export_run_failure(
     message.send()
 
 
+def send_batch_export_paused(batch_export_id: str | UUIDT, backfills_cancelled: int = 0) -> None:
+    """Notify a team that a batch export was auto-paused after exceeding its failure threshold.
+
+    Unlike `send_batch_export_run_failure` (one email per failed run, capped daily), this fires
+    once per pause — the batch export stops delivering data entirely until someone re-enables it.
+    """
+    logger = structlog.get_logger(__name__)
+
+    if not is_email_available(with_absolute_urls=True):
+        logger.warning("Email service is not available")
+        return None
+
+    batch_export: BatchExport = BatchExport.objects.select_related("team").get(id=batch_export_id)
+    team = batch_export.team
+
+    pipeline_id = f"batch_export:{batch_export.id}"
+    memberships_to_email = get_members_to_notify_for_pipeline_error(team, failure_rate=1.0, pipeline_id=pipeline_id)
+    if not memberships_to_email:
+        return
+
+    last_failed_run = (
+        BatchExportRun.objects.filter(batch_export_id=batch_export.id, status=BatchExportRun.Status.FAILED)
+        .order_by("-last_updated_at")
+        .first()
+    )
+
+    last_paused_at = batch_export.last_paused_at or timezone.now()
+    campaign_key: str = f"batch_export_paused_{batch_export.id}_last_paused_at_{last_paused_at.timestamp()}"
+
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=f"PostHog: {batch_export.name} batch export has been paused",
+        template_name="batch_export_paused",
+        template_context={
+            "team": team,
+            "id": batch_export.id,
+            "name": batch_export.name,
+            "latest_error": last_failed_run.latest_error if last_failed_run else None,
+            "backfills_cancelled": backfills_cancelled,
+        },
+    )
+
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
 # The digest "day" rolls over at this hour UTC (not midnight) so the daily block
 # resets — and the catch-up email lands — during waking hours for US and EU.
 # The catch-up cron in scheduled.py is anchored to this constant.

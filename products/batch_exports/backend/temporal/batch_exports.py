@@ -16,11 +16,17 @@ from temporalio.common import RetryPolicy
 
 from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
+from posthog.models.activity_logging.activity_log import Trigger
+from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async
-from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_batch_export_run_failure
+from posthog.tasks.email import (
+    get_members_to_notify_for_pipeline_error,
+    send_batch_export_paused,
+    send_batch_export_run_failure,
+)
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -60,6 +66,10 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_l
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+
+# Attributes the auto-pause activity log entry to this job, so the frontend describer can render
+# "paused automatically after repeated failures" instead of an unattributed "disabled".
+BATCH_EXPORT_FAILURE_THRESHOLD_JOB_TYPE = "batch_export_failure_threshold"
 
 BytesGenerator = collections.abc.Generator[bytes]
 RecordsGenerator = collections.abc.Generator[pa.RecordBatch]
@@ -137,6 +147,74 @@ def _dispatch_batch_export_failure_realtime(batch_export_run_id: str | UUIDT) ->
         LOGGER.exception(
             "batch_export_failure.realtime_setup_failed",
             batch_export_run_id=str(batch_export_run_id),
+            error=str(e),
+        )
+
+
+def _notify_batch_export_paused(batch_export_id: str, backfills_cancelled: int) -> None:
+    """Fan out pause notifications across every channel once auto-pause fires.
+
+    Both channels swallow their own exceptions, so this helper itself never raises. This is the
+    only place a customer is told their export stopped delivering data — the external log line
+    written alongside this call is not surfaced anywhere outside the export's Logs tab.
+    """
+    try:
+        send_batch_export_paused(batch_export_id, backfills_cancelled)
+    except Exception:
+        LOGGER.exception("send_batch_export_paused.email_failed", batch_export_id=batch_export_id)
+
+    _dispatch_batch_export_paused_realtime(batch_export_id, backfills_cancelled)
+
+
+def _dispatch_batch_export_paused_realtime(batch_export_id: str, backfills_cancelled: int) -> None:
+    """Fire one realtime pipeline_failure notification per pipeline-error recipient.
+
+    Per-recipient try/except so one bad write does not drop the rest.
+    """
+    try:
+        batch_export = BatchExport.objects.select_related("team").get(id=batch_export_id)
+        team = batch_export.team
+        memberships = get_members_to_notify_for_pipeline_error(
+            team, failure_rate=1.0, pipeline_id=f"batch_export:{batch_export_id}"
+        )
+        if not memberships:
+            return
+        name = batch_export.name[:80]
+        title = f"Batch export {name} paused"
+        body = "Paused automatically after repeated failures. No data is being delivered."
+        if backfills_cancelled > 0:
+            body += (
+                f" {backfills_cancelled} running backfill{'s' if backfills_cancelled > 1 else ''} "
+                f"{'were' if backfills_cancelled > 1 else 'was'} also cancelled."
+            )
+        source_url = f"/project/{team.project_id}/pipeline/batch-exports/{batch_export.id}"
+        for membership in memberships:
+            try:
+                create_notification(
+                    NotificationData(
+                        team_id=team.id,
+                        notification_type=NotificationType.PIPELINE_FAILURE,
+                        priority=Priority.CRITICAL,
+                        title=title,
+                        body=body,
+                        target_type=TargetType.USER,
+                        target_id=str(membership.user_id),
+                        resource_type=NotificationOnlyResourceType.PIPELINE,
+                        resource_id=str(batch_export.id),
+                        source_url=source_url,
+                    )
+                )
+            except Exception as e:
+                LOGGER.exception(
+                    "batch_export_paused.realtime_failed",
+                    batch_export_id=batch_export_id,
+                    user_id=membership.user_id,
+                    error=str(e),
+                )
+    except Exception as e:
+        LOGGER.exception(
+            "batch_export_paused.realtime_setup_failed",
+            batch_export_id=batch_export_id,
             error=str(e),
         )
 
@@ -672,6 +750,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
         if not is_over_failure_threshold:
             return
 
+        was_paused = False
         try:
             was_paused = await pause_batch_export_over_failure_threshold(inputs.batch_export_id)
         except Exception:
@@ -687,6 +766,7 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                     "The batch export can be unpaused after addressing any errors."
                 )
 
+        total_cancelled = 0
         try:
             total_cancelled = await cancel_running_backfills(
                 inputs.batch_export_id,
@@ -701,6 +781,9 @@ async def finish_batch_export_run(inputs: FinishBatchExportRunInputs) -> None:
                     " and exhausting all automated retries."
                     "The backfill can be triggered again after addressing any errors."
                 )
+
+        if was_paused:
+            await database_sync_to_async(_notify_batch_export_paused)(inputs.batch_export_id, total_cancelled)
 
     elif batch_export_run.status == BatchExportRun.Status.CANCELLED:
         external_logger.warning(
@@ -831,9 +914,10 @@ async def pause_batch_export_over_failure_threshold(batch_export_id: str) -> boo
         settings.TEMPORAL_CLIENT_KEY,
     )
 
-    was_paused = await apause_batch_export(
-        client, batch_export_id=batch_export_id, note="Paused due to exceeding failure threshold"
-    )
+    note = "Paused due to exceeding failure threshold"
+    trigger = Trigger(job_type=BATCH_EXPORT_FAILURE_THRESHOLD_JOB_TYPE, job_id=batch_export_id, payload={})
+    with ActivityTriggerContext(trigger):
+        was_paused = await apause_batch_export(client, batch_export_id=batch_export_id, note=note)
 
     return was_paused
 

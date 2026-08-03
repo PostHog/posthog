@@ -127,6 +127,32 @@ describe('batch export activity descriptions', () => {
             expect(text).toContain(`Max Hog disabled batch export 'My S3 Export' (S3)`)
         })
 
+        it('describes an automatic pause from the failure threshold', () => {
+            const text = describeText(
+                makeLogItem({
+                    user: undefined,
+                    is_system: true,
+                    detail: {
+                        name: "'My S3 Export' (S3)",
+                        merge: null,
+                        trigger: { job_type: 'batch_export_failure_threshold', job_id: 'abc-123', payload: {} },
+                        changes: [
+                            {
+                                type: ActivityScope.BATCH_EXPORT,
+                                action: 'changed',
+                                field: 'enabled',
+                                before: false,
+                                after: true,
+                            },
+                        ],
+                    },
+                })
+            )
+            expect(text).toContain('automatically, after repeated failures')
+            expect(text).toContain(`PostHog`)
+            expect(text).toContain(`disabled batch export 'My S3 Export' (S3)`)
+        })
+
         it('describes a name change with before and after', () => {
             const text = describeText(
                 makeLogItem({

@@ -1,0 +1,42 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}Your batch export has stopped delivering data{% endblock %}
+{% block heading %}PostHog batch export {{ name }} has been paused{% endblock %}
+{% block section %}
+<p>
+  We automatically paused your batch export {{ name }} after it failed repeatedly. No data is being delivered to your destination while it's paused.
+</p>
+
+{% if backfills_cancelled %}
+<p>
+  We also cancelled {{ backfills_cancelled }} running backfill{{ backfills_cancelled|pluralize }} for this batch export.
+</p>
+{% endif %}
+
+{% if latest_error %}
+<p>
+  Latest error:<br />
+  <code>{{ latest_error }}</code>
+</p>
+{% endif %}
+
+<div class="mb mt text-center">
+  <a class="button" href="{% absolute_uri '/project' %}/{{ team.id }}/batch_exports/{{ id }}"
+     target="_blank">Go to the batch export</a>
+</div>
+
+<p>
+  Once you've addressed the issue, you can re-enable the batch export and backfill any missed data.
+</p>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}

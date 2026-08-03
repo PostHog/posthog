@@ -16,6 +16,7 @@ from products.batch_exports.backend.service import (
     PostgresBatchExportInputs,
     RedshiftBatchExportInputs,
     S3BatchExportInputs,
+    acount_failed_batch_export_runs,
     aget_or_create_batch_export_backfill,
     align_timestamp_to_interval,
 )
@@ -216,6 +217,36 @@ async def test_creates_backfill_without_id_does_not_deduplicate(ateam, batch_exp
     second = await aget_or_create_batch_export_backfill(**kwargs)
 
     assert first.id != second.id
+
+
+async def test_acount_failed_batch_export_runs_excludes_backfills(ateam, batch_export):
+    """A batch of failed historical backfill runs shouldn't be able to pause a healthy live export."""
+    backfill = await BatchExportBackfill.objects.acreate(
+        team=ateam,
+        batch_export=batch_export,
+        status=BatchExportBackfill.Status.FAILED,
+    )
+    now = dt.datetime.now(dt.UTC)
+
+    for _ in range(4):
+        await BatchExportRun.objects.acreate(
+            batch_export=batch_export,
+            backfill=backfill,
+            status=BatchExportRun.Status.FAILED,
+            data_interval_start=now - dt.timedelta(hours=1),
+            data_interval_end=now,
+        )
+
+    await BatchExportRun.objects.acreate(
+        batch_export=batch_export,
+        status=BatchExportRun.Status.COMPLETED,
+        data_interval_start=now - dt.timedelta(hours=1),
+        data_interval_end=now,
+    )
+
+    count = await acount_failed_batch_export_runs(batch_export.id, last_n=50)
+
+    assert count == 0
 
 
 @pytest.mark.parametrize(

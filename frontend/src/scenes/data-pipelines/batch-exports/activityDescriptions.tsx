@@ -10,6 +10,10 @@ import { urls } from 'scenes/urls'
 
 import { dayOptions, formatHourString } from './utils'
 
+// Kept in sync with BATCH_EXPORT_FAILURE_THRESHOLD_JOB_TYPE in
+// products/batch_exports/backend/temporal/batch_exports.py
+const BATCH_EXPORT_FAILURE_THRESHOLD_JOB_TYPE = 'batch_export_failure_threshold'
+
 const nameOrLinkToBatchExport = (id?: string | null, name?: string | null): string | JSX.Element => {
     const displayName = name || '(unnamed export)'
     return id ? <Link to={urls.batchExport(id)}>{displayName}</Link> : `${displayName}`
@@ -239,6 +243,19 @@ function describeFieldChange(label: string, before: string | null, after: string
 // Main describer
 // ---------------------------------------------------------------------------
 
+const getActorName = (logItem: ActivityLogItem): JSX.Element => {
+    const userName = userNameForLogItem(logItem)
+    if (logItem.detail.trigger?.job_type === BATCH_EXPORT_FAILURE_THRESHOLD_JOB_TYPE) {
+        return (
+            <>
+                <strong className="ph-no-capture">{userName}</strong>{' '}
+                <span className="text-muted">(automatically, after repeated failures)</span>
+            </>
+        )
+    }
+    return <strong className="ph-no-capture">{userName}</strong>
+}
+
 export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     const name = userNameForLogItem(logItem)
     const exportName = nameOrLinkToBatchExport(logItem?.item_id, logItem?.detail.name)
@@ -317,7 +334,7 @@ export function batchExportActivityDescriber(logItem: ActivityLogItem, asNotific
             description:
                 changes.length === 1 ? (
                     <>
-                        <strong className="ph-no-capture">{name}</strong> {changes[0].inline} batch export {exportName}
+                        {getActorName(logItem)} {changes[0].inline} batch export {exportName}
                     </>
                 ) : (
                     <div>

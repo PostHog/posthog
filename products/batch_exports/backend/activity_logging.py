@@ -10,6 +10,7 @@ included — not just where the API loads.
 import dataclasses
 
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.model_activity import get_current_trigger
 from posthog.models.signals import model_activity_signal, mutable_receiver
 
 from products.batch_exports.backend.models.batch_export import BatchExport
@@ -65,6 +66,10 @@ def handle_batch_export_change(
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update),
             name=detail_name,
+            # Set by ActivityTriggerContext when the change comes from an automated source (e.g.
+            # the failure-threshold auto-pause) so the entry can be attributed to that job instead
+            # of reading as an unexplained "disabled" by PostHog.
+            trigger=get_current_trigger(),
             context=context,
         ),
     )
