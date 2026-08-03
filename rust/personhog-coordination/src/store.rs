@@ -1,3 +1,5 @@
+use std::str::from_utf8;
+
 use assignment_coordination::store::EtcdStore;
 use etcd_client::{Compare, CompareOp, DeleteOptions, PutOptions, Txn, TxnOp, WatchStream};
 
@@ -168,6 +170,11 @@ impl PersonhogStore {
     pub async fn watch_routers(&self) -> Result<WatchStream> {
         let key = self.key(StoreKey::RoutersPrefix);
         Ok(self.inner.watch(&key).await?)
+    }
+
+    pub async fn watch_routers_from(&self, start_revision: i64) -> Result<WatchStream> {
+        let key = self.key(StoreKey::RoutersPrefix);
+        Ok(self.inner.watch_from(&key, start_revision).await?)
     }
 
     // ── Assignment operations ───────────────────────────────────
@@ -370,7 +377,11 @@ impl PersonhogStore {
             partition: ack.partition,
             router: &ack.router_name,
         });
-        Ok(self.inner.put(&key, ack, None).await?)
+        // The store stamps the millisecond clock so span metrics never
+        // depend on each writer remembering to.
+        let mut stamped = ack.clone();
+        stamped.acked_at_ms = assignment_coordination::util::now_millis();
+        Ok(self.inner.put(&key, &stamped, None).await?)
     }
 
     pub async fn list_freeze_acks(&self, partition: u32) -> Result<Vec<RouterFreezeAck>> {
@@ -400,7 +411,11 @@ impl PersonhogStore {
             partition: ack.partition,
             pod: &ack.pod_name,
         });
-        Ok(self.inner.put(&key, ack, None).await?)
+        // The store stamps the millisecond clock so span metrics never
+        // depend on each writer remembering to.
+        let mut stamped = ack.clone();
+        stamped.acked_at_ms = assignment_coordination::util::now_millis();
+        Ok(self.inner.put(&key, &stamped, None).await?)
     }
 
     pub async fn list_drained_acks(&self, partition: u32) -> Result<Vec<PodDrainedAck>> {
@@ -430,7 +445,11 @@ impl PersonhogStore {
             partition: ack.partition,
             pod: &ack.pod_name,
         });
-        Ok(self.inner.put(&key, ack, None).await?)
+        // The store stamps the millisecond clock so span metrics never
+        // depend on each writer remembering to.
+        let mut stamped = ack.clone();
+        stamped.acked_at_ms = assignment_coordination::util::now_millis();
+        Ok(self.inner.put(&key, &stamped, None).await?)
     }
 
     pub async fn list_warmed_acks(&self, partition: u32) -> Result<Vec<PodWarmedAck>> {
@@ -671,7 +690,7 @@ impl PersonhogStore {
             .get_raw(&key)
             .await?
             .ok_or_else(|| Error::NotFound(key))?;
-        let s = std::str::from_utf8(&bytes)
+        let s = from_utf8(&bytes)
             .map_err(|e| Error::invalid_state(format!("non-utf8 total_partitions: {e}")))?;
         s.parse::<u32>()
             .map_err(|e| Error::invalid_state(format!("invalid total_partitions: {e}")))

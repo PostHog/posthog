@@ -1,6 +1,7 @@
-import { Counter, Gauge, Summary } from 'prom-client'
+import { Counter, Gauge, Histogram, Summary } from 'prom-client'
 
-import { recordActivity, recordError } from './otel-metrics'
+import { RasterizationErrorCode } from './errors'
+import { ACTIVITY_DURATION_BOUNDARIES, recordActivity, recordError } from './otel-metrics'
 
 const QUANTILES = [0.5, 0.95, 0.99]
 const MAX_AGE_SECONDS = 600
@@ -9,13 +10,13 @@ const AGE_BUCKETS = 5
 export class RasterizationMetrics {
     // --- Activity timing ---
 
-    private static readonly activityDuration = new Summary({
+    // Histogram, not Summary: the RasterizerHighActivityDuration alert aggregates
+    // _bucket series across pods with histogram_quantile.
+    private static readonly activityDuration = new Histogram({
         name: 'recording_rasterizer_activity_duration_seconds',
         help: 'Total time for the rasterization activity',
         labelNames: ['result'],
-        percentiles: QUANTILES,
-        maxAgeSeconds: MAX_AGE_SECONDS,
-        ageBuckets: AGE_BUCKETS,
+        buckets: ACTIVITY_DURATION_BOUNDARIES,
     })
 
     private static readonly setupDuration = new Summary({
@@ -112,6 +113,11 @@ export class RasterizationMetrics {
         help: 'Total number of browser instances recycled due to usage limit',
     })
 
+    private static readonly browserCrashesTotal = new Counter({
+        name: 'recording_rasterizer_browser_crashes_total',
+        help: 'Total number of browser instances that disconnected unexpectedly',
+    })
+
     // --- Concurrency ---
 
     private static readonly concurrentActivities = new Gauge({
@@ -149,7 +155,7 @@ export class RasterizationMetrics {
         this.recordingDuration.observe(seconds)
     }
 
-    public static incrementError(code: string, retryable: boolean): void {
+    public static incrementError(code: RasterizationErrorCode, retryable: boolean): void {
         this.errorsTotal.labels({ code, retryable: String(retryable) }).inc()
         recordError(code, retryable)
     }
@@ -160,6 +166,17 @@ export class RasterizationMetrics {
 
     public static browserRecycled(): void {
         this.browserRecyclesTotal.inc()
+    }
+
+    public static browserCrashed(): void {
+        this.browserCrashesTotal.inc()
+    }
+
+    // Labeled counters only expose series after the first increment; the
+    // RasterizerMetricsAbsent alert needs activities_total present from pod start.
+    public static initialize(): void {
+        this.activitiesTotal.labels({ result: 'success' }).inc(0)
+        this.activitiesTotal.labels({ result: 'error' }).inc(0)
     }
 
     public static setBrowserCounts(active: number, idle: number): void {

@@ -2,6 +2,7 @@ import uuid
 from datetime import timedelta
 from typing import Any, cast
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import AsyncMock, patch
@@ -1935,6 +1936,37 @@ class TestSavedQuery(APIBaseTest):
         self.assertIn("Failed", returned_statuses)
         self.assertIn("Running", returned_statuses)
         self.assertIn("Cancelled", returned_statuses)
+
+    def test_retrieve_exposes_earliest_suspension_across_nodes(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="suspended_view_read",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            created_by=self.user,
+        )
+        nodes = [
+            Node.objects.create(
+                team=self.team,
+                dag=DAG.objects.create(team=self.team, name=f"read_dag_{i}"),
+                saved_query=saved_query,
+                type=NodeType.MAT_VIEW,
+            )
+            for i in range(2)
+        ]
+        with freeze_time("2026-07-01T00:00:00Z"):
+            mark_node_suspended(nodes[0], engine="clickhouse", reason="first failure", job_id="job-1")
+        with freeze_time("2026-07-02T00:00:00Z"):
+            mark_node_suspended(nodes[1], engine="clickhouse", reason="later failure", job_id="job-2")
+        for node in nodes:
+            node.save()
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        suspended = response.json()["suspended"]
+        self.assertEqual(list(suspended), ["clickhouse"])
+        self.assertEqual(suspended["clickhouse"]["reason"], "first failure")
+        self.assertEqual(suspended["clickhouse"]["job_id"], "job-1")
 
     def test_resume_clears_suspension_for_every_node_of_the_query(self):
         # Key access is the point of this surface: the node-level resume is on an INTERNAL viewset,

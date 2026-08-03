@@ -11,6 +11,35 @@
 // and anything unrecognized falls through to "ALL" (overlaps everything, which
 // is the single-lane behavior we had before this script existed).
 //
+// The bias is relaxed in exactly two places, both bounded by what one PR can
+// name in another. The conflict that lanes exist to prevent is semantic rather
+// than textual, because a textual one would force a rebase and a retest: PR A
+// renames a facade function and updates every current caller, PR B adds a new
+// call to the old name, and master breaks on a combination neither run held.
+//
+//   1. Only a change to a product's declared contract surface seeds the
+//      dependent cascade. A file that no module outside the product can import
+//      cannot be the shared symbol two PRs disagree about, so a change confined
+//      to internals keeps its own product's lane. The surface is the product's
+//      own `backend:contract-check` inputs in products/<name>/turbo.json, the
+//      same declaration turbo-discover reads to decide whether dependent test
+//      suites run, so the two mechanisms cannot drift apart. A product that
+//      declares no narrowed inputs cascades on every backend file as before.
+//      This makes the declaration load-bearing for correctness: an input list
+//      that omits a file other products import puts those products in a
+//      parallel lane.
+//
+//   2. The cascade names direct importers rather than the transitive closure.
+//      Only a direct importer can reference the changed product's symbols.
+//      ACCEPTED RISK: a conflict mediated through an intermediate product (A
+//      changes warehouse_sources, B changes code whose behavior depends on
+//      product_analytics, which depends on warehouse_sources) is no longer
+//      serialized, and master's post-merge run is the only net for it. The
+//      transitive closure was not a usable alternative: a 31-product cycle in
+//      tach.toml means every member reaches every other, so any seed inside it
+//      expanded to the whole backend and the cascade could not distinguish
+//      products at all.
+//
 // That bias is the opposite of the one in ci-*.yml path filters. Those filters
 // decide which tests to run, where an over-broad match wastes runner minutes
 // and an under-broad match skips tests. They are tuned to over-run and are NOT
@@ -32,7 +61,9 @@
 // paths in ci-e2e-playwright.yml, which puts all such PRs back in one lane.
 //
 // Input:  changed file paths, one per line, on stdin
-// Output: JSON on stdout, either the string "ALL" or an array of target names
+// Output: JSON on stdout, either the string "ALL" or an array of target names.
+//         A change set of nothing but prose reports the single "prose" lane,
+//         which overlaps only other prose-only PRs.
 //         Diagnostics on stderr
 
 const fs = require('fs')
@@ -168,6 +199,138 @@ function listIsolatedProducts(repoRoot, products) {
         }
     }
     return isolated
+}
+
+// --- Contract surfaces ---
+
+const CONTRACT_TASK = 'backend:contract-check'
+
+// turbo.json permits comments, which JSON.parse rejects. Strip them outside
+// string literals so a `//` inside a glob survives.
+function stripJsonComments(text) {
+    let out = ''
+    let inString = false
+    let escaped = false
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i]
+        const next = text[i + 1]
+        if (inString) {
+            out += char
+            if (escaped) {
+                escaped = false
+            } else if (char === '\\') {
+                escaped = true
+            } else if (char === '"') {
+                inString = false
+            }
+            continue
+        }
+        if (char === '"') {
+            inString = true
+            out += char
+            continue
+        }
+        if (char === '/' && next === '/') {
+            while (i < text.length && text[i] !== '\n') {
+                i++
+            }
+            out += '\n'
+            continue
+        }
+        if (char === '/' && next === '*') {
+            i += 2
+            while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) {
+                i++
+            }
+            i++
+            continue
+        }
+        out += char
+    }
+    return out
+}
+
+// Compiles a task's `inputs` into a predicate over product-relative paths. A
+// path is contract when at least one positive glob matches it and no negated
+// one does, matching how Turbo reads the same list.
+function compileContractMatcher(inputs) {
+    const include = []
+    const exclude = []
+    for (const input of inputs) {
+        const negated = input.startsWith('!')
+        const glob = negated ? input.slice(1) : input
+        // An input reaching outside the product (../../uv.lock and the like)
+        // cannot be expressed as a product-relative path. Dropping it is safe
+        // because every such file in use today is already a tripwire or lands
+        // in py:core, both of which overlap this product's lane anyway.
+        if (glob.startsWith('../')) {
+            continue
+        }
+        if (negated) {
+            exclude.push(globToRegExp(glob))
+        } else {
+            include.push(globToRegExp(glob))
+        }
+    }
+    if (include.length === 0) {
+        return null
+    }
+    return (relativePath) =>
+        include.some((re) => re.test(relativePath)) && !exclude.some((re) => re.test(relativePath))
+}
+
+// Only products that narrow `backend:contract-check` in their own turbo.json get
+// an entry. Absence means "every backend file is contract", so a product that
+// has not declared a surface, or whose turbo.json cannot be read, keeps
+// cascading on every backend change.
+function loadContractSurfaces(repoRoot, products) {
+    const surfaces = new Map()
+    for (const product of products) {
+        const manifest = path.join(repoRoot, 'products', product, 'turbo.json')
+        if (!fs.existsSync(manifest)) {
+            continue
+        }
+        let inputs
+        try {
+            const parsed = JSON.parse(stripJsonComments(fs.readFileSync(manifest, 'utf8')))
+            const tasks = parsed.tasks || parsed.pipeline || {}
+            inputs = (tasks[CONTRACT_TASK] || {}).inputs
+        } catch (error) {
+            console.error(
+                `Could not read products/${product}/turbo.json (${error.message}); every backend file counts as its contract`
+            )
+            continue
+        }
+        if (!Array.isArray(inputs)) {
+            continue
+        }
+        const matcher = compileContractMatcher(inputs)
+        if (matcher) {
+            surfaces.set(product, matcher)
+        }
+    }
+    return surfaces
+}
+
+// The files that define the gate for their own product: turbo.json holds the
+// contract inputs, package.json decides whether the product is isolated at all.
+// Neither is importable, so the surface test would call them internal, and both
+// are read from the PR's own tree. A change that drops a path from the contract
+// and edits a file under that path in the same commit would then be gated
+// against its own new, narrower contract and keep the lane to itself, which is
+// exactly when the dependents most need to be tested alongside it.
+const CONTRACT_DECLARATIONS = ['turbo.json', 'package.json']
+
+function touchesContractSurface(product, file, contractSurfaces) {
+    const relativePath = file.slice(`products/${product}/`.length)
+    if (CONTRACT_DECLARATIONS.includes(relativePath)) {
+        return true
+    }
+    const matcher = contractSurfaces.get(product)
+    if (!matcher) {
+        return true
+    }
+    return matcher(relativePath)
 }
 
 // --- Rust crate graph ---
@@ -348,7 +511,7 @@ const feProduct = (product) => `fe:product:${product}`
 const rustCrate = (crate) => `rust:crate:${crate}`
 
 function computeTargets(changedFiles, context) {
-    const { products, isolatedProducts, rustGraph, tachGraph } = context
+    const { products, isolatedProducts, rustGraph, tachGraph, contractSurfaces = new Map() } = context
     const targets = new Set()
 
     const allPyProducts = () => {
@@ -365,22 +528,30 @@ function computeTargets(changedFiles, context) {
     }
 
     const changedIsolatedProducts = new Set()
+    let inertFiles = 0
 
     for (const file of changedFiles) {
         if (isTripwire(file)) {
             return ALL
         }
 
-        // Markdown never compiles into any tree, so it is classified before the
-        // directory rules that would otherwise pull a README under posthog/
-        // into the backend lane.
-        if (/\.mdx?$/.test(file)) {
-            targets.add('docs')
-            continue
-        }
-
         const segments = file.split('/')
         const top = segments[0]
+
+        // Prose compiles into nothing and no PR can disagree with another about
+        // it, so it claims no lane at all rather than the shared one it used to
+        // get, which serialized any two PRs that happened to touch a markdown
+        // file. Classified before the directory rules that would otherwise pull
+        // a README under posthog/ into the backend lane.
+        //
+        // The exception is markdown that is a build input: `hogli build:skills`
+        // zips products/*/skills/*, and ci-agent-skills.yml gates on those paths
+        // and on .agents/. Both fall through to their directory rules below.
+        const isSkillSource = top === '.agents' || (top === 'products' && segments[2] === 'skills')
+        if (/\.mdx?$/.test(file) && !isSkillSource) {
+            inertFiles++
+            continue
+        }
 
         if (top === 'posthog' || (top === 'ee' && segments[1] !== 'frontend')) {
             allPyProducts()
@@ -404,8 +575,13 @@ function computeTargets(changedFiles, context) {
             targets.add(`svc:${segments[1]}`)
             continue
         }
-        if (top === 'docs') {
-            targets.add('docs')
+        // docs/ is prose, which the markdown rule above has already taken, with
+        // one exception: docs/onboarding is the @posthog/docs-onboarding
+        // workspace package that frontend/package.json depends on, so its
+        // sources compile into the app. Anything else non-prose under docs/ is
+        // unclassified and falls through to ALL at the end of the loop.
+        if (top === 'docs' && segments[1] === 'onboarding') {
+            allFeProducts()
             continue
         }
         if (top === '.agents') {
@@ -466,7 +642,9 @@ function computeTargets(changedFiles, context) {
             if (isBackend || (!isBackend && !isFrontend)) {
                 if (isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
-                    changedIsolatedProducts.add(product)
+                    if (touchesContractSurface(product, file, contractSurfaces)) {
+                        changedIsolatedProducts.add(product)
+                    }
                 } else {
                     allPyProducts()
                 }
@@ -486,6 +664,10 @@ function computeTargets(changedFiles, context) {
     // so a non-isolated dependent is named here rather than widening to every
     // backend target. Only 14 of the products declare a contract check, so
     // widening on each of them would collapse every cascade to the full set.
+    //
+    // The seeds are the products whose contract surface changed, and the
+    // dependents are one hop deep. See the two numbered narrowings at the top
+    // of this file for what that gives up.
     if (changedIsolatedProducts.size > 0) {
         const dependents = tachDependentProducts([...changedIsolatedProducts], tachGraph)
         if (dependents === null) {
@@ -518,7 +700,18 @@ function computeTargets(changedFiles, context) {
     }
 
     if (targets.size === 0) {
-        return ALL
+        // A change set of nothing but prose overlaps only other prose. Trunk
+        // does not document what it does with an empty target list, and the one
+        // documented rule is that a PR is not processed until its targets are
+        // uploaded, so a lane of its own avoids betting a docs PR's ability to
+        // enter the queue on undocumented behavior. This is deliberately not
+        // added per file: emitting it alongside real lanes is what made the old
+        // docs target serialize two PRs whose only overlap was a README.
+        //
+        // Anything else that reaches an empty set contains a path no rule
+        // claimed, which is the failure mode that silently breaks master, so it
+        // still widens to ALL.
+        return inertFiles === changedFiles.length ? ['prose'] : ALL
     }
     return [...targets].sort()
 }
@@ -534,7 +727,8 @@ function tachDependentProducts(changedProducts, tachGraph) {
         const { tachDependents } = tachGraph
         return tachDependents(
             changedProducts.map((product) => product.replace(/_/g, '-')),
-            tachGraph.graph
+            tachGraph.graph,
+            { direct: true }
         ).map((product) => product.replace(/-/g, '_'))
     } catch (error) {
         console.error(`Dependent cascade failed (${error.message}); widening to all backend targets`)
@@ -558,6 +752,7 @@ function buildContext(repoRoot) {
     return {
         products,
         isolatedProducts: listIsolatedProducts(repoRoot, products),
+        contractSurfaces: loadContractSurfaces(repoRoot, products),
         rustGraph: loadRustGraph(repoRoot),
         tachGraph: loadTachGraph(repoRoot),
     }
@@ -566,11 +761,13 @@ function buildContext(repoRoot) {
 module.exports = {
     computeTargets,
     buildContext,
+    compileContractMatcher,
     globToRegExp,
     isTripwire,
     parseCrateDependencies,
     parseCrateName,
     reverseClosure,
+    stripJsonComments,
     ALL,
 }
 

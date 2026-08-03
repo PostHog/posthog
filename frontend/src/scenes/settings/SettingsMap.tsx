@@ -17,6 +17,7 @@ import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -57,6 +58,7 @@ import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/sce
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
+import { LogsRetentionSection } from 'products/logs/frontend/components/LogsRetention/LogsRetentionSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
 import { LogsFeatureFlagKeys } from 'products/logs/frontend/logsFeatureFlagKeys'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
@@ -870,6 +872,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <LogsMetricRulesSection />,
                 flag: LogsFeatureFlagKeys.metricRules,
                 keywords: ['metric', 'metrics', 'generate', 'count', 'aggregate', 'logs to metrics'],
+            },
+            {
+                id: 'logs-retention-rules',
+                title: 'Retention rules',
+                description:
+                    "Keep matching logs longer or shorter than the environment default using ordered rules. The first matching rule sets a log's retention; retention is applied at ingest.",
+                component: <LogsRetentionSection />,
+                flag: LogsFeatureFlagKeys.retentionRules,
+                keywords: ['retention', 'storage', 'ttl', 'rules', 'filter', 'keep', 'expire'],
             },
             {
                 id: 'logs-alerting',
@@ -2135,6 +2146,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <PersonalSlackIntegrations />,
                 keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
                 flag: 'SLACK_APP_OAUTH',
+            },
+            {
+                id: 'personal-integrations-posthog',
+                title: 'PostHog project',
+                description:
+                    'Connect another PostHog project (in another region or your own) to act in it through its API, for example to dispatch tasks that must run there.',
+                component: <PersonalPosthogConnections />,
+                keywords: ['posthog', 'integration', 'connect', 'region', 'cross-region', 'task', 'personal'],
+                flag: 'POSTHOG_CONNECT',
             },
         ],
     },

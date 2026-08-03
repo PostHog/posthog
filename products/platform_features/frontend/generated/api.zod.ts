@@ -231,9 +231,19 @@ export const AdvancedActivityLogsExportCreateBody = /* @__PURE__ */ zod.object({
         role_at_organization: zod
             .union([
                 zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
+                    .enum([
+                        'engineering',
+                        'data',
+                        'product',
+                        'founder',
+                        'leadership',
+                        'marketing',
+                        'sales',
+                        'student',
+                        'other',
+                    ])
                     .describe(
-                        '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `other` - Other'
+                        '\* `engineering` - Engineering\n\* `data` - Data\n\* `product` - Product Management\n\* `founder` - Founder\n\* `leadership` - Leadership\n\* `marketing` - Marketing\n\* `sales` - Sales \/ Success\n\* `student` - Student\n\* `other` - Other'
                     ),
                 zod.enum(['']),
                 zod.null(),

@@ -248,7 +248,7 @@ async def _generate_record_batches_from_internal_stage(
 
 async def _run_activity(
     activity_environment: ActivityEnvironment,
-    minio_client,
+    object_storage_client,
     team_id,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
@@ -276,7 +276,7 @@ async def _run_activity(
     stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
     stage_folder = stage_result.stage_folder
     await assert_files_in_s3(
-        minio_client,
+        object_storage_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
         key_prefix=stage_folder,
         file_format="Arrow",
@@ -306,7 +306,7 @@ async def test_insert_into_stage_activity_for_events_model(
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     model: BatchExportModel,
@@ -320,7 +320,7 @@ async def test_insert_into_stage_activity_for_events_model(
 
     records_exported = await _run_activity(
         activity_environment=activity_environment,
-        minio_client=minio_client,
+        object_storage_client=object_storage_client,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -346,7 +346,7 @@ async def test_insert_into_stage_activity_reports_records_total_for_events_model
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     model: BatchExportModel,
@@ -357,7 +357,7 @@ async def test_insert_into_stage_activity_reports_records_total_for_events_model
     with capture_logs() as cap_logs:
         records_exported = await _run_activity(
             activity_environment=activity_environment,
-            minio_client=minio_client,
+            object_storage_client=object_storage_client,
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
@@ -506,7 +506,7 @@ async def test_insert_into_stage_activity_for_persons_model(
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     test_person_properties,
@@ -537,7 +537,7 @@ async def test_insert_into_stage_activity_for_persons_model(
 
     records_exported = await _run_activity(
         activity_environment=activity_environment,
-        minio_client=minio_client,
+        object_storage_client=object_storage_client,
         team_id=ateam.pk,
         data_interval_start=data_interval_start,
         data_interval_end=data_interval_end,
@@ -631,7 +631,7 @@ async def test_insert_into_stage_activity_for_persons_model(
     with override_settings(BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS=[str(ateam.pk)] if limited_export else []):
         records_exported = await _run_activity(
             activity_environment=activity_environment,
-            minio_client=minio_client,
+            object_storage_client=object_storage_client,
             team_id=ateam.pk,
             data_interval_start=next_data_interval_start,
             data_interval_end=next_data_interval_end,
@@ -956,7 +956,7 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     model: BatchExportModel,
@@ -997,7 +997,7 @@ async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
         stage_folder = stage_result.stage_folder
 
     _, keys = await assert_files_in_s3(
-        minio_client,
+        object_storage_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
         key_prefix=stage_folder,
         file_format="Arrow",
@@ -1016,7 +1016,7 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
     interval,
     activity_environment,
     data_interval_start,
-    minio_client,
+    object_storage_client,
     data_interval_end,
     ateam,
     model: BatchExportModel,
@@ -1047,7 +1047,7 @@ async def test_insert_into_stage_activity_uses_static_default_without_previous_r
         stage_folder = stage_result.stage_folder
 
     _, keys = await assert_files_in_s3(
-        minio_client,
+        object_storage_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
         key_prefix=stage_folder,
         file_format="Arrow",
@@ -1110,7 +1110,7 @@ async def _fetch_staging_query_settings(
 )
 async def test_insert_into_stage_activity_applies_settings_and_log_comment(
     activity_environment,
-    minio_client,
+    object_storage_client,
     ateam,
     clickhouse_client,
     data_interval_start,
@@ -1275,7 +1275,7 @@ class TestHogQLModel:
         self,
         hogql_model_test_data,
         activity_environment,
-        minio_client,
+        object_storage_client,
         ateam,
         data_interval_start,
         data_interval_end,
@@ -1297,7 +1297,7 @@ class TestHogQLModel:
         ) as mock_wait:
             exported_rows = await _run_activity(
                 activity_environment=activity_environment,
-                minio_client=minio_client,
+                object_storage_client=object_storage_client,
                 team_id=ateam.pk,
                 data_interval_start=data_interval_start,
                 data_interval_end=data_interval_end,
@@ -1314,7 +1314,7 @@ class TestHogQLModel:
         self,
         hogql_model_test_data,
         activity_environment,
-        minio_client,
+        object_storage_client,
         ateam,
         data_interval_start,
         data_interval_end,
@@ -1337,7 +1337,7 @@ class TestHogQLModel:
 
         exported_rows = await _run_activity(
             activity_environment=activity_environment,
-            minio_client=minio_client,
+            object_storage_client=object_storage_client,
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
@@ -1354,7 +1354,7 @@ class TestHogQLModel:
         # also assert doing a SELECT * works (should give same result)
         exported_rows_2 = await _run_activity(
             activity_environment=activity_environment,
-            minio_client=minio_client,
+            object_storage_client=object_storage_client,
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
@@ -1368,7 +1368,7 @@ class TestHogQLModel:
         self,
         hogql_model_test_data,
         activity_environment,
-        minio_client,
+        object_storage_client,
         ateam,
         clickhouse_client,
         data_interval_start,
@@ -1383,7 +1383,7 @@ class TestHogQLModel:
 
         await _run_activity(
             activity_environment=activity_environment,
-            minio_client=minio_client,
+            object_storage_client=object_storage_client,
             team_id=ateam.pk,
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,

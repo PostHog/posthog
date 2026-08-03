@@ -340,6 +340,21 @@ export const SideEnumApi = {
 } as const
 
 /**
+ * One emoji reaction on a review comment, with the reactor so the viewer's own can be toggled.
+ */
+export interface PullRequestCommentReactionApi {
+    /** GitHub reaction id (needed to remove it). */
+    readonly id: string
+    /** Reaction key: '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', or 'eyes'. */
+    readonly content: string
+    /**
+     * GitHub login of the user who added the reaction.
+     * @nullable
+     */
+    readonly user_login: string | null
+}
+
+/**
  * One comment on a pull request — a conversation comment or an inline review comment.
  */
 export interface PullRequestCommentApi {
@@ -407,6 +422,8 @@ export interface PullRequestCommentApi {
      * @nullable
      */
     readonly commit_id: string | null
+    /** Emoji reactions on this review comment, one entry per reactor. */
+    readonly reactions: readonly PullRequestCommentReactionApi[]
 }
 
 /**
@@ -414,6 +431,107 @@ export interface PullRequestCommentApi {
  */
 export interface PullRequestCommentsResponseApi {
     readonly comments: readonly PullRequestCommentApi[]
+}
+
+/**
+ * Request body for posting an inline PR review comment as the requesting user.
+ *
+ * Two shapes: a reply to an existing thread (only `body` + `in_reply_to`), or a new
+ * thread on a diff line (`body` + `path` + `line`, optionally `side`).
+ */
+export interface PullRequestReviewCommentCreateApi {
+    /**
+     * Comment body (GitHub-flavored markdown).
+     * @maxLength 65536
+     */
+    body: string
+    /**
+     * Numeric id of the thread root comment to reply to. When set, path/line/side are ignored.
+     * @nullable
+     * @pattern ^[0-9]+$
+     */
+    in_reply_to?: string | null
+    /**
+     * File path to anchor a new comment thread to (required when starting a new thread).
+     * @nullable
+     */
+    path?: string | null
+    /**
+     * Diff line to anchor a new comment thread to (required when starting a new thread).
+     * @minimum 1
+     * @nullable
+     */
+    line?: number | null
+    /** Diff side of the anchor line: 'LEFT' = deletions, 'RIGHT' = additions. Defaults to 'RIGHT'.
+     *
+     * * `LEFT` - LEFT
+     * * `RIGHT` - RIGHT */
+    side?: SideEnumApi | null
+}
+
+/**
+ * Response after posting a review comment — the created comment in the normalized PR-comment shape.
+ */
+export interface PullRequestReviewCommentCreateResponseApi {
+    readonly comment: PullRequestCommentApi
+}
+
+/**
+ * Request body for editing a review comment's markdown body.
+ */
+export interface PatchedPullRequestReviewCommentUpdateApi {
+    /**
+     * New comment body (GitHub-flavored markdown).
+     * @maxLength 65536
+     */
+    body?: string
+}
+
+/**
+ * * `+1` - +1
+ * * `-1` - -1
+ * * `laugh` - laugh
+ * * `hooray` - hooray
+ * * `confused` - confused
+ * * `heart` - heart
+ * * `rocket` - rocket
+ * * `eyes` - eyes
+ */
+export type ContentEnumApi = (typeof ContentEnumApi)[keyof typeof ContentEnumApi]
+
+export const ContentEnumApi = {
+    '1': '+1',
+    NumberMinus1: '-1',
+    Laugh: 'laugh',
+    Hooray: 'hooray',
+    Confused: 'confused',
+    Heart: 'heart',
+    Rocket: 'rocket',
+    Eyes: 'eyes',
+} as const
+
+/**
+ * Request body for adding an emoji reaction to a review comment.
+ */
+export interface PullRequestReviewCommentReactionCreateApi {
+    /** Reaction to add: one of '+1', '-1', 'laugh', 'hooray', 'confused', 'heart', 'rocket', 'eyes'.
+     *
+     * * `+1` - +1
+     * * `-1` - -1
+     * * `laugh` - laugh
+     * * `hooray` - hooray
+     * * `confused` - confused
+     * * `heart` - heart
+     * * `rocket` - rocket
+     * * `eyes` - eyes */
+    content: ContentEnumApi
+}
+
+/**
+ * Response after adding a reaction — the created reaction, so the frontend can track its id.
+ */
+export interface PullRequestReviewCommentReactionCreateResponseApi {
+    readonly reaction: PullRequestCommentReactionApi
 }
 
 export interface SignalReportRefundRequestApi {
@@ -516,6 +634,7 @@ export interface SignalReportRefundResponseApi {
  * * `intercom` - intercom
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
+ * * `google_search_console` - google_search_console
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -568,6 +687,7 @@ export const SignalSourceProductApi = {
     Intercom: 'intercom',
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
 } as const
 
 /**
@@ -592,6 +712,7 @@ export const SignalSourceProductApi = {
  * * `ci_flaky_check` - ci_flaky_check
  * * `ci_broken_default_branch` - ci_broken_default_branch
  * * `ci_duration_regression` - ci_duration_regression
+ * * `search_opportunity` - search_opportunity
  */
 export type SignalSourceTypeApi = (typeof SignalSourceTypeApi)[keyof typeof SignalSourceTypeApi]
 
@@ -617,6 +738,7 @@ export const SignalSourceTypeApi = {
     CiFlakyCheck: 'ci_flaky_check',
     CiBrokenDefaultBranch: 'ci_broken_default_branch',
     CiDurationRegression: 'ci_duration_regression',
+    SearchOpportunity: 'search_opportunity',
 } as const
 
 export type ProblemTypeEnumApi = (typeof ProblemTypeEnumApi)[keyof typeof ProblemTypeEnumApi]
@@ -1184,6 +1306,16 @@ export interface HubspotTicketSignalExtraApi {
     createdate: string | null
 }
 
+export interface GoogleSearchConsoleSearchOpportunitySignalExtraApi {
+    page: string
+    query: string
+    date: string
+    clicks: number
+    impressions: number
+    ctr: number
+    position: number
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -1237,6 +1369,7 @@ export type SignalExtraApi =
     | JudgemeReviewsReviewSignalExtraApi
     | IntercomTicketSignalExtraApi
     | HubspotTicketSignalExtraApi
+    | GoogleSearchConsoleSearchOpportunitySignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -1323,7 +1456,8 @@ export interface SignalNodeApi {
      * * `judgeme_reviews` - judgeme_reviews
      * * `intercom` - intercom
      * * `hubspot` - hubspot
-     * * `engineering_analytics` - engineering_analytics */
+     * * `engineering_analytics` - engineering_analytics
+     * * `google_search_console` - google_search_console */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -1347,7 +1481,8 @@ export interface SignalNodeApi {
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
      * * `ci_broken_default_branch` - ci_broken_default_branch
-     * * `ci_duration_regression` - ci_duration_regression */
+     * * `ci_duration_regression` - ci_duration_regression
+     * * `search_opportunity` - search_opportunity */
     source_type: SignalSourceTypeApi
     /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
     source_id: string
@@ -1676,6 +1811,18 @@ export interface SignalScoutOutputDestinationsApi {
 }
 
 /**
+ * * `trusted` - Trusted domains only
+ * * `full` - Full
+ */
+export type ScoutConfigNetworkAccessEnumApi =
+    (typeof ScoutConfigNetworkAccessEnumApi)[keyof typeof ScoutConfigNetworkAccessEnumApi]
+
+export const ScoutConfigNetworkAccessEnumApi = {
+    Trusted: 'trusted',
+    Full: 'full',
+} as const
+
+/**
  * Schedule, enablement, and delivery options accepted while creating a scout.
  */
 export interface SignalScoutConfigOptionsApi {
@@ -1691,6 +1838,13 @@ export interface SignalScoutConfigOptionsApi {
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
+     *
+     * * `trusted` - Trusted domains only
+     * * `full` - Full */
+    network_access?: ScoutConfigNetworkAccessEnumApi
+    /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+    auto_pause_exempt?: boolean
     /**
      * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
      * @maxLength 100
@@ -1738,6 +1892,35 @@ export const ScoutOriginEnumApi = {
 } as const
 
 /**
+ * * `active` - Active
+ * * `pending_pause` - Pending pause
+ * * `paused_by_system` - Paused by system
+ * * `paused_by_user` - Paused by user
+ */
+export type ScoutConfigStatusEnumApi = (typeof ScoutConfigStatusEnumApi)[keyof typeof ScoutConfigStatusEnumApi]
+
+export const ScoutConfigStatusEnumApi = {
+    Active: 'active',
+    PendingPause: 'pending_pause',
+    PausedBySystem: 'paused_by_system',
+    PausedByUser: 'paused_by_user',
+} as const
+
+/**
+ * * `no_output` - No output
+ * * `ignored` - Ignored
+ * * `repeated_failures` - Repeated failures
+ */
+export type ScoutConfigPauseReasonEnumApi =
+    (typeof ScoutConfigPauseReasonEnumApi)[keyof typeof ScoutConfigPauseReasonEnumApi]
+
+export const ScoutConfigPauseReasonEnumApi = {
+    NoOutput: 'no_output',
+    Ignored: 'ignored',
+    RepeatedFailures: 'repeated_failures',
+} as const
+
+/**
  * Read shape for a per-(team, skill) scout config.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
@@ -1751,8 +1934,21 @@ export interface SignalScoutConfigApi {
     readonly description: string
     /** Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team. */
     readonly scout_origin: ScoutOriginEnumApi
-    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses. */
     readonly enabled: boolean
+    /** Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.
+     *
+     * * `active` - Active
+     * * `pending_pause` - Pending pause
+     * * `paused_by_system` - Paused by system
+     * * `paused_by_user` - Paused by user */
+    readonly status: ScoutConfigStatusEnumApi
+    /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (its output received no human engagement), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
+     *
+     * * `no_output` - No output
+     * * `ignored` - Ignored
+     * * `repeated_failures` - Repeated failures */
+    readonly pause_reason: ScoutConfigPauseReasonEnumApi | null
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**
@@ -1768,11 +1964,25 @@ export interface SignalScoutConfigApi {
     readonly run_cron_schedule: string | null
     /** Destinations that receive each finding or report this scout emits. Empty when none is configured. */
     readonly output_destinations: SignalScoutOutputDestinationsApi
+    /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `full` lets the scout reach any site, for skills that read external sources such as documentation or papers.
+     *
+     * * `trusted` - Trusted domains only
+     * * `full` - Full */
+    readonly network_access: ScoutConfigNetworkAccessEnumApi
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
      */
     readonly last_run_at: string | null
+    /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */
+    readonly consecutive_failure_count: number
+    /**
+     * When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone acts on the scout's reports; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.
+     * @nullable
+     */
+    readonly status_changed_at: string | null
+    /** Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Also set automatically when someone re-enables a scout the inactivity sweep paused, so the sweep never overrules a person twice. */
+    readonly auto_pause_exempt: boolean
     readonly created_at: string
 }
 
@@ -1802,6 +2012,13 @@ export interface SignalScoutConfigCreateApi {
     run_interval_minutes?: number
     /** Destinations that receive each finding or report this scout emits. Empty by default. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.
+     *
+     * * `trusted` - Trusted domains only
+     * * `full` - Full */
+    network_access?: ScoutConfigNetworkAccessEnumApi
+    /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
+    auto_pause_exempt?: boolean
     /**
      * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
      * @maxLength 100
@@ -1819,7 +2036,7 @@ export interface SignalScoutConfigCreateApi {
  * Editable schedule, enablement, and emit posture for one scout config.
  */
 export interface PatchedSignalScoutConfigUpdateApi {
-    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. */
+    /** Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Turning this off records a user pause (`status` becomes `paused_by_user`, which the system never overrides); turning it on resumes the scout from any pause. Only a change of value is a lifecycle action: re-sending the current value leaves the existing status and its ownership untouched. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
@@ -1837,6 +2054,13 @@ export interface PatchedSignalScoutConfigUpdateApi {
     run_cron_schedule?: string | null
     /** Destinations that receive each finding or report this scout emits. Pass an empty object to disable delivery. */
     output_destinations?: SignalScoutOutputDestinationsApi
+    /** What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers. Applies from the scout's next run.
+     *
+     * * `trusted` - Trusted domains only
+     * * `full` - Full */
+    network_access?: ScoutConfigNetworkAccessEnumApi
+    /** Exempt this scout from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. */
+    auto_pause_exempt?: boolean
 }
 
 /**
@@ -1940,7 +2164,7 @@ export interface ScoutNoteApi {
      * @nullable
      */
     created_by_name: string | null
-    /** Where the note came from: `human` for one left directly through this API, or `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports. A `report_dismissal` note is one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. */
+    /** Where the note came from. `human` for one left directly through this API. `report_dismissal` for one forwarded from the note someone typed when they dismissed, snoozed, or restored one or more inbox reports: one reviewer's verdict on the reports its content names, so weigh it as evidence about those reports rather than as fleet-level steering. `report_discussion` for the question someone asked when they opened a discussion on a report: context to weigh, neither a verdict on the report nor a directive. */
     origin: string
 }
 
@@ -2099,10 +2323,15 @@ export interface ScoutFleetEntryApi {
      */
     last_emitted_at: string | null
     /**
-     * Why this scout is in the `disabled` bucket: `turned_off` (an operator set it off) or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
+     * Why this scout is in the `disabled` bucket: `turned_off` (a person or seed posture set it off), `auto_paused` (the system paused it), or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.
      * @nullable
      */
     not_running_reason: string | null
+    /**
+     * The cause behind an `auto_paused` entry: `no_output`, `ignored`, or `repeated_failures`. Null for every other entry.
+     * @nullable
+     */
+    pause_reason: string | null
 }
 
 /**
@@ -2634,7 +2863,7 @@ export type SignalScoutRunSummaryApiMetadataDerived = {
 }
 
 /**
- * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+ * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
  */
 export type SignalScoutRunSummaryApiMetadata = {
     harness_prompt_version?: string
@@ -2644,6 +2873,7 @@ export type SignalScoutRunSummaryApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    network_access?: string
     derived?: SignalScoutRunSummaryApiMetadataDerived
     [key: string]: unknown
 }
@@ -2732,7 +2962,7 @@ export interface SignalScoutRunSummaryApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
-    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
     metadata: SignalScoutRunSummaryApiMetadata
 }
 
@@ -2745,7 +2975,7 @@ export type SignalScoutRunDetailApiMetadataDerived = {
 }
 
 /**
- * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+ * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
  */
 export type SignalScoutRunDetailApiMetadata = {
     harness_prompt_version?: string
@@ -2755,6 +2985,7 @@ export type SignalScoutRunDetailApiMetadata = {
     model?: string
     runtime_adapter?: string
     reasoning_effort?: string
+    network_access?: string
     derived?: SignalScoutRunDetailApiMetadataDerived
     [key: string]: unknown
 }
@@ -2824,7 +3055,7 @@ export interface SignalScoutRunDetailApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
-    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when routing overrode the agent-server default: `model`, `runtime_adapter`, and `reasoning_effort`. The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), and `github_guidance` (whether the run got the GitHub evidence section) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), and `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
     metadata: SignalScoutRunDetailApiMetadata
 }
 
@@ -3358,6 +3589,7 @@ export interface ForgetResponseApi {
  * * `intercom` - Intercom
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
+ * * `google_search_console` - Google Search Console
  */
 export type SignalSourceConfigSourceProductEnumApi =
     (typeof SignalSourceConfigSourceProductEnumApi)[keyof typeof SignalSourceConfigSourceProductEnumApi]
@@ -3411,6 +3643,7 @@ export const SignalSourceConfigSourceProductEnumApi = {
     Intercom: 'intercom',
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
 } as const
 
 /**

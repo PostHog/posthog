@@ -7,6 +7,7 @@ import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { MessageAssetsService } from './message-assets.service'
 import { PushNotificationFetchUtils, PushNotificationService } from './push-notification.service'
 
 const encryptedFields = new EncryptedFields('01234567890123456789012345678901')
@@ -182,6 +183,209 @@ describe('PushNotificationService', () => {
             // No token means nothing was delivered — record push_skipped, not push_sent.
             expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
             expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
+        })
+
+        it('stamps workflow, action and invocation ids into the data payload so opens can be attributed', async () => {
+            // An open is captured on the device, so these ids riding along in the payload are the only
+            // way the resulting event can be tied back to the workflow and step that sent it.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            invocation.state.actionId = 'push-step'
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            // Nested under the single `posthog` key, JSON-encoded: that is the only entry the SDKs read,
+            // and FCM's `data` map only accepts string values. Sibling keys would be silently ignored.
+            expect(parseJSON(body.message.data.posthog)).toEqual({
+                workflow_id: invocation.functionId,
+                action_id: 'push-step',
+                invocation_id: invocation.id,
+            })
+        })
+
+        it('carries the batch run id so a batch push open divides against its sends', async () => {
+            // A batch run attributes its send metrics to the batch job, not the workflow
+            // (`parentRunId ?? functionId`). Without the same id on the open, sends would be counted
+            // against the batch and opens against the workflow, and the open rate wouldn't divide.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            invocation.state.actionId = 'push-step'
+            invocation.parentRunId = 'batch-job-1'
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            const result = await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(parseJSON(body.message.data.posthog)).toEqual({
+                workflow_id: invocation.functionId,
+                action_id: 'push-step',
+                invocation_id: invocation.id,
+                parent_run_id: 'batch-job-1',
+            })
+            // The same id the send metric is filed under, so the two are comparable.
+            expect(result.metrics).toContainEqual(
+                expect.objectContaining({ metric_name: 'push_sent', app_source_id: 'batch-job-1' })
+            )
+        })
+
+        it('does not let a custom data key shadow the correlation payload', async () => {
+            // `data` is customer-controlled. If a custom key could win, opens would be attributed to
+            // whatever workflow the sender named, so the reserved key has to be applied last.
+            const invocation = createSendPushNotificationInvocation({
+                '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+            })
+            ;(invocation.queueParameters as any).payload.data = { posthog: 'not-the-real-workflow' }
+            mockTrackedFetch.mockResolvedValue({
+                fetchError: null,
+                fetchResponse: {
+                    status: 200,
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+
+            await service.executeSendPushNotification(invocation)
+
+            const body = parseJSON(mockTrackedFetch.mock.calls[0][0].fetchParams.body)
+            expect(parseJSON(body.message.data.posthog).workflow_id).toBe(invocation.functionId)
+        })
+
+        describe('message asset capture', () => {
+            let serviceWithAssets: PushNotificationService
+
+            const respondWith = (status: number): void => {
+                mockTrackedFetch.mockResolvedValue({
+                    fetchError: null,
+                    fetchResponse: {
+                        status,
+                        headers: {},
+                        text: () => Promise.resolve('{}'),
+                        dump: () => Promise.resolve(),
+                    },
+                    fetchDuration: 10,
+                })
+            }
+
+            beforeEach(() => {
+                serviceWithAssets = new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockRedis,
+                    new MessageAssetsService({ produce: jest.fn() } as any)
+                )
+            })
+
+            // Guards the wiring between the send and the Assets tab, which the `buildRowForPush` unit
+            // tests can't see: drop the assets service from the constructor call in cdp-services.ts, or
+            // narrow the capture condition, and a delivered push stops producing a row while every
+            // other test here stays green.
+            it.each([
+                {
+                    outcome: 'was delivered',
+                    status: 200,
+                    tokens: { '$device_push_subscription_test-project': 'device-token-123' },
+                    captured: 'sent',
+                },
+                { outcome: 'reached no device', status: 200, tokens: {}, captured: 'nothing' },
+                {
+                    outcome: 'failed terminally',
+                    status: 400,
+                    tokens: { '$device_push_subscription_test-project': 'device-token-123' },
+                    captured: 'nothing',
+                },
+            ])('captures a push that $outcome as $captured', async ({ status, tokens, captured }) => {
+                respondWith(status)
+                const invocation = createSendPushNotificationInvocation(
+                    Object.fromEntries(
+                        Object.entries(tokens).map(([key, token]) => [key, encryptedFields.encrypt(token)])
+                    )
+                )
+                invocation.state.actionId = 'action_push_1'
+
+                const result = await serviceWithAssets.executeSendPushNotification(invocation)
+
+                if (captured === 'nothing') {
+                    // An asset is a snapshot of what a recipient received; a send that reached nobody
+                    // has none, and email behaves the same way (it captures only on success).
+                    expect(result.emailAssets).toEqual([])
+                    return
+                }
+                expect(result.emailAssets).toHaveLength(1)
+                expect(result.emailAssets[0]).toMatchObject({
+                    kind: 'push',
+                    status: captured,
+                    action_id: 'action_push_1',
+                    subject: 'Test notification',
+                })
+            })
+
+            it('keeps a delivered notification successful when the capture itself throws', async () => {
+                // The send has already gone out at this point, so letting a capture failure surface
+                // would fail the invocation and the retry would deliver the notification again.
+                respondWith(200)
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                invocation.state.actionId = 'action_push_1'
+                const exploding = new PushNotificationService(
+                    integrationManager,
+                    encryptedFields,
+                    fetchUtils,
+                    mockRedis,
+                    {
+                        buildRowForPush: () => {
+                            throw new Error('boom')
+                        },
+                    } as any
+                )
+
+                const result = await exploding.executeSendPushNotification(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
+                expect(result.emailAssets).toEqual([])
+                expect(result.logs.map((log) => log.message)).toContainEqual(
+                    expect.stringContaining('could not be captured')
+                )
+            })
+
+            it('captures one asset per notification, not one per delivered channel', async () => {
+                respondWith(200)
+                integrationManager.get = jest
+                    .fn()
+                    .mockResolvedValue({ ...firebaseIntegration, kind: 'firebase' as const })
+                const invocation = createSendPushNotificationInvocation({
+                    '$device_push_subscription_test-project': encryptedFields.encrypt('device-token-123'),
+                })
+                invocation.state.actionId = 'action_push_1'
+                ;(invocation.queueParameters as any).integrationIds = [1, 2]
+
+                const result = await serviceWithAssets.executeSendPushNotification(invocation)
+
+                expect(result.emailAssets).toHaveLength(1)
+            })
         })
 
         it('does not match tokens for a different app identifier', async () => {
