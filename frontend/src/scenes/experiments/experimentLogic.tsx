@@ -566,7 +566,6 @@ export interface experimentLogicValues {
     launchExperimentLoading: boolean
     minimumDetectableEffect: number
     notifyWhenResultsReady: boolean
-    resolvedExposureEvent: string
     orderedPrimaryMetricsWithResults: {
         displayIndex: number
         error: any
@@ -588,6 +587,7 @@ export interface experimentLogicValues {
     props: any
     recommendedRunningTime: number
     recommendedSampleSize: number
+    resolvedExposureEvent: string
     secondaryMetricsLengthWithSharedMetrics: number
     secondaryMetricsResults: CachedNewExperimentQueryResponse[]
     secondaryMetricsResultsErrors: any[]
@@ -1305,6 +1305,7 @@ export interface experimentLogicMeta {
         isExperimentLaunched: (experiment: Experiment) => boolean
         isExperimentRunning: (experiment: Experiment) => boolean
         isFlagActive: (experiment: Experiment) => boolean
+        resolvedExposureEvent: (experiment: Experiment) => string
         isExperimentStopped: (experiment: Experiment) => boolean
         variants: (experiment: Experiment) => MultivariateFlagVariant[]
         excludedVariants: (experiment: Experiment) => string[]
