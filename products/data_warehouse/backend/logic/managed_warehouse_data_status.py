@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from django.utils import timezone
 
@@ -15,7 +15,10 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTeamMembership,
 )
 from products.managed_warehouse.backend.facade.team_state import team_backfill_membership
-from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+
+if TYPE_CHECKING:
+    from posthog.rbac.user_access_control import UserAccessControl
 
 ReadinessState = Literal[
     "not_configured",
@@ -197,20 +200,25 @@ def source_table_readiness(state: ManagedWarehouseSourceJobRecord | None) -> tup
     return "waiting", f"The {workflow_name} workflow did not apply this source import."
 
 
-def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> list[SourceTableStatus]:
+def _schema_table_statuses(
+    team_id: int, *, user_access_control: UserAccessControl, source_id: str | None = None
+) -> list[SourceTableStatus]:
     """Per-schema readiness, optionally scoped to one source.
 
     Shared by the top-level rollup (all sources, for the Overview tab's summary card) and the
     per-source detail lookup (one source's schemas, for the drill-down modal) so the readiness
     computation and the visibility rules never drift between the two views.
     """
+    source_filter: dict[str, object] = {"team_id": team_id, "deleted": False}
+    if source_id is not None:
+        source_filter["id"] = source_id
+    sources = user_access_control.filter_queryset_by_access_level(ExternalDataSource.objects.filter(**source_filter))
+
     schema_filter: dict[str, object] = {
         "team_id": team_id,
         "deleted": False,
-        "source__deleted": False,
+        "source__in": sources,
     }
-    if source_id is not None:
-        schema_filter["source_id"] = source_id
 
     schemas = list(ExternalDataSchema.objects.filter(**schema_filter).select_related("source"))
     latest_jobs_by_schema = {
@@ -248,9 +256,13 @@ def _schema_table_statuses(team_id: int, *, source_id: str | None = None) -> lis
     return tables
 
 
-def get_source_schema_statuses(team_id: int, source_id: str) -> list[SourceTableStatus]:
+def get_source_schema_statuses(
+    team_id: int, source_id: str, *, user_access_control: UserAccessControl
+) -> list[SourceTableStatus]:
     """Per-schema detail for one imported source — backs the Overview tab's drill-down modal."""
-    return sort_source_tables(_schema_table_statuses(team_id, source_id=source_id))
+    return sort_source_tables(
+        _schema_table_statuses(team_id, user_access_control=user_access_control, source_id=source_id)
+    )
 
 
 _SOURCE_SUMMARY_DETAILS: dict[ReadinessState, str] = {
@@ -317,8 +329,8 @@ def sort_source_tables(tables: list[SourceTableStatus]) -> list[SourceTableStatu
     )
 
 
-def _sources_status(team_id: int) -> SourcesStatus:
-    tables = _schema_table_statuses(team_id)
+def _sources_status(team_id: int, *, user_access_control: UserAccessControl) -> SourcesStatus:
+    tables = _schema_table_statuses(team_id, user_access_control=user_access_control)
     if not tables:
         return {
             "readiness_state": "not_configured",
@@ -346,7 +358,9 @@ def _roll_up_state(states: list[ReadinessState]) -> ReadinessState:
     return "not_configured"
 
 
-def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatus:
+def get_managed_warehouse_data_status(
+    team_id: int, *, user_access_control: UserAccessControl
+) -> ManagedWarehouseDataStatus:
     # A status read degrades to None (reported not_configured) when the control plane
     # can't answer; it must never 500.
     backfill = team_backfill_membership(team_id)
@@ -365,7 +379,7 @@ def get_managed_warehouse_data_status(team_id: int) -> ManagedWarehouseDataStatu
         backfill=backfill,
         partitions=[row for row in partitions if row.dataset == ManagedWarehouseBackfillPartition.Dataset.PERSONS],
     )
-    sources = _sources_status(team_id)
+    sources = _sources_status(team_id, user_access_control=user_access_control)
     return {
         "overall_readiness_state": _roll_up_state(
             [events["readiness_state"], persons["readiness_state"], sources["readiness_state"]]

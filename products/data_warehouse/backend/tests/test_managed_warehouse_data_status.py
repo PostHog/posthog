@@ -1,13 +1,16 @@
 from datetime import UTC, date, datetime, timedelta
+from typing import cast
 from uuid import uuid4
 
 from freezegun import freeze_time
 
+from django.db.models import QuerySet
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
     ReadinessState,
@@ -32,6 +35,14 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema,
 
 Granularity = ManagedWarehouseBackfillPartition.Granularity
 LifecycleState = ManagedWarehouseBackfillPartition.LifecycleState
+
+
+class _AllowAllSourceAccess:
+    def filter_queryset_by_access_level(self, queryset: QuerySet[ExternalDataSource]) -> QuerySet[ExternalDataSource]:
+        return queryset
+
+
+ALLOW_ALL_SOURCE_ACCESS = cast(UserAccessControl, _AllowAllSourceAccess())
 
 
 class TestSourceTableReadiness(SimpleTestCase):
@@ -396,7 +407,7 @@ class TestGetSourceSchemaStatuses(TestCase):
         )
         schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source)
 
-        [result] = get_source_schema_statuses(team.id, str(source.id))
+        [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert result["schema_id"] == str(schema.id)
         assert result["readiness_state"] == "waiting"
@@ -417,7 +428,7 @@ class TestGetSourceSchemaStatuses(TestCase):
         _record_source_workflow(team=team, schema=schema_a)
         _record_source_workflow(team=team, schema=schema_b)
 
-        result = get_source_schema_statuses(team.id, str(source_a.id))
+        result = get_source_schema_statuses(team.id, str(source_a.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert [row["schema_id"] for row in result] == [str(schema_a.id)]
 
@@ -431,7 +442,7 @@ class TestGetSourceSchemaStatuses(TestCase):
         paused_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source, should_sync=False)
         _record_source_workflow(team=team, schema=paused_schema)
 
-        [result] = get_source_schema_statuses(team.id, str(source.id))
+        [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert result["readiness_state"] == "sync_paused"
         assert result["applied"] is True
@@ -444,7 +455,7 @@ class TestGetSourceSchemaStatuses(TestCase):
         deleted_schema = ExternalDataSchema.objects.create(team=team, name="charges", source=source, deleted=True)
         _record_source_workflow(team=team, schema=deleted_schema)
 
-        result = get_source_schema_statuses(team.id, str(source.id))
+        result = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert result == []
 
@@ -461,7 +472,7 @@ class TestGetSourceSchemaStatuses(TestCase):
             started_at=datetime(2026, 7, 14, 11, 59, tzinfo=UTC),
         )
 
-        [result] = get_source_schema_statuses(team.id, str(source.id))
+        [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert result["readiness_state"] == "up_to_date"
         assert result["last_applied_at"] == applied_at
@@ -482,7 +493,7 @@ class TestGetSourceSchemaStatuses(TestCase):
             started_at=applied_at + timedelta(minutes=1),
         )
 
-        [result] = get_source_schema_statuses(team.id, str(source.id))
+        [result] = get_source_schema_statuses(team.id, str(source.id), user_access_control=ALLOW_ALL_SOURCE_ACCESS)
 
         assert result["readiness_state"] == "needs_attention"
         assert result["workflow_status"] == ManagedWarehouseSourceJobStatus.FAILED
