@@ -831,6 +831,10 @@ def process_social_invite_signup(
             invite = TeamInviteSurrogate(invite_id)
         except Team.DoesNotExist:
             return None
+        # Legacy team signup tokens bind to no email and never expire, so this branch must run the
+        # domain gate itself — real invites get it upstream via their resolved organization.
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(email, invite.organization):
+            return None
 
     # Capture before invite.use() — use() deletes the invite row, so the in-memory boolean is
     # the only safe source of truth for delegation routing.

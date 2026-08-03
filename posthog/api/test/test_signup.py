@@ -1256,6 +1256,42 @@ class TestSignupAPI(APIBaseTest):
         self.assertRedirects(response, "/")
         self.assertIn("_auth_user_id", self.client.session)
 
+    def _complete_sso_with_invite_id(self, mock_request, invite_id: str, email: str):
+        begin = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
+        self.assertEqual(begin.status_code, status.HTTP_302_FOUND)
+        state = self.client.session["google-oauth2_state"]
+        session = self.client.session
+        session["invite_id"] = invite_id
+        session.save()
+        url = reverse("social:complete", kwargs={"backend": "google-oauth2"}) + f"?code=2&state={state}"
+        mock_request.return_value.json.return_value = {"access_token": "123", "email": email, "sub": "123"}
+        return self.client.get(url, follow=True)
+
+    @mock.patch("social_core.backends.base.BaseAuth.request")
+    @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
+    @pytest.mark.ee
+    def test_legacy_team_signup_token_respects_domain_enforcement(self, mock_sso_providers, mock_request):
+        # TeamInviteSurrogate joins with no email binding and no expiry, so the surrogate branch runs
+        # the domain gate itself — otherwise an old signup link silently voids the setting.
+        mock_sso_providers.return_value = {"google-oauth2": True}
+        with self.is_cloud(True):
+            org = self._org_enforcing_verified_domain()
+            team = org.teams.first()
+            assert team is not None
+            team.signup_token = "legacy-signup-token"
+            team.save()
+
+            response = self._complete_sso_with_invite_id(mock_request, "legacy-signup-token", "outsider@gmail.com")
+            self.assertRedirects(response, "/login?error_code=invalid_invite")
+            self.assertFalse(User.objects.filter(email="outsider@gmail.com").exists())
+
+            # Without enforcement the legacy token keeps working — the gate must not kill it wholesale.
+            org.enforce_verified_domains = False
+            org.save()
+            self._complete_sso_with_invite_id(mock_request, "legacy-signup-token", "outsider2@gmail.com")
+            joined = User.objects.get(email="outsider2@gmail.com")
+            self.assertTrue(joined.organizations.filter(pk=org.pk).exists())
+
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
