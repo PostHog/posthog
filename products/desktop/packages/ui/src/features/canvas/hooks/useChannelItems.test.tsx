@@ -197,7 +197,7 @@ describe("useChannelItems", () => {
 
   it("includes tasks filed into the space without duplicating feed tasks", () => {
     mocks.channels = {
-      channels: [{ id: "c1", name: "eng", path: "/eng" }],
+      channels: [channel()],
       isLoading: false,
     };
     const filedTask = {

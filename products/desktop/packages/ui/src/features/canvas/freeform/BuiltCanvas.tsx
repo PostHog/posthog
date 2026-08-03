@@ -54,8 +54,11 @@ export function BuiltCanvas({
   latest.current = { onDataRequest, onError, onReady, onRendered, onNavigate };
 
   useLayoutEffect(() => {
+    const iframe = iframeRef.current;
+    let artifactPort: MessagePort | null = null;
+    let initialDocumentConnected = false;
     const post = (message: HostToCanvasMessage) =>
-      iframeRef.current?.contentWindow?.postMessage(message, "*");
+      artifactPort?.postMessage(message);
 
     const route = async (message: CanvasToHostMessage) => {
       switch (message.type) {
@@ -125,13 +128,33 @@ export function BuiltCanvas({
     };
 
     const onMessage = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
       const parsed = canvasToHostMessageSchema.safeParse(event.data);
       if (parsed.success) void route(parsed.data);
     };
 
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    const onLoad = () => {
+      if (initialDocumentConnected) {
+        artifactPort?.close();
+        artifactPort = null;
+        return;
+      }
+      initialDocumentConnected = true;
+      const bridge = new MessageChannel();
+      artifactPort = bridge.port1;
+      artifactPort.addEventListener("message", onMessage);
+      artifactPort.start();
+      iframe?.contentWindow?.postMessage(
+        { channel: "posthog-canvas", type: "connect" },
+        "*",
+        [bridge.port2],
+      );
+    };
+
+    iframe?.addEventListener("load", onLoad);
+    return () => {
+      iframe?.removeEventListener("load", onLoad);
+      artifactPort?.close();
+    };
   }, []);
 
   return (

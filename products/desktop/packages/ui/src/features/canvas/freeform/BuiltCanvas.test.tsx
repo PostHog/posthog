@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BuiltCanvas } from "./BuiltCanvas";
 
@@ -23,5 +23,38 @@ describe("BuiltCanvas", () => {
       "referrerpolicy",
       "no-referrer",
     );
+  });
+
+  it("revokes data access when the artifact document navigates", async () => {
+    const onDataRequest = vi.fn().mockResolvedValue({ secret: true });
+    render(
+      <BuiltCanvas
+        artifactUrl="https://usercontent.example/build/index.html"
+        onDataRequest={onDataRequest}
+      />,
+    );
+    const iframe = screen.getByTitle("Canvas") as HTMLIFrameElement;
+    if (!iframe.contentWindow) throw new Error("Canvas iframe has no window");
+    const postMessage = vi.spyOn(iframe.contentWindow, "postMessage");
+
+    fireEvent.load(iframe);
+    const calls = postMessage.mock.calls as unknown as [
+      unknown,
+      string,
+      Transferable[],
+    ][];
+    const transferredPort = calls[0]?.[2]?.[0];
+    expect(transferredPort).toBeInstanceOf(MessagePort);
+
+    fireEvent.load(iframe);
+    (transferredPort as MessagePort).postMessage({
+      channel: "posthog-canvas",
+      type: "data-request",
+      id: "request-after-navigation",
+      method: "query",
+      payload: { hogql: "select 1" },
+    });
+
+    await waitFor(() => expect(onDataRequest).not.toHaveBeenCalled());
   });
 });
