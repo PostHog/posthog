@@ -28,7 +28,8 @@ import { urls } from 'scenes/urls'
 
 import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, ReplayTabs } from '~/types'
+import { escapeHogQLString } from '~/queries/utils'
+import { FilterLogicalOperator, PropertyFilterType, ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -130,10 +131,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     type: FilterLogicalOperator.And,
                                                                     values: [
                                                                         {
-                                                                            key: '$exception_issue_id',
-                                                                            type: PropertyFilterType.Event,
-                                                                            operator: PropertyOperator.Exact,
-                                                                            value: [issue.id],
+                                                                            key: `issue_id = ${escapeHogQLString(issue.id)}`,
+                                                                            type: PropertyFilterType.HogQL,
                                                                         },
                                                                     ],
                                                                 },
@@ -181,10 +180,8 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     type: FilterLogicalOperator.And,
                                                                     values: [
                                                                         {
-                                                                            key: '$exception_issue_id',
-                                                                            type: PropertyFilterType.Event,
-                                                                            operator: PropertyOperator.Exact,
-                                                                            value: [issue.id],
+                                                                            key: `issue_id = ${escapeHogQLString(issue.id)}`,
+                                                                            type: PropertyFilterType.HogQL,
                                                                         },
                                                                     ],
                                                                 },
