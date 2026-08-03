@@ -143,7 +143,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type AccountProperties = {
@@ -176,6 +176,8 @@ export namespace Schemas {
       slack_channel_id?: string | null;
       /** @nullable */
       usage_dashboard_link?: string | null;
+      /** @nullable */
+      metabase_link?: string | null;
     } | null;
 
     /**
@@ -209,7 +211,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: AccountProperties;
@@ -28561,6 +28563,89 @@ export namespace Schemas {
     }
 
     /**
+     * * `fired_any` - fired_any
+     * * `no_metric_activity` - no_metric_activity
+     * * `funnel_dropoff` - funnel_dropoff
+     */
+    export type ExperimentSessionBucketEnum = typeof ExperimentSessionBucketEnum[keyof typeof ExperimentSessionBucketEnum];
+
+
+    export const ExperimentSessionBucketEnum = {
+      FiredAny: 'fired_any',
+      NoMetricActivity: 'no_metric_activity',
+      FunnelDropoff: 'funnel_dropoff',
+    } as const;
+
+    /**
+     * One requested metric the bucket could not be computed over.
+     */
+    export interface ExperimentSessionBucketExcludedMetric {
+      /** UUID of the experiment metric. */
+      metric_uuid: string;
+      /** Display name of the metric. */
+      metric_name: string;
+      /** Why the metric can't be matched to recordings: a data-warehouse-only source, a retention window, or events only ever captured server-side. */
+      reason: string;
+    }
+
+    /**
+     * One metric the bucket was computed over.
+     */
+    export interface ExperimentSessionBucketMetric {
+      /** UUID of the experiment metric. */
+      metric_uuid: string;
+      /** Display name of the metric, or an event-derived title (matching the experiment UI) when unnamed. */
+      metric_name: string;
+    }
+
+    /**
+     * Request body for the session-bucket endpoint.
+     */
+    export interface ExperimentSessionBucketRequest {
+      /** Which question the returned session set answers. 'fired_any': the session fired at least one event of any listed metric (an OR the recordings query itself can't express). 'no_metric_activity': the session fired none of them. 'funnel_dropoff': the session fired the funnel metric's first step and never reached its last one. All three are session-scoped and goal-free: they say what happened in the session, not whether it helped or hurt the metric.
+       *
+       * * `fired_any` - fired_any
+       * * `no_metric_activity` - no_metric_activity
+       * * `funnel_dropoff` - funnel_dropoff */
+      bucket: ExperimentSessionBucketEnum;
+      /** Metrics the bucket is computed over. Exactly one funnel metric for 'funnel_dropoff'. Omit for the other buckets to use every metric of the experiment that can be matched to recordings. */
+      metric_uuids?: string[];
+      /**
+         * Restrict to sessions that saw this variant. Omit for every variant. A session that saw more than one variant matches each variant it saw.
+         * @nullable
+         */
+      variant?: string | null;
+      /**
+         * Maximum session IDs to return, at most 100. The most recently active matching sessions win.
+         * @minimum 1
+         * @maximum 100
+         */
+      limit?: number;
+    }
+
+    /**
+     * Session recordings of an experiment matching a bucket.
+     */
+    export interface ExperimentSessionBucketResponse {
+      /** IDs of matching sessions that have a recording, most recently active first. Feed these to a recordings query as session_ids; they are a subset of the experiment's exposed sessions, so the exposure filter can stay in place alongside them. */
+      session_ids: string[];
+      /** True when more sessions matched than the limit returned. Older matches were dropped first. */
+      truncated: boolean;
+      /** The metrics the bucket was actually computed over. Load-bearing for 'no_metric_activity': 'fired nothing' only means something next to the list of metrics it was evaluated against. */
+      considered_metrics: ExperimentSessionBucketMetric[];
+      /** Requested metrics left out of the bucket because they can never match a recording, with the reason. They are reported rather than silently producing an empty result. */
+      excluded_metrics: ExperimentSessionBucketExcludedMetric[];
+      /** Start of the window scanned: the experiment's run window, clamped to its most recent 30 days. Matches outside it are not returned. */
+      date_from: string;
+      /** End of the window scanned: the experiment's end date, or now while it runs. */
+      date_to: string;
+      /** Whether the project's test-account filters were applied, following the experiment's exposure criteria, the same rule the experiment's recordings list uses. */
+      filter_test_accounts: boolean;
+      /** True when the exposed population was matched on the stamped $feature/<flag key> event property instead of the exposure event, because the default exposure event has only ever been captured server-side and can never match a session. The sessions then mean 'the flag was active in this session', not 'the exposure moment was captured'. The variant comes from the flag's value on each event, so a returning user can appear under a variant they were re-bucketed into later. */
+      used_exposure_fallback: boolean;
+    }
+
+    /**
      * * `source` - source
      * * `step` - step
      * * `numerator` - numerator
@@ -49141,7 +49226,7 @@ export namespace Schemas {
     }
 
     /**
-     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+     * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected.
      * @nullable
      */
     export type PatchedAccountProperties = {
@@ -49174,6 +49259,8 @@ export namespace Schemas {
       slack_channel_id?: string | null;
       /** @nullable */
       usage_dashboard_link?: string | null;
+      /** @nullable */
+      metabase_link?: string | null;
     } | null;
 
     /**
@@ -49193,7 +49280,7 @@ export namespace Schemas {
          */
       external_id?: string | null;
       /**
-         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.
+         * Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link). Defaults to an empty object. Unknown keys are rejected.
          * @nullable
          */
       properties?: PatchedAccountProperties;
@@ -51793,6 +51880,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly action_redirects?: PatchedHogFlowActionRedirects;
+    }
+
+    export interface PatchedHogFlowActionEmailUpdate {
+      /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
+      base_updated_at?: string;
+      /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
+      operations?: DesignOperation[];
+      /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is always re-rendered from it. */
+      email_patch?: unknown;
     }
 
     export interface PatchedHogFlowGraphUpdate {
@@ -72989,6 +73085,8 @@ export namespace Schemas {
       readonly period_end: string;
       /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
       readonly projected_monthly_credits: number;
+      /** Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed. */
+      readonly free_monthly_credits: number;
     }
 
     export interface WarehouseConnection {
