@@ -375,7 +375,11 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
       doSubmit();
     };
 
-    const submitBlocked = submitDisabledExternal || isEmpty;
+    // `disabled` counts: every caller sets it for a state where sending is
+    // impossible or would repeat itself (task creation in flight, a session
+    // that is not running, a compacting Pi session), and the editor cannot be
+    // typed into, so a live send button only invites a click that misfires.
+    const submitBlocked = disabled || submitDisabledExternal || isEmpty;
     const submitTooltip =
       submitTooltipOverride ??
       (submitBlocked ? "Enter a message" : "Send message");
@@ -488,20 +492,28 @@ export const PromptInput = forwardRef<EditorHandle, PromptInputProps>(
               </TooltipProvider>
             </InputGroupAddon>
           )}
-          {/* Send rides alongside the text rather than down in the toolbar.
-              `items-end` parks it on the last line, so a growing prompt pushes
-              it down the box instead of leaving it stranded up top. */}
-          <div className="flex w-full items-end">
+          {/* Send floats over the text's bottom-right rather than sitting in a
+              column beside it. Laid out beside the text, it would push the
+              scroll container inwards and strand the scrollbar mid-box; over
+              it, the container runs to the edge and the bar hugs it. The text
+              reserves the button's width so a long line never runs underneath. */}
+          <div className="relative w-full">
             <div
               className={clsx(
-                "cli-editor-scroll relative min-h-[37px] min-w-0 flex-1 overflow-y-auto px-2 py-2 text-[14px]",
+                "cli-editor-scroll relative min-h-[37px] w-full overflow-y-auto py-2 pr-10 pl-2 text-[14px]",
                 editorHeight === "large" ? "max-h-[45vh]" : "max-h-[200px]",
+                // A disabled editor still looks editable: the caret is the only
+                // tell, and it is absent precisely because you cannot focus it.
+                disabled && "text-muted-foreground",
+                // What you are typing in bash mode is a shell command, so it
+                // should look like one.
+                isBashMode && "font-mono",
               )}
             >
               <EditorContent editor={editor} />
             </div>
             {submitButton && (
-              <span className="shrink-0 p-1">{submitButton}</span>
+              <span className="absolute right-2 bottom-1">{submitButton}</span>
             )}
           </div>
         </InputGroup>
