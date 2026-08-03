@@ -5,6 +5,7 @@ client via `get_llm_client(product="growth")` and pass it in — this module jus
 an archived Harmonic payload plus a prompt config into a stamped verdict.
 """
 
+import re
 import json
 import math
 from collections.abc import Callable
@@ -23,8 +24,8 @@ from products.growth.backend.models import EnrichmentPromptConfig, OrganizationE
 
 UNKNOWN: Literal["unknown"] = "unknown"
 
-# Keys the stored output dict uses for provenance (see classify_payload below) -
-# a configured output field can never shadow them.
+# Keys the stored output dict uses for provenance (see classify_payload below).
+# validate_output_fields rejects any configured output field that shadows one of these.
 RESERVED_OUTPUT_FIELD_KEYS = frozenset({"meta", "inputs"})
 
 _TRUE_STRINGS = frozenset({"true", "yes", "y", "1"})
@@ -36,13 +37,28 @@ _FALSE_STRINGS = frozenset({"false", "no", "n", "0"})
 MAX_INPUT_COLUMNS = 40
 MAX_INPUT_VALUE_CHARS = 4000
 MAX_INPUT_LIST_ITEMS = 50
+# The per-value bounds above compose multiplicatively (columns x list items x nested dict keys),
+# so this is the one check that actually maps to spend: the serialized total.
+MAX_INPUT_TOTAL_CHARS = 60000
+# Past this nesting level, _bounded/to_domain stop recursing: deeply nested provider JSON would
+# otherwise risk RecursionError inside the worker, which tenacity would then retry at full cost.
+MAX_INPUT_DEPTH = 6
 # A verdict is a handful of short keys; anything longer is a model that has started narrating.
 MAX_OUTPUT_TOKENS = 2000
+
+_TRUNCATED_AT_MAX_DEPTH = "…(truncated: exceeded max input nesting depth)"
 
 
 class OutputParseError(ValueError):
     """The model's reply didn't satisfy the config's output schema. Deterministic: retrying the
     same prompt against the same config produces the same failure, so it is not retried."""
+
+
+class PromptConfigError(ValueError):
+    """The stored config's output schema is malformed. Deterministic and operator-fixable, not a
+    model-reply problem, so it is raised before any LLM call rather than retried. This module
+    stays free of the management-command layer (see the module docstring), so callers that need a
+    CLI-style CommandError translate this at their own boundary."""
 
 
 def verdict_field_key(config: EnrichmentPromptConfig) -> str | None:
@@ -55,23 +71,32 @@ def verdict_field_key(config: EnrichmentPromptConfig) -> str | None:
     return None
 
 
-def to_domain(value: Any) -> Any:
-    """Reduce anything that looks like an email address to its domain, at any depth.
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+
+
+def to_domain(value: Any, depth: int = 0) -> Any:
+    """Reduce a value that is an email address end to end to its domain, at any depth.
 
     Applied to every value on its way to the prompt, because the values also land in
     EnrichmentLabelResult.inputs and stay there: a provider field that happens to hold a personal
     address would otherwise be stored indefinitely. The local part carries no classification
     signal anyway - only the company domain does.
 
+    Only a full string match on the email shape reduces - a merely-contains-"@" check would mangle
+    free text like "we build AI @scale" or "contact hello@acme.com for a demo" beyond recognition.
+
     Recurses because the values are not all scalars: tagsV2 and funding.investors are lists, so a
-    top-level-only check leaves nested addresses through.
+    top-level-only check leaves nested addresses through. depth caps that recursion so a
+    pathologically nested payload can't raise RecursionError.
     """
+    if depth >= MAX_INPUT_DEPTH:
+        return _TRUNCATED_AT_MAX_DEPTH
     if isinstance(value, str):
-        return value.rsplit("@", 1)[1].lower() if "@" in value else value
+        return value.rsplit("@", 1)[1].lower() if _EMAIL_RE.fullmatch(value) else value
     if isinstance(value, dict):
-        return {key: to_domain(item) for key, item in value.items()}
+        return {key: to_domain(item, depth + 1) for key, item in value.items()}
     if isinstance(value, list):
-        return [to_domain(item) for item in value]
+        return [to_domain(item, depth + 1) for item in value]
     return value
 
 
@@ -105,21 +130,24 @@ def _output_instruction(config: EnrichmentPromptConfig) -> str:
     return f"a JSON object with exactly these keys: {fields_desc}."
 
 
-def _bounded(value: Any) -> Any:
+def _bounded(value: Any, depth: int = 0) -> Any:
     """Cap a single value's contribution to the prompt. An input_fields value can be an
     arbitrarily long string or list (e.g. description, tagsV2), and one company payload with a
     200 KB description would otherwise set the bill for the whole run.
 
     Recurses for the same reason to_domain does: several provider fields hold lists of objects, so
     capping only the top level lets an oversized nested string through to the prompt and into the
-    stored inputs.
+    stored inputs. depth caps that recursion so a pathologically nested payload can't raise
+    RecursionError; past it we return a placeholder instead of descending further.
     """
+    if depth >= MAX_INPUT_DEPTH:
+        return _TRUNCATED_AT_MAX_DEPTH
     if isinstance(value, str):
         return value[:MAX_INPUT_VALUE_CHARS] + "…" if len(value) > MAX_INPUT_VALUE_CHARS else value
     if isinstance(value, dict):
-        return {key: _bounded(item) for key, item in value.items()}
+        return {key: _bounded(item, depth + 1) for key, item in list(value.items())[:MAX_INPUT_LIST_ITEMS]}
     if isinstance(value, list):
-        return [_bounded(item) for item in value[:MAX_INPUT_LIST_ITEMS]]
+        return [_bounded(item, depth + 1) for item in value[:MAX_INPUT_LIST_ITEMS]]
     return value
 
 
@@ -129,8 +157,15 @@ def bound_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     Applied once, before the prompt is built, so the same dict is what the model sees and what
     EnrichmentLabelResult.inputs stores. Bounding inside build_messages instead would leave the
     stored record claiming an untruncated value was sent.
+
+    The per-value bounding above composes multiplicatively (columns x list items x nested dict
+    keys), so it caps nothing on its own - the serialized-size check below is the one bound that
+    actually maps to spend, and drops trailing columns until the whole payload fits.
     """
-    return {key: _bounded(value) for key, value in list(inputs.items())[:MAX_INPUT_COLUMNS]}
+    bounded = {key: _bounded(value) for key, value in list(inputs.items())[:MAX_INPUT_COLUMNS]}
+    while bounded and len(json.dumps(bounded)) > MAX_INPUT_TOTAL_CHARS:
+        bounded.popitem()
+    return bounded
 
 
 def build_messages(
@@ -175,10 +210,19 @@ def _coerce_number(value: Any) -> float:
     return number
 
 
+def _coerce_str(value: Any) -> str:
+    """None and list/dict are rejected rather than stringified: `str(None)` and a list/dict's repr
+    are both indistinguishable from a model that genuinely wrote "None" or a Python literal, which
+    is exactly the fail-silent outcome _coerce_bool was hardened against for booleans."""
+    if value is None or isinstance(value, list | dict):
+        raise OutputParseError(f"{value!r} is not a string-coercible scalar")
+    return str(value)
+
+
 _OUTPUT_FIELD_COERCERS: dict[str, Callable[[Any], Any]] = {
     "boolean": _coerce_bool,
     "number": _coerce_number,
-    "string": str,
+    "string": _coerce_str,
 }
 
 # Keys whose value is a 0-1 confidence by convention, range-checked so a model answering 7.5
@@ -186,23 +230,49 @@ _OUTPUT_FIELD_COERCERS: dict[str, Callable[[Any], Any]] = {
 _UNIT_INTERVAL_KEYS = frozenset({"confidence"})
 
 
+def validate_output_fields(config: EnrichmentPromptConfig) -> None:
+    """Checked once, before any LLM call: a config typo or omission is deterministic per org, so
+    without this it would only surface after paying for a call, and then get retried three times
+    against a schema it could never satisfy - the exact amplification the retry predicate on
+    OutputParseError exists to prevent. Raises PromptConfigError, not OutputParseError, since this
+    is a config problem, not a model reply problem."""
+    for field in config.output_fields:
+        key = field.get("key")
+        field_type = field.get("type")
+        if not key or not field_type:
+            raise PromptConfigError(f"enrichment output field {field!r} is missing a 'key' or 'type'")
+        if key in RESERVED_OUTPUT_FIELD_KEYS:
+            raise PromptConfigError(
+                f"enrichment output field {key!r} shadows a reserved key {sorted(RESERVED_OUTPUT_FIELD_KEYS)}"
+            )
+        if field_type not in _OUTPUT_FIELD_COERCERS:
+            raise PromptConfigError(f"enrichment output field {key!r} has unknown type {field_type!r}")
+
+
 def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -> dict[str, Any]:
     """Validate presence and coerce basic types for a configurable output schema — the stored
-    output ends up with exactly the configured keys, nothing more."""
+    output ends up with exactly the configured keys, nothing more.
+
+    validate_output_fields already runs before any of this, so field/type shape is guaranteed —
+    the .get() lookup here is belt-and-braces, not the primary line of defence.
+    """
     output: dict[str, Any] = {}
     for field in config.output_fields:
         key = field["key"]
         if key not in data:
             raise OutputParseError(f"LLM response is missing the {key!r} key")
-        coercer = _OUTPUT_FIELD_COERCERS[field["type"]]
+        coercer = _OUTPUT_FIELD_COERCERS.get(field.get("type"))
+        if coercer is None:
+            raise OutputParseError(f"LLM response key {key!r} has unrecognized output type {field.get('type')!r}")
         try:
             value = coercer(data[key])
+            # Bare message: the except clause below owns the "LLM response key ..." prefix.
+            if key in _UNIT_INTERVAL_KEYS and not 0 <= value <= 1:
+                raise OutputParseError(f"{value} is outside the 0-1 range")
         except OutputParseError as e:
             raise OutputParseError(f"LLM response key {key!r}: {e}") from e
         except (TypeError, ValueError) as e:
             raise OutputParseError(f"LLM response key {key!r} could not be coerced to {field['type']}: {e}") from e
-        if key in _UNIT_INTERVAL_KEYS and not 0 <= value <= 1:
-            raise OutputParseError(f"LLM response key {key!r} is {value}, outside the 0-1 range")
         output[key] = value
     return output
 
@@ -226,9 +296,17 @@ def _call_and_parse(
         max_tokens=MAX_OUTPUT_TOKENS,
         timeout=60,
     )
+    # Content filtering and some upstream routes reply with an empty choices list; indexing it
+    # unguarded raises IndexError, which (unlike OutputParseError) tenacity retries at full cost
+    # for a response shape that will not change.
+    if not response.choices:
+        raise OutputParseError("LLM response had no choices (likely content filtering)")
+    choice = response.choices[0]
+    if choice.finish_reason == "length":
+        raise OutputParseError("response truncated at max_tokens")
     # Shared with the other products that talk to the gateway: response_format isn't reliably
     # honored on the Anthropic route, so the reply can arrive fenced or wrapped in prose.
-    data = extract_json_object(response.choices[0].message.content or "")
+    data = extract_json_object(choice.message.content or "")
     if data is None:
         raise OutputParseError("LLM response was not a JSON object")
     output = _parse_custom_output(config, data)
@@ -251,6 +329,10 @@ def _response_meta(response: Any) -> dict[str, Any]:
     if isinstance(prompt_tokens, int) and isinstance(completion_tokens, int):
         meta["prompt_tokens"] = prompt_tokens
         meta["completion_tokens"] = completion_tokens
+    choices = getattr(response, "choices", None)
+    finish_reason = getattr(choices[0], "finish_reason", None) if choices else None
+    if isinstance(finish_reason, str):
+        meta["finish_reason"] = finish_reason
     return meta
 
 
@@ -266,9 +348,18 @@ def _unknown_output(config: EnrichmentPromptConfig, signup_domain: str | None, r
     return output
 
 
+def is_unknown_output(output: dict[str, Any]) -> bool:
+    """The authoritative "was this skipped" marker for accounting. verdict_field_key can be None
+    (a schema with no boolean field), in which case _unknown_output writes no verdict key at all -
+    so callers that count unknowns by checking a verdict key miss every skipped row under such a
+    schema. meta.skipped is set on every _unknown_output call regardless of schema shape."""
+    return bool(output.get("meta", {}).get("skipped"))
+
+
 def classify_payload(
     config: EnrichmentPromptConfig, payload: dict[str, Any] | None, signup_domain: str | None, client: OpenAI
 ) -> dict[str, Any]:
+    validate_output_fields(config)
     # Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's
     # evidence of absence, not a thin signal to guess from, so skip the LLM entirely.
     if not payload or payload.get("companyFound") is False:
@@ -288,6 +379,9 @@ def classify_payload(
     return output
 
 
+_HOSTNAME_RE = re.compile(r"[a-z0-9.-]+\.[a-z]{2,}")
+
+
 def signup_domain_for_organization(organization: Organization) -> str | None:
     """Earliest member's email domain, standing in for the signup company identity."""
     membership = (
@@ -298,7 +392,11 @@ def signup_domain_for_organization(organization: Organization) -> str | None:
     )
     if membership is None or not membership.user.email or "@" not in membership.user.email:
         return None
-    return membership.user.email.rsplit("@", 1)[1].lower()
+    domain = membership.user.email.rsplit("@", 1)[1].lower()
+    # User.email is only validated through full_clean()/serializers, so rows written by
+    # createsuperuser, imports, or backfills can hold anything after the "@" - and this domain is
+    # interpolated into the system prompt's highest-trust segment via build_messages.
+    return domain if _HOSTNAME_RE.fullmatch(domain) else None
 
 
 def latest_fetches_qs() -> QuerySet[OrganizationEnrichmentFetch]:
