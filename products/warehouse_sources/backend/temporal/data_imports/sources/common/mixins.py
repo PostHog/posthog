@@ -27,6 +27,17 @@ _INTERNAL_IP_ERROR = (
 _DNS_FAILURE_ERROR = "Host could not be resolved"
 
 
+def is_team_allowlisted_for_internal_hosts(team_id: int) -> bool:
+    """Whether this team may point warehouse sources at PostHog-internal hosts.
+
+    Only our own internal analytics projects: team 2 in US, team 1 in EU.
+    Gates both the SSRF host check and the egress-proxy bypass for direct
+    connections to internal databases.
+    """
+    region = get_instance_region()
+    return (region == "US" and team_id == 2) or (region == "EU" and team_id == 1)
+
+
 def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
     """Validate that a host is not an internal/private IP address.
 
@@ -68,7 +79,7 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
         _log("allow", "e2e", None)
         return True, None
 
-    if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
+    if is_team_allowlisted_for_internal_hosts(team_id):
         _log("allow", "team_allowlist", None)
         return True, None
 

@@ -10,8 +10,8 @@ from posthog.schema import (
     SourceFieldInputConfig,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.source import UpPromoteSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.uppromote.uppromote import UpPromoteResumeConfig

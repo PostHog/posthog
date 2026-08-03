@@ -9877,6 +9877,12 @@ export const UsersUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 /**
@@ -9962,6 +9968,12 @@ export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersHedgehogConfigPartialUpdateBodyFirstNameMax = 150
@@ -10043,6 +10055,12 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10260,6 +10278,12 @@ export const UsersScenePersonalisationCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 /**
@@ -10344,6 +10368,12 @@ export const UsersTwoFactorBackupCodesCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10430,6 +10460,12 @@ export const UsersTwoFactorDisableCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersTwoFactorValidateCreateBodyFirstNameMax = 150
@@ -10511,6 +10547,12 @@ export const UsersTwoFactorValidateCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10594,6 +10636,12 @@ export const UsersValidate2faCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersCancelEmailChangeRequestPartialUpdateBodyFirstNameMax = 150
@@ -10675,6 +10723,12 @@ export const UsersCancelEmailChangeRequestPartialUpdateBody = /* @__PURE__ */ zo
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })
 
@@ -10758,6 +10812,12 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
         ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
+        ),
 })
 
 export const usersVerifyEmailCreateBodyFirstNameMax = 150
@@ -10839,5 +10899,11 @@ export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.'
+        ),
+    ui_configuration: zod
+        .unknown()
+        .optional()
+        .describe(
+            'Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown.'
         ),
 })

@@ -15,10 +15,6 @@ from posthog.schema import (
 
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -27,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
@@ -213,8 +210,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                 "devices, locations, traffic sources, and events). Requires a Google account with read access "
                 "to the GA4 property."
             ),
-            releaseStatus=ReleaseStatus.BETA,
-            featureFlag="dwh-google-analytics",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/google_analytics.png",
             docsUrl="https://posthog.com/docs/cdp/sources/google-analytics",
             fields=cast(

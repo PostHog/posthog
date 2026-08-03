@@ -49,20 +49,10 @@
 !services/mcp/types.d.ts
 !services/mcp/worker-configuration.d.ts
 !services/mcp/public
-!services/agents
-!services/agent-ingress
-!services/agent-runner
-!services/agent-janitor
-!services/agent-shared
-!services/agent-tools
-!services/agent-sandbox-host
 !packages/quill
 services/agent-*/node_modules
 services/agent-*/dist
 services/agent-*/.next
-services/agents/node_modules
-services/agents/dist
-services/agent-tests
 !services/agent-proxy
 !services/agent-proxy/package.json
 !services/agent-proxy/tsconfig.json
@@ -95,6 +85,9 @@ common/*/dist
 packages/quill/**/node_modules
 packages/quill/**/dist
 products/**/node_modules
+# Nested standalone workspace, not imported by any server image; `!products` above
+# would otherwise pull ~56 MiB of desktop assets into every image build context.
+products/desktop
 nodejs/node_modules
 # The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
 # artifacts out of the plugin-server build context.

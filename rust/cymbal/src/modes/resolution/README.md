@@ -199,9 +199,11 @@ These metric names are exported by the cymbal client unless noted. Definitions l
 Client-side warnings on the cymbal pods:
 
 - `remote resolution dns refresh failed` — DNS refresh task swallowed an error and will retry next tick.
-- `remote resolution transport-level retry` — caller-side transport retry classification, tagged with a bounded reason.
-- `remote resolution returned item overload` — an overloaded result was escalated into a per-item reroute.
+- `remote resolution stream failed to open` / `stream broke` / `stream ended` — the per-endpoint mux stream died; every in-flight item on it is failed over.
+- `temporarily ejected overloaded remote resolution endpoint` — an endpoint was pulled from routing on an overload signal.
 - `remote resolution outcome id did not match submitted item` — the mux ignored an outcome for another id.
+
+Per-item retry/overload/reroute logs (`transport-level retry`, `returned item overload`, `returned item retry`, `outcome had no waiter`) are emitted at debug — they fire O(items × attempts) under overload, so watch the `cymbal_remote_resolution_requests_total{outcome}` counters instead, and enable `RUST_LOG=cymbal=debug` only for targeted investigation.
 
 Logs intentionally do not include raw routing keys as metric labels. Routing keys can contain symbol-set references, so cymbal uses bounded counters/histograms and endpoint labels only where the endpoint set is bounded by discovery.
 

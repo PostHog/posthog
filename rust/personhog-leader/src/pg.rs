@@ -3,7 +3,7 @@ use personhog_common::properties::rewrite_out_of_range_numbers;
 use sqlx::postgres::PgPool;
 use sqlx::Row;
 
-use crate::cache::{CachedPerson, PersonCacheKey};
+use crate::cache::{approx_person_bytes, CachedPerson, PersonCacheKey};
 
 /// A configured PG fallback: the pool and the table it reads. The table
 /// must be the one the writer maintains (see FALLBACK_TABLE in
@@ -67,6 +67,7 @@ pub async fn load_person_from_pg(
     // Borrowed from the row buffer — no copy; parse cost matches what
     // sqlx's own jsonb decode would spend on the same bytes.
     let properties_text: &str = row.get("properties");
+    let properties_text_len = properties_text.len();
     let created_at: chrono::DateTime<chrono::Utc> = row.get("created_at");
     let version: Option<i64> = row.get("version");
     let is_identified: bool = row.get("is_identified");
@@ -104,6 +105,7 @@ pub async fn load_person_from_pg(
         id,
         uuid,
         team_id: team_id as i64,
+        approx_bytes: approx_person_bytes(properties_text_len),
         properties,
         created_at: created_at.timestamp(),
         version: version.unwrap_or(0),

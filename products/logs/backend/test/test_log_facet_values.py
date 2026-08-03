@@ -119,14 +119,34 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertGreater(len(result), 0)
         self.assertNotIn("", result)
 
-    def test_resource_facet_ignores_its_own_filter(self):
-        """Selecting a value via a log_resource_attribute filter must not change that facet's own counts."""
+    @parameterized.expand([("exact",), ("is_not",)])
+    def test_resource_facet_ignores_its_own_filter(self, operator):
+        """Selecting or excluding a value via a log_resource_attribute filter must not change that facet's own counts."""
         base = self._facet_attr("k8s.namespace.name")
         own_value = next(iter(base))
         filter_group = [
-            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": own_value}
+            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": operator, "value": own_value}
         ]
         self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
+
+    def test_level_facet_ignores_its_own_severity_exclusion(self):
+        # The rail stores Level exclusions as an is_not severity_level filter in the group; the
+        # counts query must strip it when faceting on severity_text, or an excluded level's own
+        # count would zero out.
+        base = self._facet("severity_text")
+        own_value = next(iter(base))
+        filter_group = [{"key": "severity_level", "type": "log", "operator": "is_not", "value": [own_value]}]
+        self.assertEqual(self._facet("severity_text", filterGroup=filter_group), base)
+
+    def test_facet_honors_severity_exclusion(self):
+        # An is_not severity_level filter must remove that severity's rows from other facets'
+        # counts — proves the NotIn translation end to end on real data.
+        base = self._facet("service_name")
+        one_severity = next(iter(self._facet("severity_text")))
+        filter_group = [{"key": "severity_level", "type": "log", "operator": "is_not", "value": [one_severity]}]
+        scoped = self._facet("service_name", filterGroup=filter_group)
+        self.assertTrue(set(scoped).issubset(set(base)))
+        self.assertLess(sum(scoped.values()), sum(base.values()))
 
     def test_resource_facet_honors_severity_filter(self):
         # severity_text now lives on the log_attributes rollup, so a severity filter re-scopes
@@ -139,13 +159,19 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(set(scoped).issubset(set(base)))
         self.assertLess(sum(scoped.values()), sum(base.values()))
 
-    def test_resource_facet_honors_other_resource_attribute_filter(self):
-        # A different resource-attribute filter re-scopes the counts via the rollup's
-        # resource_fingerprint subquery — proves cross-filtering still works on log_attributes.
+    @parameterized.expand([("exact",), ("is_not",)])
+    def test_resource_facet_honors_other_resource_attribute_filter(self, operator):
+        # A different resource-attribute filter — include or exclude — re-scopes the counts via the
+        # rollup's resource_fingerprint subquery — proves cross-filtering still works on log_attributes.
         base = self._facet_attr("k8s.pod.name")
         one_namespace = next(iter(self._facet_attr("k8s.namespace.name")))
         filter_group = [
-            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": one_namespace}
+            {
+                "key": "k8s.namespace.name",
+                "type": "log_resource_attribute",
+                "operator": operator,
+                "value": one_namespace,
+            }
         ]
         scoped = self._facet_attr("k8s.pod.name", filterGroup=filter_group)
         self.assertGreater(len(scoped), 0)

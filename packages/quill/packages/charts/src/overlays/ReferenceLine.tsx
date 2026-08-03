@@ -1,5 +1,5 @@
 /* eslint-disable react/forbid-dom-props -- dynamic pixel positions from d3 scales */
-import React, { useMemo } from 'react'
+import React, { useMemo, useState } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './TooltipSurface'
@@ -106,6 +106,8 @@ export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | n
         fillOpacity: style?.fillOpacity ?? 0.1,
         label: props.label,
         labelPosition: props.labelPosition ?? 'end',
+        // Numeric lines (goal thresholds) reveal their value on hover; vertical marker lines don't.
+        valueText: typeof props.value === 'number' ? props.value.toLocaleString() : undefined,
     }
 
     if (orientation === 'horizontal') {
@@ -127,6 +129,8 @@ interface ResolvedProps {
     fillOpacity: number
     label: string | undefined
     labelPosition: ReferenceLineLabelPosition
+    /** Formatted value shown appended to the label on hover. Undefined for non-numeric lines. */
+    valueText: string | undefined
 }
 
 function HorizontalReferenceLine({
@@ -138,6 +142,7 @@ function HorizontalReferenceLine({
     fillOpacity,
     label,
     labelPosition,
+    valueText,
 }: ResolvedProps & { y: number; yAxisId?: string }): React.ReactElement | null {
     const { scales, dimensions } = useChartLayout()
     const { plotLeft, plotTop, plotWidth, plotHeight, width: containerWidth } = dimensions
@@ -185,6 +190,7 @@ function HorizontalReferenceLine({
             fillOpacity={fillOpacity}
             lineStyle={lineStyle}
             label={label}
+            valueText={valueText}
             labelStyle={labelStyle}
         />
     )
@@ -206,6 +212,7 @@ function VerticalStripe({
     fillOpacity,
     label,
     labelPosition,
+    valueText,
 }: Omit<ResolvedProps, 'fillSide'> & {
     x: number
     fillBefore: boolean
@@ -250,6 +257,7 @@ function VerticalStripe({
             fillOpacity={fillOpacity}
             lineStyle={lineStyle}
             label={label}
+            valueText={valueText}
             labelStyle={labelStyle}
         />
     )
@@ -295,6 +303,7 @@ function ReferenceLineView({
     fillOpacity,
     lineStyle,
     label,
+    valueText,
     labelStyle,
 }: {
     fillRect: React.CSSProperties | null
@@ -302,14 +311,18 @@ function ReferenceLineView({
     fillOpacity: number
     lineStyle: React.CSSProperties
     label: string | undefined
+    valueText: string | undefined
     labelStyle: React.CSSProperties
 }): React.ReactElement {
     const { theme } = useChartLayout()
+    const [hovered, setHovered] = useState(false)
     const resolvedLabelStyle: React.CSSProperties = {
         ...labelStyle,
         backgroundColor: theme.tooltipBackground ?? TOOLTIP_FALLBACK_BG,
         color: theme.tooltipColor ?? TOOLTIP_FALLBACK_COLOR,
     }
+    // Hovering the label reveals the line's value, appended to its text label (or shown alone).
+    const content = hovered && valueText ? (label ? `${label}: ${valueText}` : valueText) : label
     return (
         <>
             {fillRect && (
@@ -319,13 +332,15 @@ function ReferenceLineView({
                 />
             )}
             <div data-attr="hog-chart-reference-line" className="absolute pointer-events-none" style={lineStyle} />
-            {label && (
+            {content && (
                 <div
                     data-attr="hog-chart-reference-line-label"
-                    className="absolute pointer-events-none whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5"
+                    className="absolute whitespace-nowrap font-medium text-[11px] rounded px-1 py-0.5 cursor-default"
                     style={resolvedLabelStyle}
+                    onMouseEnter={() => setHovered(true)}
+                    onMouseLeave={() => setHovered(false)}
                 >
-                    {label}
+                    {content}
                 </div>
             )}
         </>

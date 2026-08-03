@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import cache
 
 from django.utils import timezone
 
@@ -20,7 +21,12 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
     INTEGRATION_DEFAULT_SOURCES,
     INTEGRATION_PRIMARY_SOURCE,
 )
-from products.marketing_analytics.backend.services.native_integrations import KEY_TO_NATIVE, iter_custom_source_mappings
+from products.marketing_analytics.backend.services.native_integrations import (
+    KEY_TO_NATIVE,
+    canonical_source_aliases,
+    iter_custom_source_mappings,
+    normalize,
+)
 from products.marketing_analytics.backend.services.types import (
     AlternativeSource,
     Campaign,
@@ -280,9 +286,26 @@ def _get_utm_events(team: Team, date_range: QueryDateRange, *, user: User | None
     return utm_map
 
 
+@cache
+def _default_alias_to_primary() -> dict[str, str]:
+    """Normalized default utm_source aliases ('facebook', 'adwords') -> the
+    integration's primary source name ('meta', 'google')."""
+    out: dict[str, str] = {}
+    for alias, target_key in canonical_source_aliases().items():
+        primary = INTEGRATION_PRIMARY_SOURCE.get(KEY_TO_NATIVE[target_key])
+        if primary:
+            out[alias] = str(primary).lower().strip()
+    return out
+
+
 def _resolve_source(utm_source: str, mappings: TeamMappings) -> str:
-    """Resolve a utm_source to its integration source using custom mappings."""
-    return mappings.source_to_integration.get(utm_source, utm_source)
+    """Resolve a utm_source to its integration's primary source: team custom
+    mappings first (they win, matching `build_combined_alias_map`), then the
+    platform default aliases so e.g. 'facebook' resolves to 'meta'."""
+    custom = mappings.source_to_integration.get(utm_source)
+    if custom is not None:
+        return custom
+    return _default_alias_to_primary().get(normalize(utm_source), utm_source)
 
 
 def _get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
@@ -365,6 +388,8 @@ class _CampaignStats:
     match_display: str
     exact_count: int
     alt_source_counts: dict[str, int]
+    # Events matching the campaign name but carrying no utm_source (empty/missing).
+    missing_source_count: int
 
 
 def _compute_campaign_stats(
@@ -388,8 +413,12 @@ def _compute_campaign_stats(
             source_counts[utm_source] = source_counts.get(utm_source, 0) + count
 
     exact_count = 0
+    missing_source_count = 0
     alt_source_counts: dict[str, int] = {}
     for utm_source, count in source_counts.items():
+        if not utm_source:
+            missing_source_count += count
+            continue
         resolved_source = _resolve_source(utm_source, mappings)
         if resolved_source == source_name_lower or utm_source == source_name_lower:
             exact_count += count
@@ -403,6 +432,7 @@ def _compute_campaign_stats(
         match_display=match_display,
         exact_count=exact_count,
         alt_source_counts=alt_source_counts,
+        missing_source_count=missing_source_count,
     )
 
 
@@ -413,6 +443,7 @@ _HEADLINE_BY_KIND: dict[UtmIssueKind, str] = {
     UtmIssueKind.NAME_COLLISION: "Campaign name also used on {shared}",
     UtmIssueKind.NO_TAGGED_EVENTS: _NO_TAGGED_EVENTS_HEADLINE,
     UtmIssueKind.UNKNOWN_SOURCE: _NO_TAGGED_EVENTS_HEADLINE,
+    UtmIssueKind.MISSING_SOURCE: "Pageviews for '{campaign}' have no utm_source set",
 }
 
 
@@ -455,11 +486,24 @@ def _build_issue(
             message=_make_headline(UtmIssueKind.NAME_COLLISION, platform, stats.match_display, shared_with_sorted),
             alternative_sources=alternative_sources,
             shared_with_integrations=shared_with_sorted,
+            missing_source_count=stats.missing_source_count,
             suggested_actions=[SuggestedAction.SWITCH_TO_ID_MATCH, SuggestedAction.FIX_PLATFORM_URLS],
         )
 
-    # No events at all, and no other integration claims this name → just fix the URLs.
+    # No alternative source events. Either the campaign has pageviews with no utm_source at
+    # all (missing tag — common for auto-tagged campaigns) or no matching pageviews whatsoever.
     if not alternative_sources:
+        if stats.missing_source_count > 0:
+            return UtmIssue(
+                field="utm_source",
+                severity=UtmIssueSeverity.WARNING,
+                kind=UtmIssueKind.MISSING_SOURCE,
+                message=_make_headline(UtmIssueKind.MISSING_SOURCE, platform, stats.match_display, []),
+                alternative_sources=[],
+                shared_with_integrations=[],
+                missing_source_count=stats.missing_source_count,
+                suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS],
+            )
         return UtmIssue(
             field="utm_campaign",
             severity=UtmIssueSeverity.ERROR,
@@ -483,6 +527,7 @@ def _build_issue(
             message=_make_headline(UtmIssueKind.UNKNOWN_SOURCE, platform, stats.match_display, []),
             alternative_sources=alternative_sources,
             shared_with_integrations=[],
+            missing_source_count=stats.missing_source_count,
             suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS, SuggestedAction.ADD_SOURCE_MAPPING],
         )
 
@@ -493,6 +538,7 @@ def _build_issue(
         message=_make_headline(UtmIssueKind.NO_TAGGED_EVENTS, platform, stats.match_display, []),
         alternative_sources=alternative_sources,
         shared_with_integrations=[],
+        missing_source_count=stats.missing_source_count,
         suggested_actions=[SuggestedAction.FIX_PLATFORM_URLS],
     )
 

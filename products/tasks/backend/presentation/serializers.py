@@ -11,7 +11,8 @@ from django.utils import timezone as django_timezone
 
 import posthoganalytics
 from croniter import croniter
-from drf_spectacular.utils import PolymorphicProxySerializer
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
@@ -251,6 +252,13 @@ class TaskRunArtifactResponseSerializer(serializers.Serializer):
     )
     storage_path = serializers.CharField(help_text="S3 object key for the artifact")
     uploaded_at = serializers.CharField(help_text="Timestamp when the artifact was uploaded")
+    url = serializers.URLField(
+        required=False,
+        help_text=(
+            "Presigned download URL for the artifact. Populated on the finalize-upload response so "
+            "the caller can link to the file directly; it is time-limited and not persisted on the manifest."
+        ),
+    )
 
 
 class TaskRunDetailSerializer(DataclassSerializer):
@@ -410,7 +418,10 @@ class TaskWriteSerializer(serializers.Serializer):
     origin_product = serializers.ChoiceField(
         choices=tasks_facade.TaskOriginProduct.choices,
         required=False,
-        help_text="PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).",
+        help_text=(
+            "PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). "
+            "Origins reserved for server-created agents cannot be set through this API."
+        ),
     )
     repository = serializers.CharField(
         max_length=255,
@@ -596,18 +607,18 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
-            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
-        if value == tasks_facade.TaskOriginProduct.EXPERIMENTS:
-            # Experiments tasks are team-readable, so letting API callers pick this origin
-            # would let them expose an arbitrary task to the whole team. The experiments
-            # flow creates its tasks server-side through the facade, never through here.
-            raise serializers.ValidationError("origin_product 'experiments' is reserved for the experiments flow")
-        if value == tasks_facade.TaskOriginProduct.SIGNALS_SCOUT:
-            # Scout tasks are created only by the signals scout harness. A forged scout origin
-            # would route the task's run logs into PostHog's internal Logs project
-            # (run_log_mirror) and inherit scout visibility semantics.
-            raise serializers.ValidationError("origin_product 'signals_scout' is reserved for signals scout runs")
+        reserved_origins = {
+            tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
+            tasks_facade.TaskOriginProduct.EXPERIMENTS,
+            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
+            # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
+            # forged origin would be free model access. Only create_wizard_cloud_run sets it,
+            # behind its own rate limits and daily cap.
+            tasks_facade.TaskOriginProduct.ONBOARDING,
+        }
+        if value in reserved_origins:
+            raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 
     def validate_repository(self, value):
@@ -728,6 +739,17 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("At least one log entry is required")
         return value
+
+
+class TaskSessionResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Task session identifier")
+    download_url = serializers.URLField(allow_null=True, help_text="Temporary URL for downloading the session")
+    content_sha256 = serializers.CharField(allow_null=True, help_text="SHA-256 digest of the current session content")
+
+
+class TaskSessionSyncResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Task session identifier")
+    content_sha256 = serializers.CharField(help_text="SHA-256 digest of the uploaded session content")
 
 
 class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
@@ -936,6 +958,46 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
                     {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
                 )
         return attrs
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class InsightQueryJSONField(serializers.JSONField):
+    """Insight query JSON — freeform across query kinds, so typed as a plain object."""
+
+
+class TaskRunLivingArtifactChartRequestSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=255,
+        help_text="Chart title, also used as the delivered file name.",
+    )
+    query = InsightQueryJSONField(
+        required=False,
+        help_text=(
+            "Insight query JSON to render ad hoc, e.g. "
+            '{"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. '
+            "SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. "
+            "Provide exactly one of query or insight_id."
+        ),
+    )
+    insight_id = serializers.IntegerField(
+        required=False,
+        help_text="Numeric id of a saved insight to render. Provide exactly one of query or insight_id.",
+    )
+
+    def validate(self, attrs):
+        if (attrs.get("query") is None) == (attrs.get("insight_id") is None):
+            raise serializers.ValidationError({"query": "Provide exactly one of query or insight_id."})
+        return attrs
+
+
+class TaskRunLivingArtifactChartResponseSerializer(serializers.Serializer):
+    artifact = TaskRunLivingArtifactResponseSerializer(help_text="The living artifact registered for delivery.")
+    export_asset_id = serializers.IntegerField(help_text="Id of the rendered PNG export backing the chart.")
+    url = serializers.URLField(
+        allow_null=True,
+        required=False,
+        help_text="Link to explore this chart interactively in PostHog.",
+    )
 
 
 class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
@@ -1593,6 +1655,22 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Distinct repositories in use by non-deleted, non-internal tasks for the current team.",
     )
+
+
+class PinnedTaskIdsResponseSerializer(serializers.Serializer):
+    task_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="Visible task IDs pinned by the requester, newest pin first.",
+    )
+
+
+class TaskPinRequestSerializer(serializers.Serializer):
+    pinned = serializers.BooleanField(help_text="Whether the task should be pinned for the requester.")
+
+
+class TaskPinResponseSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="Task whose pin state was updated.")
+    pinned = serializers.BooleanField(help_text="Current pin state for the requester.")
 
 
 class RepositoryReadinessQuerySerializer(serializers.Serializer):
@@ -2424,6 +2502,9 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
         "permission_response",
         "set_config_option",
         "mcp_response",
+        "pi/rpc",
+        "queue_get",
+        "queue_clear",
     ]
 
     # Cap on the serialized mcp_response params (docs/cloud-mcp-relay.md): the relayed JSON-RPC
@@ -2451,7 +2532,7 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
     )
 
     def validate_id(self, value):
-        if value is not None and not isinstance(value, (str, int, float)):
+        if value is not None and not isinstance(value, str | int | float):
             raise serializers.ValidationError("id must be a string or number")
         return value
 
@@ -2496,6 +2577,18 @@ class TaskRunCommandRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"params": "user_message requires a non-empty content string, artifact_ids, or both"}
                 )
+        elif method == "pi/rpc":
+            command = params.get("command")
+            if not isinstance(command, dict):
+                raise serializers.ValidationError({"params": "command must be an object"})
+            command_type = command.get("type")
+            if not isinstance(command_type, str) or not command_type:
+                raise serializers.ValidationError({"params": "command.type must be a non-empty string"})
+            command_id = command.get("id")
+            if not isinstance(command_id, str) or not command_id:
+                raise serializers.ValidationError({"params": "command.id must be a non-empty string"})
+            if attrs.get("id") != command_id:
+                raise serializers.ValidationError({"id": "id must match params.command.id"})
         elif method == "permission_response":
             self._require_nonempty_string(params, "requestId")
             self._require_nonempty_string(params, "optionId")
@@ -2530,7 +2623,7 @@ class TaskRunCommandResponseSerializer(serializers.Serializer):
 
     jsonrpc = serializers.CharField(help_text="JSON-RPC version")
     id = serializers.JSONField(required=False, default=None, help_text="Request ID echoed back (string or number)")
-    result = serializers.DictField(required=False, help_text="Command result on success")
+    result = serializers.JSONField(required=False, help_text="Command result on success")
     error = serializers.DictField(required=False, help_text="Error details on failure")
 
 

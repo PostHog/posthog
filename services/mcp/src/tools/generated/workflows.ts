@@ -184,6 +184,7 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    search: params.search,
                     status: params.status,
                     updated_at: params.updated_at,
                 },
