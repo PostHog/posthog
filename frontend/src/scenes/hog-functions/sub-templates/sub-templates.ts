@@ -64,13 +64,15 @@ function mcpFailedToolCallEvent(errorType?: string): CyclotronJobFilterEvents {
 // The page a rageclick happened on: $pathname when posthog-js set it, else the full URL.
 const PA_RAGECLICK_PAGE_EXPR = 'event.properties.$pathname ? event.properties.$pathname : event.properties.$current_url'
 
-// How long one rage-clicked page stays deduped — same trade-off as the MCP TTL above.
+// How long rageclick alerts stay deduped — same trade-off as the MCP TTL above.
 const PA_ALERT_MASKING_TTL_SECONDS = 30 * 60
 
-// Like MCP_ALERT_MASKING_HASH, the key must never be empty (HogMaskerService skips masking on a
-// falsy hash), so events without page properties collapse into one bucket instead.
-const PA_RAGECLICK_MASKING_HASH =
-    `{concat(${PA_RAGECLICK_PAGE_EXPR}) != '' ` + `? concat(${PA_RAGECLICK_PAGE_EXPR}) : 'unknown-page'}`
+// A constant key, deliberately not per-page. $pathname/$current_url are attacker-controlled
+// (anyone holding the public project token can send $rageclick events), so a per-page bucket
+// would let a sender mint a fresh bucket per event and flood the destination. The constant
+// bounds delivery to one message per function per TTL; the message still names the page that
+// triggered it, and the replay list has the rest.
+const PA_RAGECLICK_MASKING_HASH = 'rageclick'
 
 export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
     HogFunctionSubTemplateIdType,
@@ -116,9 +118,9 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'destination',
         context_id: 'standard',
         filters: { events: [{ id: '$rageclick', type: 'events' }] },
-        // Deduped per page, not per click burst: a broken element gets rage clicked by every
-        // visitor who hits it, so an undeduped alert would post a message per event. One message
-        // per page per interval still surfaces each distinct broken page.
+        // A broken element gets rage clicked by every visitor who hits it, so an undeduped alert
+        // would post a message per event. Deduped globally (see PA_RAGECLICK_MASKING_HASH for why
+        // not per-page): at most one message per interval.
         masking: { hash: PA_RAGECLICK_MASKING_HASH, ttl: PA_ALERT_MASKING_TTL_SECONDS, threshold: null },
     },
     'activity-log': {
