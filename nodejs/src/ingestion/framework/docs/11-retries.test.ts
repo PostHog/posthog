@@ -1,13 +1,13 @@
 /**
  * # Chapter 11: Retry Logic
  *
- * Retry is a per-step option: pass `{ retry }` to `pipe()` or `pipeBatch()` to
+ * Retry is a per-step option: pass `{ retry }` to `pipe()` or `pipeChunk()` to
  * wrap that single step with automatic retry logic. This handles transient
  * failures like network hiccups, database connection timeouts, or rate limiting.
  *
  * ```
  * .pipe(step, { retry: { tries: 3, sleepMs: 100 } })
- * .pipeBatch(step, { retry: { tries: 3, sleepMs: 100 } })
+ * .pipeChunk(step, { retry: { tries: 3, sleepMs: 100 } })
  * ```
  *
  * ## Key Concepts
@@ -41,8 +41,8 @@
  * - Transient failures (network, timeout) - should retry
  * - Permanent failures (validation, permission) - should not retry
  */
-import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
-import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
+import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
+import { newChunkPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { isDlqResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
@@ -290,7 +290,7 @@ describe('Retry Configuration', () => {
     })
 })
 
-describe('Batch Retries', () => {
+describe('Chunk Retries', () => {
     beforeEach(() => {
         jest.useFakeTimers()
     })
@@ -300,19 +300,19 @@ describe('Batch Retries', () => {
     })
 
     /**
-     * `pipeBatch(step, { retry })` retries the whole batch step on retriable
-     * errors, the same way per-item retry works. The batch is reprocessed as a
+     * `pipeChunk(step, { retry })` retries the whole chunk step on retriable
+     * errors, the same way per-item retry works. The chunk is reprocessed as a
      * unit until it succeeds or retries are exhausted.
      */
-    it('pipeBatch retries the batch step until it succeeds', async () => {
+    it('pipeChunk retries the chunk step until it succeeds', async () => {
         let attempts = 0
 
         interface Event {
             id: number
         }
 
-        function createFlakyBatchStep(): BatchProcessingStep<Event, Event> {
-            return function flakyBatchStep(events) {
+        function createFlakyChunkStep(): ChunkProcessingStep<Event, Event> {
+            return function flakyChunkStep(events) {
                 attempts++
                 if (attempts < 3) {
                     throw new RetriableError('Downstream unavailable')
@@ -321,8 +321,8 @@ describe('Batch Retries', () => {
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
-            .pipeBatch(createFlakyBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
+        const pipeline = newChunkPipelineBuilder<Event>()
+            .pipeChunk(createFlakyChunkStep(), { retry: { tries: 5, sleepMs: 100 } })
             .build()
 
         pipeline.feed([{ id: 1 }, { id: 2 }].map((e) => createOkContext(e, {})))
@@ -336,23 +336,23 @@ describe('Batch Retries', () => {
     })
 
     /**
-     * When a batch step throws a non-retriable error, every input in the batch
+     * When a chunk step throws a non-retriable error, every input in the chunk
      * is converted to its own DLQ result. The failure is attributed per-input
      * so each message is dead-lettered individually.
      */
-    it('pipeBatch sends one DLQ per input on a non-retriable error', async () => {
+    it('pipeChunk sends one DLQ per input on a non-retriable error', async () => {
         interface Event {
             id: number
         }
 
-        function createFailingBatchStep(): BatchProcessingStep<Event, Event> {
-            return function failingBatchStep(_events) {
-                throw new NonRetriableError('Batch permanently invalid')
+        function createFailingChunkStep(): ChunkProcessingStep<Event, Event> {
+            return function failingChunkStep(_events) {
+                throw new NonRetriableError('Chunk permanently invalid')
             }
         }
 
-        const pipeline = newBatchPipelineBuilder<Event>()
-            .pipeBatch(createFailingBatchStep(), { retry: { tries: 5, sleepMs: 100 } })
+        const pipeline = newChunkPipelineBuilder<Event>()
+            .pipeChunk(createFailingChunkStep(), { retry: { tries: 5, sleepMs: 100 } })
             .build()
 
         // Three inputs -> three DLQ results, no retries (non-retriable)

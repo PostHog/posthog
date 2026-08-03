@@ -64,3 +64,14 @@ pub const V2_PROP_DEFS_BATCH_ROWS_AFFECTED: &str = "propdefs_v2_propdefs_batch_r
 pub const V2_PROP_DEFS_BATCH_CACHE_TIME: &str = "propdefs_v2_propdefs_batch_cache_time_ms";
 pub const V2_PROP_DEFS_CACHE_REMOVED: &str = "propdefs_v2_propdefs_cache_removed";
 pub const V2_PROP_DEFS_BATCH_SIZE: &str = "propdefs_v2_propdefs_batch_size";
+
+// Group property definitions dropped for an unresolved group_type_index and evicted from
+// the shared dedup cache, so a later $groupidentify (whose type resolves once the mapping
+// lands) is not filtered out and can persist.
+pub const V2_PROP_DEFS_DROPPED_UNCACHED: &str = "propdefs_v2_propdefs_dropped_uncached";
+
+// Rows stripped from a write batch because they reference a team/project that no longer
+// exists (Postgres FK violation, e.g. a deleted team still sending events). Labeled by
+// target table. Stripped rows stay in the shared dedup cache on purpose, so the dead
+// tenant's events stop re-issuing the same failing write.
+pub const V2_BATCH_ROWS_DROPPED_FK: &str = "propdefs_v2_batch_rows_dropped_fk";

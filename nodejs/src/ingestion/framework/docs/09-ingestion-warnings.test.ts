@@ -50,7 +50,7 @@
  */
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
+import { newChunkPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
@@ -58,7 +58,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { createTestTeam } from '~/tests/helpers/team'
 import { Team } from '~/types'
 
-type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
+type ChunkProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
 describe('Warning Basics', () => {
     /**
@@ -71,7 +71,7 @@ describe('Warning Basics', () => {
             properties?: Record<string, any>
         }
 
-        function createValidationStep(): BatchProcessingStep<Event, Event> {
+        function createValidationStep(): ChunkProcessingStep<Event, Event> {
             return function validationStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -91,7 +91,7 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createValidationStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createValidationStep()).build()
 
         const batch = [createOkContext({ name: 'pageview' }, { team })]
         pipeline.feed(batch)
@@ -118,7 +118,7 @@ describe('Warning Basics', () => {
             properties?: Record<string, any>
         }
 
-        function createTimestampCheckStep(): BatchProcessingStep<Event, Event> {
+        function createTimestampCheckStep(): ChunkProcessingStep<Event, Event> {
             return function timestampCheckStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -135,7 +135,7 @@ describe('Warning Basics', () => {
             }
         }
 
-        function createPropertiesCheckStep(): BatchProcessingStep<Event, Event> {
+        function createPropertiesCheckStep(): ChunkProcessingStep<Event, Event> {
             return function propertiesCheckStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -153,9 +153,9 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createTimestampCheckStep())
-            .pipeBatch(createPropertiesCheckStep())
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
+            .pipeChunk(createTimestampCheckStep())
+            .pipeChunk(createPropertiesCheckStep())
             .build()
 
         const batch = [createOkContext({ name: 'click' }, { team })]
@@ -181,7 +181,7 @@ describe('Warning Basics', () => {
             properties: Record<string, any>
         }
 
-        function createComprehensiveValidationStep(): BatchProcessingStep<Event, Event> {
+        function createComprehensiveValidationStep(): ChunkProcessingStep<Event, Event> {
             return function comprehensiveValidationStep(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -217,8 +217,8 @@ describe('Warning Basics', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createComprehensiveValidationStep())
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
+            .pipeChunk(createComprehensiveValidationStep())
             .build()
 
         // Create an event that triggers multiple warnings
@@ -253,7 +253,7 @@ describe('Handling Ingestion Warnings', () => {
             name: string
         }
 
-        function createWarningStep(): BatchProcessingStep<Event, Event> {
+        function createWarningStep(): ChunkProcessingStep<Event, Event> {
             return function warningStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -264,8 +264,8 @@ describe('Handling Ingestion Warnings', () => {
         }
 
         const team = createTestTeam({ id: 42 })
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createWarningStep())
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
+            .pipeChunk(createWarningStep())
             .teamAware((builder) => builder)
             .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -297,7 +297,7 @@ describe('Handling Ingestion Warnings', () => {
             name: string
         }
 
-        function createStepWithBothSideEffectsAndWarnings(): BatchProcessingStep<Event, Event> {
+        function createStepWithBothSideEffectsAndWarnings(): ChunkProcessingStep<Event, Event> {
             return function stepWithBothSideEffectsAndWarnings(items) {
                 return Promise.resolve(
                     items.map((item) => {
@@ -310,8 +310,8 @@ describe('Handling Ingestion Warnings', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>()
-            .pipeBatch(createStepWithBothSideEffectsAndWarnings())
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>()
+            .pipeChunk(createStepWithBothSideEffectsAndWarnings())
             .teamAware((builder) => builder)
             .handleIngestionWarnings(mockOutputs)
             .handleSideEffects(promiseScheduler, { await: true })
@@ -340,7 +340,7 @@ describe('Warning Debouncing', () => {
             distinctId: string
         }
 
-        function createUserWarningStep(): BatchProcessingStep<Event, Event> {
+        function createUserWarningStep(): ChunkProcessingStep<Event, Event> {
             return function userWarningStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -361,7 +361,7 @@ describe('Warning Debouncing', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createUserWarningStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createUserWarningStep()).build()
 
         const batch = [createOkContext({ distinctId: 'user-123' }, { team })]
         pipeline.feed(batch)
@@ -384,7 +384,7 @@ describe('Warning Debouncing', () => {
             name: string
         }
 
-        function createCriticalWarningStep(): BatchProcessingStep<Event, Event> {
+        function createCriticalWarningStep(): ChunkProcessingStep<Event, Event> {
             return function criticalWarningStep(items) {
                 return Promise.resolve(
                     items.map((item) =>
@@ -406,7 +406,7 @@ describe('Warning Debouncing', () => {
         }
 
         const team = createTestTeam()
-        const pipeline = newBatchPipelineBuilder<Event, { team: Team }>().pipeBatch(createCriticalWarningStep()).build()
+        const pipeline = newChunkPipelineBuilder<Event, { team: Team }>().pipeChunk(createCriticalWarningStep()).build()
 
         const batch = [createOkContext({ name: 'important_event' }, { team })]
         pipeline.feed(batch)

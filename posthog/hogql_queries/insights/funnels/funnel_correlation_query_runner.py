@@ -24,6 +24,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -38,6 +39,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.element.element import chain_to_elements
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.user import User
@@ -107,6 +109,7 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         user: Optional[User] = None,
     ):
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
+        self._use_new_events_schema = use_new_events_schema(team.pk)
         self.actors_query = self.query.source
         self.funnels_query = self.actors_query.source
 
@@ -245,6 +248,11 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
             query=query,
             team=self.team,
             user=self.user,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                use_new_events_schema=self._use_new_events_schema,
+            ),
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
@@ -315,6 +323,9 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
         return events, skewed_totals, hogql, response
 
     def _date_range(self) -> QueryDateRange:
+        # daysOfWeek scopes funnel step attribution, not the correlation event scan: actors are
+        # already day-filtered, and "what else did they do while converting" reads over their whole
+        # window. Deliberate — see test_days_of_week_does_not_filter_correlation_events.
         return QueryDateRange(
             date_range=self.context.query.dateRange,
             team=self.context.team,
@@ -606,11 +617,12 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 )
             """
         else:
-            event_property_array_query = """
+            properties_pairs = "JSONExtractKeysAndValues(event_table.properties, 'String')"
+            event_property_array_query = f"""
                 if(
                     empty(event_table.event),
                     [],
-                    arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), JSONExtractKeysAndValues(event_table.properties, 'String'))
+                    arrayMap(prop -> tuple(event_table.event, prop.1, prop.2), {properties_pairs})
                 )
             """
 

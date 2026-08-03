@@ -1,4 +1,3 @@
-import random
 import typing
 import asyncio
 import datetime as dt
@@ -8,12 +7,9 @@ import pytest
 
 import pyarrow as pa
 
-from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
-
 from products.batch_exports.backend.service import BackfillDetails
 from products.batch_exports.backend.temporal.spmc import (
     InvalidFilterError,
-    Producer,
     RecordBatchQueue,
     compose_filters_clause,
     slice_record_batch,
@@ -87,76 +83,6 @@ async def test_record_batch_queue_str_and_repr():
     assert "record_batches=1 bytes=24 schema='test: int64'" in repr(queue)
 
 
-async def get_record_batch_from_queue(queue, produce_task):
-    while not queue.empty() or not produce_task.done():
-        try:
-            record_batch = queue.get_nowait()
-        except asyncio.QueueEmpty:
-            if produce_task.done():
-                break
-            else:
-                await asyncio.sleep(0.1)
-                continue
-
-        return record_batch
-    return None
-
-
-async def get_all_record_batches_from_queue(queue, produce_task):
-    records = []
-    while not queue.empty() or not produce_task.done():
-        record_batch = await get_record_batch_from_queue(queue, produce_task)
-        if record_batch is None:
-            break
-
-        for record in record_batch.to_pylist():
-            records.append(record)
-    return records
-
-
-async def test_record_batch_producer_uses_extra_query_parameters(clickhouse_client):
-    """Test RecordBatch Producer uses a HogQL value."""
-    team_id = random.randint(1, 1000000)
-    data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:31:00.000000+00:00")
-    data_interval_start = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-
-    (events, _, _) = await generate_test_events_in_clickhouse(
-        client=clickhouse_client,
-        team_id=team_id,
-        start_time=data_interval_start,
-        end_time=data_interval_end,
-        count=10,
-        count_outside_range=0,
-        count_other_team=0,
-        duplicate=False,
-        properties={"$browser": "Chrome", "$os": "Mac OS X", "custom": 3},
-    )
-
-    queue = RecordBatchQueue()
-    producer = Producer()
-    producer_task = await producer.start(
-        queue=queue,
-        team_id=team_id,
-        is_backfill=False,
-        backfill_details=None,
-        model_name="events",
-        full_range=(data_interval_start, data_interval_end),
-        done_ranges=[],
-        fields=[
-            {"expression": "JSONExtractInt(properties, %(hogql_val_0)s)", "alias": "custom_prop"},
-        ],
-        extra_query_parameters={"hogql_val_0": "custom"},
-    )
-
-    records = await get_all_record_batches_from_queue(queue, producer_task)
-
-    for expected, record in zip(events, records):
-        if expected["properties"] is None:
-            raise ValueError("Empty properties")
-
-        assert record["custom_prop"] == expected["properties"]["custom"]
-
-
 def test_slice_record_batch_into_single_record_slices():
     """Test we slice a record batch into slices with a single record."""
     n_legs = pa.array([2, 2, 4, 4, 5, 100])
@@ -173,7 +99,7 @@ def test_slice_record_batch_into_one_batch():
     """Test we do not slice a record batch without a bytes limit."""
     n_legs = pa.array([2, 2, 4, 4, 5, 100])
     animals = pa.array(["Flamingo", "Parrot", "Dog", "Horse", "Brittle stars", "Centipede"])
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=0))
     assert len(slices) == 1
@@ -184,7 +110,7 @@ def test_slice_record_batch_in_half():
     """Test we can slice a record batch into half size."""
     n_legs = pa.array([4] * 6)
     animals = pa.array(["Dog"] * 6)
-    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])  # type: ignore
+    batch = pa.RecordBatch.from_arrays([n_legs, animals], names=["n_legs", "animals"])
 
     slices = list(slice_record_batch(batch, max_record_batch_size_bytes=batch.nbytes // 2, min_records_per_batch=1))
     assert len(slices) == 2
@@ -204,7 +130,7 @@ def test_slice_large_record_batch():
 
     payload = pa.array([b"0" * (1024)] * size, type=pa.large_binary())
     id = pa.array(list(range(size)))
-    batch = pa.RecordBatch.from_arrays([id, payload], names=["id", "payload"])  # type: ignore
+    batch = pa.RecordBatch.from_arrays([id, payload], names=["id", "payload"])
 
     # Large binary allocates additional 8 bytes per row.
     # Id array is int64, and takes up 8 bytes per row.
@@ -360,6 +286,21 @@ def test_compose_filters_clause(
     result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
     assert result_clause == expected_clause
     assert result_values == expected_values
+
+
+def test_compose_filters_clause_uses_legacy_events_schema(settings, ateam):
+    settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA = True
+
+    result_clause, result_values = compose_filters_clause(
+        [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+        team_id=ateam.id,
+    )
+
+    assert (
+        result_clause
+        == """ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), 0)"""
+    )
+    assert result_values == {"hogql_val_0": "$browser", "hogql_val_1": "Chrome"}
 
 
 @pytest.mark.parametrize(

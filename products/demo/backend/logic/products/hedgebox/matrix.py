@@ -9,7 +9,6 @@ from urllib.parse import urlparse, urlunparse
 
 from django.apps import apps
 from django.conf import settings
-from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 
 from posthog.schema import (
@@ -51,6 +50,7 @@ from posthog.constants import PAGEVIEW_EVENT
 from posthog.exceptions_capture import capture_exception
 from posthog.models.event.util import create_event
 from posthog.models.oauth import OAuthApplication
+from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.scopes import UNPRIVILEGED_SCOPES
 from posthog.storage import object_storage
 
@@ -1450,8 +1450,6 @@ class HedgeboxMatrix(Matrix):
             created_at=bias_warning_flag.created_at,
         )
 
-        self._set_up_demo_data_warehouse_tables(team, user)
-
         # Endpoints
         try:
             weekly_signups_endpoint = Endpoint.objects.create(
@@ -1806,29 +1804,38 @@ class HedgeboxMatrix(Matrix):
         if not (settings.OIDC_RSA_PRIVATE_KEY and settings.DEBUG and not is_cloud()):
             return
 
-        try:
-            OAuthApplication.objects.create(
-                name="Demo OAuth Application",
-                client_id="DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
-                client_secret="GQItUP4GqE6t5kjcWIRfWO9c0GXPCY8QDV4eszH4PnxXwCVxIMVSil4Agit7yay249jasnzHEkkVqHnFMxI1YTXSrh8Bj1sl1IDfNi1S95sv208NOc0eoUBP3TdA7vf0",
-                redirect_uris="http://localhost:3000/callback http://localhost:8237/callback http://localhost:8239/callback",
-                user=user,
-                organization=team.organization,
-                client_type=OAuthApplication.CLIENT_PUBLIC,
-                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                algorithm="RS256",
-                is_first_party=True,
+        OAuthApplication.objects.update_or_create(
+            client_id="DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
+            defaults={
+                "name": "Demo OAuth Application",
+                "client_secret": "GQItUP4GqE6t5kjcWIRfWO9c0GXPCY8QDV4eszH4PnxXwCVxIMVSil4Agit7yay249jasnzHEkkVqHnFMxI1YTXSrh8Bj1sl1IDfNi1S95sv208NOc0eoUBP3TdA7vf0",
+                "redirect_uris": "http://localhost:3000/callback http://localhost:8237/callback http://localhost:8239/callback",
+                "user": user,
+                "organization": team.organization,
+                "client_type": OAuthApplication.CLIENT_PUBLIC,
+                "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                "algorithm": "RS256",
+                "is_first_party": True,
                 # An empty ceiling resolves to UNPRIVILEGED_SCOPES at /authorize, which
                 # excludes the privileged/hidden scopes the onboarding wizard requests
                 # (llm_gateway:read, wizard_session:*) — so it failed with invalid_scope.
                 # Reproduce the broad default and add those so the wizard works locally.
-                scopes=sorted(
+                "scopes": sorted(
                     UNPRIVILEGED_SCOPES
                     | {"llm_gateway:read", "llm_gateway:write", "wizard_session:read", "wizard_session:write"}
                 ),
-            )
-        except (IntegrityError, ValidationError):
-            pass
+                # The wizard can also provision an account rather than logging into one, which
+                # every provisioning endpoint gates on. Every capability defaults to False, so
+                # without these account creation fails at authentication with "no provisioning
+                # client is registered" and the flow can't be exercised locally at all.
+                "is_provisioning_partner": True,
+                "_provisioning_config": ProvisioningConfig(
+                    active=True,
+                    can_create_accounts=True,
+                    can_provision_resources=True,
+                ).model_dump(mode="json"),
+            },
+        )
 
     def _set_up_error_tracking_demo_data(self, team: "Team") -> None:
         issue_specs: list[ErrorTrackingDemoIssueSpec] = [
@@ -2133,29 +2140,81 @@ class HedgeboxMatrix(Matrix):
             "after": [{"number": line_number + index + 1, "line": line} for index, line in enumerate(post_context)],
         }
 
-    def _set_up_demo_data_warehouse_tables(self, team: "Team", user: "User") -> None:
-        if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:
-            return
+    _DEMO_EXTENDED_PROPERTIES_TABLE = "extended_properties"
 
-        access_key = settings.OBJECT_STORAGE_ACCESS_KEY_ID
-        access_secret = settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
-        if not access_key or not access_secret or not settings.OBJECT_STORAGE_ENDPOINT:
+    @staticmethod
+    def _demo_data_warehouse_storage_ready() -> bool:
+        if settings.TEST or not settings.OBJECT_STORAGE_ENABLED:
+            return False
+        if (
+            not settings.OBJECT_STORAGE_ACCESS_KEY_ID
+            or not settings.OBJECT_STORAGE_SECRET_ACCESS_KEY
+            or not settings.OBJECT_STORAGE_ENDPOINT
+        ):
+            return False
+        return True
+
+    def demo_data_warehouse_tables_need_saving(self, source_team_id: int) -> bool:
+        if not self._demo_data_warehouse_storage_ready():
+            return False
+        try:
+            # extended_properties is written last, so its presence means the whole set is already saved.
+            key = self._demo_warehouse_object_key(source_team_id, self._DEMO_EXTENDED_PROPERTIES_TABLE)
+            return object_storage.head_object(key) is None
+        except Exception as err:
+            # Never let a storage hiccup block the demo signup flow — just skip warehouse setup this time.
+            capture_exception(err)
+            return False
+
+    def save_demo_data_warehouse_tables(self, source_team: "Team") -> None:
+        if not self._demo_data_warehouse_storage_ready():
+            return
+        for table_spec in self._demo_data_warehouse_table_specs():
+            try:
+                rows = self._collect_demo_data_warehouse_rows(table_spec)
+                self._write_demo_data_warehouse_csv(
+                    source_team.pk, table_spec.name, tuple(table_spec.columns.keys()), rows
+                )
+            except Exception as err:
+                capture_exception(err)
+        try:
+            rows = self._collect_demo_extended_person_rows()
+            self._write_demo_data_warehouse_csv(
+                source_team.pk,
+                self._DEMO_EXTENDED_PROPERTIES_TABLE,
+                tuple(self._demo_extended_person_properties_columns().keys()),
+                rows,
+            )
+        except Exception as err:
+            capture_exception(err)
+
+    def register_demo_data_warehouse_tables(self, team: "Team", user: "User", source_team_id: int) -> None:
+        if not self._demo_data_warehouse_storage_ready():
             return
 
         credential = get_or_create_datawarehouse_credential(
             team_id=team.pk,
-            access_key=access_key,
-            access_secret=access_secret,
+            access_key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
         )
         for table_spec in self._demo_data_warehouse_table_specs():
             try:
-                rows = self._collect_demo_data_warehouse_rows(table_spec)
-                self._upsert_demo_data_warehouse_table(team, user, credential, table_spec, rows)
+                self._register_demo_data_warehouse_table(
+                    team, user, credential, table_spec.name, table_spec.columns, source_team_id
+                )
             except Exception as err:
                 capture_exception(err)
 
         try:
-            self._upsert_demo_extended_person_properties_table(team, user, credential)
+            self._register_demo_data_warehouse_table(
+                team,
+                user,
+                credential,
+                self._DEMO_EXTENDED_PROPERTIES_TABLE,
+                self._demo_extended_person_properties_columns(),
+                source_team_id,
+            )
+            self._upsert_demo_extended_person_properties_join(team, self._DEMO_EXTENDED_PROPERTIES_TABLE)
         except Exception as err:
             capture_exception(err)
 
@@ -2300,19 +2359,6 @@ class HedgeboxMatrix(Matrix):
 
         return rows
 
-    def _upsert_demo_extended_person_properties_table(self, team: "Team", user: "User", credential) -> None:
-        table_name = "extended_properties"
-        rows = self._collect_demo_extended_person_rows()
-        self._upsert_demo_data_warehouse_table_contents(
-            team=team,
-            user=user,
-            credential=credential,
-            table_name=table_name,
-            columns=self._demo_extended_person_properties_columns(),
-            rows=rows,
-        )
-        self._upsert_demo_extended_person_properties_join(team, table_name)
-
     @staticmethod
     def _upsert_demo_extended_person_properties_join(team: "Team", table_name: str) -> None:
         existing_join = (
@@ -2343,36 +2389,36 @@ class HedgeboxMatrix(Matrix):
             field_name=table_name,
         )
 
-    def _upsert_demo_data_warehouse_table(
+    @staticmethod
+    def _demo_warehouse_s3_prefix(source_team_id: int, table_name: str) -> str:
+        return f"data-warehouse/demo_{table_name}/team_{source_team_id}"
+
+    @classmethod
+    def _demo_warehouse_object_key(cls, source_team_id: int, table_name: str) -> str:
+        return f"{cls._demo_warehouse_s3_prefix(source_team_id, table_name)}/{table_name}.csv"
+
+    def _write_demo_data_warehouse_csv(
         self,
-        team: "Team",
-        user: "User",
-        credential,
-        table_spec: DemoDataWarehouseTableSpec,
+        source_team_id: int,
+        table_name: str,
+        headers: tuple[str, ...],
         rows: list[tuple[Any, ...]],
     ) -> None:
-        self._upsert_demo_data_warehouse_table_contents(
-            team=team,
-            user=user,
-            credential=credential,
-            table_name=table_spec.name,
-            columns=table_spec.columns,
-            rows=rows,
+        object_storage.write(
+            self._demo_warehouse_object_key(source_team_id, table_name),
+            self._warehouse_rows_to_csv(rows, headers=headers),
         )
 
-    def _upsert_demo_data_warehouse_table_contents(
+    def _register_demo_data_warehouse_table(
         self,
         team: "Team",
         user: "User",
         credential,
         table_name: str,
         columns: dict[str, str],
-        rows: list[tuple[Any, ...]],
+        source_team_id: int,
     ) -> None:
-        s3_prefix = f"data-warehouse/demo_{table_name}/team_{team.pk}"
-        object_key = f"{s3_prefix}/{table_name}.csv"
-        object_storage.write(object_key, self._warehouse_rows_to_csv(rows, headers=tuple(columns.keys())))
-
+        s3_prefix = self._demo_warehouse_s3_prefix(source_team_id, table_name)
         url_pattern = f"{self._warehouse_endpoint()}/{settings.OBJECT_STORAGE_BUCKET}/{s3_prefix}/*.csv"
         existing_table = DataWarehouseTable.objects.filter(team=team, name=table_name).first()
         if existing_table:

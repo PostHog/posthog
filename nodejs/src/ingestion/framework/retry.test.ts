@@ -1,12 +1,12 @@
 import { captureException } from '~/common/utils/posthog'
 
-import { BatchProcessingStep } from './base-batch-pipeline'
-import { newBatchPipelineBuilder, newPipelineBuilder } from './builders'
+import { ChunkProcessingStep } from './base-chunk-pipeline'
+import { newChunkPipelineBuilder, newPipelineBuilder } from './builders'
 import { createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'
 import { getRetryAttempts } from './metrics.test-utils'
 import { PipelineResult, isDlqResult, isOkResult, ok } from './results'
-import { withBatchRetry, withStepRetry } from './retry'
+import { withChunkRetry, withStepRetry } from './retry'
 import { ProcessingStep } from './steps'
 
 jest.setTimeout(1000)
@@ -32,7 +32,7 @@ class NonRetriableError extends Error {
 /**
  * A `run` executes a step wrapped with retry through the public builder interface
  * and returns the flat list of results, so `withStepRetry` (single item) and
- * `withBatchRetry` (batch) can share the same behavioral assertions.
+ * `withChunkRetry` (chunk) can share the same behavioral assertions.
  *
  * `script` runs once per attempt and may throw to simulate failures.
  */
@@ -67,12 +67,12 @@ const stepVariant: Variant = {
     },
 }
 
-const batchVariant: Variant = {
-    label: 'withBatchRetry (via pipeBatch)',
+const chunkVariant: Variant = {
+    label: 'withChunkRetry (via pipeChunk)',
     async run(script, retry, opts) {
         const inputs = opts?.inputs ?? [1]
         // Inline function literal so the computed-property key names the step (for the metric-name test).
-        const step: BatchProcessingStep<number, string> = opts?.stepName
+        const step: ChunkProcessingStep<number, string> = opts?.stepName
             ? {
                   [opts.stepName]: (values: number[]): Promise<PipelineResult<string>[]> => {
                       script()
@@ -83,7 +83,7 @@ const batchVariant: Variant = {
                   script()
                   return Promise.resolve(values.map((v) => ok(String(v))))
               }
-        const pipeline = newBatchPipelineBuilder<number>().pipeBatch(step, { retry }).gather().build()
+        const pipeline = newChunkPipelineBuilder<number>().pipeChunk(step, { retry }).gather().build()
         pipeline.feed(inputs.map((v) => createOkContext(v, {})))
         const results = await pipeline.next()
         return (results ?? []).map((r) => r.result)
@@ -96,7 +96,7 @@ describe('retry', () => {
         pipelineRetryAttemptsHistogram.reset()
     })
 
-    describe.each([stepVariant, batchVariant])('$label', (variant) => {
+    describe.each([stepVariant, chunkVariant])('$label', (variant) => {
         it('retries retriable errors and eventually succeeds', async () => {
             let attempts = 0
             const script = (): void => {
@@ -158,8 +158,8 @@ describe('retry', () => {
         })
     })
 
-    it('maps a non-retriable batch error to one DLQ result per input value', async () => {
-        const results = await batchVariant.run(
+    it('maps a non-retriable chunk error to one DLQ result per input value', async () => {
+        const results = await chunkVariant.run(
             () => {
                 throw new NonRetriableError('Validation failed')
             },
@@ -175,7 +175,7 @@ describe('retry', () => {
         const namedStep = function namedStep(): Promise<PipelineResult<string>> {
             return Promise.resolve(ok('x'))
         }
-        const namedBatchStep = function namedBatchStep(values: number[]): Promise<PipelineResult<string>[]> {
+        const namedChunkStep = function namedChunkStep(values: number[]): Promise<PipelineResult<string>[]> {
             return Promise.resolve(values.map((v) => ok(String(v))))
         }
 
@@ -183,8 +183,8 @@ describe('retry', () => {
             expect(withStepRetry(namedStep).name).toBe('namedStep')
         })
 
-        it('for withBatchRetry', () => {
-            expect(withBatchRetry(namedBatchStep).name).toBe('namedBatchStep')
+        it('for withChunkRetry', () => {
+            expect(withChunkRetry(namedChunkStep).name).toBe('namedChunkStep')
         })
     })
 })

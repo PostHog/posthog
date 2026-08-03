@@ -36,7 +36,9 @@ class TestFirebaseIntegration(BaseTest):
         key_info = overrides.pop("key_info", FAKE_KEY_INFO)
         team_id = overrides.pop("team_id", self.team.id)
         created_by = overrides.pop("created_by", None)
-        return FirebaseIntegration.integration_from_key(key_info, team_id, created_by)
+        return FirebaseIntegration.integration_from_key(
+            key_info, team_id, created_by, push_identity_verification=overrides.pop("push_identity_verification", None)
+        )
 
     def test_creates_integration(self):
         integration = self._create_firebase_integration()
@@ -54,6 +56,18 @@ class TestFirebaseIntegration(BaseTest):
         second = self._create_firebase_integration()
 
         assert first.id == second.id
+
+    def test_reconnecting_preserves_identity_verification(self):
+        # Rotating the service account key is a routine action that re-upserts the integration. It
+        # must not silently reset the verification policy, which would reopen device takeover.
+        self._create_firebase_integration(push_identity_verification="required")
+        reconnected = self._create_firebase_integration()
+
+        assert reconnected.config["push_identity_verification"] == "required"
+
+    def test_rejects_an_unknown_identity_verification_mode(self):
+        with self.assertRaises(ValidationError):
+            self._create_firebase_integration(push_identity_verification="enabled")
 
     def test_separate_integrations_for_different_projects(self):
         first = self._create_firebase_integration()

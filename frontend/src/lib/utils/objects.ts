@@ -1,4 +1,4 @@
-import equal from 'fast-deep-equal'
+import { deepEqual as equal } from 'fast-equals'
 
 export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
     return (

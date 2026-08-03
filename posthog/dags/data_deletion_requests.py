@@ -1,7 +1,8 @@
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from functools import partial
 
 from django.conf import settings as django_settings
 
@@ -10,7 +11,7 @@ import pydantic
 from clickhouse_driver import Client
 
 # Pre-warm the HogQL → HogVM bytecode import chain at code-location load time. Compiling a
-# predicate (process_property_removal_per_shard → compile_hogql_predicate) builds the HogQL
+# predicate (process_property_removal_shard → compile_hogql_predicate) builds the HogQL
 # database, whose virtual-field placeholder replacement lazily does
 # ``from common.hogvm.python.execute import …`` (posthog/hogql/placeholders.py). That import
 # first runs during op execution, when the Dagster run worker can no longer resolve the
@@ -26,17 +27,25 @@ from posthog.clickhouse.cluster import AlterTableMutationRunner, ClickhouseClust
 from posthog.dags.common import JobOwners
 from posthog.dags.deletes import deletes_job
 from posthog.models.data_deletion_request import (
+    AUTO_APPROVE_INTERVAL_MINUTES,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
     RequestType,
+    auto_approve_pending_requests,
     compile_hogql_predicate,
     event_match_sql_fragment,
     event_removal_where,
     jsonhas_expr,
     verify_queued_request,
 )
-from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.event.deletion import events_data_tables
+from posthog.models.event.sql import (
+    DISTRIBUTED_EVENTS_JSON_TABLE,
+    EVENTS_DATA_TABLE,
+    EVENTS_JSON_DATA_TABLE,
+    json_property_presence_expr,
+)
 from posthog.models.person.bulk_delete import (
     delete_persons_profile,
     queue_person_recording_deletion,
@@ -64,8 +73,9 @@ class DeletionRequestContext:
     execution_mode: str = ExecutionMode.IMMEDIATE.value
     delete_all_events: bool = False
     hogql_predicate: str = ""
-    # Set by process_property_removal_per_shard; cleaned re-inserts get this exact value stamped
-    # onto inserted_at so the same op's delete pass can exclude them via inserted_at < marker.
+    # Set by load_property_removal_request from the persisted request field; cleaned re-inserts
+    # get this exact value stamped onto inserted_at so the delete pass can exclude them via
+    # inserted_at < marker, and re-runs recognize rows already cleaned by earlier attempts.
     inserted_at_marker: datetime | None = None
 
 
@@ -87,13 +97,15 @@ class PersonRemovalContext:
 # ---------------------------------------------------------------------------
 
 
-def _record_execution_attempt(request: DataDeletionRequest) -> None:
+def _record_execution_attempt(request: DataDeletionRequest, run_id: str) -> None:
     """Mark the request IN_PROGRESS and update execution-tracking fields.
 
     Called from inside the ``select_for_update`` block of each ``load_*`` op so
-    the counter and timestamps are bumped exactly once per APPROVED → IN_PROGRESS
-    transition. ``first_executed_at`` is preserved across retries; ``attempt_count``
-    counts every actual execution attempt (not Retry button clicks).
+    the counter, timestamps and Dagster run id are set exactly once per
+    APPROVED → IN_PROGRESS transition. ``first_executed_at`` is preserved across
+    retries; ``attempt_count`` counts every actual execution attempt (not Retry
+    button clicks). ``last_dagster_run_id`` always points at the newest run, so an
+    operator debugging a stuck or failed request can jump straight to its logs.
     """
     from django.utils import timezone
 
@@ -101,7 +113,8 @@ def _record_execution_attempt(request: DataDeletionRequest) -> None:
     request.status = RequestStatus.IN_PROGRESS
     request.attempt_count = (request.attempt_count or 0) + 1
     request.last_executed_at = now
-    update_fields = ["status", "updated_at", "attempt_count", "last_executed_at"]
+    request.last_dagster_run_id = run_id
+    update_fields = ["status", "updated_at", "attempt_count", "last_executed_at", "last_dagster_run_id"]
     if request.first_executed_at is None:
         request.first_executed_at = now
         update_fields.append("first_executed_at")
@@ -116,6 +129,15 @@ def _property_filter_clause(props: list[str], prefix: str = "fp_", column: str =
     if len(props) == 1:
         return jsonhas_expr(props[0], f"{prefix}0", column=column)
     exprs = [jsonhas_expr(prop, f"{prefix}{i}", column=column) for i, prop in enumerate(props)]
+    return f"({' OR '.join(exprs)})"
+
+
+def _json_property_filter_clause(props: list[str], column: str = "properties") -> str:
+    """Presence clause for the native-JSON events tables, where JSONHas over the JSON column does
+    not see typed paths or nested objects — subcolumn reads are the reliable form."""
+    exprs = [json_property_presence_expr(column, prop) for prop in props]
+    if len(exprs) == 1:
+        return exprs[0]
     return f"({' OR '.join(exprs)})"
 
 
@@ -167,6 +189,8 @@ def _property_removal_where(
     person_mat_cols: list[tuple[str, bool]] | None = None,
     inserted_at_max: str | None = None,
     hogql_compiled: tuple[str, dict] | None = None,
+    json_schema: bool = False,
+    exclude_cleaned_from: str | None = None,
 ) -> tuple[str, dict]:
     """Full WHERE predicate + params for property-removal queries.
 
@@ -174,7 +198,9 @@ def _property_removal_where(
     originals afterward. The presence check (JSON ``properties`` and/or
     ``person_properties`` plus DEFAULT materialized columns) MUST match between
     the two passes — drift causes either data loss (delete > copy) or duplication
-    (copy > delete).
+    (copy > delete). For the same reason both passes MUST pass the identical
+    ``inserted_at_max``: a row ingested after the marker that only the copy pass
+    sees gets a cleaned twin whose original is never deleted.
 
     Honors the optional ``hogql_predicate`` on the request the same way
     ``_event_removal_where`` does, so an operator can scope a property removal
@@ -187,19 +213,30 @@ def _property_removal_where(
     when the worker holds a different DB connection from the test/request
     transaction.
 
-    The delete pass additionally passes ``inserted_at_max``: cleaned re-inserts
-    are stamped with that exact value, so ``inserted_at < marker`` skips them.
-    Legacy rows may have ``inserted_at IS NULL`` and are still originals to
-    delete — the NULL branch keeps them in scope.
+    ``inserted_at_max`` bounds both passes: cleaned re-inserts are stamped with
+    that exact value, so ``inserted_at < marker`` skips them. Legacy rows may
+    have ``inserted_at IS NULL`` and are still originals to delete — the NULL
+    branch keeps them in scope.
+
+    ``exclude_cleaned_from`` (a fully-qualified table name, copy pass only)
+    additionally skips rows whose uuid already has a cleaned twin stamped with
+    the marker, so however many times the job re-runs, at most one cleaned copy
+    of each original ever exists. Requires ``inserted_at_max``.
     """
     presence_clauses: list[str] = []
     if ctx.properties:
-        presence_clauses.append(_property_filter_clause(ctx.properties))
+        presence_clauses.append(
+            _json_property_filter_clause(ctx.properties, column="properties")
+            if json_schema
+            else _property_filter_clause(ctx.properties)
+        )
     if mat_cols:
         presence_clauses.extend(_mat_col_presence_clauses(mat_cols))
     if ctx.person_properties:
         presence_clauses.append(
-            _property_filter_clause(ctx.person_properties, prefix="pp_", column="person_properties")
+            _json_property_filter_clause(ctx.person_properties, column="person_properties")
+            if json_schema
+            else _property_filter_clause(ctx.person_properties, prefix="pp_", column="person_properties")
         )
     if person_mat_cols:
         presence_clauses.extend(_mat_col_presence_clauses(person_mat_cols))
@@ -230,6 +267,14 @@ def _property_removal_where(
         # same truncation in the mutation, so both sides must use the cast.
         parts.append("AND (inserted_at IS NULL OR inserted_at < toDateTime64(%(inserted_at_max)s, 6, 'UTC'))")
         params["inserted_at_max"] = inserted_at_max
+    if exclude_cleaned_from is not None:
+        if inserted_at_max is None:
+            raise ValueError("exclude_cleaned_from requires inserted_at_max (the cleaned-rows marker)")
+        parts.append(
+            f"AND uuid NOT IN (SELECT uuid FROM {exclude_cleaned_from} "
+            "WHERE team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
+            "AND inserted_at = toDateTime64(%(inserted_at_max)s, 6, 'UTC'))"
+        )
     return " ".join(p for p in parts if p), params
 
 
@@ -337,7 +382,7 @@ def load_deletion_request(
                 f"Request {config.request_id} is not an approved event_removal request.",
             )
 
-        _record_execution_attempt(request)
+        _record_execution_attempt(request, context.run_id)
 
     events_desc = "<all events>" if request.delete_all_events else f"{request.events}"
     context.log.info(
@@ -379,29 +424,35 @@ def _run_immediate_event_deletion(
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
 ) -> None:
-    table = EVENTS_DATA_TABLE()
+    tables = events_data_tables(cluster)
     shards = sorted(cluster.shards)
 
-    context.log.info(f"Starting immediate event deletion across {len(shards)} shards on table {table}")
+    context.log.info(f"Starting immediate event deletion across {len(shards)} shards on tables {tables}")
 
-    for idx, shard_num in enumerate(shards, 1):
-        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
-        shard_start = time.monotonic()
-
-        predicate, parameters = event_removal_where(deletion_request)
-        runner = LightweightDeleteMutationRunner(
-            table=table,
-            predicate=predicate,
-            parameters=parameters,
-            settings={"lightweight_deletes_sync": 0},
+    for table in tables:
+        # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
+        # reads on the legacy table, JSON subcolumn reads on the native-JSON table.
+        predicate, parameters = event_removal_where(
+            deletion_request, use_new_events_schema=table == EVENTS_JSON_DATA_TABLE
         )
 
-        shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
-        _host, mutation_waiter = next(iter(shard_result.items()))
-        cluster.map_all_hosts_in_shard(shard_num, mutation_waiter.wait).result()
+        for idx, shard_num in enumerate(shards, 1):
+            context.log.info(f"Processing {table} shard {shard_num} ({idx}/{len(shards)})")
+            shard_start = time.monotonic()
 
-        elapsed = time.monotonic() - shard_start
-        context.log.info(f"Shard {shard_num} complete in {elapsed:.1f}s")
+            runner = LightweightDeleteMutationRunner(
+                table=table,
+                predicate=predicate,
+                parameters=parameters,
+                settings={"lightweight_deletes_sync": 0},
+            )
+
+            shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
+            _host, mutation_waiter = next(iter(shard_result.items()))
+            cluster.map_all_hosts_in_shard(shard_num, mutation_waiter.wait).result()
+
+            elapsed = time.monotonic() - shard_start
+            context.log.info(f"{table} shard {shard_num} complete in {elapsed:.1f}s")
 
     context.add_output_metadata(
         {"mode": dagster.MetadataValue.text("immediate"), "shards_processed": dagster.MetadataValue.int(len(shards))}
@@ -413,6 +464,9 @@ def _queue_events_for_deferred_deletion(
     cluster: ClickhouseCluster,
     deletion_request: DeletionRequestContext,
 ) -> None:
+    # Reading candidates from the legacy table only is fine: the queue holds (team_id, uuid)
+    # pairs and event UUIDs are identical across the legacy and native-JSON tables, so the
+    # deletes_job drain applies them to both.
     source_table = EVENTS_DATA_TABLE()
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
@@ -474,6 +528,7 @@ def load_property_removal_request(
 ) -> DeletionRequestContext:
     """Load and validate a property removal request, transition to IN_PROGRESS."""
     from django.db import transaction
+    from django.utils import timezone
 
     with transaction.atomic():
         request = (
@@ -497,7 +552,13 @@ def load_property_removal_request(
                 f"Request {config.request_id} has no properties or person_properties specified.",
             )
 
-        _record_execution_attempt(request)
+        _record_execution_attempt(request, context.run_id)
+
+        # Set once and reused verbatim by every retry: all attempts must agree on which
+        # inserted_at value identifies cleaned re-inserts, or re-runs duplicate them.
+        if request.property_removal_marker is None:
+            request.property_removal_marker = timezone.now()
+            request.save(update_fields=["property_removal_marker", "updated_at"])
 
     events_desc = "<all events>" if request.delete_all_events else f"{request.events}"
     context.log.info(
@@ -532,28 +593,53 @@ def load_property_removal_request(
         person_properties=person_properties,
         delete_all_events=request.delete_all_events,
         hogql_predicate=request.hogql_predicate or "",
+        inserted_at_marker=request.property_removal_marker,
     )
 
 
-@dagster.op(tags=OWNER_TAG, retry_policy=dagster.RetryPolicy(max_retries=0))
-def process_property_removal_per_shard(
+@dagster.op(out=dagster.DynamicOut(int), tags=OWNER_TAG)
+def get_property_removal_shards(
     context: dagster.OpExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
     deletion_request: DeletionRequestContext,
-) -> DeletionRequestContext:
-    """Run the full property-removal cycle one shard at a time.
+):
+    """Fan out one process_property_removal_shard op per shard.
 
-    Per shard, on a single host (the temp table is local non-replicated MergeTree):
+    Takes the deletion request as input so fan-out is sequenced after the load op;
+    the mapping key makes each shard re-executable individually from the Dagster UI.
+    """
+    shards = sorted(cluster.shards)
+    context.log.info(f"Fanning out property removal {deletion_request.request_id} to {len(shards)} shard op(s)")
+    for shard_num in shards:
+        yield dagster.DynamicOutput(shard_num, mapping_key=f"shard_{shard_num}")
+
+
+@dagster.op(tags=OWNER_TAG, retry_policy=dagster.RetryPolicy(max_retries=0))
+def process_property_removal_shard(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    shard_num: int,
+    deletion_request: DeletionRequestContext,
+) -> dict:
+    """Run the full property-removal cycle for a single shard.
+
+    Safe to re-execute individually against a request in FAILED status: the deletion_request
+    context carries the persisted marker (no marker regeneration), the copy pass's anti-join
+    makes re-running convergent, and this op performs no ORM writes and no status transitions.
+
+    On a single host (the temp table is local non-replicated MergeTree):
 
       1. Discover affected DEFAULT materialized columns for both ``properties``
          and ``person_properties``.
       2. Create the temp table.
-      3. Copy matching events from sharded_events into temp. Presence check covers
-         JSON ``properties`` and/or ``person_properties`` AND their materialized
-         columns — a row can carry the value in the column alone, and ``SELECT *``
-         would otherwise leave it behind.
+      3. Copy matching events that were ingested before the marker and do not
+         already have a cleaned twin from sharded_events into temp. Presence check
+         covers JSON ``properties`` and/or ``person_properties`` AND their
+         materialized columns — a row can carry the value in the column alone, and
+         ``SELECT *`` would otherwise leave it behind.
       4. Mutate the temp table: drop JSON keys from each targeted column, reset
-         materialized columns to their defaults, stamp ``inserted_at = marker``.
+         materialized columns to their defaults, stamp ``inserted_at = marker``
+         and bump ``_timestamp`` (the ReplacingMergeTree version) to the marker.
       5. Verify no target presence remains in temp (JSON or materialized columns).
       6. Re-insert cleaned events into sharded_events.
       7. Lightweight-delete the originals from sharded_events. Same presence check
@@ -561,33 +647,53 @@ def process_property_removal_per_shard(
          cleaned re-inserts (stamped with that exact marker) are skipped.
       8. Drop the temp table.
 
-    Steps 3 and 7 use the same predicate (modulo the ``inserted_at`` clause on
-    delete), generated by ``_property_removal_where`` from the same per-shard
-    ``mat_cols`` / ``person_mat_cols`` lists, so they cannot drift.
+    Steps 3 and 7 use the same predicate with the identical ``inserted_at_max``
+    (modulo the anti-join on copy), generated by ``_property_removal_where`` from
+    the same per-shard ``mat_cols`` / ``person_mat_cols`` lists, so they cannot
+    drift. The marker is persisted on the request by the load op, so every retry
+    agrees on which rows are already cleaned and never re-inserts a second twin.
     """
-    from django.utils import timezone
-
-    source = EVENTS_DATA_TABLE()
-    temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
     db = django_settings.CLICKHOUSE_DATABASE
     properties = deletion_request.properties
     person_properties = deletion_request.person_properties
-    marker = timezone.now()
-    deletion_request.inserted_at_marker = marker
+    marker = deletion_request.inserted_at_marker
+    if marker is None:
+        raise dagster.Failure(description="property_removal_marker missing; load_property_removal_request must set it")
     # Format the marker as a string with microseconds — clickhouse-driver serializes Python
     # datetime values with second precision, which causes the cleaned re-inserts to be stamped
     # with a truncated inserted_at and the originals-delete predicate to mismatch by sub-second
     # offsets. Passing as ISO string and casting in SQL preserves the full precision.
-    marker_str = marker.strftime("%Y-%m-%d %H:%M:%S.%f")
+    marker_str = marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+    base_temp = _temp_table_name(deletion_request.team_id, deletion_request.request_id)
     # HogQL compilation reaches into the Django ORM (Team lookup); compile once on the main
     # thread before dispatching per-shard work, otherwise the worker thread's DB connection
-    # may not see the request/test transaction.
-    hogql_compiled = compile_hogql_predicate(deletion_request)
+    # may not see the request/test transaction. Compiled per target schema: property access
+    # lowers differently on the legacy and native-JSON tables.
+    targets: list[tuple[str, str, bool, tuple[str, dict]]] = [
+        (EVENTS_DATA_TABLE(), base_temp, False, compile_hogql_predicate(deletion_request)),
+    ]
+    if EVENTS_JSON_DATA_TABLE in events_data_tables(cluster):
+        targets.append(
+            (
+                EVENTS_JSON_DATA_TABLE,
+                f"{base_temp}_json",
+                True,
+                compile_hogql_predicate(deletion_request, use_new_events_schema=True),
+            )
+        )
 
     def _flatten_sql(sql: str) -> str:
         return " ".join(sql.split())
 
-    def process_shard(client: Client) -> dict:
+    def process_shard(
+        client: Client,
+        source: str,
+        temp: str,
+        json_schema: bool,
+        hogql_compiled: tuple[str, dict],
+    ) -> dict:
+        shard_start = time.monotonic()
+
         def log_query(label: str, sql: str) -> None:
             context.log.info(f"[{label}] {_flatten_sql(sql)}")
 
@@ -595,16 +701,18 @@ def process_property_removal_per_shard(
             log_query(label, sql)
             return client.execute(sql, params, settings=settings)
 
+        # Materialized columns only exist on the legacy table; the JSON table reads properties
+        # through JSON subcolumns.
         affected_mat_cols = (
             _get_affected_mat_columns(client, "events", properties, table_column="properties", log=log_query)
-            if properties
+            if properties and not json_schema
             else []
         )
         affected_person_mat_cols = (
             _get_affected_mat_columns(
                 client, "events", person_properties, table_column="person_properties", log=log_query
             )
-            if person_properties
+            if person_properties and not json_schema
             else []
         )
         context.log.info(
@@ -618,7 +726,10 @@ def process_property_removal_per_shard(
             deletion_request,
             mat_cols=affected_mat_cols,
             person_mat_cols=affected_person_mat_cols,
+            inserted_at_max=marker_str,
             hogql_compiled=hogql_compiled,
+            json_schema=json_schema,
+            exclude_cleaned_from=f"{db}.{source}",
         )
         execute("truncate-temp", f"TRUNCATE TABLE IF EXISTS {db}.{temp}")
         execute(
@@ -631,15 +742,28 @@ def process_property_removal_per_shard(
 
         update_parts: list[str] = []
         mutation_params: dict = {"inserted_at_marker": marker_str}
+        # On the JSON table the column must round-trip through a string: serialize, drop the
+        # keys, and let the assignment cast the cleaned string back to the JSON column type.
         if properties:
-            update_parts.append("properties = JSONDropKeys(%(keys)s)(properties)")
+            properties_read = "toJSONString(properties)" if json_schema else "properties"
+            update_parts.append(f"properties = JSONDropKeys(%(keys)s)({properties_read})")
             mutation_params["keys"] = properties
         if person_properties:
-            update_parts.append("person_properties = JSONDropKeys(%(person_keys)s)(person_properties)")
+            person_properties_read = "toJSONString(person_properties)" if json_schema else "person_properties"
+            update_parts.append(f"person_properties = JSONDropKeys(%(person_keys)s)({person_properties_read})")
             mutation_params["person_keys"] = person_properties
         # Cast to DateTime64(6) so microseconds survive the parameter binding —
         # mirrors the cast in the delete predicate so both sides agree on the marker.
         update_parts.append("inserted_at = toDateTime64(%(inserted_at_marker)s, 6, 'UTC')")
+        # Bump the ReplacingMergeTree version (ver=_timestamp): the cleaned row shares its
+        # original's sorting key AND (via SELECT *) its version, so a background merge would
+        # keep an arbitrary one of the pair. With the marker as version, merges
+        # deterministically prefer the cleaned row and identical cleaned twins collapse.
+        # +1 second because _timestamp is second-precision while the copy/delete bound
+        # (inserted_at < marker) is microsecond-precision: an original ingested within the
+        # marker's second is in scope but shares its truncated second — the version must be
+        # STRICTLY greater or the merge tie stays arbitrary for exactly those rows.
+        update_parts.append("_timestamp = toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1")
         for col_name, is_nullable in affected_mat_cols + affected_person_mat_cols:
             default = "NULL" if is_nullable else "''"
             update_parts.append(f"`{col_name}` = {default}")
@@ -657,10 +781,18 @@ def process_property_removal_per_shard(
 
         verify_clauses: list[str] = []
         if properties:
-            verify_clauses.append(_property_filter_clause(properties))
+            verify_clauses.append(
+                _json_property_filter_clause(properties, column="properties")
+                if json_schema
+                else _property_filter_clause(properties)
+            )
             verify_clauses.extend(_mat_col_presence_clauses(affected_mat_cols))
         if person_properties:
-            verify_clauses.append(_property_filter_clause(person_properties, prefix="pp_", column="person_properties"))
+            verify_clauses.append(
+                _json_property_filter_clause(person_properties, column="person_properties")
+                if json_schema
+                else _property_filter_clause(person_properties, prefix="pp_", column="person_properties")
+            )
             verify_clauses.extend(_mat_col_presence_clauses(affected_person_mat_cols))
         verify_predicate = f"({' OR '.join(verify_clauses)})" if len(verify_clauses) > 1 else verify_clauses[0]
         verify_params: dict = {**_property_filter_params(properties)}
@@ -680,14 +812,15 @@ def process_property_removal_per_shard(
             settings={"max_execution_time": 1800},
         )
 
-        # Submit the originals delete. Returns a waiter so the outer loop can block on
-        # all replicas of this shard before moving on to the next shard.
+        # Submit the originals delete. Returns a waiter so this op can block on
+        # all replicas of this shard before dropping the temp table.
         delete_predicate, delete_params = _property_removal_where(
             deletion_request,
             mat_cols=affected_mat_cols,
             person_mat_cols=affected_person_mat_cols,
             inserted_at_max=marker_str,
             hogql_compiled=hogql_compiled,
+            json_schema=json_schema,
         )
         delete_runner = LightweightDeleteMutationRunner(
             table=source,
@@ -699,33 +832,180 @@ def process_property_removal_per_shard(
             f"[delete-originals] {_flatten_sql(delete_runner.get_statement(delete_runner.get_all_commands()))}"
         )
         delete_waiter = delete_runner(client)
-        # Wait locally so we can be sure the delete is fully applied before this op moves on
-        # to the next shard or returns. ``mutations_sync = 2`` makes the runner block on all
-        # replicas of the originating shard; the explicit ``wait`` is a defensive backstop.
+        # Wait locally so we can be sure the delete is fully applied before this op
+        # returns. ``mutations_sync = 2`` makes the runner block on all replicas of the
+        # originating shard; the explicit ``wait`` is a defensive backstop.
         delete_waiter.wait(client)
 
         # Drop the temp table on the SAME host that created it. The temp table is local
-        # non-replicated MergeTree; a separate ``map_any_host_in_shards`` call from the outer
-        # loop can resolve to a different replica (the schema-qualified name does not
-        # influence host selection), which would silently DROP IF EXISTS on the wrong host
-        # and leave the staging rows behind on the originating one.
+        # non-replicated MergeTree, and this reuses the same client connection throughout
+        # ``process_shard`` so the DROP always lands on the host that has the rows.
         execute("drop-temp", f"DROP TABLE IF EXISTS {db}.{temp}")
 
-        return {"copied": copied}
+        return {"shard": shard_num, "copied": copied, "elapsed": time.monotonic() - shard_start}
 
-    shards = sorted(cluster.shards)
-    for idx, shard_num in enumerate(shards, 1):
-        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
-        shard_start = time.monotonic()
+    def process_shard_cleaning_up_on_failure(
+        client: Client,
+        source: str,
+        temp: str,
+        json_schema: bool,
+        hogql_compiled: tuple[str, dict],
+    ) -> dict:
+        try:
+            return process_shard(client, source, temp, json_schema, hogql_compiled)
+        except Exception:
+            # Drop the staging table on the SAME host before surfacing the error. The job-level
+            # failure hook must not broadcast this DROP cluster-wide: sibling shard ops may still
+            # be running and share the staging table name on their own hosts. Best-effort: if the
+            # connection that hit the original failure is dead (e.g. a timed-out mutation), the
+            # DROP fails too — don't let that mask the root cause.
+            try:
+                client.execute(f"DROP TABLE IF EXISTS {db}.{temp}")
+            except Exception:
+                context.log.warning(
+                    f"[shard {shard_num}] failed to drop staging table {db}.{temp}; "
+                    "re-execution will truncate and reuse it"
+                )
+            raise
 
-        result = cluster.map_any_host_in_shards({shard_num: process_shard}).result()
+    shard_start = time.monotonic()
+    copied = 0
+    for source, temp, json_schema, hogql_compiled in targets:
+        context.log.info(f"[{source} shard {shard_num}] processing")
+        process_target_shard = partial(
+            process_shard_cleaning_up_on_failure,
+            source=source,
+            temp=temp,
+            json_schema=json_schema,
+            hogql_compiled=hogql_compiled,
+        )
+        result = cluster.map_any_host_in_shards({shard_num: process_target_shard}).result()
         _host, stats = next(iter(result.items()))
-
-        elapsed = time.monotonic() - shard_start
+        copied += stats["copied"]
         context.log.info(
-            f"Shard {shard_num}: copied {stats['copied']} events, originals deleted, temp dropped in {elapsed:.1f}s"
+            f"[{source} shard {shard_num}] copied {stats['copied']} events, originals deleted, "
+            f"temp dropped in {stats['elapsed']:.1f}s"
         )
 
+    elapsed = time.monotonic() - shard_start
+    context.add_output_metadata(
+        {
+            "shard": dagster.MetadataValue.int(shard_num),
+            "copied": dagster.MetadataValue.int(copied),
+            "elapsed_s": dagster.MetadataValue.float(round(elapsed, 1)),
+        }
+    )
+    return {"shard": shard_num, "copied": copied, "elapsed": elapsed}
+
+
+@dagster.op(tags=OWNER_TAG)
+def verify_property_removal(
+    context: dagster.OpExecutionContext,
+    cluster: dagster.ResourceParam[ClickhouseCluster],
+    deletion_request: DeletionRequestContext,
+    shard_stats: list[dict],
+) -> DeletionRequestContext:
+    """Fail the run when property removal left originals behind or duplicated cleaned rows.
+
+    Takes ``shard_stats`` (one dict per shard op) purely to sequence verification after every
+    shard op has finished — a Dagster fan-in.
+
+    Two checks over each distributed events table:
+    - remaining: rows still matching the full removal predicate (same builder and
+      ``inserted_at_max`` bound as the copy/delete passes, so post-marker ingestion
+      cannot wedge verification). Non-zero means an original survived.
+    - duplicates: uuids appearing more than once among marker-stamped rows. Non-zero
+      means a cleaned re-insert was duplicated.
+    """
+    total_copied = sum(stats["copied"] for stats in shard_stats)
+    context.log.info(f"All {len(shard_stats)} shard op(s) finished; {total_copied} events copied+cleaned in total")
+
+    marker = deletion_request.inserted_at_marker
+    if marker is None:
+        raise dagster.Failure(description="property_removal_marker missing; load_property_removal_request must set it")
+    marker_str = marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+    properties = deletion_request.properties
+    person_properties = deletion_request.person_properties
+    targets: list[tuple[str, bool, tuple[str, dict]]] = [
+        ("events", False, compile_hogql_predicate(deletion_request)),
+    ]
+    if EVENTS_JSON_DATA_TABLE in events_data_tables(cluster):
+        targets.append(
+            (
+                DISTRIBUTED_EVENTS_JSON_TABLE,
+                True,
+                compile_hogql_predicate(deletion_request, use_new_events_schema=True),
+            )
+        )
+
+    def check(
+        client: Client,
+        table: str,
+        json_schema: bool,
+        hogql_compiled: tuple[str, dict],
+    ) -> tuple[int, int]:
+        mat_cols = (
+            _get_affected_mat_columns(client, table, properties, table_column="properties")
+            if properties and not json_schema
+            else []
+        )
+        person_mat_cols = (
+            _get_affected_mat_columns(client, table, person_properties, table_column="person_properties")
+            if person_properties and not json_schema
+            else []
+        )
+        predicate, params = _property_removal_where(
+            deletion_request,
+            mat_cols=mat_cols,
+            person_mat_cols=person_mat_cols,
+            inserted_at_max=marker_str,
+            hogql_compiled=hogql_compiled,
+            json_schema=json_schema,
+        )
+        remaining = client.execute(
+            f"SELECT count() FROM {table} WHERE {predicate} AND _row_exists = 1",
+            params,
+            settings={"max_execution_time": 1800},
+        )[0][0]
+        duplicates = client.execute(
+            "SELECT count() FROM ("
+            f"SELECT uuid FROM {table} "
+            "WHERE team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
+            "AND inserted_at = toDateTime64(%(marker)s, 6, 'UTC') AND _row_exists = 1 "
+            "GROUP BY uuid HAVING count() > 1)",
+            {
+                "team_id": deletion_request.team_id,
+                "start_time": deletion_request.start_time,
+                "end_time": deletion_request.end_time,
+                "marker": marker_str,
+            },
+            settings={"max_execution_time": 1800},
+        )[0][0]
+        return remaining, duplicates
+
+    results = [
+        cluster.any_host(partial(check, table=table, json_schema=json_schema, hogql_compiled=hogql_compiled)).result()
+        for table, json_schema, hogql_compiled in targets
+    ]
+    remaining = sum(result[0] for result in results)
+    duplicates = sum(result[1] for result in results)
+    context.add_output_metadata(
+        {
+            "remaining_originals": dagster.MetadataValue.int(remaining),
+            "duplicated_cleaned_uuids": dagster.MetadataValue.int(duplicates),
+            "shards_processed": dagster.MetadataValue.int(len(shard_stats)),
+            "total_copied": dagster.MetadataValue.int(total_copied),
+        }
+    )
+    if remaining or duplicates:
+        raise dagster.Failure(
+            description=(
+                f"Property removal verification failed for request {deletion_request.request_id}: "
+                f"{remaining} events still match the removal predicate, "
+                f"{duplicates} cleaned uuids are duplicated. Investigate before re-approving."
+            )
+        )
+    context.log.info("Property removal verified: no residual originals, no duplicated cleaned rows.")
     return deletion_request
 
 
@@ -766,7 +1046,7 @@ def load_person_removal_request(
                 "they are mutually exclusive."
             )
 
-        _record_execution_attempt(request)
+        _record_execution_attempt(request, context.run_id)
 
     # The fields are nullable on the model (NULL for non-person_removal rows), but
     # PersonRemovalContext and the downstream `if not drop_x` consumers want plain bools.
@@ -842,24 +1122,27 @@ def delete_person_events_op(
         context.log.info("No persons resolved; nothing to delete")
         return person_removal
 
-    table = EVENTS_DATA_TABLE()
+    # The predicate only references schema-agnostic columns (team_id, person_id, timestamp), so
+    # the same delete applies to both the legacy and native-JSON events tables.
+    tables = events_data_tables(cluster)
     predicate, params = _person_event_predicate(person_removal)
     shards = sorted(cluster.shards)
     context.log.info(f"Deleting events for {len(person_removal.person_uuids)} persons across {len(shards)} shards")
 
-    for idx, shard_num in enumerate(shards, 1):
-        context.log.info(f"Processing shard {shard_num} ({idx}/{len(shards)})")
-        shard_start = time.monotonic()
-        runner = LightweightDeleteMutationRunner(
-            table=table,
-            predicate=predicate,
-            parameters=params,
-            settings={"lightweight_deletes_sync": 0},
-        )
-        shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
-        _host, waiter = next(iter(shard_result.items()))
-        cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
-        context.log.info(f"Shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
+    for table in tables:
+        for idx, shard_num in enumerate(shards, 1):
+            context.log.info(f"Processing {table} shard {shard_num} ({idx}/{len(shards)})")
+            shard_start = time.monotonic()
+            runner = LightweightDeleteMutationRunner(
+                table=table,
+                predicate=predicate,
+                parameters=params,
+                settings={"lightweight_deletes_sync": 0},
+            )
+            shard_result = cluster.map_any_host_in_shards({shard_num: runner}).result()
+            _host, waiter = next(iter(shard_result.items()))
+            cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
+            context.log.info(f"{table} shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
 
     context.add_output_metadata({"shards_processed": dagster.MetadataValue.int(len(shards))})
     return person_removal
@@ -1010,26 +1293,6 @@ def mark_deletion_failed(context: dagster.HookContext) -> None:
 
     context.log.error(f"Deletion request {request_id} marked as failed.")
 
-    # Clean up temp tables for property removal jobs. The temp table is local
-    # non-replicated MergeTree, so it only exists on whichever host originally ran
-    # ``process_shard`` for that shard. We don't know which host that was at this
-    # point, so broadcast the DROP to every host in every shard — DROP IF EXISTS
-    # is a safe no-op on hosts that don't have it.
-    if ops_config.get("load_property_removal_request"):
-        try:
-            from posthog.clickhouse.cluster import Query, get_cluster
-
-            db_request = DataDeletionRequest.objects.filter(pk=request_id).values("team_id").first()
-            if db_request:
-                temp = _temp_table_name(db_request["team_id"], request_id)
-                db = django_settings.CLICKHOUSE_DATABASE
-                cluster = get_cluster()
-                drop_sql = f"DROP TABLE IF EXISTS {db}.{temp}"
-                cluster.map_all_hosts(Query(drop_sql)).result()
-                context.log.info(f"Cleaned up temp table {temp}")
-        except Exception as e:
-            context.log.warning(f"Failed to clean up temp table: {e}")
-
 
 # ---------------------------------------------------------------------------
 # Jobs
@@ -1051,11 +1314,18 @@ def data_deletion_request_event_removal():
 
 @dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
 def data_deletion_request_property_removal():
-    """Execute an approved property removal request: per shard, copy events, drop properties,
-    re-insert, delete originals, drop temp."""
+    """Execute an approved property removal request with one op per shard.
+
+    load → dynamic fan-out (one process op per shard, parallel under the run executor)
+    → verify (fan-in over all shard stats) → finalize. A failed shard is re-executed
+    individually via the Dagster UI's "Re-execute from failure"; finalize accepts the
+    FAILED status the failure hook set, so the re-executed run completes the request.
+    """
     request = load_property_removal_request()
-    request = process_property_removal_per_shard(request)
-    finalize_deletion_request(request)
+    shards = get_property_removal_shards(deletion_request=request)
+    shard_stats = shards.map(lambda shard_num: process_property_removal_shard(shard_num, request))
+    verified = verify_property_removal(deletion_request=request, shard_stats=shard_stats.collect())
+    finalize_deletion_request(verified)
 
 
 @dagster.job(tags=OWNER_TAG, hooks={mark_deletion_failed})
@@ -1198,6 +1468,64 @@ def verify_queued_deletion_requests_op(context: dagster.OpExecutionContext, conf
 @dagster.job(tags=OWNER_TAG)
 def verify_queued_deletion_requests_job():
     verify_queued_deletion_requests_op()
+
+
+# ---------------------------------------------------------------------------
+# Auto-approve sweep job: approves pending event removals small enough to skip review
+# ---------------------------------------------------------------------------
+
+
+class AutoApproveConfig(dagster.Config):
+    max_requests: int = pydantic.Field(
+        default=50,
+        ge=1,
+        description="Most requests to evaluate in one tick. Each one costs a pair of ClickHouse "
+        "queries, so this bounds what a backlog can spend before the next tick.",
+    )
+
+
+@dagster.op(tags=OWNER_TAG)
+def auto_approve_pending_deletion_requests_op(context: dagster.OpExecutionContext, config: AutoApproveConfig) -> None:
+    """Refresh stats on pending auto-approve candidates and approve the ones under the size limit."""
+    outcome = auto_approve_pending_requests(max_requests=config.max_requests, on_event=context.log.info)
+    context.add_output_metadata(
+        {
+            "approved": dagster.MetadataValue.int(outcome.approved),
+            "skipped": dagster.MetadataValue.int(outcome.skipped),
+            "errored": dagster.MetadataValue.int(outcome.errored),
+            # Surfaced so a tick that hit the cap reads as truncated rather than as "that was all of them".
+            "max_requests": dagster.MetadataValue.int(config.max_requests),
+        }
+    )
+    context.log.info(
+        f"auto_approve_pending_deletion_requests: {outcome.approved} approved, "
+        f"{outcome.skipped} left pending, {outcome.errored} errored."
+    )
+
+
+@dagster.job(tags=OWNER_TAG)
+def auto_approve_deletion_requests_job():
+    """Approve pending event removals that are small enough to skip ClickHouse Team review.
+
+    Stats are refreshed inside the job, immediately before the size decision, so the count it
+    approves against is one it measured rather than one a person fetched at an unknown earlier time.
+    """
+    auto_approve_pending_deletion_requests_op()
+
+
+@dagster.schedule(
+    job=auto_approve_deletion_requests_job,
+    cron_schedule=f"*/{AUTO_APPROVE_INTERVAL_MINUTES} * * * *",
+    execution_timezone="UTC",
+    default_status=dagster.DefaultScheduleStatus.STOPPED,
+)
+def auto_approve_deletion_requests_schedule():
+    """Sweep for auto-approvable pending requests.
+
+    Stopped by default like the rest of this feature's schedules and sensors — an operator turns it on
+    in the Dagster UI, and nothing is auto-approved until they do.
+    """
+    return dagster.RunRequest()
 
 
 # ---------------------------------------------------------------------------

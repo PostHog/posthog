@@ -8,6 +8,8 @@ from unittest.mock import patch
 from products.tasks.backend.logic.services.local_packages import (
     BUILD_OUTPUT_SUBDIR,
     PACKAGE_NAMES,
+    LocalPackage,
+    get_local_package_runtime_dependencies,
     get_local_posthog_code_packages,
 )
 
@@ -67,3 +69,37 @@ class TestGetLocalPosthogCodePackages:
         assert packages[0].sandbox_install_path == "/scripts/node_modules/@posthog/agent"
         assert packages[0].sandbox_build_output_path == "/scripts/node_modules/@posthog/agent/dist"
         assert packages[0].build_output_path == fake_monorepo / "packages" / "agent" / "dist"
+
+
+def test_resolves_default_catalog_runtime_dependencies(fake_monorepo: Path) -> None:
+    (fake_monorepo / "pnpm-workspace.yaml").write_text(
+        "catalog:\n"
+        "  catalog-runtime: 1.2.3\n"
+        "  star-catalog-runtime: 2.3.4\n"
+        "catalogs:\n"
+        "  build:\n"
+        "    named-catalog-runtime: 3.4.5\n"
+    )
+    agent_source_path = fake_monorepo / "packages" / "agent"
+    (agent_source_path / "package.json").write_text(
+        '{"dependencies":{'
+        '"catalog-runtime":"catalog:",'
+        '"star-catalog-runtime":"catalog:*",'
+        '"named-catalog-runtime":"catalog:build",'
+        '"registry-runtime":"^4.5.6"'
+        "}}"
+    )
+    package = LocalPackage(
+        name="agent",
+        source_path=agent_source_path,
+        sandbox_install_path="/scripts/node_modules/@posthog/agent",
+    )
+
+    assert get_local_package_runtime_dependencies((package,)) == {
+        "agent": {
+            "catalog-runtime": "1.2.3",
+            "named-catalog-runtime": "3.4.5",
+            "registry-runtime": "^4.5.6",
+            "star-catalog-runtime": "2.3.4",
+        }
+    }

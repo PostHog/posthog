@@ -143,6 +143,31 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNotNone(response.cache_target_age)
             self.assertEqual(response.cache_target_age, expected_target_age)
 
+    @parameterized.expand(
+        [
+            # system.information_schema.* mirrors mutable data-catalog state, so it must never be
+            # served from the query cache — recompute every time regardless of the caller's mode.
+            ("metrics", "select name, status from system.information_schema.metrics", True),
+            ("tables", "select * from system.information_schema.tables", True),
+            ("relationships", "select * from system.information_schema.relationships", True),
+            ("columns", "select * from system.information_schema.columns", True),
+            ("other_system_table", "select id, name from system.insights", False),
+            ("events", "select count(event) from events", False),
+            ("unparseable", "INVALID SQL SYNTAX", False),
+        ]
+    )
+    def test_requires_fresh_calculation(self, _name: str, query: str, expected: bool):
+        runner = self._create_runner(HogQLQuery(query=query))
+        self.assertEqual(runner.requires_fresh_calculation(), expected)
+
+    def test_requires_fresh_calculation_false_for_external_connection(self):
+        # External-connection queries run against an upstream source, never the ClickHouse catalog,
+        # so they keep normal caching even if the text happens to reference information_schema.
+        runner = self._create_runner(
+            HogQLQuery(query="select * from system.information_schema.metrics", connectionId="conn-123")
+        )
+        self.assertFalse(runner.requires_fresh_calculation())
+
     def test_variables_in_hog_expression(self):
         variable = InsightVariable.objects.create(team=self.team, name="Foo", code_name="foo", type="Boolean")
         variable_id = str(variable.id)

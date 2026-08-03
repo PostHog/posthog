@@ -16,8 +16,9 @@ use chrono::DateTime;
 use common_types::{CapturedEvent, HasEventName};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, histogram};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{json, Value};
+use time::{format_description::well_known::Iso8601, OffsetDateTime};
 use tokio::time::Instant;
 use tracing::{error, instrument, Span};
 use uuid::Uuid;
@@ -36,6 +37,16 @@ use crate::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
 };
+
+fn deserialize_sent_at<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(match Option::<Value>::deserialize(deserializer)? {
+        Some(Value::String(value)) => Some(value),
+        _ => None,
+    })
+}
 
 /// A recording event optimized for minimal deserialization overhead.
 /// Instead of fully parsing all properties into a HashMap, we only extract
@@ -66,6 +77,14 @@ pub struct RawRecording {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
 
+    /// ISO 8601 request dispatch timestamp.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_sent_at",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sent_at: Option<String>,
+
     /// Timezone offset
     #[serde(skip_serializing_if = "Option::is_none")]
     pub offset: Option<i64>,
@@ -89,6 +108,9 @@ pub struct RecordingProperties {
 
     #[serde(rename = "$snapshot_source", skip_serializing_if = "Option::is_none")]
     pub snapshot_source: Option<Value>,
+
+    #[serde(rename = "$snapshot_host", skip_serializing_if = "Option::is_none")]
+    pub snapshot_host: Option<Value>,
 
     #[serde(rename = "$lib", skip_serializing_if = "Option::is_none")]
     pub lib: Option<String>,
@@ -119,6 +141,12 @@ pub enum RecordingRequest {
 }
 
 impl RawRecording {
+    pub fn sent_at(&self) -> Option<OffsetDateTime> {
+        self.sent_at
+            .as_deref()
+            .and_then(|value| OffsetDateTime::parse(value, &Iso8601::DEFAULT).ok())
+    }
+
     /// Extract the distinct_id, checking both root field and properties
     pub fn extract_distinct_id(&self) -> Option<String> {
         let value = match &self.distinct_id {
@@ -275,6 +303,12 @@ pub async fn process_replay_events(
         .take()
         .unwrap_or(default_snapshot_source);
 
+    let snapshot_host = first_event
+        .properties
+        .snapshot_host
+        .take()
+        .filter(Value::is_string);
+
     let snapshot_library = first_event
         .properties
         .lib
@@ -364,6 +398,7 @@ pub async fn process_replay_events(
         redirect_to_topic: applied.redirect_to_topic().map(|s| s.to_string()),
         skip_heatmap_processing: false,
         overflow_reason,
+        distinct_id_truncated_from: None,
     };
 
     // Serialize snapshot data synchronously
@@ -374,6 +409,7 @@ pub async fn process_replay_events(
         &session_id,
         &window_id,
         &snapshot_source,
+        snapshot_host.as_ref(),
         &snapshot_items,
         &snapshot_library,
     );
@@ -411,6 +447,7 @@ pub async fn serialize_snapshot_data_async(
     session_id: Value,
     window_id: Value,
     snapshot_source: Value,
+    snapshot_host: Option<Value>,
     snapshot_items: Vec<Value>,
     snapshot_library: String,
 ) -> Result<String, CaptureError> {
@@ -420,6 +457,7 @@ pub async fn serialize_snapshot_data_async(
             &session_id,
             &window_id,
             &snapshot_source,
+            snapshot_host.as_ref(),
             &snapshot_items,
             &snapshot_library,
         )
@@ -438,10 +476,11 @@ pub fn serialize_snapshot_data_sync(
     session_id: &Value,
     window_id: &Value,
     snapshot_source: &Value,
+    snapshot_host: Option<&Value>,
     snapshot_items: &Vec<Value>,
     snapshot_library: &String,
 ) -> String {
-    json!({
+    let mut data = json!({
         "event": "$snapshot_items",
         "properties": {
             "distinct_id": distinct_id,
@@ -451,8 +490,11 @@ pub fn serialize_snapshot_data_sync(
             "$snapshot_items": snapshot_items,
             "$lib": snapshot_library,
         }
-    })
-    .to_string()
+    });
+    if let Some(host) = snapshot_host {
+        data["properties"]["$snapshot_host"] = host.clone();
+    }
+    data.to_string()
 }
 
 fn snapshot_library_fallback_from(user_agent: Option<&String>) -> Option<String> {
@@ -475,6 +517,7 @@ mod tests {
         let json = json!({
             "event": "$snapshot",
             "distinct_id": "user123",
+            "sent_at": "2024-01-02T03:04:05.678Z",
             "properties": {
                 "$session_id": "session-abc",
                 "$window_id": "window-xyz",
@@ -485,11 +528,23 @@ mod tests {
 
         let recording: RawRecording = serde_json::from_value(json).unwrap();
         assert_eq!(recording.event, "$snapshot");
+        assert_eq!(
+            recording.sent_at(),
+            Some(OffsetDateTime::from_unix_timestamp_nanos(1_704_164_645_678_000_000).unwrap())
+        );
         assert_eq!(recording.extract_distinct_id(), Some("user123".to_string()));
         assert_eq!(
             recording.properties.session_id,
             Some(Value::String("session-abc".to_string()))
         );
+
+        let recording: RawRecording = serde_json::from_value(json!({
+            "event": "$snapshot",
+            "sent_at": 1_704_164_645_678_i64,
+            "properties": {}
+        }))
+        .unwrap();
+        assert_eq!(recording.sent_at(), None);
     }
 
     #[test]
@@ -570,6 +625,8 @@ mod tests {
             chatty_debug_enabled: false,
             user_agent: None,
             path: "/s/".to_string(),
+            capture_mode: crate::config::CaptureMode::Recordings,
+            sdk_attribution: crate::ingestion_warnings::SdkAttribution::default(),
         }
     }
 
@@ -733,6 +790,39 @@ mod tests {
         assert!(!captured[0].metadata.force_overflow);
         assert!(!captured[0].metadata.skip_person_processing);
         assert!(!captured[0].metadata.redirect_to_dlq);
+    }
+
+    #[tokio::test]
+    async fn test_snapshot_host_passes_through_to_the_serialized_message() {
+        // The ml-mirror anonymizer keys host classification on `properties.$snapshot_host`
+        // surviving this rebuild; capture silently dropping it would permanently disable
+        // classification downstream (the fallback there is also collapse-everything).
+        let cases: &[(Option<Value>, Option<&str>)] = &[
+            (Some(json!("app.example.com")), Some("app.example.com")),
+            (Some(json!(42)), None), // non-string stamps must not pass through
+            (None, None),
+        ];
+        for (stamp, expected) in cases {
+            let events_captured = Arc::new(Mutex::new(Vec::new()));
+            let sink: Arc<dyn Event + Send + Sync> = Arc::new(MockSink {
+                events: events_captured.clone(),
+            });
+            let mut recording = create_test_recording();
+            recording.properties.snapshot_host = stamp.clone();
+            let context = create_test_context();
+
+            process_replay_events(sink, None, None, vec![recording], &context)
+                .await
+                .unwrap();
+
+            let captured = events_captured.lock().unwrap();
+            let data: Value = serde_json::from_str(&captured[0].event.data).unwrap();
+            assert_eq!(
+                data["properties"].get("$snapshot_host"),
+                expected.map(|h| json!(h)).as_ref(),
+                "stamp={stamp:?}"
+            );
+        }
     }
 
     #[tokio::test]

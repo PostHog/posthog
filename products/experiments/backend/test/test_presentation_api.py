@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
+from uuid import uuid4
 
 import unittest
 from freezegun import freeze_time
@@ -160,55 +161,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_can_list_eligible_feature_flags(self) -> None:
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="eligible-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="wrong-order-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "test", "name": "Test", "rollout_percentage": 50},
-                        {"key": "control", "name": "Control", "rollout_percentage": 50},
-                    ]
-                },
-            },
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            created_by=self.user,
-            key="single-variant-flag",
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "name": "Control", "rollout_percentage": 100},
-                    ]
-                },
-            },
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/eligible_feature_flags/?order=key")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["count"], 1)
-        self.assertEqual([flag["key"] for flag in response.json()["results"]], ["eligible-flag"])
 
     @parameterized.expand(
         [
@@ -2352,6 +2304,28 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(list_parameters["feature_flag_variants"], expected_variants)
         self.assertEqual(list_parameters["aggregation_group_type_index"], 1)
 
+    @parameterized.expand([("string", "{}"), ("list", ["control"])])
+    def test_non_dict_parameters_column_does_not_break_reads(self, _name, stored_parameters):
+        ff_key = f"ff-bad-parameters-{_name}"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Legacy blob", "feature_flag_key": ff_key},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # Legacy rows can hold a non-dict here; .update() bypasses the serializer, as those writes did.
+        Experiment.objects.filter(id=experiment_id).update(parameters=stored_parameters)
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}")
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual([v["key"] for v in detail.json()["parameters"]["feature_flag_variants"]], ["control", "test"])
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/experiments/")
+        self.assertEqual(listed.status_code, status.HTTP_200_OK)
+        parameters = next(e["parameters"] for e in listed.json()["results"] if e["id"] == experiment_id)
+        self.assertEqual([v["key"] for v in parameters["feature_flag_variants"]], ["control", "test"])
+
     def test_feature_flag_config_is_not_persisted_into_parameters(self):
         """Create and update consume feature-flag config to build/sync the flag, but never store it
         in the deprecated `parameters` column. Non-flag keys (e.g. variant_notes) are preserved.
@@ -2983,23 +2957,21 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertIsNotNone(get_data["feature_flag"])
         self.assertEqual(get_data["feature_flag"]["key"], "test-flag-serialization")
 
-    def test_creating_invalid_multivariate_experiment_no_control(self):
+    def test_creating_multivariate_experiment_without_control_variant(self):
+        # No 'control' variant is required; the baseline defaults to the first variant downstream.
         ff_key = "a-b-test"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
             {
                 "name": "Test Experiment",
                 "description": "",
-                "start_date": "2021-12-01T10:23",
-                "end_date": None,
                 "feature_flag_key": ff_key,
                 "parameters": {
                     "feature_flag_variants": [
-                        # no control
                         {
                             "key": "test_0",
-                            "name": "Control Group",
-                            "rollout_percentage": 33,
+                            "name": "Baseline Group",
+                            "rollout_percentage": 34,
                         },
                         {
                             "key": "test_1",
@@ -3013,22 +2985,15 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                         },
                     ]
                 },
-                "filters": {
-                    "events": [
-                        {"order": 0, "id": "$pageview"},
-                        {"order": 1, "id": "$pageleave"},
-                    ],
-                    "properties": [],
-                },
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        detail = response.json()["detail"]
-        self.assertIn("must contain a variant with key 'control'", detail)
-        self.assertIn("'test_0'", detail)
-        self.assertIn("'test_1'", detail)
-        self.assertIn("'test_2'", detail)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        flag = FeatureFlag.objects.get(key=ff_key)
+        flag_keys = [v["key"] for v in flag.filters["multivariate"]["variants"]]
+        self.assertEqual(flag_keys, ["test_0", "test_1", "test_2"])
+        # The inferred baseline is pinned, not left implicit (order-sensitive).
+        self.assertEqual(response.json()["stats_config"]["baseline_variant_key"], "test_0")
 
     @parameterized.expand(
         [
@@ -3071,9 +3036,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # otherwise it would rewrite `Control` → `control` and produce two duplicate
         # entries. The downstream FeatureFlagSerializer may then accept (variants
         # preserved) or reject (duplicate-key error) — both prove the normalization
-        # path was skipped. The signal we actively check against: the response must
-        # not be the missing-control error, since that would only fire if our
-        # rewrite logic got confused.
+        # path was skipped. A wrong rewrite would surface as duplicate `control` keys
+        # in the 201 response, which the assertion below would catch.
         ff_key = "control-and-capital-control"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -3096,11 +3060,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         if response.status_code == status.HTTP_201_CREATED:
             variants = response.json()["parameters"]["feature_flag_variants"]
             self.assertEqual([v["key"] for v in variants], ["control", "Control"])
-        else:
-            # 400 path: the error must NOT be the missing-control message,
-            # which would only fire if normalization had wrongly rewritten things.
-            detail = str(response.json())
-            self.assertNotIn("must contain a variant with key 'control'", detail)
 
     def test_creating_updating_experiment_with_group_aggregation(self):
         ff_key = "a-b-tests"
@@ -3577,7 +3536,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["only_count_matured_users"])
 
-    def test_create_experiment_with_feature_flag_missing_control(self):
+    def test_create_experiment_with_feature_flag_without_control(self):
+        # An existing flag without a 'control' variant is eligible; the baseline
+        # defaults to the first variant downstream.
         feature_flag = FeatureFlag.objects.create(
             team=self.team,
             name="Beta feature",
@@ -3602,8 +3563,8 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             },
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["detail"], "Feature flag must have a variant with key 'control'")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.json()["feature_flag"]["id"], feature_flag.id)
 
     def test_create_experiment_with_feature_flag_insufficient_variants(self):
         feature_flag = FeatureFlag.objects.create(
@@ -3632,7 +3593,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Feature flag must have at least 2 variants (control and at least one test variant)",
+            "Feature flag must have at least 2 variants (a baseline and at least one test variant)",
         )
 
     def test_create_experiment_with_parameters_insufficient_variants(self):
@@ -3652,7 +3613,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json()["detail"],
-            "Feature flag must have at least 2 variants (control and at least one test variant)",
+            "Feature flag must have at least 2 variants (a baseline and at least one test variant)",
         )
 
     def test_create_experiment_with_valid_existing_feature_flag(self):
@@ -3926,6 +3887,58 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=True)
+    def test_update_experiment_repository_validates_and_normalizes(self, _mock_access):
+        feature_flag = FeatureFlag.objects.create(team=self.team, key="repo-field-flag", filters={})
+        experiment = Experiment.objects.create(team=self.team, name="Repo field", feature_flag=feature_flag)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {"repository": "not-a-repo"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {"repository": "Acme/Web"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["repository"], "acme/web")
+
+    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=True)
+    def test_create_experiment_with_repository(self, _mock_access):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Repo on create",
+                "feature_flag_key": "repo-on-create-flag",
+                "repository": "Acme/Web",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.assertEqual(response.json()["repository"], "acme/web")
+
+    @patch("products.tasks.backend.facade.access.has_tasks_access", return_value=False)
+    def test_setting_repository_requires_code_access(self, _mock_access):
+        feature_flag = FeatureFlag.objects.create(team=self.team, key="repo-access-flag", filters={})
+        experiment = Experiment.objects.create(team=self.team, name="Repo access", feature_flag=feature_flag)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {"repository": "acme/web"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        experiment.refresh_from_db()
+        self.assertIsNone(experiment.repository)
+
+        # Resubmitting the unchanged value (e.g. a full-object PUT) stays allowed.
+        Experiment.objects.filter(id=experiment.id).update(repository="acme/web")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}",
+            {"repository": "acme/web"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
     def test_update_experiment_exposure_config_with_action(self):
         # Create an action
@@ -4938,6 +4951,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "draft")
+        # False counterpart to the wiring guard in test_launching_experiment_sets_status_running,
+        # proving the field tracks the property value rather than being hardcoded truthy.
+        self.assertFalse(response.json()["can_freeze_exposure"])
 
     def test_launching_experiment_sets_status_running(self):
         response = self.client.post(
@@ -4951,6 +4967,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["status"], "running")
+        # Wiring guard for the serializer-computed field; the case matrix lives on the
+        # model property test (test_can_freeze_exposure_property).
+        self.assertTrue(response.json()["can_freeze_exposure"])
 
     def test_ending_experiment_sets_status_stopped(self):
         response = self.client.post(
@@ -5122,6 +5141,31 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
         self.assertEqual(launch_response.json()["status"], "running")
 
+    def test_launch_experiment_endpoint_with_list_body(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "List Body Endpoint",
+                "feature_flag_key": "list-body-endpoint-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # The endpoint declares no request body, so a JSON array must not reach the flag serializer
+        # as a non-dict `request.data`.
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+            [],
+            format="json",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(launch_response.json()["status"], "running")
+
+        flag = FeatureFlag.objects.get(key="list-body-endpoint-flag", team=self.team)
+        self.assertTrue(flag.active)
+
     def test_archive_experiment_endpoint(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -5180,6 +5224,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             format="json",
         )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+
+        # The response must reflect the flag we just disabled, not a stale pre-mutation echo.
+        # MinimalFeatureFlagSerializer exposes active but not archived, so archived is checked on the row.
+        self.assertFalse(archive_response.json()["feature_flag"]["active"])
 
         feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
         self.assertFalse(feature_flag.active)
@@ -5519,10 +5567,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
     @patch(
-        "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-        new=lambda team_id, uuids: uuids,
+        "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+        return_value=0,
+    )
+    @patch(
+        "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+        new=lambda team_id, uuids, **kwargs: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
     )
     @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
@@ -5548,10 +5599,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(get_response.status_code, status.HTTP_200_OK)
         self.assertEqual(get_response.json()["status"], "exposure_frozen")
 
-    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
     @patch(
-        "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-        new=lambda team_id, uuids: uuids,
+        "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+        return_value=0,
+    )
+    @patch(
+        "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+        new=lambda team_id, uuids, **kwargs: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
     )
     @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
@@ -5568,10 +5622,13 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         self.assertEqual(second_freeze.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
     @patch(
-        "products.experiments.backend.experiment_service.validate_person_uuids_exist",
-        new=lambda team_id, uuids: uuids,
+        "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_id_uuid_pairs_skip_validation",
+        return_value=0,
+    )
+    @patch(
+        "products.experiments.backend.experiment_service.get_person_ids_and_uuids_by_uuids",
+        new=lambda team_id, uuids, **kwargs: [(index + 1, person_uuid) for index, person_uuid in enumerate(uuids)],
     )
     @patch(
         "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
@@ -5705,7 +5762,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             "id"
         ]
 
-        # Scopes don't apply to session auth — without Code access, opting in must be rejected
+        # Scopes don't apply to session auth — without Desktop access, opting in must be rejected
         # on both actions that can open a cleanup PR.
         with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False):
             resp = self.client.post(
@@ -5722,7 +5779,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
 
-            # Not opting in still ends the experiment without Code access.
+            # Not opting in still ends the experiment without Desktop access.
             resp = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{exp_end}/end/",
                 {"conclusion": "won", "open_cleanup_pr": False},
@@ -5730,7 +5787,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
             self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
 
-        # With Code access, opting in succeeds on both actions ("end first, ship later" flow).
+        # With Desktop access, opting in succeeds on both actions ("end first, ship later" flow).
         with patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True):
             resp = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{exp_ship}/end/",
@@ -5745,6 +5802,214 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 format="json",
             )
             self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+    def test_flag_cleanup_task_endpoint(self):
+        exp_id = self._create_running_experiment(name="Cleanup Status", flag_key="cleanup-status-flag")["id"]
+
+        # No cleanup task opened yet.
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+
+        task_id = uuid4()
+        Experiment.objects.filter(id=exp_id).update(flag_cleanup_task_id=task_id)
+
+        run = SimpleNamespace(
+            status="completed",
+            is_terminal=True,
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            team_id=self.team.id,
+        )
+        with (
+            patch(
+                "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+                return_value={str(task_id): run},
+            ),
+            patch(
+                "products.experiments.backend.presentation.views.tasks_facade.task_visible",
+                return_value=True,
+            ) as mock_task_visible,
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(
+            resp.json(),
+            {
+                "task_id": str(task_id),
+                "run_status": "completed",
+                "is_terminal": True,
+                "pr_url": "https://github.com/PostHog/posthog/pull/123",
+                "can_view_task": True,
+            },
+        )
+        mock_task_visible.assert_called_once_with(task_id, self.team.pk, self.user.id)
+
+        # No Task row exists for this id, so the real visibility check reports False.
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertFalse(resp.json()["can_view_task"])
+
+        # A PR URL that doesn't point at GitHub is dropped rather than rendered as a link.
+        run = SimpleNamespace(
+            status="completed", is_terminal=True, pr_url="http://evil.example.com/pr/1", team_id=self.team.id
+        )
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertIsNone(resp.json()["pr_url"])
+
+        # A run in another team (experiment transferred across projects) is treated as absent.
+        run = SimpleNamespace(
+            status="completed",
+            is_terminal=True,
+            pr_url="https://github.com/PostHog/posthog/pull/123",
+            team_id=self.team.id + 1,
+        )
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={str(task_id): run},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["run_status"], "queued")
+        self.assertFalse(resp.json()["is_terminal"])
+        self.assertIsNone(resp.json()["pr_url"])
+
+        # Task recorded but no run row yet: reported as queued, non-terminal.
+        with patch(
+            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            return_value={},
+        ):
+            resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json()["run_status"], "queued")
+        self.assertFalse(resp.json()["is_terminal"])
+
+    @parameterized.expand(
+        [
+            # (name, stored_repository, cached_repos, expected_body)
+            (
+                "no_integration",
+                None,
+                None,
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+            (
+                "single_repo",
+                None,
+                [{"full_name": "acme/web"}],
+                {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
+            ),
+            (
+                "ambiguous",
+                None,
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
+            ),
+            (
+                "explicit",
+                "acme/api",
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
+            ),
+            (
+                "stale_explicit_needs_a_new_choice",
+                "gone/repo",
+                [{"full_name": "acme/web"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
+            ),
+            (
+                "stale_explicit_with_empty_cache",
+                "gone/repo",
+                [],
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_flag_cleanup_target_endpoint(
+        self, _name, stored_repository, cached_repos, expected_body, mock_resolve_github, _mock_access
+    ):
+        exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
+        if stored_repository:
+            Experiment.objects.filter(id=exp_id).update(repository=stored_repository)
+        if cached_repos is None:
+            mock_resolve_github.return_value = None
+        else:
+            mock_resolve_github.return_value = SimpleNamespace(
+                list_all_cached_repositories=lambda max_repos: cached_repos
+            )
+
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json(), expected_body)
+
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False)
+    def test_flag_cleanup_target_requires_code_access(self, _mock_access):
+        exp_id = self._create_running_experiment(name="Cleanup Target Denied", flag_key="cleanup-target-denied-flag")[
+            "id"
+        ]
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+    @parameterized.expand(
+        [
+            # (name, open_cleanup_pr, repository, expected_status)
+            # Nothing persists in any of these: the value only sticks when a cleanup PR
+            # actually opens against it (team flag on + repo in the installation).
+            ("not_persisted_when_cleanup_does_not_run", True, "acme/web", status.HTTP_200_OK),
+            ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK),
+            ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
+    def test_end_endpoint_repository(
+        self, _name, open_cleanup_pr, repository, expected_status, _mock_flag, _mock_access
+    ):
+        exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
+
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+            {"conclusion": "won", "open_cleanup_pr": open_cleanup_pr, "repository": repository},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, expected_status, resp.content)
+        self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
+
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report, _mock_access
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True, "repository": "ACME/Web"},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(mock_create_task.call_args.kwargs["repository"], "Acme/Web")
+        self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
@@ -6896,6 +7161,88 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         # Verify the fix: the update activity log should NOT show the first user
         self.assertNotEqual(update_logs[0].user, self.user)
+
+    def test_activity_endpoint_returns_only_this_experiments_changes(self):
+        saved_metric_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Activity saved metric",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview"},
+                },
+            },
+        )
+        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
+        saved_metric_id = saved_metric_response.json()["id"]
+        holdout_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_holdouts/",
+            data={
+                "name": "Activity holdout",
+                "filters": [{"properties": [], "rollout_percentage": 20, "variant": "holdout"}],
+            },
+            format="json",
+        )
+        self.assertEqual(holdout_response.status_code, status.HTTP_201_CREATED)
+        holdout_id = holdout_response.json()["id"]
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Experiment with children",
+                "feature_flag_key": "activity-endpoint-one",
+                "holdout_id": holdout_id,
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
+            },
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+        self.client.patch(f"/api/projects/{self.team.id}/experiments/{experiment_id}/", {"description": "Updated"})
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_holdouts/{holdout_id}/", {"name": "Renamed holdout"}
+        )
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}/", {"name": "Renamed metric"}
+        )
+
+        other_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Unrelated experiment", "feature_flag_key": "activity-endpoint-two"},
+        )
+        other_experiment_id = other_response.json()["id"]
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{other_experiment_id}/", {"description": "Unrelated update"}
+        )
+        # An unrelated shared metric whose pk collides with the experiment's id
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            scope="Experiment",
+            item_id=str(experiment_id),
+            activity="updated",
+            detail={"type": "shared_metric", "name": "Colliding metric"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/activity?limit=50")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+
+        item_ids = {entry["item_id"] for entry in results}
+        self.assertNotIn(str(other_experiment_id), item_ids)
+        self.assertLessEqual(item_ids, {str(experiment_id), str(holdout_id), str(saved_metric_id)})
+        own_activities = [entry["activity"] for entry in results if entry["item_id"] == str(experiment_id)]
+        self.assertIn("created", own_activities)
+        self.assertIn("updated", own_activities)
+        detail_types = {(entry["detail"] or {}).get("type") for entry in results}
+        self.assertIn("holdout", detail_types)
+        self.assertIn("shared_metric", detail_types)
+        self.assertFalse(
+            any(
+                entry["item_id"] == str(experiment_id) and (entry["detail"] or {}).get("type") == "shared_metric"
+                for entry in results
+            )
+        )
 
     def test_web_experiment_activity_logging_excludes_parameters_through_main_endpoint(self):
         feature_flag = FeatureFlag.objects.create(

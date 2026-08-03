@@ -1,10 +1,12 @@
+from typing import Any
 from uuid import UUID
 
+from drf_spectacular.openapi import AutoSchema
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -15,8 +17,16 @@ from posthog.permissions import APIScopePermission
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.presentation.serializers import (
+    ChannelFeedMessageSerializer,
+    ChannelFeedMessageWriteSerializer,
     ChannelSerializer,
+    ChannelUpdateSerializer,
     ChannelWriteSerializer,
+    TaskActivityMarkReadResponseSerializer,
+    TaskActivityMarkReadSerializer,
+    TaskActivityPageSerializer,
+    TaskActivityQuerySerializer,
+    TaskActivitySerializer,
     TaskMentionQuerySerializer,
     TaskMentionSerializer,
     TaskThreadMessageSerializer,
@@ -67,14 +77,14 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(ChannelSerializer(channel).data)
 
     @extend_schema(
-        request=ChannelWriteSerializer,
+        request=ChannelUpdateSerializer,
         responses={200: ChannelSerializer},
         summary="Rename a public channel",
     )
     def partial_update(self, request, pk=None, **kwargs):
-        serializer = ChannelWriteSerializer(data=request.data)
+        serializer = ChannelUpdateSerializer(data=request.data, context={"team_id": self.team_id}, partial=True)
         serializer.is_valid(raise_exception=True)
-        result = tasks_facade.rename_channel(pk, self.team_id, name=serializer.validated_data["name"])
+        result = tasks_facade.update_channel(pk, self.team_id, self._user_id(), **serializer.validated_data)
         if result == "not_found":
             raise NotFound()
         if result == "personal":
@@ -93,6 +103,74 @@ class ChannelViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result == "personal":
             raise PermissionDenied("Personal channels cannot be deleted")
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ChannelFeedMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for a channel's system-announcement feed — durable "PostHog agent" rows
+    (context created, CONTEXT.md being built) rendered alongside the channel's task
+    cards. Read by any team member for a public channel; personal channels are owner-only.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "head", "options"]
+    serializer_class = ChannelFeedMessageSerializer
+
+    def _channel_id(self) -> str:
+        channel_id = self.kwargs.get("parent_lookup_channel_id")
+        if not channel_id:
+            raise NotFound("Channel ID is required")
+        try:
+            UUID(channel_id)
+        except (ValueError, TypeError):
+            raise NotFound("Channel not found")
+        return channel_id
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=ChannelFeedMessageSerializer(many=True), description="Feed messages, chronological"
+            )
+        },
+        summary="List channel feed messages",
+        description="A channel's system announcements in chronological order.",
+    )
+    def list(self, request, *args, **kwargs):
+        messages = tasks_facade.list_channel_feed_messages(self._channel_id(), self.team_id, self._user_id())
+        if messages is None:
+            raise NotFound("Channel not found")
+        return Response(ChannelFeedMessageSerializer(messages, many=True).data)
+
+    @extend_schema(
+        request=ChannelFeedMessageWriteSerializer,
+        responses={201: ChannelFeedMessageSerializer},
+        summary="Post a channel feed message",
+    )
+    def create(self, request, **kwargs):
+        serializer = ChannelFeedMessageWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        message = tasks_facade.create_channel_feed_message(
+            self._channel_id(),
+            self.team_id,
+            self._user_id(),
+            event=serializer.validated_data["event"],
+            payload=serializer.validated_data.get("payload") or {},
+            created_at=serializer.validated_data.get("created_at"),
+        )
+        if message is None:
+            raise NotFound("Channel not found")
+        if message == "full":
+            raise ValidationError("This channel's feed is full.")
+        return Response(ChannelFeedMessageSerializer(message).data, status=status.HTTP_201_CREATED)
 
 
 class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -127,6 +205,96 @@ class TaskMentionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         limit = request.validated_query_data["limit"]
         mentions = tasks_facade.list_mentions(self.team_id, self._user_id(), since=since, limit=limit)
         return Response(TaskMentionSerializer(mentions, many=True).data)
+
+
+class _ActivityPageEnvelopeSchema(AutoSchema):
+    """Stops drf-spectacular's list-view heuristic from wrapping the `list` response in an array.
+
+    `list` returns a single page envelope (`results` + `unread_count`), not a bare collection.
+    Forcing the heuristic off renames the operation to `*_retrieve`, so pin the operationId back
+    to keep the generated client's `*List` name.
+    """
+
+    def _is_list_view(self, serializer: Any = None) -> bool:
+        return False
+
+    def get_operation_id(self) -> str:
+        operation_id = super().get_operation_id()
+        if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
+            return operation_id.removesuffix("_retrieve") + "_list"
+        return operation_id
+
+
+class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """
+    API for the requester's activity feed — one row per task they are involved in (created,
+    @-mentioned in, or authored a thread message on), most-recent activity first.
+    """
+
+    authentication_classes = [
+        SessionAuthentication,
+        PersonalAPIKeyAuthentication,
+        OAuthAccessTokenAuthentication,
+    ]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "task"
+    http_method_names = ["get", "post", "head", "options"]
+    serializer_class = TaskActivitySerializer
+    # `list` hands back one envelope carrying its own unread total, so neither DRF's
+    # pagination wrapper nor spectacular's array wrapper describes what it sends.
+    pagination_class = None
+    schema = _ActivityPageEnvelopeSchema()
+
+    def _user_id(self) -> int | None:
+        return getattr(self.request.user, "id", None)
+
+    @validated_request(
+        query_serializer=TaskActivityQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=TaskActivityPageSerializer, description="Tasks, most-recent activity first"),
+        },
+        summary="List the requester's task activity",
+        description=(
+            "Tasks the requester is involved in (created, mentioned, or messaged), one row per task, "
+            "most-recent activity first, restricted to tasks they can see."
+        ),
+    )
+    def list(self, request, *args, **kwargs):
+        activity = tasks_facade.list_task_activity(
+            self.team_id,
+            self._user_id(),
+            limit=request.validated_query_data["limit"],
+            before=request.validated_query_data.get("before"),
+            before_id=request.validated_query_data.get("before_id"),
+        )
+        return Response(TaskActivityPageSerializer(activity).data)
+
+    # @extend_schema must sit OUTSIDE @action: DRF's @action resets func.kwargs, wiping any schema
+    # annotation applied earlier — including @validated_request's — from the generated OpenAPI.
+    @extend_schema(
+        request=TaskActivityMarkReadSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskActivityMarkReadResponseSerializer, description="Remaining unread total"),
+        },
+        summary="Mark task activity read",
+        description=(
+            "Clear the unread flag on the requester's feed rows for the given tasks. Read state is per "
+            "task, so opening a task through any surface clears the same row."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="mark_read", required_scopes=["task:write"])
+    @validated_request(request_serializer=TaskActivityMarkReadSerializer)
+    def mark_read(self, request, *args, **kwargs):
+        activities = [
+            (activity["task_id"], activity["seen_before"]) for activity in request.validated_data["activities"]
+        ]
+        marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)
+        return Response(
+            {
+                "marked_read": marked_read,
+                "unread_count": tasks_facade.count_unread_task_activity(self.team_id, self._user_id()),
+            }
+        )
 
 
 class TaskThreadMessageViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

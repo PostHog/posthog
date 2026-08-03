@@ -18,6 +18,8 @@ from posthog.temporal.common.search_attributes import (
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
 
+    from products.replay_vision.backend.temporal.metrics import record_vision_action_occurrence_dropped
+
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.temporal.activities import (
     advance_scanner_watermark_activity,
@@ -30,14 +32,13 @@ from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
-    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
-    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
     REFRESH_PROMPT_SUGGESTION_TIMEOUT,
     SWEEP_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     build_process_vision_action_workflow_id,
+    in_flight_headroom,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
@@ -109,10 +110,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 retry_policy=common.RetryPolicy(maximum_attempts=1),
             )
             team_in_flight = 0
-        headroom = min(
-            MAX_IN_FLIGHT_APPLIES_PER_SCANNER - scanner_in_flight,
-            MAX_IN_FLIGHT_APPLIES_PER_TEAM - team_in_flight,
-        )
+        headroom = in_flight_headroom(scanner_in_flight, team_in_flight)
         if headroom <= 0:
             # At a cap — drain before fetching more. Don't advance the watermark; resume next tick.
             wf.logger.info(
@@ -168,7 +166,10 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     await wf.start_child_workflow(
                         PROCESS_VISION_ACTION_WORKFLOW_NAME,
                         ProcessVisionActionInputs(
-                            vision_action_id=d.vision_action_id, team_id=d.team_id, scheduled_at=d.scheduled_at
+                            vision_action_id=d.vision_action_id,
+                            team_id=d.team_id,
+                            scheduled_at=d.scheduled_at,
+                            mode=d.mode,
                         ),
                         id=build_process_vision_action_workflow_id(d.vision_action_id),
                         task_queue=settings.REPLAY_VISION_TASK_QUEUE,
@@ -182,8 +183,9 @@ class SweepScannerWorkflow(PostHogWorkflow):
                     )
                 except Exception:
                     # The action was already claimed (next_run_at advanced in the eval txn), so a child
-                    # that fails to start drops this occurrence until the next fire. Log it per-action
-                    # so the drop is visible/graphable, and keep dispatching the rest.
+                    # that fails to start drops this occurrence until the next fire. Count and log it
+                    # per-action so the drop is visible/graphable, and keep dispatching the rest.
+                    record_vision_action_occurrence_dropped()
                     wf.logger.exception(
                         "replay_vision.vision_action_claim_dispatch_failed",
                         extra={"scanner_id": str(inputs.scanner_id), "vision_action_id": str(d.vision_action_id)},

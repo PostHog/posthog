@@ -13,7 +13,9 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.fillout.source import FilloutSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import FilloutSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.fillout import (
+    FilloutSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -32,7 +34,6 @@ class TestFilloutSource:
         assert config.label == "Fillout"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.iconPath == "/static/services/fillout.png"
 
     def test_source_config_fields(self) -> None:

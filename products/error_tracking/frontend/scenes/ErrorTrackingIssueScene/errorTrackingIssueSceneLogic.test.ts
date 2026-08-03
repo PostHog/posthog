@@ -1,3 +1,5 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 
 import { useMocks } from '~/mocks/jest'
@@ -55,4 +57,27 @@ describe('errorTrackingIssueSceneLogic', () => {
 
         expect(logic.values.eventsQueryKey).not.toBe(initialKey)
     })
+
+    it('handles an empty initial event query result', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadInitialEvent('2026-01-01T00:00:00Z')
+        })
+            .toDispatchActions(['loadInitialEventSuccess'])
+            .toMatchValues({ initialEvent: null })
+    })
+
+    // A malformed `timestamp` URL param used to be stored and fed to getNarrowDateRange, where
+    // dayjs().toISOString() threw a RangeError and crashed the whole scene on mount. It must now
+    // be ignored so the scene falls back to the valid server-provided timestamp.
+    it.each(['not-a-date', 'undefined', '2026-01-02T03%3A04%3A05'])(
+        'ignores a malformed initial event timestamp (%s)',
+        (bad) => {
+            logic.actions.setInitialEventTimestamp(bad)
+            expect(logic.values.initialEventTimestamp).toBeNull()
+
+            // A valid timestamp (as the server's last_seen provides) is still accepted afterwards.
+            logic.actions.setInitialEventTimestamp('2026-01-02T03:04:05Z')
+            expect(logic.values.initialEventTimestamp).toBe('2026-01-02T03:04:05Z')
+        }
+    )
 })

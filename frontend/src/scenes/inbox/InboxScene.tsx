@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -23,6 +24,7 @@ import { NotActionableTab } from './components/tabs/NotActionableTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
+import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport, SignalRun } from './types'
@@ -89,6 +91,27 @@ function InboxListView(): JSX.Element {
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
+
+    // Runs and Configuration don't render `InboxReportList`, so `Inbox viewed` never fires for them.
+    // Same once-per-visit guard as the report list: hold Runs until its load settles so the count is real.
+    const panelViewFiredRef = useRef<string | null>(null)
+    useEffect(() => {
+        if (effectiveTab !== 'runs' && effectiveTab !== 'config') {
+            panelViewFiredRef.current = null
+            return
+        }
+        if (effectiveTab === 'runs' && signalRunsLoading) {
+            return
+        }
+        if (panelViewFiredRef.current === effectiveTab) {
+            return
+        }
+        panelViewFiredRef.current = effectiveTab
+        captureInboxPanelViewed({
+            panel: effectiveTab,
+            itemCount: effectiveTab === 'runs' ? signalRuns.length : null,
+        })
+    }, [effectiveTab, signalRunsLoading, signalRuns.length])
 
     return (
         <div ref={widthRef} className="flex min-h-0 flex-1">
@@ -183,6 +206,19 @@ export function InboxScene(): JSX.Element {
     // container alive, so clicking "back" lands on the same scroll position with the same loaded pages —
     // instead of remounting and resetting to the first page at the top.
     const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen || isFindingsOpen
+
+    // The two scout panels replace the list without going through any tab, so they'd otherwise leave
+    // no trace at all. The scout detail reports itself (it has the config to describe).
+    useEffect(() => {
+        if (isFindingsOpen) {
+            captureInboxPanelViewed({ panel: 'findings' })
+        }
+    }, [isFindingsOpen])
+    useEffect(() => {
+        if (isScratchpadOpen) {
+            captureInboxPanelViewed({ panel: 'scratchpad' })
+        }
+    }, [isScratchpadOpen])
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">

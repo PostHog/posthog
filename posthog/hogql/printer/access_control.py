@@ -7,8 +7,6 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 
-from posthog.rbac.user_access_control import resource_to_display_name
-
 if TYPE_CHECKING:
     from posthog.schema import AccessControlFilterWarning
 
@@ -24,6 +22,8 @@ def build_access_control_warning(resources: Iterable["APIScopeObject"]) -> Optio
     from posthog.schema import (
         AccessControlFilterWarning,  # noqa: PLC0415 — keeps posthog.schema off django.setup() via this module
     )
+
+    from posthog.rbac.user_access_control import resource_to_display_name  # noqa: PLC0415
 
     sorted_resources = sorted(resources)
     if not sorted_resources:

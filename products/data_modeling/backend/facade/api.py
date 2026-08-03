@@ -10,6 +10,8 @@ name on first access keeps this module off the ``django.setup()`` path.
 _B = "products.data_modeling.backend."
 
 _LAZY = {
+    "UnsatisfiableFrequencyError": "logic.freshness",
+    "UnsupportedFrequencyTargetError": "logic.freshness",
     "HasDependentsError": "logic.saved_query_dag_sync",
     "delete_node_from_dag": "logic.saved_query_dag_sync",
     "sync_saved_query_to_dag": "logic.saved_query_dag_sync",
@@ -18,6 +20,19 @@ _LAZY = {
     "materialize_saved_query": "logic.node_materialization",
     "saved_query_materialized_at": "logic.saved_query_freshness",
     "start_node_materialization": "logic.node_materialization",
+    "apply_saved_query_frequency_target": "logic.schedule_reconcile",
+    "tiered_schedules_enabled": "logic.schedule_reconcile",
+    "declared_targets_by_saved_query": "logic.node_frequency",
+    "get_declared_target": "logic.node_frequency",
+    "clear_node_suspension": "logic.node_suspension",
+    "is_node_suspended": "logic.node_suspension",
+    "mark_node_suspended": "logic.node_suspension",
+    "query_fingerprint": "logic.node_suspension",
+    "resume_nodes": "logic.node_suspension",
+    "resume_saved_query": "logic.node_suspension",
+    "suspension_reset_at": "logic.node_suspension",
+    "suspension_state": "logic.node_suspension",
+    "suspension_state_for_saved_query": "logic.node_suspension",
     "compute_enrichment_hash": "logic.enrich_view_semantics",
     "enrichment_gates_pass": "logic.enrich_view_semantics",
     "enrich_view_semantics_sync": "logic.enrich_view_semantics",

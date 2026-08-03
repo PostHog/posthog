@@ -47,7 +47,9 @@ tools:
         description: >
             Create a new agent skill. Requires a unique kebab-case name (lowercase letters, numbers, hyphens), a
             description explaining when to use it, and the skill body (SKILL.md instruction content as markdown).
-            Optionally include license, compatibility, allowed_tools, metadata, and bundled files.
+            Optionally include license, compatibility, allowed_tools, metadata, bundled files, and owners. Owners (a
+            list of project-member user UUIDs) default to the creating user; set them to route reviews or questions
+            about this skill to specific people.
         include_params:
             - name
             - description
@@ -57,6 +59,7 @@ tools:
             - allowed_tools
             - metadata
             - files
+            - owners
     skill-duplicate:
         operation: llm_skills_name_duplicate_create
         enabled: true
@@ -140,9 +143,12 @@ tools:
         title: Get skill
         description: >
             Get a specific agent skill by name, including its full body content, metadata, and file manifest. Follows
-            the Agent Skills specification (agentskills.io). To link a user to this skill in the PostHog app, build the
-            URL from the skill `name`, not its `id`: `/llm-analytics/skills/<name>` (e.g.
-            `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid route segment and will 404.
+            the Agent Skills specification (agentskills.io). The response always includes body_total_length (the full
+            body length in characters) — if the body you received is shorter than that, it was truncated in transit, so
+            page through it with body_offset and body_length and continue from body_next_offset until it is null. To
+            link a user to this skill in the PostHog app, build the URL from the skill `name`, not its `id`:
+            `/llm-analytics/skills/<name>` (e.g. `/llm-analytics/skills/pr-shepherd`). The `id` (UUID) is not a valid
+            route segment and will 404.
     skill-list:
         operation: llm_skills_list
         enabled: true
@@ -223,6 +229,11 @@ tools:
 
             Passing a 'files' list here replaces ALL files and risks data loss if any file is
             omitted — use it only when you intentionally want to replace the entire bundle.
+
+            To change who owns the skill, pass 'owners' (a list of project-member user UUIDs) —
+            this replaces the owner set. Omit it to leave owners unchanged; pass an empty list to
+            clear them. Ownership is independent of the version, so a body edit alone never
+            changes it.
         include_params:
             - body
             - edits
@@ -233,4 +244,5 @@ tools:
             - metadata
             - files
             - file_edits
+            - owners
             - base_version

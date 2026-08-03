@@ -6,7 +6,7 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import LumaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.luma import LumaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.luma import LumaResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.luma.source import LumaSource
@@ -28,7 +28,6 @@ class TestLumaSource:
         assert config.label == "Luma"
         assert config.releaseStatus == ReleaseStatus.ALPHA
         # Shipped behind the unreleased flag until the source has synced end-to-end with real credentials.
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/luma"
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]

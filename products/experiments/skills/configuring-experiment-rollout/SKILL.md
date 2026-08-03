@@ -48,11 +48,11 @@ Both live on the linked feature flag, sent through the `feature_flag` object in 
 How users **inside** the experiment are distributed across variants.
 
 - Array of `{key, name, rollout_percentage}`, where the `rollout_percentage` values must sum to 100
-- Exactly one variant key must be the literal string `"control"` (the baseline)
 - Minimum 2 variants, maximum 20
+- No specific variant key is required — the analysis baseline defaults to the variant keyed `"control"` when present, else the first variant
 - Default: control 50% / test 50%
 
-If the user says "A/B/C test", map the baseline to `"control"` and create additional variants for the others.
+If the user says "A/B/C test" without naming keys, key the baseline `"control"` (the convention) and create additional variants for the others; if they ask for specific keys, use them as-is with the baseline first.
 
 ### 2. Overall rollout (`feature_flag.filters.groups[0].rollout_percentage`)
 
@@ -193,6 +193,9 @@ Present the warning covering both perspectives:
 2. **Who is in my analysis?** — how does this affect data quality?
 
 **Exception**: Increasing rollout (without changing the split) is generally safe — no users switch variants, more users are added cleanly.
+
+**If the goal is "stop new users from entering" rather than a percentage change**: reducing the rollout is the wrong tool — it drops already-enrolled users out of the experiment too.
+Freezing exposure (`experiment-freeze-exposure`) closes enrollment while enrolled users keep their variant and metrics keep flowing; see `managing-experiment-lifecycle` for its preconditions and limitations.
 
 **Mid-experiment fix for uneven-split bias**: switching multivariate handling from "Exclude" to "First
 seen variant" is the recommended mitigation for already-launched experiments — no users switch variants

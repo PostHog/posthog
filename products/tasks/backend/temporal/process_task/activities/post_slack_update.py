@@ -10,6 +10,9 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.access import has_tasks_access
+from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
+    TIMED_OUT_INACTIVITY_STATE_KEY,
+)
 
 logger = get_logger(__name__)
 
@@ -84,7 +87,7 @@ class PostSlackUpdateInput:
 def _viewer_has_posthog_code_access(viewer: User | None) -> bool:
     """Fail closed: missing creator or any flag-service error suppresses the link.
 
-    The PostHog Code app is rolled out via cohort + invite redemption; surfacing
+    The PostHog Desktop app is rolled out via cohort + invite redemption; surfacing
     deep links to users who can't open them sends them into an install flow we
     don't want to scale right now. Errors from the flag service therefore default
     to "no access" rather than "show the link anyway".
@@ -135,7 +138,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
 
         if task_run.status == TaskRun.Status.COMPLETED:
             handler.update_reaction("hedgehog")
-            if task_run.error_message and "timed out" in task_run.error_message:
+            if _is_timed_out_completion(task_run):
                 handler.delete_progress()
                 return
             if pr_url:
@@ -158,6 +161,14 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
+
+
+def _is_timed_out_completion(task_run: Any) -> bool:
+    """The error_message check covers runs finalized before the state marker existed."""
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if state.get(TIMED_OUT_INACTIVITY_STATE_KEY):
+        return True
+    return bool(task_run.error_message and "timed out" in task_run.error_message)
 
 
 def _get_stage_from_status(status: str, stage: str | None = None) -> str:
@@ -188,13 +199,17 @@ def _post_pr_opened_notification_once(
         handler.delete_progress()
         return
 
-    # Tag the person who started the task. This fires asynchronously (often long
-    # after the PR opened, once the CI follow-up loop settles), so tagging the
-    # latest actor would ping whoever last happened to touch the thread — a casual
-    # joiner — rather than the person who owns the work. Interactive replies still
-    # tag the current speaker; only these milestone pings key on the starter.
-    mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
-    reply_target_slack_user_id = mapping.mentioning_slack_user_id if mapping else None
+    # Tag the user whose request drove this run, falling back to the original
+    # mentioner. ``slack_actor_slack_user_id`` is the resolved acting user — set at
+    # task creation and re-stamped on resume — so a run someone else picked up pings
+    # them, not the original creator. We deliberately do not consult the mapping's
+    # ``latest_actor_slack_user_id``: this ping is asynchronous (it can fire long
+    # after the PR opened, once the CI follow-up loop settles), so the last person to
+    # touch the thread is often a casual joiner rather than the person who owns the work.
+    reply_target_slack_user_id = (task_run.state or {}).get("slack_actor_slack_user_id")
+    if not reply_target_slack_user_id:
+        mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
+        reply_target_slack_user_id = mapping.mentioning_slack_user_id if mapping else None
 
     handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 

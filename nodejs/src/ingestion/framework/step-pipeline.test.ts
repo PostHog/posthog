@@ -1,9 +1,15 @@
 import { Message } from 'node-rdkafka'
 
+import { logger } from '~/common/utils/logger'
+
 import { createContext, createOkContext } from './helpers'
 import { isOkResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
+
+jest.mock('~/common/utils/logger', () => ({
+    logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 describe('StepPipeline', () => {
     describe('constructor', () => {
@@ -31,16 +37,26 @@ describe('StepPipeline', () => {
             expect(result).toEqual(createContext(ok({ processed: 'test' }), { message, lastStep: 'mockConstructor' }))
         })
 
-        it('should handle step errors', async () => {
+        it('should handle step errors and log the debug context', async () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
             const step = jest.fn().mockRejectedValue(new Error('Step failed'))
             const previous = new StartPipeline<{ data: string }, unknown>()
 
             const pipeline = new StepPipeline(step, previous)
+            const input = createOkContext(
+                { data: 'test' },
+                { message, debugContext: { topic: 'test', partition: 0, offset: 1 } }
+            )
 
-            await expect(pipeline.process(createOkContext({ data: 'test' }, { message }))).rejects.toThrow(
-                'Step failed'
+            await expect(pipeline.process(input)).rejects.toThrow('Step failed')
+            expect(logger.error).toHaveBeenCalledWith(
+                '🔥',
+                expect.stringContaining('threw'),
+                expect.objectContaining({
+                    error: 'Step failed',
+                    debugContext: { topic: 'test', partition: 0, offset: 1 },
+                })
             )
         })
     })

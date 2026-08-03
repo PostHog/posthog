@@ -9,18 +9,20 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import QualarooSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualaroo import (
+    QualarooSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.qualaroo import (
     QualarooResumeConfig,
     qualaroo_source,
@@ -28,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.q
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.settings import (
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
     QUALAROO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -35,6 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class QualarooSource(ResumableSource[QualarooSourceConfig, QualarooResumeConfig]):
+    supported_versions = ("v1",)
+    default_version = "v1"
+    api_docs_url = "https://help.qualaroo.com/hc/en-us/sections/200469946-API-Documentation"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -97,25 +104,19 @@ You can find your API key and secret under **Settings → API** in [Qualaroo](ht
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Every endpoint is full refresh only — the nudges list exposes no reliably ordered
-        # server-side timestamp filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
-            )
-            for endpoint in ENDPOINTS
-        ]
-        if names is not None:
-            names_set = set(names)
-            schemas = [s for s in schemas if s.name in names_set]
-        return schemas
+        # server-side timestamp filter, so INCREMENTAL_FIELDS is empty and every schema is
+        # non-incremental / non-append.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
-        self, config: QualarooSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: QualarooSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         # The key/secret pair is account-wide, so a single probe validates access to every schema.
         return _validate_qualaroo_credentials(config.api_key, config.api_secret)
@@ -136,6 +137,8 @@ You can find your API key and secret under **Settings → API** in [Qualaroo](ht
             api_key=config.api_key,
             api_secret=config.api_secret,
             endpoint=inputs.schema_name,
-            logger=inputs.logger,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=None,  # every Qualaroo endpoint is full refresh
         )

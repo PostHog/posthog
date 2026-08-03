@@ -9,6 +9,7 @@ from posthog.schema import (
     BingAdsDefaultSources,
     BingAdsTableExclusions,
     BingAdsTableKeywords,
+    DefaultChannelTypes,
     GoogleAdsDefaultSources,
     GoogleAdsTableExclusions,
     GoogleAdsTableKeywords,
@@ -36,6 +37,7 @@ from posthog.schema import (
     MetaAdsTableExclusions,
     MetaAdsTableKeywords,
     NativeMarketingSource,
+    NodeKind,
     PinterestAdsDefaultSources,
     PinterestAdsTableExclusions,
     PinterestAdsTableKeywords,
@@ -59,6 +61,16 @@ from posthog.hogql import ast
 DEFAULT_LIMIT = 100
 PAGINATION_EXTRA = 1  # Request one extra for pagination
 FALLBACK_COST_VALUE = 999999999
+# The three node kinds a conversion goal can be, derived from the schema enum so they can't drift
+# from ConversionGoalFilter1/2/3. Referenced by name from SPECTACULAR_SETTINGS["ENUM_NAME_OVERRIDES"]
+# so the API serializers can expose `kind` as a real enum: the name collides in drf-spectacular, and
+# without a stable override the generated type degrades to a plain string.
+CONVERSION_GOAL_KIND_CHOICES = [
+    NodeKind.EVENTS_NODE.value,
+    NodeKind.ACTIONS_NODE.value,
+    NodeKind.DATA_WAREHOUSE_NODE.value,
+]
+
 UNKNOWN_CAMPAIGN = "Unknown Campaign"
 UNKNOWN_SOURCE = "Unknown Source"
 ORGANIC_CAMPAIGN = "organic"
@@ -70,6 +82,7 @@ DEFAULT_DISTINCT_ID_FIELD = "distinct_id"
 # CTE names
 CAMPAIGN_COST_CTE_NAME = "campaign_costs"
 UNIFIED_CONVERSION_GOALS_CTE_ALIAS = "ucg"
+CHANNEL_SESSIONS_CTE_NAME = "channel_sessions"
 
 # Prefixes for table names
 CONVERSION_GOAL_PREFIX_ABBREVIATION = "cg_"
@@ -81,6 +94,15 @@ TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
 TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
+TOTAL_SESSIONS_FIELD = "total_sessions"
+
+# Sessions come from the sessions table, not from an ad platform, so this column is only
+# available at levels that can be derived from session data (channel_source).
+SESSIONS_COLUMN_ALIAS = "Sessions"
+
+# The label every side of the query falls back to when channel can't be derived. Sourced from the
+# enum so the sides can't drift apart and split one row in two.
+UNKNOWN_CHANNEL = DefaultChannelTypes.UNKNOWN.value
 
 # Field used for joining with conversion goals
 MATCH_KEY_FIELD = "match_key"
@@ -357,6 +379,17 @@ DRILL_DOWN_LEVEL_CONFIG: dict[MarketingAnalyticsDrillDownLevel, DrillDownLevelCo
                 MarketingAnalyticsBaseColumns.ID,
                 MarketingAnalyticsBaseColumns.CAMPAIGN,
                 MarketingAnalyticsBaseColumns.SOURCE,
+            }
+        ),
+    },
+    MarketingAnalyticsDrillDownLevel.CHANNEL_SOURCE: {
+        # Channel is the grouping alias; Source survives as the second column so a channel's
+        # rows break down into the sources that make it up.
+        "column_alias": "Channel",
+        "excluded_base_columns": frozenset(
+            {
+                MarketingAnalyticsBaseColumns.ID,
+                MarketingAnalyticsBaseColumns.CAMPAIGN,
             }
         ),
     },

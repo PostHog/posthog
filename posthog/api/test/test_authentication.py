@@ -440,12 +440,61 @@ class TestDevLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
 
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_list_puts_seeded_then_recently_used_accounts_first(self):
+        User.objects.create_and_join(self.organization, "aaa-never@posthog.com", None)
+        recently_used = User.objects.create_and_join(self.organization, "zzz-recent@posthog.com", None)
+        recently_used.last_login = timezone.now()
+        recently_used.save()
+        # Seeded by setup_dev, and never logged in as — it still belongs on top.
+        User.objects.create_and_join(self.organization, "test@posthog.com", None)
+
+        response = self.client.get("/api/login/dev")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        emails = [user["email"] for user in response.json()["users"]]
+        self.assertEqual(emails[:2], ["test@posthog.com", "zzz-recent@posthog.com"])
+
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
     def test_dev_login_hidden_when_allow_dev_login_disabled(self):
         response = self.client.get("/api/login/dev")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
         response = self.client.post("/api/login/dev", {"email": self.user.email})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
+    def test_dev_login_create_fresh_account(self):
+        user_count = User.objects.count()
+        organization_count = Organization.objects.count()
+
+        response = self.client.post("/api/login/dev", {"create_fresh_account": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+
+        self.assertEqual(User.objects.count(), user_count + 1)
+        self.assertEqual(Organization.objects.count(), organization_count + 1)
+
+        new_user = User.objects.latest("id")
+        self.assertTrue(new_user.is_email_verified)
+        self.assertTrue(new_user.check_password("12345678"))
+        self.assertIsNotNone(new_user.organization)
+
+        # Logged in as the fresh user
+        response = self.client.get("/api/users/@me")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], new_user.email)
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_dev_login_create_fresh_account_hidden_when_not_allowed(self):
+        response = self.client.post("/api/login/dev", {"create_fresh_account": True})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=False)
+    def test_dev_login_disabled_returns_404_regardless_of_body(self):
+        # A body that would normally fail field validation (no email, no
+        # create_fresh_account) must still surface as 404, not a 400, so the
+        # endpoint's existence isn't leaked by request-shape differences.
+        response = self.client.post("/api/login/dev", {})
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @override_settings(DEBUG=False, ALLOW_DEV_LOGIN=True)
@@ -1977,8 +2026,8 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
             access_method=AccessMethod.TEAM_SECRET_TOKEN,
         )
 
-    def test_authenticate_with_valid_secret_api_key_in_body(self):
-        # Simulate a request with a valid team secret token
+    def test_authenticate_with_valid_secret_api_key_in_body_not_supported(self):
+        # Body tokens were removed after the audit in #66176: even a valid token must not authenticate.
         wsgi_request = self.factory.post(
             "/",
             data=f'{{"secret_api_key": "{self.team.secret_api_token}"}}',
@@ -1989,12 +2038,8 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
 
         authenticator = TeamSecretTokenAuthentication()
         result = authenticator.authenticate(request)
-        assert result is not None
-        user, _ = result
 
-        self.assertIsNotNone(user)
-        self.assertIsInstance(user, TeamSecretTokenUser)
-        self.assertEqual(user.team, self.team)
+        self.assertIsNone(result)
 
     def test_authenticate_with_secret_api_key_in_query_string_not_supported(self):
         # Query string authentication should not be supported for security reasons
@@ -2064,25 +2109,6 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.assertIsInstance(user, TeamSecretTokenUser)
         self.assertEqual(user.team, self.team)
 
-    @parameterized.expand(
-        [
-            ("public_token", "phc_test_public_token"),
-            ("non_prefixed_token", "some_random_token_without_prefix"),
-            ("empty_string", ""),
-            ("integer_value", 12345),
-        ]
-    )
-    def test_authenticate_with_invalid_token_in_body_rejected(self, _name, token_value):
-        data = json.dumps({"secret_api_key": token_value})
-        wsgi_request = self.factory.post("/", data=data, content_type="application/json")
-        request = Request(wsgi_request)
-        request.parsers = [JSONParser()]
-
-        authenticator = TeamSecretTokenAuthentication()
-        result = authenticator.authenticate(request)
-
-        self.assertIsNone(result)
-
 
 class TestSyntheticUser(SimpleTestCase):
     def _team(self, team_id=42):
@@ -2136,27 +2162,12 @@ class TestExtractPhsToken(SimpleTestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
 
-    @parameterized.expand(
-        [
-            ("list_body", "[1, 2, 3]"),
-            ("string_body", '"hello"'),
-            ("number_body", "42"),
-            ("null_body", "null"),
-        ]
-    )
-    def test_non_dict_body_returns_none(self, _name, raw_body):
-        wsgi_request = self.factory.post("/", data=raw_body, content_type="application/json")
-        request = Request(wsgi_request)
-        request.parsers = [JSONParser()]
-
-        self.assertIsNone(_extract_phs_token(request, allow_body_token=True))
-
     def test_valid_token_in_header_returned(self):
         token = "phs_" + "x" * 35
         wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
         self.assertEqual(_extract_phs_token(Request(wsgi_request)), token)
 
-    def test_valid_token_in_dict_body_returned_when_body_allowed(self):
+    def test_body_token_ignored(self):
         token = "phs_" + "y" * 35
         wsgi_request = self.factory.post(
             "/",
@@ -2165,18 +2176,7 @@ class TestExtractPhsToken(SimpleTestCase):
         )
         request = Request(wsgi_request)
         request.parsers = [JSONParser()]
-        self.assertEqual(_extract_phs_token(request, allow_body_token=True), token)
-
-    def test_body_token_ignored_when_body_not_allowed(self):
-        token = "phs_" + "y" * 35
-        wsgi_request = self.factory.post(
-            "/",
-            data=json.dumps({"secret_api_key": token}),
-            content_type="application/json",
-        )
-        request = Request(wsgi_request)
-        request.parsers = [JSONParser()]
-        self.assertIsNone(_extract_phs_token(request, allow_body_token=False))
+        self.assertIsNone(_extract_phs_token(request))
 
     def test_no_token_anywhere_returns_none(self):
         wsgi_request = self.factory.get("/")
@@ -2224,7 +2224,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         )
 
     def test_authenticate_with_psak_in_body_returns_none(self):
-        # PSAK auth is header-only (allow_body_token=False): a token in the request body must not authenticate.
+        # PSAK auth is header-only: a token in the request body must not authenticate.
         wsgi_request = self.factory.post(
             "/",
             data=json.dumps({"secret_api_key": self.token}),

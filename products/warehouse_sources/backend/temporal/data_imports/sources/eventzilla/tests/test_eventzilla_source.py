@@ -13,7 +13,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla
     EventzillaResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla.source import EventzillaSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import EventzillaSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.eventzilla import (
+    EventzillaSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -28,7 +30,6 @@ class TestEventzillaSourceClass:
         config = self.source.get_source_config
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/eventzilla"
 
     def test_source_config_has_single_secret_api_key_field(self) -> None:

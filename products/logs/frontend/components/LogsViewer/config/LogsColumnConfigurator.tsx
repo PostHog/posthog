@@ -4,18 +4,19 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconX } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
+import { IconPencil, IconPlusSmall, IconX } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
 import { logsViewerLogic } from '../logsViewerLogic'
-import { DEFAULT_LOGS_COLUMNS, LogsColumnConfig, columnLabel } from './columns'
+import { DEFAULT_LOGS_COLUMNS, LOGS_COLUMN_REGISTRY, LogsColumnConfig, LogsColumnType, columnLabel } from './columns'
 import { logsColumnConfiguratorLogic } from './logsColumnConfiguratorLogic'
 
 // The Logs taxonomic group's fixed keys, mapped onto built-in column types.
@@ -42,6 +43,76 @@ function taxonomicSelectionToColumn(group: TaxonomicFilterGroup, value: string):
     }
     const prefix = TAXONOMIC_GROUP_TO_PREFIX[group.type]
     return prefix ? { type: 'custom', name: value, expression: `${prefix}.${value}` } : null
+}
+
+const COLUMN_TYPE_OPTIONS: { value: LogsColumnType; label: string }[] = [
+    ...Object.entries(LOGS_COLUMN_REGISTRY).map(([value, def]) => ({
+        value: value as LogsColumnType,
+        label: def.label,
+    })),
+    { value: 'custom', label: 'Custom' },
+]
+
+const CUSTOM_EXPRESSION_PLACEHOLDER = 'attributes.http.url or upper(level)'
+
+function AddColumnForm(): JSX.Element {
+    const { id } = useValues(logsViewerLogic)
+    const configuratorLogic = logsColumnConfiguratorLogic({ id })
+    const { newColumn, newColumnError } = useValues(configuratorLogic)
+    const { setNewColumnType, setNewColumnName, setNewColumnExpression, submitNewColumn } =
+        useActions(configuratorLogic)
+
+    return (
+        <div className="flex flex-col gap-2 p-3 border rounded">
+            <div className="flex items-end gap-2">
+                <LemonField.Pure label="Column type">
+                    <LemonSelect<LogsColumnType>
+                        size="small"
+                        value={newColumn.type}
+                        options={COLUMN_TYPE_OPTIONS}
+                        onChange={setNewColumnType}
+                        data-attr="logs-add-column-type"
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Name" className="flex-1">
+                    <LemonInput
+                        size="small"
+                        placeholder={
+                            newColumn.type === 'custom'
+                                ? 'Optional — defaults to the expression'
+                                : `Optional — defaults to "${LOGS_COLUMN_REGISTRY[newColumn.type].label}"`
+                        }
+                        value={newColumn.name}
+                        onChange={setNewColumnName}
+                        data-attr="logs-add-column-name"
+                    />
+                </LemonField.Pure>
+                <LemonButton
+                    size="small"
+                    type="primary"
+                    icon={<IconPlusSmall />}
+                    onClick={submitNewColumn}
+                    disabledReason={newColumnError ?? undefined}
+                    data-attr="logs-add-column-submit"
+                >
+                    Add column
+                </LemonButton>
+            </div>
+            {newColumn.type === 'custom' && (
+                <LemonField.Pure label="Expression">
+                    <LemonInput
+                        size="small"
+                        className="font-mono"
+                        placeholder={CUSTOM_EXPRESSION_PLACEHOLDER}
+                        value={newColumn.expression}
+                        onChange={setNewColumnExpression}
+                        onPressEnter={submitNewColumn}
+                        data-attr="logs-add-column-expression"
+                    />
+                </LemonField.Pure>
+            )}
+        </div>
+    )
 }
 
 function SelectedColumnRow({ column }: { column: LogsColumnConfig }): JSX.Element {
@@ -99,7 +170,7 @@ function SelectedColumnRow({ column }: { column: LogsColumnConfig }): JSX.Elemen
                     <LemonInput
                         size="small"
                         className="flex-1 font-mono"
-                        placeholder="attributes.http.url or upper(level)"
+                        placeholder={CUSTOM_EXPRESSION_PLACEHOLDER}
                         value={column.expression ?? ''}
                         onChange={(expression) => updateDraftColumn(column.id, { expression })}
                         data-attr="logs-column-expression-input"
@@ -183,6 +254,10 @@ export function LogsColumnConfigurator(): JSX.Element {
                                 ))}
                             </SortableContext>
                         </DndContext>
+                    </div>
+                    <div className="w-full">
+                        <h4 className="secondary uppercase text-secondary">Add a column</h4>
+                        <AddColumnForm />
                     </div>
                     <div className="w-full">
                         <h4 className="secondary uppercase text-secondary">Available columns</h4>

@@ -133,11 +133,13 @@ class TestWebhookSourceManager:
 
     @parameterized.expand(
         [
-            ("no_hog_function", False, True, True, False, False),
-            ("not_webhook", True, False, True, False, False),
-            ("initial_sync_not_complete", True, True, False, False, False),
-            ("reset_pipeline_true", True, True, True, True, False),
-            ("all_conditions_met", True, True, True, False, True),
+            ("no_hog_function", False, True, True, False, False, False),
+            ("not_webhook", True, False, True, False, False, False),
+            ("initial_sync_not_complete", True, True, False, False, False, False),
+            ("reset_pipeline_true", True, True, True, True, False, False),
+            ("all_conditions_met", True, True, True, False, False, True),
+            ("reset_pipeline_webhook_only", True, True, True, True, True, True),
+            ("initial_sync_incomplete_webhook_only", True, True, False, False, True, True),
         ]
     )
     async def test_webhook_enabled_conditions(
@@ -147,6 +149,7 @@ class TestWebhookSourceManager:
         is_webhook,
         initial_sync_complete,
         reset_pipeline,
+        webhook_only,
         expected,
     ):
         manager = _make_manager(reset_pipeline=reset_pipeline)
@@ -168,7 +171,7 @@ class TestWebhookSourceManager:
             "products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3.database_sync_to_async_pool",
             side_effect=mock_db_sync_to_async,
         ):
-            assert await manager.webhook_enabled() is expected
+            assert await manager.webhook_enabled(webhook_only) is expected
 
     async def test_list_parquet_files_filters_correctly(self):
         manager = _make_manager()

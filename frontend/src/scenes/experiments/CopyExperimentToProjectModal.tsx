@@ -71,10 +71,9 @@ export function CopyExperimentToProjectModal({
                 ...filters,
                 limit: FLAGS_PER_PAGE,
                 offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+                eligible_for_experiment: true,
             }
-            const data = await api.get(
-                `api/projects/${projectId}/experiments/eligible_feature_flags/?${toParams(params)}`
-            )
+            const data = await api.get(`api/projects/${projectId}/feature_flags/?${toParams(params)}`)
             setTargetFeatureFlags(data)
         } finally {
             setTargetFlagsLoading(false)

@@ -21,6 +21,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -263,6 +267,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -296,6 +309,7 @@ export interface PropertyGroupFilterValueApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -394,6 +408,7 @@ export const NotificationDestinationTypeEnumApi = {
  * * `leadership` - Leadership
  * * `marketing` - Marketing
  * * `sales` - Sales / Success
+ * * `student` - Student
  * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
@@ -406,6 +421,7 @@ export const RoleAtOrganizationEnumApi = {
     Leadership: 'leadership',
     Marketing: 'marketing',
     Sales: 'sales',
+    Student: 'student',
     Other: 'other',
 } as const
 
@@ -647,7 +663,7 @@ export interface PatchedLogsAlertConfigurationApi {
 }
 
 export interface LogsAlertCreateDestinationApi {
-    /** Destination type — slack, webhook, or teams.
+    /** Notification destination type.
      *
      * * `slack` - slack
      * * `webhook` - webhook
@@ -659,7 +675,7 @@ export interface LogsAlertCreateDestinationApi {
     slack_channel_id?: string
     /** Human-readable channel name for display. */
     slack_channel_name?: string
-    /** HTTPS endpoint to POST to. Required when type=webhook, or the Teams webhook URL when type=teams. */
+    /** HTTPS endpoint to post to. Required for webhook and teams. */
     webhook_url?: string
 }
 
@@ -671,6 +687,7 @@ export interface LogsAlertDeleteDestinationApi {
     /**
      * HogFunction IDs to delete as one atomic destination group.
      * @minItems 1
+     * @maxItems 4
      */
     hog_function_ids: string[]
 }
@@ -826,6 +843,10 @@ export const _LogPropertyFilterTypeEnumApi = {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -844,6 +865,10 @@ export const _LogPropertyFilterOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -870,6 +895,10 @@ export interface _LogPropertyFilterApi {
      * * `is_not` - is_not
      * * `icontains` - icontains
      * * `not_icontains` - not_icontains
+     * * `starts_with` - starts_with
+     * * `not_starts_with` - not_starts_with
+     * * `ends_with` - ends_with
+     * * `not_ends_with` - not_ends_with
      * * `regex` - regex
      * * `not_regex` - not_regex
      * * `gt` - gt
@@ -1043,6 +1072,8 @@ export interface _LogsFacetValuesBodyApi {
     facetSearch?: string
     /** Property filters for the query. */
     filterGroup?: _LogPropertyFilterApi[]
+    /** Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
 }
 
 export interface _LogsFacetValuesRequestApi {
@@ -1067,13 +1098,24 @@ export interface _LogsFacetValuesResponseApi {
  * * `resource` - resource
  * * `column` - column
  */
-export type GroupBySourceEnumApi = (typeof GroupBySourceEnumApi)[keyof typeof GroupBySourceEnumApi]
+export type LogsGroupBySourceEnumApi = (typeof LogsGroupBySourceEnumApi)[keyof typeof LogsGroupBySourceEnumApi]
 
-export const GroupBySourceEnumApi = {
+export const LogsGroupBySourceEnumApi = {
     Log: 'log',
     Resource: 'resource',
     Column: 'column',
 } as const
+
+export interface _LogsGroupByDimensionApi {
+    /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
+    key: string
+    /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+     *
+     * * `log` - log
+     * * `resource` - resource
+     * * `column` - column */
+    source?: LogsGroupBySourceEnumApi
+}
 
 /**
  * * `log_count` - log_count
@@ -1099,14 +1141,20 @@ export interface _LogsGroupByBodyApi {
     searchTerm?: string
     /** Property filters applied before grouping. Same shape as the query-logs endpoint. */
     filterGroup?: _LogPropertyFilterApi[]
-    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". */
-    groupBy: string
-    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+    /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "trace_id", "span_id". Ignored when groupBys is provided. */
+    groupBy?: string
+    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
      *
      * * `log` - log
      * * `resource` - resource
      * * `column` - column */
-    groupBySource?: GroupBySourceEnumApi
+    groupBySource?: LogsGroupBySourceEnumApi
+    /**
+     * Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy/groupBySource; one of the two must be provided.
+     * @minItems 1
+     * @maxItems 4
+     */
+    groupBys?: _LogsGroupByDimensionApi[]
     /** Aggregate to rank groups by (descending): "log_count" for the noisiest groups, "error_count" for the most failing, "last_seen" for the most recent.
      *
      * * `log_count` - log_count
@@ -1127,8 +1175,10 @@ export interface _LogsGroupByRequestApi {
 }
 
 export interface _LogsGroupByGroupApi {
-    /** The grouped attribute value identifying this group. */
+    /** The first dimension's grouped value. Kept for single-dimension callers; prefer `values`. */
     value: string
+    /** This group's values, one per requested dimension, in request order. */
+    values: string[]
     /** Number of matching logs in this group. */
     log_count: number
     /** Number of matching logs in this group at severity "error" or "fatal". */
@@ -1146,6 +1196,87 @@ export interface _LogsGroupByResponseApi {
     total_logs: number
     /** True when more groups matched than were returned (total_groups > groups length). */
     truncated: boolean
+}
+
+export interface LogsMetricRuleApi {
+    /** Unique identifier for this metric rule. */
+    readonly id: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+     * @maxLength 200
+     */
+    metric_name: string
+    /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+    enabled?: boolean
+    /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+    filter_group?: unknown
+    /**
+     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * @maxLength 512
+     * @nullable
+     */
+    value_attribute?: string | null
+    /**
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * @items.maxLength 512
+     */
+    group_by?: string[]
+    /** Incremented on each update for worker cache coherency. */
+    readonly version: number
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsMetricRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsMetricRuleApi[]
+}
+
+export interface PatchedLogsMetricRuleApi {
+    /** Unique identifier for this metric rule. */
+    readonly id?: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Name of the generated metric as it appears in the Metrics product. Must start with a letter and contain only letters, digits, dots, underscores, and dashes. Unique per project and immutable after creation — create a new rule to emit under a different name.
+     * @maxLength 200
+     */
+    metric_name?: string
+    /** When true, ingestion evaluates this rule against every log record. At most 10 rules can be enabled per project. */
+    enabled?: boolean
+    /** PropertyGroupFilter JSON (AND/OR tree of property predicates) selecting which log records feed the metric, e.g. `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api","type":"log_attribute"}]}]}`. Null matches every ingested log record. Every group must contain at least one filter — empty groups never match. */
+    filter_group?: unknown
+    /**
+     * Log attribute key holding a numeric value to aggregate into a distribution (count + sum), e.g. `attributes.duration_ms` or `resource_attributes.batch.size`. Omit to count matching log records instead. Immutable after creation — it determines the emitted metric type.
+     * @maxLength 512
+     * @nullable
+     */
+    value_attribute?: string | null
+    /**
+     * Up to 5 dimension keys; each distinct value combination becomes its own metric series. Allowed: service_name, severity_text, event_name, or map keys prefixed with `attributes.` / `resource_attributes.`. Avoid high-cardinality keys (user IDs, request IDs) — excess series are dropped at ingestion.
+     * @items.maxLength 512
+     */
+    group_by?: string[]
+    /** Incremented on each update for worker cache coherency. */
+    readonly version?: number
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
 }
 
 export interface _LogsPatternsBodyApi {
@@ -1254,9 +1385,10 @@ export interface _LogsPatternsDiffRequestApi {
  * * `gone` - gone
  * * `unchanged` - unchanged
  */
-export type ClassificationEnumApi = (typeof ClassificationEnumApi)[keyof typeof ClassificationEnumApi]
+export type _LogPatternDiffEntryClassificationEnumApi =
+    (typeof _LogPatternDiffEntryClassificationEnumApi)[keyof typeof _LogPatternDiffEntryClassificationEnumApi]
 
-export const ClassificationEnumApi = {
+export const _LogPatternDiffEntryClassificationEnumApi = {
     New: 'new',
     RateShift: 'rate_shift',
     Gone: 'gone',
@@ -1270,7 +1402,7 @@ export interface _LogPatternDiffEntryApi {
      * * `rate_shift` - rate_shift
      * * `gone` - gone
      * * `unchanged` - unchanged */
-    classification: ClassificationEnumApi
+    classification: _LogPatternDiffEntryClassificationEnumApi
     /**
      * Current-window rate divided by baseline rate, both normalized per second so windows of different lengths compare fairly. 4.0 means 4x faster now; 0.25 means quartered. Null when the pattern is missing from either window.
      * @nullable
@@ -1349,6 +1481,8 @@ export interface _LogsQueryBodyApi {
     excludeAttributes?: boolean
     /** Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field. */
     customColumns?: string[]
+    /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
 }
 
 export interface _LogsQueryRequestApi {
@@ -1417,6 +1551,72 @@ export interface _LogsQueryResponseApi {
      * @nullable
      */
     columns?: string[] | null
+}
+
+export interface LogsRetentionRuleApi {
+    /** Unique identifier for this retention rule. */
+    readonly id: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+    config: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version: number
+    readonly created_by: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsRetentionRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsRetentionRuleApi[]
+}
+
+export interface PatchedLogsRetentionRuleApi {
+    /** Unique identifier for this retention rule. */
+    readonly id?: string
+    /**
+     * User-visible label for this rule.
+     * @maxLength 255
+     */
+    name?: string
+    /** When false, the rule is ignored by ingestion and listing UIs that show active rules only. */
+    enabled?: boolean
+    /**
+     * Lower numbers are evaluated first; the first matching rule wins. Omit to append after existing rules.
+     * @minimum 0
+     * @nullable
+     */
+    priority?: number | null
+    /** Retention rule JSON. Required keys: `retention_days` (integer — how long matching logs are kept; must be a tier the organization is entitled to, same as the team-wide Logs retention setting) and `filter_group` (PropertyGroupFilter shape — an AND/OR tree of property predicates evaluated per record to decide which logs this rule matches). Example: `{"retention_days":30,"filter_group":{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}}`. Logs matching no enabled rule keep the environment's default retention. */
+    config?: unknown
+    /** Incremented on each update for worker cache coherency. */
+    readonly version?: number
+    readonly created_by?: number
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+export interface LogsRetentionRuleReorderApi {
+    /** Rule IDs in the desired evaluation order (first element is highest priority / lowest order index). */
+    ordered_ids: string[]
 }
 
 /**
@@ -1647,6 +1847,8 @@ export interface _LogsSparklineBodyApi {
      * * `severity` - severity
      * * `service` - service */
     sparklineBreakdownBy?: SparklineBreakdownByEnumApi
+    /** Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys. */
+    personId?: string
 }
 
 export interface _LogsSparklineRequestApi {
@@ -1688,6 +1890,52 @@ export interface _LogsValuesResponseApi {
 }
 
 /**
+ * * `timestamp` - timestamp
+ * * `level` - level
+ * * `source` - source
+ * * `trace_id` - trace_id
+ * * `span_id` - span_id
+ * * `message` - message
+ * * `custom` - custom
+ */
+export type LogsViewColumnTypeEnumApi = (typeof LogsViewColumnTypeEnumApi)[keyof typeof LogsViewColumnTypeEnumApi]
+
+export const LogsViewColumnTypeEnumApi = {
+    Timestamp: 'timestamp',
+    Level: 'level',
+    Source: 'source',
+    TraceId: 'trace_id',
+    SpanId: 'span_id',
+    Message: 'message',
+    Custom: 'custom',
+} as const
+
+export interface LogsViewColumnApi {
+    /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
+    id: string
+    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+     *
+     * * `timestamp` - timestamp
+     * * `level` - level
+     * * `source` - source
+     * * `trace_id` - trace_id
+     * * `span_id` - span_id
+     * * `message` - message
+     * * `custom` - custom */
+    type: LogsViewColumnTypeEnumApi
+    /** Header label override. Defaults to the built-in type's label, or to the expression for custom columns. */
+    name?: string
+    /** Only meaningful for `type: custom`: a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression, sent verbatim in the logs query's `customColumns`. */
+    expression?: string
+    /**
+     * Column width in pixels (1–2000). Omitted for the default width; ignored for the flex message column.
+     * @minimum 1
+     * @maximum 2000
+     */
+    width?: number
+}
+
+/**
  * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
  */
 export type LogsViewApiFilters = { [key: string]: unknown }
@@ -1699,6 +1947,11 @@ export interface LogsViewApi {
     name: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
     filters?: LogsViewApiFilters
+    /**
+     * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+     * @nullable
+     */
+    columns?: LogsViewColumnApi[] | null
     pinned?: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -1727,6 +1980,11 @@ export interface PatchedLogsViewApi {
     name?: string
     /** Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys. */
     filters?: PatchedLogsViewApiFilters
+    /**
+     * Ordered column configuration for the logs table (LogsColumnConfig[]). Order is array index. Null means the view has no column preference and the client renders its default column set. Omitting the field on update leaves the saved configuration unchanged; send null to clear it.
+     * @nullable
+     */
+    columns?: LogsViewColumnApi[] | null
     pinned?: boolean
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1735,6 +1993,10 @@ export interface PatchedLogsViewApi {
 }
 
 export type LogsAlertsListParams = {
+    /**
+     * Only return log alerts created by the user with this UUID.
+     */
+    created_by?: string
     /**
      * Number of results to return per page.
      */
@@ -1810,6 +2072,39 @@ export const LogsAttributesRetrieveAttributeType = {
 export type LogsExportCreate201 = { [key: string]: unknown }
 
 export type LogsHasLogsRetrieve200 = { [key: string]: unknown }
+
+export type LogsMetricRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsRetentionRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LogsRetentionRulesReorderCreateParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type LogsSamplingRulesListParams = {
     /**

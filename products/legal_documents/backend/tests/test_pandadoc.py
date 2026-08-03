@@ -189,59 +189,113 @@ class TestPandaDocClient(TestCase):
         posthog = pandadoc.PandaDocRecipient(email="privacy@posthog.com", role=pandadoc.PandaDocRole.POSTHOG)
         self.assertEqual(pandadoc._serialize_recipient(posthog), {"email": "privacy@posthog.com", "role": "PostHog"})
 
-    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
-    def test_void_document_patches_status_endpoint_with_voided_code(self) -> None:
-        # Voided is PandaDoc's "no longer signable" status. We hit the status
-        # endpoint with the numeric code (11) rather than deleting the doc so
-        # PandaDoc retains the audit record of the cancelled signing process.
-        fake_response = MagicMock()
-        fake_response.status_code = 204
+    @staticmethod
+    def _status_response(document_status: str) -> MagicMock:
+        response = MagicMock()
+        response.status_code = 200
+        response.content = b'{"status": "..."}'
+        response.json.return_value = {"id": "doc_123", "status": document_status}
+        return response
 
-        with patch(
-            "products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response
-        ) as mock_patch:
+    @parameterized.expand(
+        [
+            # Only envelopes actually emailed to a signer carry a live signing
+            # link, and PandaDoc only permits voiding from these two states.
+            ("sent_is_voided", "document.sent", True),
+            ("viewed_is_voided", "document.viewed", True),
+            # Never dispatched: still processing, ready-but-unsent (the stranded
+            # webhook case), or errored. Nothing to void — must be a no-op so
+            # the row stays deletable instead of wedging.
+            ("uploaded_is_noop", "document.uploaded", False),
+            ("draft_is_noop", "document.draft", False),
+            ("error_is_noop", "document.error", False),
+            # Already terminal — a second void would 4xx and re-wedge the row.
+            ("completed_is_noop", "document.completed", False),
+            ("already_voided_is_noop", "document.voided", False),
+        ]
+    )
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_void_document_only_voids_sent_or_viewed_envelopes(
+        self, _name: str, document_status: str, should_void: bool
+    ) -> None:
+        # Voided is PandaDoc's "no longer signable" status (numeric code 11 on
+        # the status endpoint) — a status transition rather than a delete so
+        # PandaDoc retains the audit record of the cancelled signing process.
+        patch_response = MagicMock()
+        patch_response.status_code = 204
+
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc.requests.get",
+                return_value=self._status_response(document_status),
+            ),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=patch_response
+            ) as mock_patch,
+        ):
             pandadoc.PandaDocClient().void_document(document_id="doc_123")
 
-        mock_patch.assert_called_once()
-        args, kwargs = mock_patch.call_args
-        self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/status")
-        self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
-        self.assertEqual(kwargs["json"], {"status": 11, "notify_recipients": True})
+        if should_void:
+            mock_patch.assert_called_once()
+            args, kwargs = mock_patch.call_args
+            self.assertEqual(args[0], "https://api.pandadoc.com/public/v1/documents/doc_123/status")
+            self.assertEqual(kwargs["headers"]["Authorization"], "API-Key key")
+            self.assertEqual(kwargs["json"], {"status": 11, "notify_recipients": True})
+        else:
+            mock_patch.assert_not_called()
 
-    @override_settings(PANDADOC_API_KEY="key")
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_void_document_noop_when_envelope_already_gone(self) -> None:
+        # A 404 from the status lookup means the envelope no longer exists on
+        # PandaDoc's side — the state we wanted — so we skip the void entirely.
+        get_response = MagicMock()
+        get_response.status_code = 404
+        get_response.text = "not found"
+
+        with (
+            patch("products.legal_documents.backend.logic.pandadoc.requests.get", return_value=get_response),
+            patch("products.legal_documents.backend.logic.pandadoc.requests.patch") as mock_patch,
+        ):
+            pandadoc.PandaDocClient().void_document(document_id="doc_123")
+
+        mock_patch.assert_not_called()
+
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
     def test_void_document_can_opt_out_of_recipient_notification(self) -> None:
         # The caller may want to suppress the "your document was cancelled"
         # email — e.g., the recipient is wrong and we don't want them to even
         # know the original existed.
-        fake_response = MagicMock()
-        fake_response.status_code = 204
+        patch_response = MagicMock()
+        patch_response.status_code = 204
 
-        with patch(
-            "products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response
-        ) as mock_patch:
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc.requests.get",
+                return_value=self._status_response("document.sent"),
+            ),
+            patch(
+                "products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=patch_response
+            ) as mock_patch,
+        ):
             pandadoc.PandaDocClient().void_document(document_id="doc_123", notify_recipients=False)
 
         self.assertEqual(mock_patch.call_args.kwargs["json"]["notify_recipients"], False)
 
-    @parameterized.expand(
-        [
-            # 404 = envelope already gone on PandaDoc's side; that's the state
-            # we wanted, so the helper treats it as success.
-            ("404_not_found_treated_as_success", 404, "not found", False),
-            # 423 = PandaDoc has the document locked for editing; surface to
-            # the caller so it can decide whether to retry or log + move on.
-            ("423_locked_raises", 423, "Document is locked for editing", True),
-        ]
-    )
-    @override_settings(PANDADOC_API_KEY="key")
-    def test_void_document_status_handling(self, _name: str, status_code: int, text: str, should_raise: bool) -> None:
-        fake_response = MagicMock()
-        fake_response.status_code = status_code
-        fake_response.text = text
+    @override_settings(PANDADOC_API_KEY="key", PANDADOC_API_BASE_URL="https://api.pandadoc.com")
+    def test_void_document_raises_when_void_of_live_envelope_fails(self) -> None:
+        # A sent envelope PandaDoc refuses to void (e.g. 423 locked for editing)
+        # must surface so the caller doesn't delete a row whose signing link is
+        # still completable.
+        patch_response = MagicMock()
+        patch_response.status_code = 423
+        patch_response.text = "Document is locked for editing"
 
-        with patch("products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=fake_response):
-            if should_raise:
-                with self.assertRaises(pandadoc.PandaDocError):
-                    pandadoc.PandaDocClient().void_document(document_id="doc_123")
-            else:
+        with (
+            patch(
+                "products.legal_documents.backend.logic.pandadoc.requests.get",
+                return_value=self._status_response("document.sent"),
+            ),
+            patch("products.legal_documents.backend.logic.pandadoc.requests.patch", return_value=patch_response),
+        ):
+            with self.assertRaises(pandadoc.PandaDocError):
                 pandadoc.PandaDocClient().void_document(document_id="doc_123")

@@ -125,6 +125,11 @@ pub enum FlagError {
     RayonSemaphoreTimeout(u64),
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
+    /// A stored remote-config payload could not be decrypted with any configured key (or no
+    /// decryptor is configured at all). Distinct from `Internal` so the response is JSON, not
+    /// plain text -- SDKs calling `remote_config` parse the body as JSON on every status code.
+    #[error("failed to decrypt remote config payload: {0}")]
+    RemoteConfigDecryptFailed(String),
 }
 
 impl FlagError {
@@ -175,6 +180,7 @@ impl FlagError {
             FlagError::BatchEvaluationPanicked => ("batch_evaluation_panicked", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
             FlagError::RayonSemaphoreTimeout(_) => ("rayon_semaphore_timeout", 504),
+            FlagError::RemoteConfigDecryptFailed(_) => ("remote_config_decrypt_failed", 500),
 
             // Data parsing errors (500) - internal errors, not service unavailability
             FlagError::DataParsingErrorWithContext(_) => ("flag_data_parsing_error", 500),
@@ -496,6 +502,17 @@ impl IntoResponse for FlagError {
                 tracing::warn!("Rayon semaphore acquisition timed out after {}ms", ms);
                 (StatusCode::GATEWAY_TIMEOUT, format!("Evaluation pool busy, timed out after {ms}ms. Please retry."))
             }
+            FlagError::RemoteConfigDecryptFailed(_) => {
+                // The failure is already logged with project_id/flag_key context at the source in
+                // resolve_decrypted_payload; don't log it a second time here.
+                let response = AuthenticationErrorResponse {
+                    error_type: "server_error".to_string(),
+                    code: "remote_config_decrypt_failed".to_string(),
+                    detail: "Failed to decrypt the remote config payload. Please contact support if the problem persists.".to_string(),
+                    attr: None,
+                };
+                return (StatusCode::INTERNAL_SERVER_ERROR, Json(response)).into_response();
+            }
             FlagError::CookielessError(err) => {
                 match err {
                     // 400 Bad Request errors - client-side issues
@@ -689,6 +706,30 @@ mod tests {
             body.contains("Invalid sent_at"),
             "body should describe the bad sent_at, got: {body}"
         );
+    }
+
+    #[test]
+    fn test_remote_config_decrypt_failed_response_is_json() {
+        // The remote_config response body must be JSON on every status code, because SDKs call
+        // res.json() on it unconditionally, so a plain-text 500 would crash them client-side.
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = FlagError::RemoteConfigDecryptFailed("failed to decrypt payload".to_string());
+
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            response
+                .headers()
+                .get("content-type")
+                .and_then(|v| v.to_str().ok()),
+            Some("application/json")
+        );
+
+        let body_bytes = rt
+            .block_on(axum::body::to_bytes(response.into_body(), usize::MAX))
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(body["code"], "remote_config_decrypt_failed");
     }
 
     #[test]

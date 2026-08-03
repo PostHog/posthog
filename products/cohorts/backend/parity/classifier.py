@@ -5,8 +5,8 @@ emitted a decision for since the store wipe (fold.py:observed). Within O both pi
 have weighed in, so the diff is sound; each rule explains (removes) part of it and the
 remainder is the gated residual:
 
-- R-EXCLUDE: persons in `old - O` are excluded from the diff entirely (the new pipeline
-  never evaluated them — flip-only emission means a never-member emits nothing).
+- R-EXCLUDE: persons in `old - O` are excluded from the diff entirely because the new
+  pipeline has not emitted a decision for them.
 - R-FRESH:  `only_new` entries whose flip is newer than the old side's last recompute —
   the old pipeline simply hasn't caught up yet (expected, not over-inclusion).
 - R-STALE:  the mirror on `only_old` — the new pipeline already flipped a person to
@@ -115,6 +115,7 @@ def classify_cohort(
     new_state: dict[str, MembershipRecord],
     last_realtime_calculation_at: Optional[datetime],
     config: ClassifierConfig,
+    notes: Sequence[str] = (),
 ) -> CohortComparison:
     if not screened.emits:
         return CohortComparison(
@@ -122,7 +123,10 @@ def classify_cohort(
             name=name,
             eligibility=screened.eligibility,
             verdict=VERDICT_SKIP,
-            notes=("not emit-eligible: " + ", ".join(screened.drop_reasons or (screened.eligibility,)),),
+            notes=(
+                *notes,
+                "not emit-eligible: " + ", ".join(screened.drop_reasons or (screened.eligibility,)),
+            ),
         )
 
     obs = observed(new_state)
@@ -133,7 +137,7 @@ def classify_cohort(
     unobserved = old_members - obs  # excluded from the diff (R-EXCLUDE)
     union_size = len(both) + len(only_old) + len(only_new)
     raw_pct = _pct(len(only_old) + len(only_new), union_size)
-    notes: list[str] = []
+    comparison_notes = list(notes)
 
     fresh = 0
     stale = 0
@@ -144,7 +148,7 @@ def classify_cohort(
             fresh = len(only_new)
             # stale stays 0: a never-recomputed old side has no entered rows to be stale.
             if fresh:
-                notes.append("old side never recomputed this cohort; all only_new counted fresh")
+                comparison_notes.append("old side never recomputed this cohort; all only_new counted fresh")
         else:
             fresh = sum(1 for p in only_new if new_state[p].last_updated > last_realtime_calculation_at)
             stale = sum(1 for p in only_old if new_state[p].last_updated > last_realtime_calculation_at)
@@ -160,11 +164,11 @@ def classify_cohort(
             sample_suspect = sum(1 for p in sample if p in active)
             suspect_missing = round(sample_suspect / len(sample) * len(unobserved))
             if len(sample) < len(unobserved):
-                notes.append(f"suspect_missing extrapolated from sample {len(sample)}/{len(unobserved)}")
+                comparison_notes.append(f"suspect_missing extrapolated from sample {len(sample)}/{len(unobserved)}")
             if window == 0:
-                notes.append("minute/hour window: probe cutoff is now, suspect≈0 by construction")
+                comparison_notes.append("minute/hour window: probe cutoff is now, suspect≈0 by construction")
         elif unobserved and config.warmup_sample <= 0:
-            notes.append("suspect check skipped (--warmup-sample 0); unobserved population unprobed")
+            comparison_notes.append("suspect check skipped (--warmup-sample 0); unobserved population unprobed")
 
     residual_old = max(len(only_old) - stale, 0)
     residual_new = max(len(only_new) - fresh, 0)
@@ -205,7 +209,7 @@ def classify_cohort(
         dormant=dormant,
         suspect_pct=suspect_pct,
         verdict=verdict,
-        notes=tuple(notes),
+        notes=tuple(comparison_notes),
     )
 
 

@@ -5,6 +5,7 @@ from django.conf import settings
 import dagster
 import dagster_slack
 from dagster import DagsterRunStatus, RunsFilter
+from slack_sdk.errors import SlackApiError
 
 from posthog.dags.common import JobOwners
 
@@ -33,6 +34,68 @@ CONSECUTIVE_FAILURE_THRESHOLDS = {
     "web_pre_aggregate_job": 3,
     "web_pre_aggregate_daily_job": 3,
 }
+
+# Slack rejects the entire message with `invalid_blocks` if any section's text exceeds 3000 chars,
+# so keep each field comfortably under that limit (leaving headroom for surrounding markdown/fences).
+SLACK_SECTION_TEXT_LIMIT = 3000
+
+
+def _truncate_for_slack(text: str, limit: int) -> str:
+    """Truncate text to fit inside a Slack section block.
+
+    A verbose failure (e.g. a Kubernetes or ClickHouse API exception) would otherwise blow past
+    Slack's 3000-char section limit and cause the whole notification to be silently dropped. Keep
+    the head and tail so both the top of the error and its root cause survive.
+    """
+    if len(text) <= limit:
+        return text
+    marker = "\n…(truncated)…\n"
+    if limit < len(marker):
+        # Not enough room for the marker itself — just hard-cut to the limit.
+        return text[:limit] if limit > 0 else ""
+    keep = max(limit - len(marker), 0)
+    head = keep * 2 // 3
+    tail = keep - head
+    return f"{text[:head]}{marker}{text[-tail:]}" if tail else f"{text[:head]}{marker}"
+
+
+# Slack API error codes that mean the block payload itself was rejected, so the message was NOT
+# posted and a plain-text retry is safe. Any other failure (network, rate limit, a raise while
+# reading the response) is ambiguous — the blocks may have posted, so retrying there would double up.
+SLACK_BLOCK_REJECTION_ERRORS = frozenset(
+    {"invalid_blocks", "invalid_blocks_format", "blocks_too_long", "msg_too_long", "metadata_too_large"}
+)
+
+
+def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> None:
+    """Post an alert, falling back to a plain-text message if the rich blocks are rejected.
+
+    A block-formatting or size error (e.g. an oversized error field exceeding Slack's 3000-char
+    section limit) previously suppressed the alert entirely because the exception was only logged.
+    Retry text-only when Slack rejected the blocks outright so a run failure can't go silently
+    un-alerted, but only then — retrying on an ambiguous failure risks posting the alert twice.
+    """
+    try:
+        client.chat_postMessage(channel=channel, blocks=blocks, text=fallback_text)
+        context.log.info(f"Sent Slack notification to {channel}")
+        return
+    except SlackApiError as e:
+        error_code = e.response.get("error") if e.response is not None else None
+        if error_code not in SLACK_BLOCK_REJECTION_ERRORS:
+            # The message may have posted (rate limit, transient read error, ...) — don't duplicate it.
+            context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
+            return
+        context.log.warning(f"Slack rejected blocks ({error_code}) for {channel}, retrying text-only")
+    except Exception as e:
+        # Non-API failure: the outcome is ambiguous, so log and stop rather than risk a duplicate.
+        context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
+        return
+
+    try:
+        client.chat_postMessage(channel=channel, text=fallback_text)
+        context.log.info(f"Sent text-only Slack fallback to {channel}")
+    except Exception as e:
+        context.log.exception(f"Failed to send text-only Slack fallback to {channel}: {str(e)}")
 
 
 def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) -> str:
@@ -119,26 +182,30 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     environment = (
         f"{settings.CLOUD_DEPLOYMENT} :flag-{settings.CLOUD_DEPLOYMENT}:" if settings.CLOUD_DEPLOYMENT else "unknown"
     )
+
+    channel = notification_channel_per_team.get(job_owner, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL)
+
+    # Truncate so a single oversized field can't get the whole message rejected. The error is wrapped
+    # in a ``` code fence, so leave headroom below the 3000-char section limit for the fence + label.
+    tags_text = _truncate_for_slack(str(tags), 500)
+    error_text = _truncate_for_slack(str(error), SLACK_SECTION_TEXT_LIMIT - 200)
+
     blocks: list[dict[str, object]] = [
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags}",
+                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags_text}",
             },
         },
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error}```"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error_text}```"}},
         {
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": f"Environment: {environment}"}],
         },
     ]
 
-    try:
-        slack.get_client().chat_postMessage(
-            channel=notification_channel_per_team.get(job_owner, settings.DAGSTER_DEFAULT_SLACK_ALERTS_CHANNEL),
-            blocks=blocks,
-        )
-        context.log.info(f"Sent Slack notification for failed job {job_name} to {job_owner} team")
-    except Exception as e:
-        context.log.exception(f"Failed to send Slack notification: {str(e)}")
+    # Plain-text fallback carried on every message so the alert still lands (and renders in
+    # notifications) even if the rich blocks are rejected.
+    fallback_text = f"❌ Dagster job `{job_name}` failed (run {run_id}): {run_url}"
+    send_slack_alert(context, slack.get_client(), channel, blocks, fallback_text)

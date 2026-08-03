@@ -1,14 +1,17 @@
 import annotationPlugin from 'chartjs-plugin-annotation'
 import clsx from 'clsx'
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
 import { Popover } from '@posthog/lemon-ui'
+import { DefaultTooltip, Sparkline as QuillSparklineChart, useChartTheme } from '@posthog/quill-charts'
+import type { Series, TooltipContext } from '@posthog/quill-charts'
 
 import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { hexToRGBA } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -39,6 +42,20 @@ export interface SparklineTimeSeries {
     /** Check vars.scss for available colors. @default 'muted' */
     color?: string
     hoverColor?: string
+}
+
+export interface SparklineMarker {
+    /**
+     * X position in the x-axis's own units: epoch ms (or a parseable date string) for a
+     * time scale, a label for a category scale.
+     */
+    xValue: number | string
+    /** Y position in data units. Omit to pin the marker to the bottom of the chart. */
+    yValue?: number
+    /** Color name from `vars.scss`. @default 'primary' */
+    color?: string
+    /** Makes the marker clickable (e.g. to open the trace behind an exemplar). */
+    onClick?: () => void
 }
 
 export type AnyScaleOptions = ScaleOptions<'linear' | 'logarithmic' | 'time' | 'timeseries' | 'category'>
@@ -76,6 +93,11 @@ export interface SparklineProps {
     sortTooltipByCount?: boolean
     /** Optional horizontal dashed reference lines (thresholds, goals, limits). */
     referenceLines?: SparklineReferenceLine[]
+    /**
+     * Point markers drawn over the chart (e.g. trace exemplars). Hover shows the marker's
+     * label; a marker with `onClick` is clickable.
+     */
+    markers?: SparklineMarker[]
     /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
     renderTooltipValue?: (value: number) => string
     /**
@@ -93,6 +115,147 @@ export interface SparklineProps {
      * `indices` array to clear.
      */
     incompleteBars?: { indices: number[]; tooltip?: string } | null
+}
+
+/** Normalize the permissive `data` prop into one `SparklineTimeSeries` per series. */
+function normalizeSparklineData(
+    data: SparklineProps['data'],
+    name?: string,
+    names?: string[],
+    color?: string,
+    colors?: string[]
+): SparklineTimeSeries[] {
+    const arrayData = Array.isArray(data)
+        ? data.length > 0 && typeof data[0] === 'object'
+            ? data // array of objects, one per series
+            : [data] // array of numbers, turn it into the first series
+        : typeof data === 'object'
+          ? [data] // first series as an object
+          : [[data]] // just a random number... huh
+    return arrayData.map((timeseries, index): SparklineTimeSeries => {
+        const defaultName =
+            names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)
+        const defaultColor = colors?.[index] || color || 'muted'
+        if (typeof timeseries === 'object') {
+            if (!Array.isArray(timeseries)) {
+                return {
+                    name: timeseries.name || defaultName,
+                    color: timeseries.color || defaultColor,
+                    values: timeseries.values || [],
+                }
+            }
+            return {
+                name: defaultName,
+                color: defaultColor,
+                values: timeseries as number[],
+            }
+        }
+        return {
+            name: defaultName,
+            color: defaultColor,
+            values: timeseries ? [timeseries] : [],
+        }
+    })
+}
+
+/** Width scales with the number of buckets so short sparklines don't stretch their bars. */
+function sparklineClassName(dataPointCount: number, className?: string): string {
+    return clsx(
+        'relative',
+        dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
+        className
+    )
+}
+
+export function Sparkline(props: SparklineProps): JSX.Element {
+    const quillEnabled = useFeatureFlag('QUILL_SPARKLINE')
+    // Features the quill path doesn't cover yet. Consumers passing them stay on Chart.js until
+    // their migration wave lands — see docs/internal/quill-migration-sparkline.md.
+    const needsLegacyFeatures = !!(
+        props.onSelectionChange ||
+        props.highlightedRange ||
+        props.incompleteBars?.indices?.length ||
+        props.referenceLines?.length ||
+        props.markers?.length ||
+        props.withXScale ||
+        props.withYScale
+    )
+    return quillEnabled && !needsLegacyFeatures ? <QuillSparkline {...props} /> : <LegacySparkline {...props} />
+}
+
+/** Legacy consumers pass vars.scss color names ('success', 'danger', 'muted'); quill takes CSS colors. */
+function resolveSparklineColor(color: string | undefined): string {
+    const value = color || 'muted'
+    return /^(#|rgb|hsl|var\()/.test(value) ? value : getColorVar(value)
+}
+
+/** The quill rendering path. Exported for Storybook only — the flag dispatch in `Sparkline` is
+ *  unusable there (Storybook's implicit-action args inject an `onSelectionChange` spy, which the
+ *  dispatch reads as a legacy-only feature). Consumers always use `Sparkline`. */
+export function QuillSparkline({
+    data,
+    color,
+    colors,
+    name,
+    names,
+    labels,
+    type = 'bar',
+    loading = false,
+    renderLabel,
+    className,
+    hideZerosInTooltip = false,
+    sortTooltipByCount = false,
+    renderTooltipValue,
+}: SparklineProps): JSX.Element {
+    const theme = useChartTheme()
+
+    const series: Series[] = useMemo(
+        () =>
+            normalizeSparklineData(data, name, names, color, colors).map((timeseries, index) => ({
+                key: `${index}`,
+                label: timeseries.name,
+                data: timeseries.values,
+                color: resolveSparklineColor(timeseries.color),
+            })),
+        [data, name, names, color, colors]
+    )
+    const chartLabels = useMemo(() => labels ?? (series[0]?.data ?? []).map((_, i) => `Entry ${i}`), [labels, series])
+
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext): JSX.Element => (
+            <DefaultTooltip
+                {...ctx}
+                showHeader={!!labels}
+                hideZeroRows={hideZerosInTooltip}
+                sortedByValue={sortTooltipByCount}
+                valueFormatter={(value) => (renderTooltipValue ?? humanFriendlyNumber)(value)}
+                labelFormatter={renderLabel}
+            />
+        ),
+        [labels, hideZerosInTooltip, sortTooltipByCount, renderTooltipValue, renderLabel]
+    )
+
+    const finalClassName = sparklineClassName(series[0]?.data.length || 0, className)
+
+    if (loading) {
+        return <LemonSkeleton className={finalClassName} />
+    }
+    if (data === undefined || data.length === 0) {
+        return <div className={finalClassName} />
+    }
+    return (
+        <div className={finalClassName}>
+            <QuillSparklineChart
+                series={series}
+                labels={chartLabels}
+                theme={theme}
+                type={type}
+                fill
+                className="h-full"
+                tooltip={renderTooltip}
+            />
+        </div>
+    )
 }
 
 /**
@@ -124,7 +287,7 @@ function createHashedPattern(color: string): CanvasPattern | string {
     return ctx.createPattern(canvas, 'repeat') ?? color
 }
 
-export function Sparkline({
+function LegacySparkline({
     data,
     color,
     colors,
@@ -146,6 +309,7 @@ export function Sparkline({
     renderTooltipValue,
     highlightedRange,
     incompleteBars,
+    markers,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -155,39 +319,10 @@ export function Sparkline({
 
     const incompleteBarSet = useMemo(() => new Set(incompleteBars?.indices ?? []), [incompleteBars])
 
-    const adjustedData: SparklineTimeSeries[] = useMemo(() => {
-        const arrayData = Array.isArray(data)
-            ? data.length > 0 && typeof data[0] === 'object'
-                ? data // array of objects, one per series
-                : [data] // array of numbers, turn it into the first series
-            : typeof data === 'object'
-              ? [data] // first series as an object
-              : [[data]] // just a random number... huh
-        return arrayData.map((timeseries, index): SparklineTimeSeries => {
-            const defaultName =
-                names?.[index] || (arrayData.length === 1 ? name || 'Count' : `${name || 'Series'} ${index + 1}`)
-            const defaultColor = colors?.[index] || color || 'muted'
-            if (typeof timeseries === 'object') {
-                if (!Array.isArray(timeseries)) {
-                    return {
-                        name: timeseries.name || defaultName,
-                        color: timeseries.color || defaultColor,
-                        values: timeseries.values || [],
-                    }
-                }
-                return {
-                    name: defaultName,
-                    color: defaultColor,
-                    values: timeseries as number[],
-                }
-            }
-            return {
-                name: defaultName,
-                color: defaultColor,
-                values: timeseries ? [timeseries] : [],
-            }
-        })
-    }, [data]) // oxlint-disable-line react-hooks/exhaustive-deps
+    const adjustedData: SparklineTimeSeries[] = useMemo(
+        () => normalizeSparklineData(data, name, names, color, colors),
+        [data] // oxlint-disable-line react-hooks/exhaustive-deps
+    )
 
     const { canvasRef } = useChart({
         getConfig: () => {
@@ -349,6 +484,39 @@ export function Sparkline({
                                 }
                             }
 
+                            if (markers && markers.length > 0) {
+                                markers.forEach((marker, i) => {
+                                    const markerColor = getColorVar(marker.color || 'primary')
+                                    annotations[`marker${i}`] = {
+                                        type: 'point',
+                                        xValue: marker.xValue,
+                                        // Markers don't participate in autoscaling, so an absent
+                                        // yValue pins to the bottom of whatever range the data set —
+                                        // exemplar-tick style, immune to out-of-range raw values.
+                                        yValue:
+                                            marker.yValue ?? ((ctx: { chart: Chart }) => ctx.chart.scales.y?.min ?? 0),
+                                        radius: 4,
+                                        backgroundColor: hexToRGBA(markerColor, 0.85),
+                                        borderColor: markerColor,
+                                        borderWidth: 1,
+                                        // enter/leave double as hover affordance for clickable markers.
+                                        enter: (ctx: { chart: Chart; element: { options: { radius: number } } }) => {
+                                            ctx.element.options.radius = 6
+                                            if (marker.onClick) {
+                                                ctx.chart.canvas.style.cursor = 'pointer'
+                                            }
+                                            return true
+                                        },
+                                        leave: (ctx: { chart: Chart; element: { options: { radius: number } } }) => {
+                                            ctx.element.options.radius = 4
+                                            ctx.chart.canvas.style.cursor = ''
+                                            return true
+                                        },
+                                        ...(marker.onClick ? { click: () => marker.onClick?.() } : {}),
+                                    }
+                                })
+                            }
+
                             return Object.keys(annotations).length > 0 ? { annotation: { annotations } } : {}
                         })(),
                     },
@@ -373,15 +541,11 @@ export function Sparkline({
             referenceLines,
             highlightedRange,
             incompleteBars,
+            markers,
         ],
     })
 
-    const dataPointCount = adjustedData[0]?.values?.length || 0
-    const finalClassName = clsx(
-        'relative',
-        dataPointCount > 16 ? 'w-64' : dataPointCount > 8 ? 'w-48' : dataPointCount > 4 ? 'w-32' : 'w-24',
-        className
-    )
+    const finalClassName = sparklineClassName(adjustedData[0]?.values?.length || 0, className)
 
     const tooltipVisible = !!(tooltip && tooltip.opacity > 0)
     const toolTipDataPoints = tooltip && tooltip.dataPoints ? tooltip.dataPoints : []

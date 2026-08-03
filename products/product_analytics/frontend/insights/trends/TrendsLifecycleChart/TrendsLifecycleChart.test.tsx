@@ -100,7 +100,9 @@ describe('TrendsLifecycleChart', () => {
         expect(tooltip.row('New')).toBeTruthy()
         expect(tooltip.row('Returning')).toBeTruthy()
         expect(tooltip.row('Resurrecting')).toBeTruthy()
-        expect(tooltip.row('Dormant')).toBeTruthy()
+        // Dormant data is emitted negative (-2 at this index) so it stacks below zero, but the
+        // tooltip shows the magnitude — the "Dormant" label carries the direction.
+        expect(tooltip.row('Dormant')).toBe('2')
         // "Users" is the group type label.
         expect(tooltip.element.textContent).toMatch(/Users/)
     })
@@ -176,9 +178,12 @@ describe('TrendsLifecycleChart', () => {
             })
 
             const canvas = await screen.findByLabelText(/chart with/i)
-            dragSelection(canvas.parentElement!, 1, 3, LIFECYCLE_LABELS.length)
 
+            // The chart commits its interactive scales/dimensions in a post-render effect
+            // (useChartCanvas) after the labeled canvas mounts, so a drag fired immediately
+            // can be silently dropped. Retry it (like hoverUntilTooltip) until it lands.
             await waitFor(() => {
+                dragSelection(canvas.parentElement!, 1, 3, LIFECYCLE_LABELS.length)
                 expect(onDateRangeZoom).toHaveBeenCalledWith('2024-06-11', '2024-06-13')
             })
         })

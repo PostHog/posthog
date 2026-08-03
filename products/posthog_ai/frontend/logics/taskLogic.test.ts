@@ -1,8 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { ApiError } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+
+import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { OriginProduct, Task, TaskRunEnvironment, TaskRunStatus } from '../types/taskTypes'
 import { taskLogic } from './taskLogic'
@@ -15,6 +19,7 @@ const createMockTask = (id: string): Task => ({
     title: `Task ${id}`,
     description: 'A test task',
     origin_product: OriginProduct.USER_CREATED,
+    runtime: RuntimeEnumApi.Acp,
     repository: 'test/repo',
     github_integration: null,
     signal_report: null,
@@ -25,6 +30,11 @@ const createMockTask = (id: string): Task => ({
     updated_at: '2024-01-01T00:00:00Z',
     created_by: null,
 })
+
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: { error: jest.fn(), success: jest.fn() },
+}))
 
 describe('taskLogic', () => {
     let logic: ReturnType<typeof taskLogic.build>
@@ -75,6 +85,22 @@ describe('taskLogic', () => {
 
             expect(logic.values.taskNotFound).toBe(false)
             expect(logic.values.taskError).toBe('Could not load task')
+        })
+    })
+
+    describe('runTaskFailure', () => {
+        it('surfaces the error and clears the in-flight state so the button is clickable again', async () => {
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.runTask()
+            expect(logic.values.runTaskInFlight).toBe(true)
+
+            logic.actions.runTaskFailure('Sandbox unavailable', new ApiError('Sandbox unavailable', 503))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.runTaskInFlight).toBe(false)
+            expect(lemonToast.error).toHaveBeenCalledWith('Sandbox unavailable')
         })
     })
 

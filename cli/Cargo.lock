@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-cli"
-version = "0.8.1"
+version = "0.10.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2093,8 +2093,10 @@ dependencies = [
  "colored",
  "crossterm 0.28.1",
  "dirs",
+ "dunce",
  "globset",
  "inquire",
+ "libc",
  "magic_string",
  "miette",
  "open",

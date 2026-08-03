@@ -33,6 +33,7 @@ import { SkeletonResultCells } from '~/scenes/experiments/MetricsView/shared/Cha
 import { ChartLoadingState } from '~/scenes/experiments/MetricsView/shared/ChartLoadingState'
 import { useChartColors } from '~/scenes/experiments/MetricsView/shared/colors'
 import { MetricHeader } from '~/scenes/experiments/MetricsView/shared/MetricHeader'
+import { MetricRetryState } from '~/scenes/experiments/MetricsView/shared/MetricRetryState'
 import {
     FIXED_HEIGHT_STYLE,
     getMinHeightStyle,
@@ -503,6 +504,7 @@ interface MetricRowGroupProps {
     isLastMetric: boolean
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
+    onDuplicateAsSingleUseMetric?: () => void
     onDeleteMetric?: () => void
     onBreakdownChange: (breakdown: Breakdown) => void
     onRemoveBreakdown: (index: number) => void
@@ -524,6 +526,7 @@ export function MetricRowGroup({
     isLastMetric,
     isAlternatingRow,
     onDuplicateMetric,
+    onDuplicateAsSingleUseMetric,
     onDeleteMetric,
     onBreakdownChange,
     onRemoveBreakdown,
@@ -596,7 +599,7 @@ export function MetricRowGroup({
         useActions(experimentLogic)
     const { variants } = useValues(experimentLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const { isRecalculating } = useValues(experimentMetricsLogic({ experiment }))
+    const { isRecalculating, metricRetries } = useValues(experimentMetricsLogic({ experiment }))
     const { triggerRecalculation } = useActions(experimentMetricsLogic({ experiment }))
 
     /**
@@ -727,6 +730,22 @@ export function MetricRowGroup({
     if (!result && !error && (isLoading || exposuresLoading)) {
         const skeletonVariantKeys = variants.length > 0 ? variants.map((variant) => variant.key) : ['control']
         const bg = isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+        // Between failed attempts the chart column (and only it) explains the wait; every other cell keeps
+        // its skeleton. One cell spans the variant rows, so subsequent rows omit theirs.
+        const metricRetry = metric.uuid ? metricRetries[metric.uuid] : undefined
+        const retryChartCell = metricRetry ? (
+            <td
+                className={clsx(
+                    'p-0 align-middle text-center relative overflow-hidden',
+                    !isLastMetric && 'border-b',
+                    bg
+                )}
+                rowSpan={skeletonVariantKeys.length}
+                style={getScaledHeightStyle(skeletonVariantKeys.length)}
+            >
+                <MetricRetryState retry={metricRetry} />
+            </td>
+        ) : undefined
 
         return (
             <>
@@ -746,6 +765,7 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                             onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
@@ -754,6 +774,7 @@ export function MetricRowGroup({
                     <SkeletonResultCells
                         variantKey={skeletonVariantKeys[0]}
                         className={clsx(bg, skeletonVariantKeys.length === 1 && 'border-b')}
+                        chartCell={retryChartCell}
                         detailsCell={
                             <td
                                 className={clsx(
@@ -784,6 +805,7 @@ export function MetricRowGroup({
                         <SkeletonResultCells
                             variantKey={variantKey}
                             className={clsx(bg, index === skeletonVariantKeys.length - 2 && 'border-b')}
+                            chartCell={metricRetry ? null : undefined}
                         />
                     </tr>
                 ))}
@@ -812,6 +834,7 @@ export function MetricRowGroup({
                             isPrimaryMetric={!isSecondary}
                             experiment={experiment}
                             onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                            onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                             onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                             onBreakdownChange={onBreakdownChange}
                         />
@@ -917,6 +940,7 @@ export function MetricRowGroup({
                         isPrimaryMetric={!isSecondary}
                         experiment={experiment}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
+                        onDuplicateAsSingleUseMetricClick={() => onDuplicateAsSingleUseMetric?.()}
                         onDeleteMetricClick={onDeleteMetric ? () => onDeleteMetric() : undefined}
                         onBreakdownChange={onBreakdownChange}
                     />

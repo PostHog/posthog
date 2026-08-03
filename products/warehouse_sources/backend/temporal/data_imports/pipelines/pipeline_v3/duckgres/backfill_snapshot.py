@@ -8,6 +8,8 @@ table's own live parquet files bounded by bytes and file count.
 from __future__ import annotations
 
 import json
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
@@ -15,6 +17,7 @@ from urllib.parse import unquote
 from django.conf import settings
 
 from products.warehouse_sources.backend.models import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 CHUNK_TARGET_BYTES = 1024**3  # ~1 GiB of parquet per chunk statement
 MAX_FILES_PER_CHUNK = 512  # bound the read_parquet([...]) literal list
@@ -40,7 +43,32 @@ class BackfillSnapshotPlan:
 
 
 def delta_table_uri(schema: ExternalDataSchema) -> str:
-    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{schema.normalized_name}"
+    return f"{settings.BUCKET_URL}/{schema.folder_path()}/{_delta_table_folder(schema)}"
+
+
+def _delta_table_folder(schema: ExternalDataSchema) -> str:
+    """The Delta table's own folder segment, as the loader actually wrote it.
+
+    The loader names the folder after the DLT resource (the unqualified table
+    name), so it diverges from schema.normalized_name for schema-qualified
+    sources: Postgres "public.foo" normalizes to "public_foo", but the Delta
+    folder is "foo". Reading normalized_name here points the backfill at a
+    prefix with no _delta_log (surfaces as "No files in log segment"). The
+    catalog table's url_pattern is the authoritative location — it is what the
+    query engine reads — so take the leaf from there, and fall back to
+    normalized_name only when no table row exists yet (nothing to backfill).
+
+    url_pattern is a user-writable field, so the leaf is normalized through the
+    same convention the writer used to produce it. This is a no-op for every
+    legitimate folder (they are already normalize_identifier output) and strips
+    any injected separators so the leaf can never escape the schema's own prefix.
+    """
+    table = schema.table
+    if table and table.url_pattern:
+        segments = [seg for seg in table.url_pattern.rstrip("/").split("/") if seg and seg not in ("*", "**")]
+        if segments:
+            return NamingConvention.normalize_identifier(segments[-1])
+    return schema.normalized_name
 
 
 def _delta_storage_options() -> dict[str, str]:
@@ -48,7 +76,7 @@ def _delta_storage_options() -> dict[str, str]:
 
     Prod: empty — deltalake's object_store resolves the pod's ambient AWS
     credential chain (IRSA/env) itself. Local dev: MinIO endpoint + keys.
-    (posthog.ducklake.storage.get_deltalake_storage_options is NOT usable
+    (products.managed_warehouse.backend.storage.get_deltalake_storage_options is NOT usable
     here: it requires DuckLake RDS env that consumer pods do not carry.)
     """
     if settings.USE_LOCAL_SETUP:
@@ -68,9 +96,70 @@ def resolve_snapshot_chunks(schema: ExternalDataSchema, version: int | None = No
 
 
 def resolve_snapshot_plan(schema: ExternalDataSchema, version: int | None = None) -> BackfillSnapshotPlan:
+    uri = delta_table_uri(schema)
+    if version is None:
+        # No pinned version to cache against — this is the initial plan, reading
+        # whatever HEAD currently is, which is not a stable cache key.
+        return _resolve_snapshot_plan(uri, version)
+    return _resolve_pinned_snapshot_plan(uri, version)
+
+
+# A cached plan holds every live parquet path and commit key for its table, so
+# entry *size* scales with table size — an entry-count cap alone doesn't bound
+# memory. Weigh entries by that count and cap the total instead: a plan over
+# budget on its own is simply never cached (recomputed every call, same as
+# before this cache existed), so one huge table can't make the cache retain an
+# unbounded amount indefinitely.
+_PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT = 50_000
+
+_pinned_snapshot_plan_cache: OrderedDict[tuple[str, int], tuple[BackfillSnapshotPlan, int]] = OrderedDict()
+_pinned_snapshot_plan_cache_weight = 0
+_pinned_snapshot_plan_cache_lock = threading.Lock()
+
+
+def _plan_weight(plan: BackfillSnapshotPlan) -> int:
+    return sum(len(chunk.paths) for chunk in plan.chunks) + len(plan.covered_batches)
+
+
+def _resolve_pinned_snapshot_plan(uri: str, version: int) -> BackfillSnapshotPlan:
+    """Cached for already-committed (pinned) versions only.
+
+    A commit at or before an already-resolved version never changes, but
+    deltalake's history() has no checkpoint shortcut — it walks the
+    _delta_log from genesis one commit at a time. The reconciler calls
+    resolve_snapshot_plan with the same pinned version on every ~30s tick
+    until a backfill finishes draining its queue, so without this cache a
+    large table (tens of thousands of commits) gets its entire commit log
+    re-read from S3 on every pass, which can trip S3 rate limiting.
+    """
+    global _pinned_snapshot_plan_cache_weight
+
+    key = (uri, version)
+    with _pinned_snapshot_plan_cache_lock:
+        cached = _pinned_snapshot_plan_cache.get(key)
+        if cached is not None:
+            _pinned_snapshot_plan_cache.move_to_end(key)
+            return cached[0]
+
+    plan = _resolve_snapshot_plan(uri, version)
+    weight = _plan_weight(plan)
+
+    with _pinned_snapshot_plan_cache_lock:
+        while (
+            _pinned_snapshot_plan_cache
+            and _pinned_snapshot_plan_cache_weight + weight > _PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT
+        ):
+            _, (_, evicted_weight) = _pinned_snapshot_plan_cache.popitem(last=False)
+            _pinned_snapshot_plan_cache_weight -= evicted_weight
+        if weight <= _PINNED_SNAPSHOT_PLAN_CACHE_MAX_WEIGHT:
+            _pinned_snapshot_plan_cache[key] = (plan, weight)
+            _pinned_snapshot_plan_cache_weight += weight
+    return plan
+
+
+def _resolve_snapshot_plan(uri: str, version: int | None) -> BackfillSnapshotPlan:
     from deltalake import DeltaTable
 
-    uri = delta_table_uri(schema)
     dt = DeltaTable(uri, version=version, storage_options=_delta_storage_options())
     resolved_version = dt.version()
 

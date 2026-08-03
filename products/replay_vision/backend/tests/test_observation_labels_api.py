@@ -1,5 +1,4 @@
 from datetime import timedelta
-from typing import Any
 
 from unittest.mock import patch
 
@@ -55,18 +54,44 @@ class TestObservationLabels(_VisionAPITestCase):
         label = self.client.get(self._retrieve_url(self.observation)).json()["label"]
         self.assertEqual(label, {"is_correct": False, "feedback": "should be yes"})
 
-    def test_quality_flag_off_hides_label_endpoints_but_not_reads(self) -> None:
-        # `replay-vision-quality` gates ratings even when product-level `replay-vision` is on.
-        def _flags(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key != "replay-vision-quality"
+    def test_rating_reports_calibration_event(self) -> None:
+        # The thumb direction, feedback presence, and calling surface must all ride on the event.
+        # Asserted at the capture boundary, where the source tag lands.
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(
+                self._label_url(self.observation), {"is_correct": False, "feedback": "should be yes"}, format="json"
+            )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        rated = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_observation_rated"
+        ]
+        self.assertEqual(len(rated), 1)
+        properties = rated[0].kwargs["properties"]
+        self.assertFalse(properties["is_correct"])
+        self.assertTrue(properties["has_feedback"])
+        self.assertEqual(properties["source"], "web")
 
-        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", side_effect=_flags):
+    def test_product_flag_off_hides_observation_endpoints(self) -> None:
+        with patch("products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled", return_value=False):
             post_resp = self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
-            delete_resp = self.client.delete(self._label_url(self.observation))
             read_resp = self.client.get(self._retrieve_url(self.observation))
         self.assertEqual(post_resp.status_code, 404, post_resp.content)
-        self.assertEqual(delete_resp.status_code, 404, delete_resp.content)
-        self.assertEqual(read_resp.status_code, 200, read_resp.content)
+        self.assertEqual(read_resp.status_code, 404, read_resp.content)
+        self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
+
+    def test_label_write_denied_without_scanner_editor_access_on_session_route(self) -> None:
+        # The session route's get_object only checks the observation row; label writes must object-check the scanner.
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
+        ):
+            resp = self.client.post(
+                f"/api/environments/{self.team.id}/vision/observations/{self.observation.id}/label/",
+                {"is_correct": True},
+                format="json",
+            )
+        self.assertEqual(resp.status_code, 403, resp.json())
+        self.assertFalse(ReplayObservationLabel.objects.filter(observation=self.observation).exists())
 
     def test_relabeling_updates_the_single_shared_label(self) -> None:
         self.client.post(self._label_url(self.observation), {"is_correct": False, "feedback": "wrong"}, format="json")
@@ -109,7 +134,9 @@ class TestObservationLabels(_VisionAPITestCase):
         outside_window = self._create_observation(self.scanner, "sess-up-old")
         window_edge = self._create_observation(self.scanner, "sess-down-window-edge")
         just_outside = self._create_observation(self.scanner, "sess-down-just-outside")
-        self._create_observation(self.scanner, "sess-unlabeled")
+        unlabeled = self._create_observation(self.scanner, "sess-unlabeled")
+        failed = self._create_observation(self.scanner, "sess-failed")
+        ReplayObservation.objects.filter(id=failed.id).update(status=ObservationStatus.FAILED)
         # created_at is auto_now_add, so pin every row from one captured `now` (midnight-safe) via update.
         now = timezone.now().replace(hour=12)
         ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(created_at=now)
@@ -119,12 +146,18 @@ class TestObservationLabels(_VisionAPITestCase):
         ReplayObservation.objects.filter(id=window_edge.id).update(created_at=now - timedelta(days=13))
         ReplayObservation.objects.filter(id=just_outside.id).update(created_at=now - timedelta(days=14))
         # Prompt-version snapshots: v1 on the older observation, v2 on today's, so markers show the change.
+        # Each config also carries a type-specific field (allow_inconclusive) so the marker's full config,
+        # not just the prompt, is proven to version too.
+        v1_config = {"prompt": "v1 prompt", "allow_inconclusive": False}
+        v2_config = {"prompt": "v2 prompt", "allow_inconclusive": True}
         ReplayObservation.objects.filter(id=earlier.id).update(
-            scanner_snapshot={"scanner_version": 1, "scanner_config": {"prompt": "v1 prompt"}}
+            scanner_snapshot={"scanner_version": 1, "scanner_config": v1_config}
         )
-        ReplayObservation.objects.filter(id__in=[self.observation.id, same_day_down.id]).update(
-            scanner_snapshot={"scanner_version": 2, "scanner_config": {"prompt": "v2 prompt"}}
-        )
+        # The unlabeled observation counts toward v2's scanned total but not its ratings; the failed one
+        # counts toward neither, since it never produced a ratable result.
+        ReplayObservation.objects.filter(
+            id__in=[self.observation.id, same_day_down.id, unlabeled.id, failed.id]
+        ).update(scanner_snapshot={"scanner_version": 2, "scanner_config": v2_config})
         self.client.post(self._label_url(self.observation), {"is_correct": True}, format="json")
         for observation in (same_day_down, earlier, outside_window, window_edge, just_outside):
             is_correct = observation is outside_window
@@ -154,15 +187,19 @@ class TestObservationLabels(_VisionAPITestCase):
                     "date": (now - timedelta(days=3)).date().isoformat(),
                     "version": 1,
                     "prompt": "v1 prompt",
+                    "scanner_config": v1_config,
                     "up": 0,
                     "down": 1,
+                    "total": 1,
                 },
                 {
                     "date": now.date().isoformat(),
                     "version": 2,
                     "prompt": "v2 prompt",
+                    "scanner_config": v2_config,
                     "up": 1,
                     "down": 1,
+                    "total": 3,
                 },
             ],
         )
@@ -187,10 +224,10 @@ class TestObservationLabels(_VisionAPITestCase):
         self.assertEqual(label, {"is_correct": False, "feedback": "shared feedback"})
 
     def _deny_editor(self):
-        # Viewer access still passes (reading observations); only editor is withheld.
+        # Viewer-level object checks still pass (reading observations); only editor is withheld.
         return patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
-            side_effect=lambda resource, required_level=None, **_: required_level != "editor",
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            side_effect=lambda obj, required_level=None, **_: required_level != "editor",
         )
 
     def test_editing_label_requires_editor_access(self) -> None:

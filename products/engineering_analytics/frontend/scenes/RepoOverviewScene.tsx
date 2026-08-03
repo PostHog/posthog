@@ -1,14 +1,12 @@
-// The repo hub landing page: stat tiles with deltas, then master health, failing runs, PRs needing
-// attention, workflows, and cost as sections on one page.
+// The repo hub landing page: PRs needing attention, then windowed trends, master health, and
+// workflows as sections on one page.
 
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
-import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -16,206 +14,19 @@ import { urls } from 'scenes/urls'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { RepoEntityHeader } from '../components/EntityHeader'
-import { FailureLogGroups } from '../components/FailureLogs'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
 import { ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
-import { Section, scrollToSection } from '../components/Section'
-import { HeroStat } from '../components/StatCard'
+import { Section } from '../components/Section'
 import { TrendCard } from '../components/TrendCard'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
-import type { MasterFailureGroupApi } from '../generated/api.schemas'
 import { compactHoursLabel, compactMinutes, compactUsd, percent } from '../lib/format'
 import { githubCommitUrl } from '../lib/github'
 import { HUB_PREVIEW_MAX } from '../lib/preview'
+import { withCurrentScope, withScope } from '../lib/scope'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
-
-function withSource(url: string, sourceId: string | null): string {
-    return combineUrl(url, sourceId ? { source: sourceId } : {}).url
-}
-
-/** The page's thesis: is the pipeline healthy right now? Default-branch verdict plus open-PR backlog
- *  pressure, both current-state, so it sits above the date filter that scopes everything below. */
-function PipelineVerdictHero({
-    failingCount,
-    failingWorkflows,
-    loading,
-    defaultBranch,
-    backlog,
-}: {
-    failingCount: number
-    failingWorkflows: string[]
-    loading: boolean
-    defaultBranch: string
-    backlog: { open: number | null; failingCi: number | null; stuck: number | null }
-}): JSX.Element {
-    const failing = failingCount > 0
-    const dotColor = loading ? 'var(--muted)' : failing ? 'var(--danger)' : 'var(--success)'
-    const status = loading ? 'Checking' : failing ? `${failingCount} failing` : 'Passing'
-    // Only the failing state earns a subline (which workflows broke). "Passing" already says the rest.
-    const failingNames = failingWorkflows.slice(0, 3).join(', ') + (failingCount > 3 ? ` +${failingCount - 3}` : '')
-    return (
-        <LemonCard
-            hoverEffect={failing}
-            onClick={failing ? () => scrollToSection('now') : undefined}
-            className={cn(
-                'flex flex-wrap items-center justify-between gap-x-8 gap-y-4 px-6 py-5',
-                failing && 'bg-fill-error-tertiary'
-            )}
-        >
-            <div className="flex min-w-0 flex-col gap-1.5">
-                <Tooltip title="Default-branch workflow runs failing in the last 24 hours.">
-                    <span className="w-fit cursor-default font-mono text-xs text-tertiary">{defaultBranch}</span>
-                </Tooltip>
-                <span className="flex items-baseline gap-2.5">
-                    <span
-                        className="inline-block size-2.5 shrink-0 translate-y-[-0.15em] rounded-full"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ backgroundColor: dotColor }}
-                    />
-                    <span
-                        className={cn(
-                            'text-3xl font-bold leading-none tracking-tight',
-                            loading ? 'text-tertiary' : failing ? 'text-danger' : 'text-primary'
-                        )}
-                    >
-                        {status}
-                    </span>
-                    {failing && <span className="text-sm font-medium text-danger">View →</span>}
-                </span>
-                {failing && <span className="truncate text-xs text-secondary">{failingNames}</span>}
-            </div>
-            <div className="flex items-center gap-6">
-                <HeroStat label="Open PRs" value={backlog.open} />
-                <HeroStat label="Failing CI" value={backlog.failingCi} tone="danger" />
-                <HeroStat label="Stuck >7d" value={backlog.stuck} tone="warning" />
-            </div>
-        </LemonCard>
-    )
-}
-
-function MasterFailuresSection(): JSX.Element {
-    const { masterFailures, masterFailuresLoading, failureLogs, failureLogsLoading, defaultBranch } =
-        useValues(repoOverviewLogic)
-    const { loadLogsForRun } = useActions(repoOverviewLogic)
-    const { sourceId } = useValues(engineeringAnalyticsLogic)
-
-    return (
-        <Section id="now" title={`Failing on ${defaultBranch}`} note="Last 24 hours">
-            <LemonCard hoverEffect={false} className="overflow-hidden p-0">
-                <LemonTable<MasterFailureGroupApi>
-                    dataSource={masterFailures}
-                    loading={masterFailuresLoading}
-                    embedded
-                    rowKey={(group) => `${group.workflow_name}:${group.failed_job}`}
-                    expandable={{
-                        noIndent: true,
-                        onRowExpand: (group) => loadLogsForRun(group.latest_run_id),
-                        expandedRowRender: (group) => {
-                            const logs = failureLogs[group.latest_run_id]
-                            return (
-                                <div className="p-2">
-                                    <div className="mb-1.5 flex items-center gap-2 text-xs font-semibold">
-                                        Failure excerpt
-                                        <span className="font-mono font-normal text-tertiary">
-                                            latest run #{group.latest_run_id}
-                                        </span>
-                                        <span className="ml-auto font-normal">
-                                            <Link
-                                                to={withSource(
-                                                    urls.engineeringAnalyticsWorkflowRun(
-                                                        group.repo.owner,
-                                                        group.repo.name,
-                                                        group.latest_run_id
-                                                    ),
-                                                    sourceId
-                                                )}
-                                            >
-                                                Open run →
-                                            </Link>
-                                        </span>
-                                    </div>
-                                    <FailureLogGroups logs={logs} loading={failureLogsLoading} />
-                                </div>
-                            )
-                        },
-                    }}
-                    columns={[
-                        {
-                            title: 'Workflow',
-                            key: 'workflow',
-                            render: (_, group) => (
-                                <span className="flex items-center gap-2 font-medium">
-                                    <span className="inline-block size-2 shrink-0 rounded-full bg-danger" />
-                                    <Link
-                                        to={withSource(
-                                            urls.engineeringAnalyticsWorkflowRuns(
-                                                group.repo.owner,
-                                                group.repo.name,
-                                                group.workflow_name
-                                            ),
-                                            sourceId
-                                        )}
-                                    >
-                                        {group.workflow_name}
-                                    </Link>
-                                </span>
-                            ),
-                        },
-                        {
-                            title: 'What failed',
-                            key: 'failedJob',
-                            render: (_, group) =>
-                                group.failed_job ? (
-                                    <span className="font-mono text-[11px] text-secondary">{group.failed_job}</span>
-                                ) : (
-                                    <span className="text-xs text-tertiary">workflow-level (jobs not synced)</span>
-                                ),
-                        },
-                        {
-                            title: 'Runs',
-                            key: 'runs',
-                            align: 'right',
-                            render: (_, group) =>
-                                group.run_count > 1 ? (
-                                    <LemonTag type="danger">×{group.run_count}</LemonTag>
-                                ) : (
-                                    <span className="tabular-nums text-tertiary">1</span>
-                                ),
-                        },
-                        {
-                            title: 'First seen',
-                            key: 'firstSeen',
-                            align: 'right',
-                            render: (_, group) => (
-                                <span className="text-xs text-tertiary whitespace-nowrap">
-                                    <TZLabel time={group.first_seen} />
-                                </span>
-                            ),
-                        },
-                        {
-                            title: 'Last seen',
-                            key: 'lastSeen',
-                            align: 'right',
-                            render: (_, group) => (
-                                <span className="text-xs text-tertiary whitespace-nowrap">
-                                    <TZLabel time={group.last_seen} />
-                                </span>
-                            ),
-                        },
-                    ]}
-                    emptyState={`Nothing failing on ${defaultBranch} in the last 24 hours.`}
-                    nouns={['failure group', 'failure groups']}
-                />
-                <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                    PR-branch failures appear on each pull request's page.
-                </div>
-            </LemonCard>
-        </Section>
-    )
-}
 
 export function RepoOverviewScene(): JSX.Element {
     const {
@@ -230,34 +41,28 @@ export function RepoOverviewScene(): JSX.Element {
         passRateSeries,
         openToMergeSeries,
         jobsAvailable,
-        defaultBranch,
+        overviewDefaultBranch,
         notConnected,
         overviewFailed,
         overviewLoading,
-        failingWorkflowCount,
-        masterFailures,
-        masterFailuresLoading,
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const { cards, pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
+    const { pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, activeSource } =
         useValues(engineeringAnalyticsLogic)
-    const { loadOverview, loadMasterFailures, loadRepoActivity, showMorePrs, showMoreWorkflows } =
-        useActions(repoOverviewLogic)
+    const { loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
     const { timezone } = useValues(teamLogic)
     const chartTheme = useChartTheme()
 
-    // Window/source changes reload the overview, activity, and workflow health (the date-scoped surfaces);
-    // the PR backlog is current-state, not windowed, so it stays put. Surface the reload so a window change
-    // doesn't silently swap stale numbers.
+    // Window/source changes reload the overview, activity, and workflow health (the date-scoped
+    // surfaces); the PR backlog is current-state, not windowed, so it stays put. Surface the reload
+    // so a window change doesn't silently swap stale numbers.
     const hubReloading = overviewLoading || repoActivityLoading || workflowHealthLoading
 
     // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
     // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
     // table then displays them failing-first-then-name. attentionPrs is already ordered failing-first.
-    // Distinct workflow names failing on the default branch — the hero's "what's broken" subline.
-    const failingWorkflows = Array.from(new Set(masterFailures.map((group) => group.workflow_name)))
     const shownPrs = attentionPrs.slice(0, prPreviewCount)
     const canShowMorePrs = shownPrs.length < attentionPrs.length && prPreviewCount < HUB_PREVIEW_MAX
     // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
@@ -279,7 +84,6 @@ export function RepoOverviewScene(): JSX.Element {
             <CIAnalyticsLoadError
                 onRetry={() => {
                     loadOverview()
-                    loadMasterFailures()
                     loadRepoActivity()
                 }}
             />
@@ -288,26 +92,9 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            {/* Repo identity. The scope controls used to dock here; they now sit below the verdict hero, so
-                the date filter visibly governs only the windowed surfaces beneath it. */}
+            {/* Repo identity. The scope controls dock below the PR table, so the date filter visibly
+                governs only the windowed surfaces beneath it. */}
             <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
-
-            {/* The thesis: is the pipeline healthy right now? Current-state, above the date filter. */}
-            <PipelineVerdictHero
-                failingCount={failingWorkflowCount}
-                failingWorkflows={failingWorkflows}
-                loading={masterFailuresLoading}
-                defaultBranch={defaultBranch}
-                backlog={{
-                    open: cards?.openPrs ?? null,
-                    failingCi: cards?.failingCi ?? null,
-                    stuck: cards?.stuck ?? null,
-                }}
-            />
-
-            {/* Now zone: current-state surfaces above the filter. The hero owns the backlog summary, so this
-                section is just the triage table. */}
-            <MasterFailuresSection />
 
             <Section id="prs" title="Pull requests needing attention">
                 <LemonCard hoverEffect={false} className="overflow-hidden p-0">
@@ -330,7 +117,7 @@ export function RepoOverviewScene(): JSX.Element {
                                     Show more
                                 </LemonButton>
                             )}
-                            <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                            <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
                                 View all →
                             </Link>
                         </div>
@@ -428,7 +215,7 @@ export function RepoOverviewScene(): JSX.Element {
 
             <Section
                 id="master"
-                title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}
+                title={`${overviewDefaultBranch === 'main' ? 'Main' : 'Master'} health`}
                 busy={repoActivityLoading}
             >
                 {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict — the
@@ -455,8 +242,8 @@ export function RepoOverviewScene(): JSX.Element {
                         {repoActivityLoading
                             ? 'Loading…'
                             : repoActivityFailed
-                              ? `Couldn't load ${defaultBranch} activity. Refresh to retry.`
-                              : `Not enough completed runs on ${defaultBranch} in the window to chart yet.`}
+                              ? `Couldn't load ${overviewDefaultBranch} activity. Refresh to retry.`
+                              : `Not enough completed runs on ${overviewDefaultBranch} in the window to chart yet.`}
                     </LemonCard>
                 )}
             </Section>
@@ -499,14 +286,9 @@ export function RepoOverviewScene(): JSX.Element {
                             )}
                             <Link
                                 to={
-                                    // A bare link would reset the shared window/branch scope (the filters logic
-                                    // re-hydrates from the URL on every route) — carry it, plus the source.
-                                    combineUrl(urls.engineeringAnalyticsWorkflows(), {
-                                        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
-                                        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
-                                        ...(searchParams.q ? { q: searchParams.q } : {}),
-                                        ...(sourceId ? { source: sourceId } : {}),
-                                    }).url
+                                    // A bare link would reset the shared window / branch / repo scope (the filters
+                                    // logic re-hydrates from the URL on every route) — carry it, plus the source.
+                                    withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
                                 }
                             >
                                 View all →

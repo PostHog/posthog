@@ -1,7 +1,9 @@
 from io import BytesIO
 from typing import Optional
+from urllib.parse import quote
 
 from django.http import HttpResponse
+from django.utils.http import content_disposition_header
 from django.views.decorators.csrf import csrf_exempt
 
 import structlog
@@ -51,6 +53,33 @@ def _is_inline_safe_content_type(content_type: str | None) -> bool:
     return _normalize_content_type(content_type) in _INLINE_SAFE_CONTENT_TYPES
 
 
+def _attachment_disposition(file_name: str | None) -> str:
+    """Build a Content-Disposition header that preserves the original filename.
+
+    Without an explicit filename the browser falls back to the URL's last path
+    segment — here the media UUID — so downloads lose their name and extension.
+
+    file_name is attacker-influenced (inbound email/Slack attachments), so strip
+    control characters (defends against CR/LF header injection) before encoding.
+    Non-ASCII names get a quote-escaped ASCII ``filename`` fallback for legacy
+    browsers alongside the RFC 5987 ``filename*`` parameter.
+    """
+    if not file_name:
+        return "attachment"
+
+    cleaned = "".join(ch for ch in file_name if ch.isprintable()).strip()
+    if not cleaned:
+        return "attachment"
+
+    try:
+        cleaned.encode("ascii")
+        return content_disposition_header(as_attachment=True, filename=cleaned) or "attachment"
+    except UnicodeEncodeError:
+        ascii_fallback = cleaned.encode("ascii", "ignore").decode().strip() or "download"
+        escaped = ascii_fallback.replace("\\", "\\\\").replace('"', '\\"')
+        return f"attachment; filename=\"{escaped}\"; filename*=UTF-8''{quote(cleaned, safe='')}"
+
+
 def validate_image_file(file: Optional[bytes], user: int) -> bool:
     """
     Django validates file content type by reading "magic bytes" from the start of the file.
@@ -94,7 +123,11 @@ def download(request, *args, **kwargs) -> HttpResponse:
 
     if instance.media_location is None:
         return HttpResponse(status=404)
-    file_bytes = object_storage.read_bytes(instance.media_location)
+    file_bytes = object_storage.read_bytes(instance.media_location, missing_ok=True)
+    if file_bytes is None:
+        # The DB record exists but the underlying object-storage key is gone, so
+        # there's nothing to serve — return a clean 404 rather than a 500.
+        return HttpResponse(status=404)
 
     statsd.incr(
         "uploaded_media.served",
@@ -115,7 +148,7 @@ def download(request, *args, **kwargs) -> HttpResponse:
         response_content_type = instance.content_type
     else:
         response_content_type = "application/octet-stream"
-        response_headers["Content-Disposition"] = "attachment"
+        response_headers["Content-Disposition"] = _attachment_disposition(instance.file_name)
 
     return HttpResponse(
         file_bytes,

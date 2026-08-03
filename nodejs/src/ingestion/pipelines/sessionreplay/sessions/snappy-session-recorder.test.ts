@@ -1122,7 +1122,7 @@ describe('SnappySessionRecorder', () => {
 
     describe('Pre-serialized messages (native anonymizer fast path)', () => {
         it('appends the block lines verbatim and derives counts from the per-event metadata', async () => {
-            // Flag bits mirror rust/replay-anonymizer-node `snapshot.rs`: 1=active 2=click 4=keypress 8=mouse.
+            // Flag bits mirror rust/replay-anonymizer `snapshot.rs`: 1=active 2=click 4=keypress 8=mouse.
             const t0 = DateTime.fromISO('2025-01-01T01:00:00Z').toMillis()
             const lines = Buffer.from(
                 `["w1",{"type":4,"timestamp":${t0},"data":{"href":"https://example.com/[redacted]"}}]\n` +

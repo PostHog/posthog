@@ -11,6 +11,7 @@ import {
     getDatabaseSchemaPayload,
     getErrorsForFields,
     mergeRestoredSourceFormValues,
+    resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
 } from '../sourceWizardLogic'
@@ -56,6 +57,27 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'direct', 'direct')).toBe(false)
         expect(shouldHydrateSourceFromUrl(1, postgresSource, postgresSource, 'direct', 'direct')).toBe(true)
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
+    })
+
+    describe('resolveConnectErrorMessage', () => {
+        it('guides toward ad blockers when a request never reaches the server', () => {
+            // A thrown fetch has no HTTP status; without this branch the user only sees "Failed to fetch".
+            const message = resolveConnectErrorMessage({ message: 'Failed to fetch', status: undefined })
+            expect(message).toContain('ad blocker')
+            expect(message).not.toEqual('Failed to fetch')
+        })
+
+        it('prefers an API-provided message over the network hint', () => {
+            expect(resolveConnectErrorMessage({ data: { message: 'Invalid credentials' }, status: 400 })).toEqual(
+                'Invalid credentials'
+            )
+        })
+
+        it('never returns undefined for a 4xx with no message body', () => {
+            const message = resolveConnectErrorMessage({ status: 400 })
+            expect(message).toBeTruthy()
+            expect(message).not.toEqual('undefined')
+        })
     })
 
     describe('getDatabaseSchemaPayload', () => {
@@ -760,6 +782,48 @@ describe('sourceWizardLogic', () => {
                 expect(byTable['public.customers'].should_sync).toBe(true)
                 expect(byTable['public.invoices'].should_sync).toBe(true)
                 expect(byTable['public.charges'].should_sync).toBe(false)
+            } finally {
+                unmount()
+            }
+        })
+
+        it('explains why Next is disabled on the schema step when no table is selected', () => {
+            const { logic, unmount } = mountWithSchemas([buildSchema({ table: 'Customer', should_sync: false })])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(false)
+                expect(logic.values.nextButtonDisabledReason).toEqual('Select at least one table to sync')
+            } finally {
+                unmount()
+            }
+        })
+
+        it('explains why Next is disabled when a selected table has no sync method', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer', should_sync: true, sync_type: null }),
+            ])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(false)
+                expect(logic.values.nextButtonDisabledReason).toEqual(
+                    'Choose a sync method for each table you want to sync'
+                )
+            } finally {
+                unmount()
+            }
+        })
+
+        it('clears the disabled reason once a selected table has a sync method', () => {
+            const { logic, unmount } = mountWithSchemas([
+                buildSchema({ table: 'Customer', should_sync: true, sync_type: 'full_refresh' }),
+            ])
+
+            try {
+                logic.actions.setStep(3)
+                expect(logic.values.canGoNext).toBe(true)
+                expect(logic.values.nextButtonDisabledReason).toBeNull()
             } finally {
                 unmount()
             }

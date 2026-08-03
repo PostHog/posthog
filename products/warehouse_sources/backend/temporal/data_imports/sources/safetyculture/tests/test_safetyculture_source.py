@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SafetyCultureSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.safetyculture import (
+    SafetyCultureSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.safetyculture import (
     SafetyCultureResumeConfig,
 )

@@ -28,6 +28,7 @@ class CDCErrorCategory(enum.StrEnum):
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
     SLOT_MISSING = "slot_missing"
+    SLOT_NOT_CONFIGURED = "slot_not_configured"
     PUBLICATION_MISSING = "publication_missing"
     SLOT_IN_USE = "slot_in_use"
     WAL_DECODE_ERROR = "wal_decode_error"
@@ -49,6 +50,17 @@ class CDCTransactionTooLargeError(Exception):
     Non-retryable: re-decoding replays the same oversized transaction. The decoder guard
     that raises this lives in the source-specific decoder; the type is defined here so the
     shared classifier owns the mapping to ``TRANSACTION_TOO_LARGE``.
+    """
+
+
+class CDCSlotNotConfiguredError(Exception):
+    """Change data capture is enabled but the source has no replication slot name stored.
+
+    Non-retryable: without a slot name there is nothing to stream from and nothing to recreate,
+    so retrying — or the slot-invalidation recovery / Repair CDC paths — replays the same dead
+    end. The extraction activity raises this before streaming (streaming an empty slot name would
+    surface as a misleading "replication slot does not exist"). Defined here so the shared
+    classifier owns the mapping to ``SLOT_NOT_CONFIGURED``.
     """
 
 
@@ -90,6 +102,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     CDCErrorCategory.SLOT_MISSING: (
         "The replication slot no longer exists on the source database, so changes can no longer be "
         "read. Use Repair CDC to recreate it and re-sync.",
+        False,
+    ),
+    CDCErrorCategory.SLOT_NOT_CONFIGURED: (
+        "Change data capture is enabled for this source but no replication slot is configured, so "
+        "changes can't be read. Disable and re-enable change data capture to set it up again.",
         False,
     ),
     CDCErrorCategory.PUBLICATION_MISSING: (
@@ -149,6 +166,8 @@ def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> 
     Falls back to a retryable ``unknown`` so a misclassification never strands a recoverable run.
     """
     for err in _iter_cause_chain(exc):
+        if isinstance(err, CDCSlotNotConfiguredError):
+            return cdc_error_info(CDCErrorCategory.SLOT_NOT_CONFIGURED)
         if isinstance(err, CDCTransactionTooLargeError):
             return cdc_error_info(CDCErrorCategory.TRANSACTION_TOO_LARGE)
         if isinstance(err, CDCSchemaMergeError):

@@ -1,18 +1,49 @@
-import { actions, afterMount, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
+import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsReportsSignalsRetrieve } from 'products/signals/frontend/generated/api'
-import { signalsReportArtefactsDiff } from 'products/signals/frontend/generated/api'
-import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    signalsReportArtefactsDiff,
+    signalsReportPrChecks,
+    signalsReportPrComments,
+    signalsReportPrReviewCommentDestroy,
+    signalsReportPrReviewCommentReactionDestroy,
+    signalsReportPrReviewCommentReactionsCreate,
+    signalsReportPrReviewCommentsCreate,
+    signalsReportPrReviewCommentUpdate,
+    signalsReportsSignalsRetrieve,
+} from 'products/signals/frontend/generated/api'
+import type {
+    CommitDiffResponseApi,
+    PullRequestCheckApi,
+    PullRequestCommentApi,
+    PullRequestCommentReactionApi,
+    ReportChartApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
+import type { SignalNodeApi } from '../../../../../products/signals/frontend/generated/api.schemas'
+import type { PersonalGitHubIntegration } from '../../settings/user/personalIntegrationsLogic'
 import {
     deriveTaskPurpose,
     PURPOSE_ORDER,
@@ -25,13 +56,18 @@ import {
     CurrentReviewerUser,
 } from '../components/detail/reviewerDisplay'
 import {
+    captureInboxReportFeedback,
+    captureInboxReportFeedbackNote,
+    InboxReportFeedbackSentiment,
+} from '../inboxAnalytics'
+import {
     EnrichedReviewer,
     SignalReport,
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStatus,
 } from '../types'
-import type { inboxReportDetailLogicType } from './inboxReportDetailLogicType'
+import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 
 /** Run statuses that count as terminal. Mirrors desktop `isTerminalStatus` / `ReportTasksSection`. */
 const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED]
@@ -65,10 +101,65 @@ const ACTIVE_STATUSES: SignalReportStatus[] = [
 
 const REPORT_TASKS_POLL_INTERVAL_MS = 5000
 
+// PR CI checks refresh cadence while the detail is open — a running build's status stays current
+// without hammering GitHub. Mirrors the desktop PR-review view's 15s poll.
+const PR_CHECKS_POLL_INTERVAL_MS = 15000
+
 /** Extract the PR url from a task's latest run output, if present. Mirrors desktop `getTaskPrUrl`. */
 export function getTaskPrUrl(task: Task): string | null {
     const prUrl = task.latest_run?.output?.pr_url
     return typeof prUrl === 'string' && prUrl.length > 0 ? prUrl : null
+}
+
+/**
+ * A PR comment plus client-only state layered on top of the generated shape: `pending` marks an
+ * optimistic create/edit still in flight (or failed), so the UI can show it immediately instead of
+ * letting it vanish during the request.
+ */
+export interface ClientPullRequestComment extends PullRequestCommentApi {
+    pending?: 'sending' | 'failed'
+}
+
+/** An inline review-comment thread anchored to a diff line: the root comment plus its replies, in order. */
+export interface ReviewThread {
+    /** Root comment id — the id GitHub reply calls target. */
+    rootId: string
+    path: string
+    /** Anchor line in the diff (the end line for multi-line comments). */
+    line: number
+    /** GitHub diff side: 'RIGHT' = additions, 'LEFT' = deletions. */
+    side: 'LEFT' | 'RIGHT'
+    comments: ClientPullRequestComment[]
+}
+
+/** A not-yet-posted thread the user opened on a diff line. */
+export interface DraftThread {
+    path: string
+    line: number
+    side: 'LEFT' | 'RIGHT'
+}
+
+/** Stable key for a thread or draft anchor, used for posting state and annotation metadata. */
+export function threadKey(anchor: { path: string; line: number; side: string }): string {
+    return `${anchor.path}:${anchor.side}:${anchor.line}`
+}
+
+/** Pull the most specific message out of a review-comment API error, falling back to `fallback`. */
+function reviewCommentError(error: any, fallback: string): string {
+    return error?.data?.error || error?.detail || error?.message || fallback
+}
+
+/**
+ * Replace one comment in `comments`, leaving every other entry untouched. Optimistic updates and their
+ * rollbacks both run against the current list, so a slow request finishing can't undo a delete, edit or
+ * reaction that landed while it was in flight.
+ */
+function patchComment(
+    comments: readonly PullRequestCommentApi[] | null,
+    commentId: string,
+    patch: (comment: ClientPullRequestComment) => ClientPullRequestComment
+): PullRequestCommentApi[] {
+    return (comments ?? []).map((c) => (c.id === commentId ? patch(c) : c))
 }
 
 /**
@@ -88,6 +179,319 @@ function latestJudgmentExplanation(
     return typeof explanation === 'string' && explanation.trim() ? explanation : null
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxReportDetailLogicValues {
+    personalIntegrations: PersonalGitHubIntegration[] // personalIntegrationsLogic
+    actionabilityExplanation: string | null
+    addReviewerOptions: AvailableReviewerOption[]
+    availableReviewers: AvailableReviewerOption[] | null
+    availableReviewersLoading: boolean
+    chartIdsKey: string
+    chartPlacements: ChartPlacements
+    chartsById: Map<string, ReportChartApi>
+    currentUserGithubLogin: string | null
+    diffArtefactId: string | null
+    displayReviewers: EnrichedReviewer[] | null
+    draftThread: DraftThread | null
+    editingCommentId: string | null
+    expandedTaskIds: string[]
+    feedbackNoteDraft: string
+    feedbackNoteOpen: boolean
+    feedbackNoteSent: boolean
+    feedbackSentiment: InboxReportFeedbackSentiment | null
+    hasImplementationPr: boolean
+    hasPersonalGithub: boolean
+    inlineThreadCount: number
+    inlineThreadsByFile: Record<string, ReviewThread[]>
+    isReResearch: boolean
+    isReportActive: boolean
+    isUpdatingReviewers: boolean
+    latestCommitArtefact: SignalReportArtefact | null
+    optimisticReviewers: EnrichedReviewer[] | null
+    postingThreadKey: string | null
+    prChecks: readonly PullRequestCheckApi[] | null
+    prChecksError: string | null
+    prChecksLoading: boolean
+    prComments: readonly PullRequestCommentApi[] | null
+    prCommentsError: string | null
+    prCommentsLoading: boolean
+    primaryTask: ReportTaskEntry | null
+    priorityExplanation: string | null
+    report: SignalReport | null
+    reportArtefacts: SignalReportArtefact[] | null
+    reportArtefactsLoading: boolean
+    reportCharts: ReportChartApi[]
+    reportDiff: CommitDiffResponseApi | null
+    reportDiffError: string | null
+    reportDiffLoading: boolean
+    reportReviewers: EnrichedReviewer[] | null
+    reportSignals: SignalNode[] | null
+    reportSignalsLoading: boolean
+    reportSummary: string | null
+    reportTasks: ReportTaskEntry[] | null
+    reportTasksLoading: boolean
+    selectedTask: ReportTaskEntry | null
+    selectedTaskId: string | null
+    trailingCharts: ReportChartApi[]
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxReportDetailLogicActions {
+    closeDraftThread: () => {
+        value: true
+    }
+    deleteReviewComment: (commentId: string) => {
+        commentId: string
+    }
+    editReviewComment: (
+        commentId: string,
+        body: string
+    ) => {
+        body: string
+        commentId: string
+    }
+    loadAvailableReviewers: ({ query }?: { query?: string }) => {
+        query?: string
+    }
+    loadAvailableReviewersFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadAvailableReviewersSuccess: (
+        availableReviewers: {
+            email: string
+            name: string
+            user_uuid: string
+        }[],
+        payload?: {
+            query?: string
+        }
+    ) => {
+        availableReviewers: {
+            email: string
+            name: string
+            user_uuid: string
+        }[]
+        payload?: {
+            query?: string
+        }
+    }
+    loadPrChecks: () => any
+    loadPrChecksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPrChecksSuccess: (
+        prChecks: readonly PullRequestCheckApi[] | null,
+        payload?: any
+    ) => {
+        prChecks: readonly PullRequestCheckApi[] | null
+        payload?: any
+    }
+    loadPrComments: () => any
+    loadPrCommentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPrCommentsSuccess: (
+        prComments: readonly PullRequestCommentApi[] | null,
+        payload?: any
+    ) => {
+        prComments: readonly PullRequestCommentApi[] | null
+        payload?: any
+    }
+    loadReportArtefacts: () => any
+    loadReportArtefactsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReportArtefactsSuccess: (
+        reportArtefacts: SignalReportArtefact[],
+        payload?: any
+    ) => {
+        reportArtefacts: SignalReportArtefact[]
+        payload?: any
+    }
+    loadReportDiff: ({ artefactId }: { artefactId: string }) => {
+        artefactId: string
+    }
+    loadReportDiffFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReportDiffSuccess: (
+        reportDiff: CommitDiffResponseApi | null,
+        payload?: {
+            artefactId: string
+        }
+    ) => {
+        reportDiff: CommitDiffResponseApi | null
+        payload?: {
+            artefactId: string
+        }
+    }
+    loadReportSignals: () => any
+    loadReportSignalsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReportSignalsSuccess: (
+        reportSignals: SignalNodeApi[],
+        payload?: any
+    ) => {
+        reportSignals: SignalNodeApi[]
+        payload?: any
+    }
+    loadReportTasks: () => any
+    loadReportTasksFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReportTasksSuccess: (
+        reportTasks: ReportTaskEntry[],
+        payload?: any
+    ) => {
+        reportTasks: ReportTaskEntry[]
+        payload?: any
+    }
+    openDraftThread: (draft: DraftThread) => {
+        draft: DraftThread
+    }
+    openFeedbackNote: () => {
+        value: true
+    }
+    postReviewComment: (payload: {
+        body: string
+        inReplyTo?: string
+        /** Thread/draft key the composer belongs to, for per-thread posting state. */
+        key: string
+        line?: number
+        path?: string
+        side?: 'LEFT' | 'RIGHT'
+    }) => {
+        payload: {
+            body: string
+            inReplyTo?: string | undefined
+            key: string
+            line?: number | undefined
+            path?: string | undefined
+            side?: 'LEFT' | 'RIGHT' | undefined
+        }
+    }
+    postReviewCommentFinished: () => {
+        value: true
+    }
+    rateReport: (sentiment: InboxReportFeedbackSentiment) => {
+        sentiment: InboxReportFeedbackSentiment
+    }
+    searchAvailableReviewers: (query: string) => {
+        query: string
+    }
+    setEditingCommentId: (commentId: string | null) => {
+        commentId: string | null
+    }
+    setFeedbackNoteDraft: (draft: string) => {
+        draft: string
+    }
+    setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
+        reviewers: EnrichedReviewer[] | null
+    }
+    setReport: (report: SignalReport | null) => {
+        report: SignalReport | null
+    }
+    setSelectedTaskId: (taskId: string | null) => {
+        taskId: string | null
+    }
+    submitFeedbackNote: (note: string) => {
+        note: string
+    }
+    toggleExpandedTask: (taskId: string) => {
+        taskId: string
+    }
+    toggleReviewCommentReaction: (
+        commentId: string,
+        content: string
+    ) => {
+        commentId: string
+        content: string
+    }
+    updateReviewers: (
+        content: Record<string, string>[],
+        optimistic: EnrichedReviewer[]
+    ) => {
+        content: Record<string, string>[]
+        optimistic: EnrichedReviewer[]
+    }
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface inboxReportDetailLogicMeta {
+    key: string
+    __keaTypeGenInternalSelectorTypes: {
+        isUpdatingReviewers: (optimisticReviewers: EnrichedReviewer[] | null) => boolean
+        reportReviewers: (reportArtefacts: SignalReportArtefact[] | null) => EnrichedReviewer[] | null
+        isReportActive: (report: SignalReport | null) => boolean
+        hasImplementationPr: (report: SignalReport | null) => boolean
+        hasPersonalGithub: (personalIntegrations: PersonalGitHubIntegration[]) => boolean
+        currentUserGithubLogin: (personalIntegrations: PersonalGitHubIntegration[]) => string | null
+        inlineThreadsByFile: (prComments: readonly PullRequestCommentApi[] | null) => Record<string, ReviewThread[]>
+        inlineThreadCount: (inlineThreadsByFile: Record<string, ReviewThread[]>) => number
+        latestCommitArtefact: (reportArtefacts: SignalReportArtefact[] | null) => SignalReportArtefact | null
+        reportCharts: (report: SignalReport | null) => ReportChartApi[]
+        chartsById: (reportCharts: ReportChartApi[]) => Map<string, ReportChartApi>
+        chartIdsKey: (reportCharts: ReportChartApi[]) => string
+        reportSummary: (report: SignalReport | null) => string | null
+        chartPlacements: (reportSummary: string | null, chartIdsKey: string) => ChartPlacements
+        trailingCharts: (reportCharts: ReportChartApi[], chartPlacements: ChartPlacements) => ReportChartApi[]
+        priorityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
+        actionabilityExplanation: (reportArtefacts: SignalReportArtefact[] | null) => string | null
+        displayReviewers: (
+            reportReviewers: EnrichedReviewer[] | null,
+            optimisticReviewers: EnrichedReviewer[] | null,
+            user: null | import('../../../types').UserType
+        ) => EnrichedReviewer[] | null
+        addReviewerOptions: (
+            availableReviewers: AvailableReviewerOption[] | null,
+            user: null | import('../../../types').UserType
+        ) => AvailableReviewerOption[]
+        isReResearch: (reportTasks: ReportTaskEntry[] | null) => boolean
+        primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
+        selectedTask: (
+            reportTasks: ReportTaskEntry[] | null,
+            selectedTaskId: string | null,
+            primaryTask: ReportTaskEntry | null
+        ) => ReportTaskEntry | null
+    }
+}
+
+export type inboxReportDetailLogicType = MakeLogicType<
+    inboxReportDetailLogicValues,
+    inboxReportDetailLogicActions,
+    InboxReportDetailLogicProps,
+    inboxReportDetailLogicMeta
+>
+
 /**
  * Per-selected-report detail logic: artefacts, contributing signals, suggested reviewers, and linked tasks.
  * Keyed by `reportId` so each open report gets its own mounted instance. Does NOT import `inboxSceneLogic`
@@ -98,12 +502,38 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     props({} as InboxReportDetailLogicProps),
     key((props) => props.reportId),
 
+    connect(() => ({
+        // Personal GitHub connection state gates the inline comment composer (comments post as the user).
+        values: [personalIntegrationsLogic, ['integrations as personalIntegrations']],
+    })),
+
     actions({
+        // Open a not-yet-posted comment thread on a diff line (one draft at a time).
+        openDraftThread: (draft: DraftThread) => ({ draft }),
+        closeDraftThread: true,
+        // Post an inline review comment: a reply when `inReplyTo` is set, else a new thread on the draft anchor.
+        postReviewComment: (payload: {
+            body: string
+            inReplyTo?: string
+            path?: string
+            line?: number
+            side?: 'LEFT' | 'RIGHT'
+            /** Thread/draft key the composer belongs to, for per-thread posting state. */
+            key: string
+        }) => ({ payload }),
+        postReviewCommentFinished: true,
+        // Edit / delete one of the user's own review comments (optimistic, reverts on failure).
+        editReviewComment: (commentId: string, body: string) => ({ commentId, body }),
+        deleteReviewComment: (commentId: string) => ({ commentId }),
+        // Add or remove the user's own reaction of `content` on a review comment (optimistic toggle).
+        toggleReviewCommentReaction: (commentId: string, content: string) => ({ commentId, content }),
+        // Which comment is being edited inline (null = none).
+        setEditingCommentId: (commentId: string | null) => ({ commentId }),
         setReport: (report: SignalReport | null) => ({ report }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
+        // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
         // Mirrors desktop `useUpdateSuggestedReviewers` optimistic behavior.
-        updateReviewers: (artefactId: string, content: Record<string, string>[], optimistic: EnrichedReviewer[]) => ({
-            artefactId,
+        updateReviewers: (content: Record<string, string>[], optimistic: EnrichedReviewer[]) => ({
             content,
             optimistic,
         }),
@@ -114,6 +544,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
         // Inline-expand a linked task's run log within the report detail's Runs section.
         toggleExpandedTask: (taskId: string) => ({ taskId }),
+        // Thumbs feedback at the end of the report body. Analytics-only – nothing about the report changes.
+        rateReport: (sentiment: InboxReportFeedbackSentiment) => ({ sentiment }),
+        // Optional note, offered only after a rating is in. The rating is never held up waiting for it.
+        openFeedbackNote: true,
+        setFeedbackNoteDraft: (draft: string) => ({ draft }),
+        // The note rides on the payload: the reducers below clear the draft, and listeners run after them.
+        submitFeedbackNote: (note: string) => ({ note }),
     }),
 
     loaders(({ props, values }) => ({
@@ -222,6 +659,36 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 },
             },
         ],
+        // CI checks on the report's implementation PR. Only fetched when the report has one; polled
+        // every 15s while the detail is mounted (see the `setReport` listener) so a running build's
+        // status stays current, mirroring the desktop PR-review view.
+        prChecks: [
+            null as readonly PullRequestCheckApi[] | null,
+            {
+                loadPrChecks: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const response = await signalsReportPrChecks(String(teamId), props.reportId)
+                    return response.checks
+                },
+            },
+        ],
+        // Conversation + review comments on the report's implementation PR, merged chronologically.
+        prComments: [
+            null as readonly PullRequestCommentApi[] | null,
+            {
+                loadPrComments: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const response = await signalsReportPrComments(String(teamId), props.reportId)
+                    return response.comments
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -259,6 +726,39 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 setReport: () => [],
             },
         ],
+        // The thumbs rating this reader gave the open report, so the row can read the choice back.
+        // The logic is keyed by report id, so each report keeps its own rating for as long as it's open.
+        feedbackSentiment: [
+            null as InboxReportFeedbackSentiment | null,
+            {
+                rateReport: (_, { sentiment }) => sentiment,
+            },
+        ],
+        // Whether the optional note field is showing. Switching the rating closes an unsent note so
+        // the draft can't end up attached to a sentiment the reader has since changed their mind about.
+        feedbackNoteOpen: [
+            false,
+            {
+                openFeedbackNote: () => true,
+                rateReport: () => false,
+                submitFeedbackNote: () => false,
+            },
+        ],
+        feedbackNoteDraft: [
+            '',
+            {
+                setFeedbackNoteDraft: (_, { draft }) => draft,
+                rateReport: () => '',
+                submitFeedbackNote: () => '',
+            },
+        ],
+        feedbackNoteSent: [
+            false,
+            {
+                submitFeedbackNote: () => true,
+                rateReport: () => false,
+            },
+        ],
         // Human-readable diff-load failure (kea-loaders only exposes a boolean loading flag). A failed
         // compare usually means the branch was merged, deleted, or force-rewritten away.
         reportDiffError: [
@@ -278,12 +778,58 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 loadReportDiff: (_, { artefactId }) => artefactId,
             },
         ],
+        // Human-readable PR checks/comments load failures (kea-loaders only exposes a boolean flag).
+        // A failure usually means the branch/PR was deleted or the GitHub integration lost access.
+        prChecksError: [
+            null as string | null,
+            {
+                loadPrChecks: () => null,
+                loadPrChecksSuccess: () => null,
+                loadPrChecksFailure: () => "Couldn't load the PR checks from GitHub.",
+            },
+        ],
+        prCommentsError: [
+            null as string | null,
+            {
+                loadPrComments: () => null,
+                loadPrCommentsSuccess: () => null,
+                loadPrCommentsFailure: () => "Couldn't load the PR comments from GitHub.",
+            },
+        ],
+        // The one in-progress draft thread on a diff line. Reset when the report changes.
+        draftThread: [
+            null as DraftThread | null,
+            {
+                openDraftThread: (_, { draft }) => draft,
+                closeDraftThread: () => null,
+                setReport: () => null,
+            },
+        ],
+        // Which thread's composer has a post in flight — gates its submit button and textarea.
+        postingThreadKey: [
+            null as string | null,
+            {
+                postReviewComment: (_, { payload }) => payload.key,
+                postReviewCommentFinished: () => null,
+            },
+        ],
+        // Which comment is open for inline editing. Cleared on a successful edit or when the report changes.
+        editingCommentId: [
+            null as string | null,
+            {
+                setEditingCommentId: (_, { commentId }) => commentId,
+                setReport: () => null,
+            },
+        ],
     }),
 
     selectors({
         // Mirrors the optimistic override lifecycle: an update is in flight exactly while the
         // optimistic list is set (cleared once the reload lands or the update fails).
-        isUpdatingReviewers: [(s) => [s.optimisticReviewers], (optimisticReviewers) => optimisticReviewers !== null],
+        isUpdatingReviewers: [
+            (s) => [s.optimisticReviewers],
+            (optimisticReviewers: EnrichedReviewer[] | null) => optimisticReviewers !== null,
+        ],
         reportReviewers: [
             (s) => [s.reportArtefacts],
             (reportArtefacts: SignalReportArtefact[] | null): EnrichedReviewer[] | null => {
@@ -301,6 +847,69 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (s) => [s.report],
             (report: SignalReport | null): boolean => (report ? ACTIVE_STATUSES.includes(report.status) : false),
         ],
+        // Whether the report has a shipped implementation PR — gates the PR checks/comments fetch + poll.
+        hasImplementationPr: [
+            (s) => [s.report],
+            (report: SignalReport | null): boolean => !!report?.implementation_pr_url,
+        ],
+        // Whether the current user has a personal GitHub connection — required to post review comments
+        // (they're attributed to the user's own GitHub identity, not the app's).
+        hasPersonalGithub: [
+            (s) => [s.personalIntegrations],
+            (personalIntegrations: PersonalGitHubIntegration[]): boolean => (personalIntegrations ?? []).length > 0,
+        ],
+        // The current user's GitHub login (from their personal connection) — used to attribute optimistic
+        // comments and to tell which comments/reactions are the user's own (editable/removable). Note this
+        // is `github_login`, NOT `account.name` (which is the installation's org/user, e.g. "PostHog").
+        currentUserGithubLogin: [
+            (s) => [s.personalIntegrations],
+            (personalIntegrations: PersonalGitHubIntegration[]): string | null =>
+                personalIntegrations?.[0]?.github_login ?? null,
+        ],
+        // Inline review threads grouped by file path: thread roots (review comments with a line anchor
+        // and no in_reply_to) plus their replies, in chronological order. Outdated comments (null line)
+        // are excluded here — they still show in the Comments section.
+        inlineThreadsByFile: [
+            (s) => [s.prComments],
+            (prComments: readonly PullRequestCommentApi[] | null): Record<string, ReviewThread[]> => {
+                if (!prComments) {
+                    return {}
+                }
+                const threads = new Map<string, ReviewThread>()
+                for (const comment of prComments) {
+                    if (comment.comment_type !== 'review' || !comment.path || comment.in_reply_to_id) {
+                        continue
+                    }
+                    if (comment.line == null) {
+                        continue
+                    }
+                    threads.set(comment.id, {
+                        rootId: comment.id,
+                        path: comment.path,
+                        line: comment.line,
+                        side: comment.side === 'LEFT' ? 'LEFT' : 'RIGHT',
+                        comments: [comment],
+                    })
+                }
+                for (const comment of prComments) {
+                    if (comment.comment_type !== 'review' || !comment.in_reply_to_id) {
+                        continue
+                    }
+                    threads.get(comment.in_reply_to_id)?.comments.push(comment)
+                }
+                const byFile: Record<string, ReviewThread[]> = {}
+                for (const thread of threads.values()) {
+                    ;(byFile[thread.path] ??= []).push(thread)
+                }
+                return byFile
+            },
+        ],
+        // Total inline threads, for the Files changed toolbar summary.
+        inlineThreadCount: [
+            (s) => [s.inlineThreadsByFile],
+            (inlineThreadsByFile: Record<string, ReviewThread[]>): number =>
+                Object.values(inlineThreadsByFile).reduce((sum, threads) => sum + threads.length, 0),
+        ],
         // The most recent `commit` artefact — its branch is treated as the report's branch to diff
         // against the repository default branch. A report's code work may span several pushes; the
         // latest commit's branch tip is the current state worth inspecting.
@@ -313,6 +922,37 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 }
                 return commits.reduce((latest, a) => (a.created_at > latest.created_at ? a : latest))
             },
+        ],
+        reportCharts: [(s) => [s.report], (report: SignalReport | null): ReportChartApi[] => report?.charts ?? []],
+        chartsById: [
+            (s) => [s.reportCharts],
+            (reportCharts: ReportChartApi[]): Map<string, ReportChartApi> =>
+                new Map(reportCharts.map((chart) => [chart.chart_id, chart])),
+        ],
+        // A string rather than the id array, so the selectors below hold their identity while a report
+        // polls. Artefacts reload on a timer and hand back a fresh array whether or not anything
+        // changed, and the same is true of a refresh that appends a new version of one chart — but
+        // placement only ever depends on *which* charts exist, so an equal key means an equal answer.
+        chartIdsKey: [
+            (s) => [s.reportCharts],
+            (reportCharts: ReportChartApi[]): string => reportCharts.map((chart) => chart.chart_id).join('\n'),
+        ],
+        // Where each chart is drawn: a `chart:` link places its chart at that point in the prose, and
+        // every chart the summary doesn't place follows it. A reference the placement pass rejected (a
+        // repeat, one inside a table cell) still reads as its label — the reference decides where a
+        // chart goes, not whether it shows at all.
+        // Taken off `report` as its own value for the same reason: the shell hands the detail a fresh
+        // report object as it polls, and the summary is the only part of it placement reads.
+        reportSummary: [(s) => [s.report], (report: SignalReport | null): string | null => report?.summary ?? null],
+        chartPlacements: [
+            (s) => [s.reportSummary, s.chartIdsKey],
+            (reportSummary: string | null, chartIdsKey: string): ChartPlacements =>
+                resolveChartPlacements(reportSummary, chartIdsKey ? chartIdsKey.split('\n') : []),
+        ],
+        trailingCharts: [
+            (s) => [s.reportCharts, s.chartPlacements],
+            (reportCharts: ReportChartApi[], chartPlacements: ChartPlacements): ReportChartApi[] =>
+                reportCharts.filter((chart) => !chartPlacements.inlineIds.has(chart.chart_id)),
         ],
         // Rationale behind the priority / actionability judgments, pulled from the already-loaded artefacts.
         priorityExplanation: [
@@ -424,6 +1064,25 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, values, cache, props }) => ({
+        rateReport: ({ sentiment }) => {
+            if (!values.report) {
+                return
+            }
+            captureInboxReportFeedback({ report: values.report, sentiment, surface: 'detail_footer' })
+        },
+        // Fires on its own event so the rating stays exactly one `Inbox report feedback` per click.
+        submitFeedbackNote: ({ note }) => {
+            const trimmed = note.trim()
+            if (!values.report || !values.feedbackSentiment || !trimmed) {
+                return
+            }
+            captureInboxReportFeedbackNote({
+                report: values.report,
+                sentiment: values.feedbackSentiment,
+                note: trimmed,
+                surface: 'detail_footer',
+            })
+        },
         searchAvailableReviewers: async ({ query }, breakpoint) => {
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
@@ -431,15 +1090,180 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Persist a reviewer add/remove. The optimistic list is already in place (set by the action's
         // reducer); on success reload the artefact so we converge on the server's enriched data, and on
         // failure clear the optimistic override so the UI snaps back. Mirrors desktop `useUpdateSuggestedReviewers`.
-        updateReviewers: async ({ artefactId, content }) => {
+        updateReviewers: async ({ content }) => {
             try {
-                await api.signalReports.updateArtefact(props.reportId, artefactId, content)
+                await api.signalReports.setReviewers(props.reportId, content)
                 await actions.loadReportArtefacts()
             } catch (error: any) {
                 lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
             } finally {
                 // Clear the optimistic override; the freshly-loaded artefact is now the source of truth.
                 actions.setOptimisticReviewers(null)
+            }
+        },
+        // Post an inline review comment as the user. The comment is inserted optimistically (marked
+        // `pending: 'sending'`) and the composer/draft closes immediately, so nothing vanishes during
+        // the request. On success the optimistic entry is replaced by the real comment; on failure it's
+        // flagged `pending: 'failed'` (kept visible so the text isn't lost) and a toast explains why.
+        postReviewComment: async ({ payload }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const tempId = `optimistic-${payload.key}-${values.prComments?.length ?? 0}-${payload.body.length}`
+            const login = values.currentUserGithubLogin
+            const optimistic: ClientPullRequestComment = {
+                id: tempId,
+                pending: 'sending',
+                author: login,
+                author_avatar_url: login ? `https://github.com/${login}.png` : null,
+                body: payload.body,
+                created_at: new Date().toISOString(),
+                url: null,
+                comment_type: 'review',
+                path: payload.path ?? null,
+                line: payload.line ?? null,
+                start_line: null,
+                side: payload.side ?? 'RIGHT',
+                diff_hunk: null,
+                in_reply_to_id: payload.inReplyTo ?? null,
+                commit_id: null,
+                reactions: [],
+            }
+            actions.loadPrCommentsSuccess([...(values.prComments ?? []), optimistic])
+            actions.closeDraftThread()
+            try {
+                const response = await signalsReportPrReviewCommentsCreate(String(teamId), props.reportId, {
+                    body: payload.body,
+                    in_reply_to: payload.inReplyTo ?? null,
+                    path: payload.path ?? null,
+                    line: payload.line ?? null,
+                    side: payload.side ?? null,
+                })
+                actions.loadPrCommentsSuccess(
+                    (values.prComments ?? []).map((c) => (c.id === tempId ? response.comment : c))
+                )
+            } catch (error: any) {
+                actions.loadPrCommentsSuccess(
+                    (values.prComments ?? []).map((c) =>
+                        c.id === tempId ? { ...(c as ClientPullRequestComment), pending: 'failed' } : c
+                    )
+                )
+                lemonToast.error(reviewCommentError(error, "Couldn't post the comment to GitHub"))
+            } finally {
+                actions.postReviewCommentFinished()
+            }
+        },
+        // Edit one of the user's own review comments. Optimistically swaps the body in; a failure puts
+        // back only that comment's body.
+        editReviewComment: async ({ commentId, body }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const previous = (values.prComments ?? []).find((c) => c.id === commentId)
+            actions.setEditingCommentId(null)
+            if (!teamId || !previous) {
+                return
+            }
+            actions.loadPrCommentsSuccess(
+                patchComment(values.prComments, commentId, (c) => ({ ...c, body, pending: 'sending' }))
+            )
+            try {
+                const response = await signalsReportPrReviewCommentUpdate(String(teamId), props.reportId, commentId, {
+                    body,
+                })
+                actions.loadPrCommentsSuccess(patchComment(values.prComments, commentId, () => response.comment))
+            } catch (error: any) {
+                actions.loadPrCommentsSuccess(
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        body: previous.body,
+                        pending: undefined,
+                    }))
+                )
+                lemonToast.error(reviewCommentError(error, "Couldn't save the edit"))
+            }
+        },
+        // Delete one of the user's own review comments. Optimistically removes it; a failure slots it
+        // back at its old index in the list as it stands now.
+        deleteReviewComment: async ({ commentId }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const index = (values.prComments ?? []).findIndex((c) => c.id === commentId)
+            if (!teamId || index === -1) {
+                return
+            }
+            const removed = (values.prComments ?? [])[index]
+            actions.loadPrCommentsSuccess((values.prComments ?? []).filter((c) => c.id !== commentId))
+            try {
+                await signalsReportPrReviewCommentDestroy(String(teamId), props.reportId, commentId)
+            } catch (error: any) {
+                const current = (values.prComments ?? []).filter((c) => c.id !== commentId)
+                actions.loadPrCommentsSuccess([...current.slice(0, index), removed, ...current.slice(index)])
+                lemonToast.error(reviewCommentError(error, "Couldn't delete the comment"))
+            }
+        },
+        // Toggle the user's own reaction of `content` on a comment. Optimistically adds/removes the
+        // reaction, then confirms with the server (add returns the real reaction id). A failure puts back
+        // only that one reaction, so a reaction toggled concurrently on the same comment isn't clobbered.
+        toggleReviewCommentReaction: async ({ commentId, content }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const login = values.currentUserGithubLogin
+            if (!teamId || !login) {
+                return
+            }
+            const comment = (values.prComments ?? []).find((c) => c.id === commentId)
+            const mine = comment?.reactions?.find((r) => r.content === content && r.user_login === login)
+
+            if (mine) {
+                actions.loadPrCommentsSuccess(
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        reactions: (c.reactions ?? []).filter((r) => r.id !== mine.id),
+                    }))
+                )
+                try {
+                    await signalsReportPrReviewCommentReactionDestroy(
+                        String(teamId),
+                        props.reportId,
+                        commentId,
+                        mine.id
+                    )
+                } catch (error: any) {
+                    actions.loadPrCommentsSuccess(
+                        patchComment(values.prComments, commentId, (c) => ({
+                            ...c,
+                            reactions: [...(c.reactions ?? []).filter((r) => r.id !== mine.id), mine],
+                        }))
+                    )
+                    lemonToast.error(reviewCommentError(error, "Couldn't remove the reaction"))
+                }
+                return
+            }
+
+            const tempId = `optimistic-rx-${commentId}-${content}`
+            const optimisticReaction: PullRequestCommentReactionApi = { id: tempId, content, user_login: login }
+            actions.loadPrCommentsSuccess(
+                patchComment(values.prComments, commentId, (c) => ({
+                    ...c,
+                    reactions: [...(c.reactions ?? []), optimisticReaction],
+                }))
+            )
+            try {
+                const response = await signalsReportPrReviewCommentReactionsCreate(
+                    String(teamId),
+                    props.reportId,
+                    commentId,
+                    { content: content as any }
+                )
+                actions.loadPrCommentsSuccess(
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        reactions: (c.reactions ?? []).map((r) => (r.id === tempId ? response.reaction : r)),
+                    }))
+                )
+            } catch (error: any) {
+                actions.loadPrCommentsSuccess(
+                    patchComment(values.prComments, commentId, (c) => ({
+                        ...c,
+                        reactions: (c.reactions ?? []).filter((r) => r.id !== tempId),
+                    }))
+                )
+                lemonToast.error(reviewCommentError(error, "Couldn't add the reaction"))
             }
         },
         // The artefact log is the single source for the activity timeline AND the task associations,
@@ -466,6 +1290,17 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             } else {
                 cache.disposables.dispose('reportTasksPoll')
             }
+            // Load the PR checks/comments once the report has a shipped PR. The recurring checks poll
+            // is registered once in `afterMount` (not here) so it isn't torn down and restarted every
+            // time the shell hands us a fresh `report` prop — which would starve the 15s cadence.
+            if (values.hasImplementationPr) {
+                if (values.prChecks === null && !values.prChecksLoading) {
+                    actions.loadPrChecks()
+                }
+                if (values.prComments === null && !values.prCommentsLoading) {
+                    actions.loadPrComments()
+                }
+            }
         },
     })),
 
@@ -476,12 +1311,24 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         }
     }),
 
-    afterMount(({ actions, props }) => {
+    afterMount(({ actions, props, values, cache }) => {
         // `loadReportTasks` is cascaded from `loadReportArtefactsSuccess`, so it isn't called here.
         actions.loadReportArtefacts()
         actions.loadReportSignals()
         actions.loadAvailableReviewers()
         // Seed the report from props so polling is gated on its status from the first tick.
         actions.setReport(props.report ?? null)
+        // Register the PR-checks poll once for the lifetime of the mount — the tick re-checks whether
+        // the report has a PR, so it stays correct as the report prop churns without the interval ever
+        // being torn down and restarted (which would keep resetting the 15s cadence). Auto-disposed on
+        // unmount / hidden tab.
+        cache.disposables.add(() => {
+            const interval = setInterval(() => {
+                if (values.hasImplementationPr) {
+                    actions.loadPrChecks()
+                }
+            }, PR_CHECKS_POLL_INTERVAL_MS)
+            return () => clearInterval(interval)
+        }, 'prChecksPoll')
     }),
 ])

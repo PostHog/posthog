@@ -190,7 +190,7 @@ mod test {
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    use crate::{fingerprinting::Fingerprint, test_utils::create_test_context};
+    use crate::test_utils::create_test_context;
 
     use super::{evaluate_grouping_rules, GroupingRule};
 
@@ -240,7 +240,7 @@ mod test {
         let props = test_props(JsonValue::from("test_value"));
 
         let rule = get_test_rule();
-        let expected_fingerprint = format!("custom-rule:{}", rule.id);
+        let expected_rule_id = rule.id;
         // Insert the rule, so we skip the DB lookup
         ctx.team_manager
             .grouping_rules
@@ -252,9 +252,7 @@ mod test {
             })
             .await
             .unwrap();
-        let fingerprint = Fingerprint::from_rule(matched.expect("rule should match"));
-
-        assert_eq!(fingerprint.value, expected_fingerprint);
+        assert_eq!(matched.expect("rule should match").id, expected_rule_id);
 
         // Insert a different value - simply removing the value would cause the rule to be disabled, since it
         // tries to access an undefined global

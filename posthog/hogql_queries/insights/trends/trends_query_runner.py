@@ -73,7 +73,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     has_breakdown_filter,
 )
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -608,7 +608,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": resolve_series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,
@@ -645,7 +645,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         "type": "events",
                         "order": series.series_order,
                         "name": series_label or "All events",
-                        "custom_name": series.series.custom_name,
+                        "custom_name": resolve_series_custom_name(series.series, series_label),
                         "math": series.series.math,
                         "math_property": series.series.math_property,
                         "math_hogql": series.series.math_hogql,
@@ -1144,7 +1144,15 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             series_data = [s["data"] for s in results_group]
             new_series_data = FormulaAST(series_data).call(formula)
             base_result["data"] = new_series_data
-            base_result["count"] = float(sum(new_series_data))
+            # The total for a time-series formula is the formula applied to each series' own total
+            # (ratio-of-sums), not the sum of the per-interval results. Summing per-interval ratios
+            # like `A/B` overcounts and can push a total that should be <=100% well past it. Each
+            # input series' total is the sum of its interval values, matching what that series'
+            # own total column would show and how the aggregate_values branch above evaluates
+            # formulas. This applies to every formula, not just ratios: a constant term in `B+1`
+            # counts once in the total, not once per interval.
+            series_totals = [[sum(value for value in (series or []) if value is not None)] for series in series_data]
+            base_result["count"] = float(FormulaAST(series_totals).call(formula)[0])
 
         return base_result
 

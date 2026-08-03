@@ -16,7 +16,7 @@ import {
 } from '~/types'
 
 import { LocalFilter } from '../entityFilterLogic'
-import { entityFilterLogicType } from '../entityFilterLogicType'
+import type { entityFilterLogicType } from '../entityFilterLogic'
 
 export enum MathAvailability {
     All,

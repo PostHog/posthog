@@ -25,21 +25,17 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
-    incremental_type_to_initial_value,
-    incremental_type_to_operator,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
     table_from_iterator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
@@ -65,7 +61,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     and_join,
     render_psycopg_row_filter_conditions,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
+    RedshiftSourceConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 __all__ = [
@@ -165,6 +164,15 @@ def filter_redshift_incremental_fields(
             results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
+
+
+def get_connection_metadata(config: RedshiftSourceConfig) -> dict[str, str | None]:
+    """Connection metadata persisted on a direct-query source for the HogQL executor."""
+    return {
+        "engine": "redshift",
+        "database": config.database,
+        "schema": config.schema or None,
+    }
 
 
 class JsonAsStringLoader(Loader):
@@ -879,6 +887,14 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             return int(row[0] or 0)
         except psycopg.errors.QueryCanceled:
             raise
+        except psycopg.errors.InsufficientPrivilege as e:
+            # The connecting role can SELECT the table itself but Redshift also gates access to a
+            # materialized view's base relation(s) separately (SQLSTATE 42501). Row-count
+            # estimation is best-effort (the caller defaults to 0), so skip gracefully instead of
+            # reporting the expected, non-actionable error to error tracking. Mirrors
+            # `fetch_table_stats`.
+            logger.debug(f"get_rows_to_sync: no privilege to run count query, using 0 as rows to sync: {e}")
+            return 0
         except Exception as e:
             logger.debug(f"get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
             capture_exception(e)

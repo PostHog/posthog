@@ -20,6 +20,14 @@ export const INTERNAL_SERVICE_CALL_HEADER_NAME = 'X-Internal-Api-Secret'
 // Paths that don't require authentication (public endpoints and health checks)
 const PUBLIC_PATH_PREFIXES = ['/public/', '/_health', '/_ready', '/_metrics', '/metrics']
 
+// Routes that authenticate with their own scoped JWT instead of the shared internal secret, so
+// their callers never need INTERNAL_API_SECRET (the goal of retiring it). Each entry must be a
+// route whose handler enforces its own auth — never add a suffix here without one.
+const SCOPED_AUTH_PATH_SUFFIXES = [
+    // Verified in CdpApi.postHogFlowRescheduleParked against WORKFLOWS_RESCHEDULE_JWT_SECRET.
+    '/reschedule_parked',
+]
+
 export interface InternalApiAuthOptions {
     secret: string
     // Previous secrets still accepted for verification during zero-downtime rotation.
@@ -43,6 +51,12 @@ export function createInternalApiAuthMiddleware(options: InternalApiAuthOptions)
 
         // Health/metrics/public endpoints never require auth.
         if (allExcludedPrefixes.some((prefix) => req.path.startsWith(prefix))) {
+            next()
+            return
+        }
+
+        // Scoped-JWT routes enforce their own auth in the handler.
+        if (SCOPED_AUTH_PATH_SUFFIXES.some((suffix) => req.path.endsWith(suffix))) {
             next()
             return
         }

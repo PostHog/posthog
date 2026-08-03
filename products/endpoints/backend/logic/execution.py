@@ -52,7 +52,6 @@ from posthog.clickhouse.query_tagging import (
     is_api_key_access_method,
     tag_queries,
 )
-from posthog.ducklake.common import is_dev_mode
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
@@ -65,6 +64,7 @@ from posthog.exceptions import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_modeling.backend.facade.api import saved_query_materialized_at
@@ -87,6 +87,7 @@ from products.endpoints.backend.metrics import (
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.tasks import shadow_compare_ducklake_execution
+from products.managed_warehouse.backend.facade.api import is_dev_mode
 
 from common.hogvm.python.utils import HogVMException
 
@@ -888,6 +889,8 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             strategy = strategy_for(endpoint, version, self.team)
 
+            # Stored snapshots may predate the current query schema
+            query = upgrade(query)
             query = strategy.prepare_inline_query(query)
 
             pagination: EndpointPagination | None = None

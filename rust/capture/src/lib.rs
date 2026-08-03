@@ -6,6 +6,7 @@ pub mod event_restrictions;
 pub mod events;
 pub mod extractors;
 pub mod global_rate_limiter;
+pub mod ingestion_warnings;
 pub mod log_util;
 pub mod metrics_middleware;
 pub mod otel;

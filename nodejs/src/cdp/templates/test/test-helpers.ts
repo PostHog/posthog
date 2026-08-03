@@ -194,21 +194,26 @@ export class TemplateTester {
 
     private createHogExecutor(): HogExecutorService {
         const config = this.mockHub
-        const hogInputsService = new HogInputsService(undefined as any, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+        const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+        const hogInputsService = new HogInputsService(undefined as any, recipientTokensService, undefined as any)
         const emailService = new EmailService(
             {
                 sesAccessKeyId: config.SES_ACCESS_KEY_ID,
                 sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
                 sesRegion: config.SES_REGION,
                 sesEndpoint: config.SES_ENDPOINT,
+                sesTrackedConfigurationSet: config.SES_TRACKED_CONFIGURATION_SET,
+                sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenantAttributionEnabled: false,
             },
             undefined as any,
             undefined as any,
             config.ENCRYPTION_SALT_KEYS,
             config.SITE_URL,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
+            undefined as any,
+            undefined as any
         )
-        const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         return new HogExecutorService(
             {
                 hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
@@ -220,7 +225,8 @@ export class TemplateTester {
             { teamManager: this.mockTeamManager as any, siteUrl: config.SITE_URL },
             hogInputsService,
             emailService,
-            recipientTokensService
+            recipientTokensService,
+            undefined as any
         )
     }
 
@@ -414,6 +420,7 @@ export const createAdDestinationPayload = (
                 sccid: 'snapchat-id',
                 rdt_cid: 'reddit-id',
                 msclkid: 'microsoft-id',
+                oppref: 'openai-id',
                 phone: '+1234567890',
                 external_id: '1234567890',
                 first_name: 'Max',

@@ -20,6 +20,11 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.slo.types import SloArea, SloConfig, SloOperation
+from posthog.temporal.ai.checkpoint_compaction.schedule import (
+    create_checkpoint_compaction_schedule,
+    should_register_checkpoint_compaction_schedule,
+)
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
     create_eval_reports_schedule,
@@ -43,7 +48,6 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
-from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
@@ -52,7 +56,10 @@ from posthog.temporal.health_checks.schedule import create_health_check_schedule
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
 from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_intent_clustering_coordinator_schedule
-from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
+from posthog.temporal.messaging.schedule import (
+    create_all_realtime_cohort_calculation_schedules,
+    create_reconcile_precalculated_data_schedule,
+)
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
@@ -78,8 +85,12 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
+from products.conversations.backend.temporal.channel_summary.schedule import create_channel_summary_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
-from products.engineering_analytics.backend.facade.temporal import create_github_job_logs_coordinator_schedule
+from products.engineering_analytics.backend.facade.temporal import (
+    create_ci_signals_coordinator_schedule,
+    create_github_job_logs_coordinator_schedule,
+)
 from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
     create_error_tracking_spike_event_cleanup_schedule,
@@ -87,14 +98,15 @@ from products.error_tracking.backend.facade.temporal import (
 )
 from products.experiments.backend.temporal.schedule import create_experiment_precompute_canary_schedule
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
-from products.tasks.backend.facade.temporal import create_evaluate_code_workstreams_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
@@ -372,7 +384,16 @@ async def create_sync_events_retention_schedule(client: Client):
     sync_events_retention_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "sync-events-retention",
-            SyncEventsRetentionInput(dry_run=False),
+            SyncEventsRetentionInput(
+                dry_run=False,
+                slo=SloConfig(
+                    operation=SloOperation.SYNC_EVENTS_RETENTION,
+                    area=SloArea.ANALYTIC_PLATFORM,
+                    team_id=0,
+                    resource_id="sync-events-retention",
+                    distinct_id="sync-events-retention",
+                ),
+            ),
             id="sync-events-retention-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
             retry_policy=common.RetryPolicy(
@@ -810,6 +831,7 @@ schedules = [
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
     create_all_realtime_cohort_calculation_schedules,
+    create_reconcile_precalculated_data_schedule,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
@@ -825,10 +847,12 @@ schedules = [
     create_cleanup_alert_checks_schedule,
     create_signals_scout_coordinator_schedule,
     create_support_reply_coordinator_schedule,
+    create_channel_summary_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
-    create_evaluate_code_workstreams_schedule,
     create_github_job_logs_coordinator_schedule,
+    create_review_hog_finding_outcomes_schedule,
+    create_ci_signals_coordinator_schedule,
 ]
 
 if settings.CLOUD_DEPLOYMENT:
@@ -838,6 +862,8 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    if should_register_checkpoint_compaction_schedule():
+        schedules.append(create_checkpoint_compaction_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

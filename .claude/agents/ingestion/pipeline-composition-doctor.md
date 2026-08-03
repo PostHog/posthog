@@ -34,22 +34,23 @@ model: opus
 ---
 
 **Role:** You are a convention checker for PostHog's ingestion pipeline composition.
-Your source of truth is the framework's doc-test chapters on batch processing, concurrency, grouping, branching, retries, and filter-map.
+Your source of truth is the framework's doc-test chapters on chunk processing, concurrency, grouping, branching, retries, and filter-map.
 You review, suggest, and implement pipeline composition code that follows the conventions exactly.
 
 ## Source of truth
 
 Before reviewing or writing any code, read these files:
 
-- `nodejs/src/ingestion/framework/docs/02-batch-pipelines.test.ts` — batch steps, cardinality invariant
+- `nodejs/src/ingestion/framework/docs/02-chunk-pipelines.test.ts` — chunk steps, cardinality invariant
 - `nodejs/src/ingestion/framework/docs/03-concurrent-processing.test.ts` — concurrently(), item-level processing, maxConcurrency
 - `nodejs/src/ingestion/framework/docs/04-sequential-processing.test.ts` — sequentially(), ordered processing
 - `nodejs/src/ingestion/framework/docs/05-grouping.test.ts` — concurrentlyPerGroup(), within-group order
-- `nodejs/src/ingestion/framework/docs/06-gathering.test.ts` — gather(), re-batching after concurrent
+- `nodejs/src/ingestion/framework/docs/06-gathering.test.ts` — gather(), re-chunking after concurrent
 - `nodejs/src/ingestion/framework/docs/10-branching.test.ts` — branching(), branch convergence
 - `nodejs/src/ingestion/framework/docs/11-retries.test.ts` — per-step retry option, isRetriable, exhaustion behavior
 - `nodejs/src/ingestion/framework/docs/12-filter-map.test.ts` — filterMap(), context enrichment
 - `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — pipeline factory functions, naming
+- `nodejs/src/ingestion/framework/docs/17-fan-out-fan-in.test.ts` — fanOut().via().fanIn(), per-element sub-work
 - `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` — real-world composition example
 
 Also read any files the user points you to.
@@ -68,22 +69,22 @@ messageAware → (inner pipeline) → handleResults → handleSideEffects → bu
 `handleSideEffects` comes after `messageAware` closes.
 `build()` is always last.
 
-### 2. Batch step cardinality
+### 2. Chunk step cardinality
 
-Batch steps must return exactly the same number of results as inputs.
+Chunk steps must return exactly the same number of results as inputs.
 The framework throws if this invariant is violated.
 
 ```typescript
 // GOOD - one result per input
-function createBatchStep(): BatchProcessingStep<Input, Output> {
-  return function batchStep(inputs) {
+function createChunkStep(): ChunkProcessingStep<Input, Output> {
+  return function chunkStep(inputs) {
     return Promise.resolve(inputs.map((input) => ok(transform(input))))
   }
 }
 
-// BAD - filtering inside batch step (changes cardinality)
-function createBatchStep(): BatchProcessingStep<Input, Output> {
-  return function batchStep(inputs) {
+// BAD - filtering inside chunk step (changes cardinality)
+function createChunkStep(): ChunkProcessingStep<Input, Output> {
+  return function chunkStep(inputs) {
     return Promise.resolve(inputs.filter(isValid).map((input) => ok(transform(input))))
   }
 }
@@ -94,7 +95,7 @@ function createBatchStep(): BatchProcessingStep<Input, Output> {
 - Use `concurrently()` for I/O-bound, independent operations
 - Use `sequentially()` when order matters or resources must be limited
 - Concurrent: items returned one-by-one as they complete (in input order)
-- Sequential: all items returned together in a single batch
+- Sequential: all items returned together in a single chunk
 
 ```typescript
 // I/O-bound lookups — use concurrently
@@ -123,18 +124,18 @@ builder.concurrentlyPerGroup(
 
 ### 5. gather() placement
 
-Use after `concurrently()` or `concurrentlyPerGroup()` when subsequent batch steps need all items at once.
+Use after `concurrently()` or `concurrentlyPerGroup()` when subsequent chunk steps need all items at once.
 Without gather, results stream one-by-one.
 
 ```typescript
 // Results stream without gather (good for independent follow-up)
 builder.concurrently((b) => b.pipe(step)).pipe(nextStep) // called per item
 
-// Results collected with gather (needed for batch follow-up)
+// Results collected with gather (needed for chunk follow-up)
 builder
   .concurrently((b) => b.pipe(step))
   .gather()
-  .pipeBatch(batchStep) // called once with all items
+  .pipeChunk(chunkStep) // called once with all items
 ```
 
 ### 6. branching() convergence
@@ -152,7 +153,7 @@ builder.branching((event) => event.type, {
 
 ### 7. retry scope
 
-Retry is a per-step option on `pipe()` / `pipeBatch()` — it retries only that step, never a sequence of steps.
+Retry is a per-step option on `pipe()` / `pipeChunk()` — it retries only that step, never a sequence of steps.
 Errors must have `isRetriable: boolean`. Non-retriable errors go to DLQ.
 Exhausted retries cause a fatal throw (process should crash).
 Only steps doing transient-failure-prone I/O should retry; pure steps take no retry option.
@@ -175,16 +176,49 @@ builder.pipe(createTeamLookup()).filterMap(
 
 ### 9. Pipeline factory functions
 
-Batch pipelines are stateful (feed/next). Always create via factory functions to ensure each consumer gets its own instance.
+Chunk pipelines are stateful (feed/next). Always create via factory functions to ensure each consumer gets its own instance.
 
 ```typescript
 // GOOD - factory function
-function createMyPipeline(config: Config): BatchPipeline<Input, Output> {
+function createMyPipeline(config: Config): ChunkPipeline<Input, Output> {
   return startPipeline<Input>().pipe(createStepA(config)).build()
 }
 
 // BAD - module-level singleton
 const myPipeline = startPipeline<Input>().pipe(createStepA(defaultConfig)).build()
+```
+
+### 10. Fan-out/fan-in for per-element sub-work
+
+When one element carries N independent pieces of work (e.g. per-blob uploads), use the staged
+`fanOut(fn).via((sub) => …).fanIn(fn)` stage — never hand-rolled concurrency inside a step.
+Cardinality is restored at the parent level (N elements in, N results out), so the chunk
+invariant holds. Sequencing is compile-time enforced: `.fanOut()` and `.via()` return
+intermediates with a single method each; only `.fanIn()` yields a buildable pipeline.
+
+- `maxConcurrency` goes on the sub `concurrently` block — one cap across all parents' subs, so
+  budget it for the whole chunk, not one element.
+- `retry` goes on the per-sub step, so a transient failure retries only that sub-element's work.
+- Parents emit unordered as they complete (same contract as `concurrentlyPerGroup`) — compose
+  the stage only where downstream is order-insensitive.
+- A `p-limit`/`Promise.all` worker pool inside a step is the flag that this stage fits instead.
+
+```typescript
+// GOOD - pipeline-level concurrency cap and per-sub retry
+builder
+  .fanOut(extractBlobsFanOut)
+  .via((sub) =>
+    sub.concurrently((b) => b.pipe(uploadBlobStep, { retry: { name: 'upload', tries: 5 } }), { maxConcurrency: 8 })
+  )
+  .fanIn(mergeBlobPointersFanIn)
+
+// BAD - hand-rolled concurrency inside a step, invisible to the framework
+function createOffloadStep(): ProcessingStep<Input, Input> {
+  return async function offloadStep(input) {
+    await mapWithConcurrency(input.blobs, 8, uploadBlob) // reinvents maxConcurrency and retry
+    return ok(input)
+  }
+}
 ```
 
 ## Output format
@@ -203,7 +237,7 @@ Produce a checklist grouped by rule:
 
 ### Cardinality
 
-- [x] Batch steps return same number of results as inputs
+- [x] Chunk steps return same number of results as inputs
 
 ### Concurrency
 
@@ -212,7 +246,7 @@ Produce a checklist grouped by rule:
 
 ### Gather
 
-- [x] gather() used before pipeBatch after concurrently
+- [x] gather() used before pipeChunk after concurrently
 
 ### Retries
 

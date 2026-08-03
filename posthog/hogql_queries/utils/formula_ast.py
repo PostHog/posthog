@@ -25,7 +25,7 @@ class FormulaAST:
             map = {}
             for index, value in enumerate(consts):
                 map[chr(ord("`") + index + 1)] = value
-            result = self._evaluate(node.lower(), map)
+            result = self._evaluate(node.strip().lower(), map)
             res.append(result)
         return res
 

@@ -24,9 +24,8 @@ export const UNKNOWN_GLOBAL_ERROR_PREFIX = 'Unknown Global '
 
 /**
  * True when the error means the Rust VM can't run this program (the Node VM can). The executor
- * uses this to hand the invocation to the Node VM; the shadow uses it to classify the comparison
- * as skipped rather than as a divergence. Real execution errors must never match — the caller
- * would otherwise run the program twice.
+ * uses this to hand the invocation to the Node VM. Real execution errors must never match — the
+ * caller would otherwise run the program twice.
  */
 export function isUnsupportedByRustVm(error: string): boolean {
     return (
@@ -48,11 +47,6 @@ export interface RustExecResult {
 
 export interface HogvmNodeModule {
     init(options: { mmdbPath?: string; knownBotUaList?: string[]; knownBotIpList?: string[] }): void
-    executeBatch(
-        program: unknown[],
-        events: unknown[],
-        options?: { parallel?: boolean; maxSteps?: number }
-    ): Promise<RustExecResult[]>
     executeSync(program: unknown[], globals: unknown, options?: { maxSteps?: number }): RustExecResult
 }
 

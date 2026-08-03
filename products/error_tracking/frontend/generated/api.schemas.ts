@@ -49,6 +49,10 @@ export const PropertyOperatorApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -291,6 +295,15 @@ export interface RevenueAnalyticsPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface AccountCustomPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Customer analytics account custom property — the key is the property definition id */
+    type?: 'account_custom_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface WorkflowVariablePropertyFilterApi {
     key: string
     label?: string | null
@@ -324,6 +337,7 @@ export interface PropertyGroupFilterValueApi {
         | MetricPropertyFilterApi
         | SpanPropertyFilterApi
         | RevenueAnalyticsPropertyFilterApi
+        | AccountCustomPropertyFilterApi
         | WorkflowVariablePropertyFilterApi
     )[]
 }
@@ -484,9 +498,13 @@ export interface PaginatedErrorTrackingExternalReferenceResultListApi {
 }
 
 export interface ErrorTrackingFingerprintApi {
+    /** Unique ID of the fingerprint record. */
     readonly id: string
+    /** The fingerprint value. */
     readonly fingerprint: string
+    /** ID of the issue this fingerprint currently belongs to. */
     readonly issue_id: string
+    /** When the fingerprint record was created. */
     readonly created_at: string
 }
 
@@ -900,6 +918,10 @@ export interface ErrorTrackingIssueDetailApi {
  * * `is_not` - is_not
  * * `icontains` - icontains
  * * `not_icontains` - not_icontains
+ * * `starts_with` - starts_with
+ * * `not_starts_with` - not_starts_with
+ * * `ends_with` - ends_with
+ * * `not_ends_with` - not_ends_with
  * * `regex` - regex
  * * `not_regex` - not_regex
  * * `gt` - gt
@@ -921,6 +943,10 @@ export const PropertyItemOperatorEnumApi = {
     IsNot: 'is_not',
     Icontains: 'icontains',
     NotIcontains: 'not_icontains',
+    StartsWith: 'starts_with',
+    NotStartsWith: 'not_starts_with',
+    EndsWith: 'ends_with',
+    NotEndsWith: 'not_ends_with',
     Regex: 'regex',
     NotRegex: 'not_regex',
     Gt: 'gt',
@@ -970,6 +996,7 @@ export const BlankEnumApi = {
  * * `span_attribute` - span_attribute
  * * `span_resource_attribute` - span_resource_attribute
  * * `revenue_analytics` - revenue_analytics
+ * * `account_custom_property` - account_custom_property
  * * `flag` - flag
  * * `workflow_variable` - workflow_variable
  */
@@ -1003,6 +1030,7 @@ export const PropertyFilterTypeEnumApi = {
     SpanAttribute: 'span_attribute',
     SpanResourceAttribute: 'span_resource_attribute',
     RevenueAnalytics: 'revenue_analytics',
+    AccountCustomProperty: 'account_custom_property',
     Flag: 'flag',
     WorkflowVariable: 'workflow_variable',
 } as const
@@ -1029,16 +1057,26 @@ export const OrderDirectionEnumApi = {
 } as const
 
 /**
- * * `summary` - summary
- * * `stack` - stack
- * * `raw` - raw
+ * * `exception` - exception
+ * * `stacktrace` - stacktrace
+ * * `code_variables` - code_variables
+ * * `environment` - environment
+ * * `release` - release
+ * * `navigation` - navigation
+ * * `correlation` - correlation
+ * * `diagnostics` - diagnostics
  */
-export type VerbosityEnumApi = (typeof VerbosityEnumApi)[keyof typeof VerbosityEnumApi]
+export type IncludeEnumApi = (typeof IncludeEnumApi)[keyof typeof IncludeEnumApi]
 
-export const VerbosityEnumApi = {
-    Summary: 'summary',
-    Stack: 'stack',
-    Raw: 'raw',
+export const IncludeEnumApi = {
+    Exception: 'exception',
+    Stacktrace: 'stacktrace',
+    CodeVariables: 'code_variables',
+    Environment: 'environment',
+    Release: 'release',
+    Navigation: 'navigation',
+    Correlation: 'correlation',
+    Diagnostics: 'diagnostics',
 } as const
 
 export interface ErrorTrackingIssueEventsQueryRequestApi {
@@ -1071,12 +1109,8 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      * @minimum 0
      */
     offset?: number
-    /** Controls exception detail size: summary, stack, or raw. Defaults to summary.
-     *
-     * * `summary` - summary
-     * * `stack` - stack
-     * * `raw` - raw */
-    verbosity?: VerbosityEnumApi
+    /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
+    include?: IncludeEnumApi[]
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
 }
@@ -1779,6 +1813,13 @@ export type ErrorTrackingFingerprintsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ErrorTrackingFingerprintsResolveRetrieveParams = {
+    /**
+     * Fingerprint value to resolve to the issue it currently belongs to.
+     */
+    fingerprint: string
 }
 
 export type ErrorTrackingGitProviderFileLinksResolveGithubRetrieveParams = {

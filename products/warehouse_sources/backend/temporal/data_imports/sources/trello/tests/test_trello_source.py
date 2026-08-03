@@ -4,8 +4,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.source import TrelloSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trello.trello import TrelloResumeConfig
@@ -129,5 +129,7 @@ class TestSourceForPipeline:
         assert kwargs["api_key"] == "key"
         assert kwargs["api_token"] == "token"
         assert kwargs["endpoint"] == schema_name
-        assert kwargs["should_use_incremental_field"] is incremental
+        assert kwargs["team_id"] == 1
+        assert kwargs["job_id"] == "job-id"
+        # The cursor value is plumbed only when the schema is synced incrementally.
         assert kwargs["db_incremental_field_last_value"] == expected_last_value

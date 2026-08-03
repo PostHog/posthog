@@ -54,6 +54,9 @@ const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
         if (params.name !== undefined) {
             body['name'] = params.name
         }
+        if (params.expected_current_version_id !== undefined) {
+            body['expected_current_version_id'] = params.expected_current_version_id
+        }
         const result = await context.api.request<Schemas.FileSystem>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
@@ -582,6 +585,9 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
         }
         if (params.hide_mcp_hints !== undefined) {
             body['hide_mcp_hints'] = params.hide_mcp_hints
+        }
+        if (params.ui_configuration !== undefined) {
+            body['ui_configuration'] = params.ui_configuration
         }
         const result = await context.api.request<Schemas.User>({
             method: 'PATCH',

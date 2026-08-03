@@ -5,6 +5,7 @@ All parameters must be nested inside a `query` object, with an optional sibling 
 # When to use
 
 - **Incident triage (the primary loop):** set `query.dateRange` to the incident window. Omit `baselineDateRange` (defaults to the same window one week earlier) or set it to a known-good window just before the incident. The `new` and biggest `rate_shift` entries are your suspects; pivot to their raw lines with `query-logs`.
+- **Explain a spike:** when a count or sparkline shows a spike (e.g. from `logs-count-ranges`), set `query.dateRange` to the spike window and `baselineDateRange` to the window just before it — the top `new` and `rate_shift` entries are the explanation. This is one call; do not mine the two windows separately and diff them yourself.
 - **Post-deploy check:** current window = since the deploy; `baselineDateRange` = the same-length window just before it. New error-severity templates right after a deploy are the classic regression signature.
 - **"What changed this week?"** — current = `-1d`, baseline auto. Good periodic sweep for a service you own.
 

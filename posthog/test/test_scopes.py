@@ -13,7 +13,7 @@ from posthog.scopes import (
     API_SCOPE_OBJECTS,
     INTERNAL_API_SCOPE_OBJECTS,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
-    OAUTH_HIDDEN_SCOPES,
+    OAUTH_SCOPES_HIDDEN,
     OIDC_SCOPES,
     PRIVILEGED_SCOPES,
     UNPRIVILEGED_SCOPES,
@@ -87,7 +87,7 @@ class TestScopeSets(BaseTest):
 
     def test_unprivileged_scopes_excludes_privileged_and_hidden(self) -> None:
         self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(PRIVILEGED_SCOPES))
-        self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(OAUTH_HIDDEN_SCOPES))
+        self.assertTrue(UNPRIVILEGED_SCOPES.isdisjoint(OAUTH_SCOPES_HIDDEN))
 
     @parameterized.expand([("openid",), ("profile",), ("email",)])
     def test_unprivileged_scopes_excludes_oidc(self, oidc: str) -> None:
@@ -122,7 +122,7 @@ class TestScopeSets(BaseTest):
         # OAUTH_HIDDEN scopes — an OAuth client can't obtain them self-serve.
         supported = set(get_oauth_scopes_supported())
         self.assertTrue(supported.isdisjoint(PRIVILEGED_SCOPES))
-        self.assertTrue(supported.isdisjoint(OAUTH_HIDDEN_SCOPES))
+        self.assertTrue(supported.isdisjoint(OAUTH_SCOPES_HIDDEN))
         self.assertNotIn("llm_gateway:read", supported)
         self.assertNotIn("llm_gateway:write", supported)
 

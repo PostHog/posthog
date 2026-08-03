@@ -12,9 +12,9 @@ import { logger } from '~/common/utils/logger'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
-import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { EmailSuppressionService } from './email-suppression.service'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
@@ -142,10 +142,11 @@ export class EmailTrackingService {
         private hogFunctionMonitoringService: HogFunctionMonitoringService,
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
-        private recipientsManager: RecipientsManagerService,
-        private trackingCodeSigner: EmailTrackingCodeSigner
+        private trackingCodeSigner: EmailTrackingCodeSigner,
+        private emailSuppressionService: EmailSuppressionService
     ) {
-        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner)
+        const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
+        this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
     }
 
     public async trackMetric({
@@ -308,7 +309,15 @@ export class EmailTrackingService {
         }
 
         try {
-            const { status, body, metrics, logEntries, optOutRecipients } = await this.sesWebhookHandler.handleWebhook({
+            const {
+                status,
+                body,
+                metrics,
+                logEntries,
+                transientBounceRecipients,
+                hardBounceRecipients,
+                deliveredRecipients,
+            } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
                 verifySignature: true,
@@ -328,7 +337,7 @@ export class EmailTrackingService {
                 })
             }
 
-            // Wrapped so a failure here doesn't skip the opt-out processing below.
+            // Wrapped so a failure here doesn't skip the suppression writes below.
             try {
                 await this.trackLogs(
                     (logEntries || []).map((entry) => ({
@@ -344,36 +353,36 @@ export class EmailTrackingService {
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
-            // Collect all emails to opt out per team, then batch each team's opt-out in one query
-            const emailsByTeam = new Map<number, string[]>()
-            for (const { teamId: teamIdStr, emailAddresses } of optOutRecipients || []) {
-                const teamId = teamIdStr ? parseInt(teamIdStr, 10) : NaN
-                if (!teamId || isNaN(teamId)) {
-                    logger.error('[EmailTrackingService] handleSesWebhook: Missing or invalid teamId for opt-out', {
-                        teamIdStr,
-                        emailAddresses,
-                    })
-                    continue
+            // Feed bounces and successful deliveries into the suppression list. Wrapped so a
+            // failure here never affects the webhook's 200 response to SNS. Deliveries are processed
+            // first so a delivery + bounce in the same batch nets out conservatively (count resets,
+            // then the fresh bounce re-counts from a clean slate).
+            try {
+                for (const { teamId, emailAddresses, timestamp } of deliveredRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordDeliveries(parsedTeamId, emailAddresses, timestamp)
+                    }
                 }
-                const existing = emailsByTeam.get(teamId) ?? []
-                existing.push(...emailAddresses)
-                emailsByTeam.set(teamId, existing)
-            }
-
-            for (const [teamId, emails] of emailsByTeam) {
-                try {
-                    await this.recipientsManager.optOut(teamId, emails)
-                    logger.info('[EmailTrackingService] Opted out recipients after a hard bounce', {
-                        teamId,
-                        emails,
-                    })
-                } catch (error) {
-                    logger.error('[EmailTrackingService] Failed to opt out recipients', {
-                        teamId,
-                        emails,
-                        error,
-                    })
+                for (const { teamId, emailAddresses, diagnostic } of transientBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordTransientBounces(
+                            parsedTeamId,
+                            emailAddresses,
+                            diagnostic
+                        )
+                    }
                 }
+                for (const { teamId, emailAddresses, diagnostic } of hardBounceRecipients || []) {
+                    const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
+                    if (parsedTeamId && !isNaN(parsedTeamId)) {
+                        await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
+                    }
+                }
+            } catch (error) {
+                logger.error('[EmailTrackingService] Failed to update suppression list', { error })
+                emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
 
             return { status, message: body as string }

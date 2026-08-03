@@ -7,18 +7,16 @@ import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationQueueMessage } from '~/types'
-
-import { AutosizeTextArea } from 'products/posthog_ai/frontend/api/primitives'
 
 import { ContextDisplay } from '../Context'
 import { handsFreeLogic } from '../handsFreeLogic'
@@ -77,7 +75,7 @@ function QueuedMessageItem({
     if (isEditing) {
         return (
             <div className="space-y-2">
-                <AutosizeTextArea
+                <LemonTextArea
                     ref={textAreaRef}
                     value={draft}
                     onChange={setDraft}
@@ -390,7 +388,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             <FillInHint text={inputValue} hint={fillInHint} />
                                         </div>
                                     )}
-                                    <AutosizeTextArea
+                                    <LemonTextArea
                                         aria-describedby={!inputValue ? 'textarea-hint' : undefined}
                                         id="question-input"
                                         data-attr="max-chat-input"
@@ -448,9 +446,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         disabled={inputDisabled}
                                         minRows={1}
                                         maxRows={10}
-                                        className="py-2 pl-2"
-                                        textareaClassName={cn(
-                                            '!border-none !bg-transparent min-h-16 resize-none',
+                                        className={cn(
+                                            '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
                                             handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
                                             // Hide the native caret so only the enlarged fill-in caret shows.
                                             showFillInHint && 'caret-transparent'
@@ -461,37 +458,38 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             </SlashCommandAutocomplete>
                         )}
 
-                        {!isSharedThread && !handsFreeActive && (
-                            // When the hands-free flag is on, reserve ~80px (pr-20) so the chip
-                            // row doesn't wrap under the absolutely-positioned mic + send pair.
-                            // Without the flag the row only has send and the legacy pr-12 is
-                            // enough — keep it so non-flagged users see the original layout.
-                            <div className={cn('pb-2', handsFreeFlagEnabled ? 'pr-20' : 'pr-12')}>
-                                {!isThreadVisible ? (
-                                    <div
-                                        className={cn(
-                                            'flex justify-between',
-                                            handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
-                                        )}
-                                    >
-                                        <ContextDisplay size={contextDisplaySize} />
-
+                        {!isSharedThread &&
+                            !handsFreeActive && (
+                                // When the hands-free flag is on, reserve ~80px (pr-20) so the chip
+                                // row doesn't wrap under the absolutely-positioned mic + send pair.
+                                // Without the flag the row only has send and the legacy pr-12 is
+                                // enough — keep it so non-flagged users see the original layout.
+                                <div className={cn('pb-2', handsFreeFlagEnabled ? 'pr-20' : 'pr-12')}>
+                                    {!isThreadVisible ? (
                                         <div
                                             className={cn(
-                                                'flex mr-1',
-                                                handsFreeFlagEnabled
-                                                    ? 'items-end gap-1'
-                                                    : 'items-start gap-1 h-full mt-1'
+                                                'flex justify-between',
+                                                handsFreeFlagEnabled ? 'items-end flex-wrap gap-1' : 'items-start'
                                             )}
                                         >
-                                            {topActions}
+                                            <ContextDisplay size={contextDisplaySize} />
+
+                                            <div
+                                                className={cn(
+                                                    'flex mr-1',
+                                                    handsFreeFlagEnabled
+                                                        ? 'items-end gap-1'
+                                                        : 'items-start gap-1 h-full mt-1'
+                                                )}
+                                            >
+                                                {topActions}
+                                            </div>
                                         </div>
-                                    </div>
-                                ) : (
-                                    <ContextDisplay size={contextDisplaySize} />
-                                )}
-                            </div>
-                        )}
+                                    ) : (
+                                        <ContextDisplay size={contextDisplaySize} />
+                                    )}
+                                </div>
+                            )}
                     </label>
                     <div
                         className={cn(

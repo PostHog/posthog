@@ -68,4 +68,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "deploymentId": "Identifier of the deployment the alias points to.",
         },
     },
+    # Column keys are the normalized (snake_case) names the columns land under in the warehouse, not
+    # the PascalCase FOCUS field names from the API.
+    "billing_charges": {
+        "description": "A team's billing usage and cost, one row per charge in the FOCUS v1.3 open cost-and-usage standard at 1-day granularity.",
+        "docs_url": "https://vercel.com/docs/rest-api/billing/list-focus-billing-charges",
+        "columns": {
+            "id": "Surrogate key for the charge, derived from the charge period and its billing dimensions so it stays stable as the charge is restated.",
+            "billed_cost": "Charge amount serving as the basis for invoicing.",
+            "billing_currency": "Currency used for billing (ISO 4217), e.g. USD.",
+            "charge_category": "Classification of the charge: Adjustment, Credit, Purchase, Tax, or Usage.",
+            "charge_period_start": "Inclusive start of the charge period, as an ISO 8601 UTC timestamp.",
+            "charge_period_end": "Exclusive end of the charge period, as an ISO 8601 UTC timestamp.",
+            "consumed_quantity": "Volume of the resource consumed; null when the charge has no measurable quantity.",
+            "consumed_unit": "Unit of measurement for the consumed quantity; null when not measured in units.",
+            "effective_cost": "Amortized cost including discounts and pre-commitment credit purchase amounts.",
+            "region_id": "Provider-assigned identifier for the region the charge applies to.",
+            "region_name": "Display name for the region the charge applies to.",
+            "service_name": "Display name for the Vercel service or product the charge is for.",
+            "service_category": "High-level category of the service (e.g. Compute, Storage, Networking).",
+            "service_provider_name": "Entity making the resource or service available for purchase.",
+            "tags": "Charge metadata, including the Vercel ProjectId and ProjectName the charge relates to.",
+            "pricing_category": "Pricing model used for the charge: Committed, Dynamic, Other, or Standard.",
+            "pricing_currency": "Currency the pricing is expressed in (ISO 4217), e.g. USD.",
+            "pricing_quantity": "Quantity the charge was priced on.",
+            "pricing_unit": "Unit the pricing quantity is expressed in.",
+        },
+    },
 }

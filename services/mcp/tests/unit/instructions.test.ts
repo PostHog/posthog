@@ -296,6 +296,18 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         expect(buildActiveEnvironmentContextPrompt(undefined, undefined, undefined)).toBeUndefined()
     })
 
+    it.each([
+        ['checked', true, true],
+        ['unchecked', false, false],
+        ['unset', undefined, false],
+    ])('surfaces the test account filter default only when %s', (_name, testAccountFiltersDefaultChecked, expected) => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, {
+            ...project,
+            test_account_filters_default_checked: testAccountFiltersDefaultChecked,
+        } as CachedProject)
+        expect((result ?? '').includes('filters out internal and test users by default')).toBe(expected)
+    })
+
     it('still renders an "Unknown" project when org is present but project is missing', () => {
         // The org branch is unchanged — only the no-org branch was added.
         const result = buildActiveEnvironmentContextPrompt(user, org, undefined)

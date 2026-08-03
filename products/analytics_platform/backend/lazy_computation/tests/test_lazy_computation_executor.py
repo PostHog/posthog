@@ -863,6 +863,50 @@ class TestBuildManualInsertSQL(BaseTest):
         assert "2024-01-01" in sql
         assert "2024-01-02" in sql
 
+    def test_uses_provided_modifiers_when_printing(self):
+        # Callers (web analytics session-id-set inserts) pass modifiers that change the
+        # execution plan the printer emits; dropping the pass-through would silently
+        # revert those inserts to the unoptimized shape while all results stay equal.
+        from posthog.schema import HogQLQueryModifiers, SessionTableVersion
+
+        job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash="test_hash",
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+        sessions_query = """
+            SELECT toStartOfHour(sessions.$start_timestamp) AS time_window_start,
+                   uniqState(sessions.session_id) AS uniq_sessions_state
+            FROM sessions
+            WHERE and(
+                sessions.$start_timestamp >= {time_window_min},
+                sessions.$start_timestamp < {time_window_max},
+                sessions.session_id_v7 IN (SELECT DISTINCT events.$session_id_uuid FROM events)
+            )
+            GROUP BY time_window_start
+        """
+        modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V2, sessionIdPushdown=True)
+
+        with_modifiers, _ = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=sessions_query,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
+            modifiers=modifiers,
+        )
+        without_modifiers, _ = _build_manual_insert_sql(
+            team=self.team,
+            job=job,
+            insert_query=sessions_query,
+            table=LazyComputationTable.PREAGGREGATION_RESULTS,
+        )
+
+        assert "globalIn(raw_sessions.session_id_v7" in with_modifiers
+        assert "globalIn(raw_sessions.session_id_v7" not in without_modifiers
+
     def test_accepts_custom_placeholders(self):
         job = PreaggregationJob.objects.create(
             team=self.team,
@@ -1702,7 +1746,9 @@ class TestComputationExecutorExecute(BaseTest):
             ("beyond_grace", 9, False),
         ]
     )
-    def test_stale_ready_job_serve_stale_by_grace(self, _name: str, expired_hours_ago: int, served: bool) -> None:
+    def test_stale_ready_job_served_within_stale_while_revalidate(
+        self, _name: str, expired_hours_ago: int, served: bool
+    ) -> None:
         query_info, query_hash = self._make_query_info()
 
         stale_job = PreaggregationJob.objects.create(
@@ -1718,7 +1764,7 @@ class TestComputationExecutorExecute(BaseTest):
         )
 
         executor = LazyComputationExecutor(
-            ttl_schedule=TtlSchedule.from_seconds(60 * 60), serve_stale_grace_seconds=6 * 60 * 60
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
         )
         insert_count = [0]
 
@@ -1740,7 +1786,7 @@ class TestComputationExecutorExecute(BaseTest):
             assert stale_job.id not in result.job_ids
             assert insert_count[0] == 1
 
-    def test_serve_stale_rechecks_coverage_after_overlap_filtering(self):
+    def test_stale_while_revalidate_rechecks_coverage_after_overlap_filtering(self):
         query_info, query_hash = self._make_query_info()
 
         now = django_timezone.now()
@@ -1763,7 +1809,7 @@ class TestComputationExecutorExecute(BaseTest):
             PreaggregationJob.objects.filter(id=job.id).update(created_at=now - timedelta(hours=created_ago_h))
 
         executor = LazyComputationExecutor(
-            ttl_schedule=TtlSchedule.from_seconds(60 * 60), serve_stale_grace_seconds=6 * 60 * 60
+            ttl_schedule=TtlSchedule.from_seconds(60 * 60), stale_while_revalidate_seconds=6 * 60 * 60
         )
         insert_count = [0]
 
@@ -1779,11 +1825,11 @@ class TestComputationExecutorExecute(BaseTest):
         assert result.stale is False, "gappy filtered coverage must not be served as a stale hit"
         assert insert_count[0] > 0
 
-    def test_serve_stale_grace_must_stay_under_expiry_buffer(self):
+    def test_stale_while_revalidate_must_stay_under_expiry_buffer(self):
         # A grace at/above EXPIRY_BUFFER_SECONDS could return PG jobs whose ClickHouse
         # rows were already TTL-deleted — silent empty reads. Constructor must refuse.
         with self.assertRaises(ValueError):
-            LazyComputationExecutor(serve_stale_grace_seconds=EXPIRY_BUFFER_SECONDS)
+            LazyComputationExecutor(stale_while_revalidate_seconds=EXPIRY_BUFFER_SECONDS)
 
     def test_fresh_ready_job_is_reused(self):
         query_info, query_hash = self._make_query_info()
@@ -2991,10 +3037,10 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
 
         def slow_insert(_t, job) -> None:
             calls.append(job.id)
-            time_mod.sleep(0.02)
+            time_mod.sleep(0.1)
 
         schedule = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=1)
-        result = LazyComputationExecutor(wait_timeout_seconds=0.01, ttl_schedule=schedule).execute(
+        result = LazyComputationExecutor(wait_timeout_seconds=0.5, ttl_schedule=schedule).execute(
             team=self.team,
             query_info=self._query_info(),
             start=datetime(2024, 1, 1, tzinfo=UTC),
@@ -3004,3 +3050,67 @@ class TestExecuteOOMAndBudget(ClickhouseTestMixin, BaseTest):
         assert result.ready is False
         assert any("Timeout" in e for e in result.errors)
         assert 1 <= len(calls) < 7
+
+
+class TestCheckOnlyMode(BaseTest):
+    """`run_inserts=False`: a user-facing read is either served from covering READY
+    jobs or told `ready=False` immediately — it must never create jobs, run inserts,
+    or block on another executor's pending job (the inline-backfill self-DoS)."""
+
+    def _execute(self, start: datetime, end: datetime) -> LazyComputationResult:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
+        query_info = QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+
+        def forbidden_insert(team, job):
+            raise AssertionError("check-only mode must never run inserts")
+
+        return LazyComputationExecutor(run_inserts=False).execute(
+            team=self.team,
+            query_info=query_info,
+            start=start,
+            end=end,
+            run_insert=forbidden_insert,
+        )
+
+    def _ready_job(self, start: datetime, end: datetime) -> PreaggregationJob:
+        query = parse_select("SELECT 1")
+        assert isinstance(query, ast.SelectQuery)
+        return PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=compute_query_hash(
+                QueryInfo(query=query, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
+            ),
+            time_range_start=start,
+            time_range_end=end,
+            status=PreaggregationJob.Status.READY,
+            computed_at=django_timezone.now(),
+            expires_at=django_timezone.now() + timedelta(hours=6),
+        )
+
+    def test_served_when_ready_jobs_cover_range(self):
+        job = self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is True
+        assert result.job_ids == [job.id]
+
+    def test_miss_creates_no_jobs(self):
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 0
+
+    def test_partial_coverage_is_a_miss(self):
+        self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 2, tzinfo=UTC))
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 1  # untouched
+
+    def test_pending_job_is_a_miss_without_waiting(self):
+        job = self._ready_job(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        job.status = PreaggregationJob.Status.PENDING
+        job.computed_at = None
+        job.save()
+        started = time_mod.monotonic()
+        result = self._execute(datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 3, tzinfo=UTC))
+        assert result.ready is False
+        assert time_mod.monotonic() - started < 5, "check-only must not block on pending jobs"

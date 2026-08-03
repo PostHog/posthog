@@ -3,6 +3,7 @@ import uuid
 import hashlib
 
 from django.db import transaction
+from django.db.models import Case, IntegerField, Q, Value, When
 from django.http import HttpResponse
 
 import structlog
@@ -14,12 +15,25 @@ from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
+from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
+from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.pr_urls import merge_pr_output, read_pr_urls
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
 
 logger = structlog.get_logger(__name__)
 
 TASK_RUN_SELECT_RELATED = ("task", "task__created_by", "team")
+
+_TERMINAL_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+
+
+def _run_repository_filter(repository: str) -> Q:
+    normalized = repository.strip().lower()
+    return Q(state__repositories__contains=[normalized]) | Q(
+        state__repositories__isnull=True,
+        task__repository__iexact=normalized,
+    )
 
 
 def find_task_run(
@@ -27,23 +41,44 @@ def find_task_run(
     branch: str | None = None,
     repository: str | None = None,
 ) -> TaskRun | None:
+    repository = repository.strip() if repository else None
+
     if pr_url:
-        task_run = TaskRun.objects.filter(output__pr_url=pr_url).select_related(*TASK_RUN_SELECT_RELATED).first()
+        # A resumed wizard run inherits its predecessor's head branch, so a terminal
+        # original and its live resume can both claim the same PR URL. Scope to the
+        # webhook's repo and prefer non-terminal runs so merge handling lands on the
+        # run that can still act on it.
+        runs = TaskRun.objects.filter(state__verified_pr_urls__contains=[pr_url])
+        if repository:
+            runs = runs.filter(_run_repository_filter(repository))
+        # Declared type keeps mypy happy: the annotated queryset yields an AnnotatedWith
+        # variant that must not leak into the plain-queryset legs below.
+        task_run: TaskRun | None = (
+            runs.annotate(
+                terminal_rank=Case(
+                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("terminal_rank", "-created_at")
+            .select_related(*TASK_RUN_SELECT_RELATED)
+            .first()
+        )
         if task_run:
             return task_run
 
     # Branch-only lookups must be scoped to the repository the webhook came from.
     # Without this, a PR opened on an unrelated repo with a colliding branch name
     # (e.g. "main") gets attributed to whichever TaskRun shares that branch.
-    repository = repository.strip() if repository else None
     if branch and repository:
         # Wizard runs are excluded here: their `branch` column holds the checkout (base)
         # branch, so a same-repo PR whose head ref equals the base (e.g. "main") would
         # otherwise claim the run before the dedicated leg below is consulted.
         task_run = (
             TaskRun.objects.filter(
+                _run_repository_filter(repository),
                 branch=branch,
-                task__repository__iexact=repository,
                 state__wizard_head_branch__isnull=True,
             )
             .select_related(*TASK_RUN_SELECT_RELATED)
@@ -59,11 +94,11 @@ def find_task_run(
         if branch.startswith(WIZARD_HEAD_BRANCH_PREFIX):
             task_run = (
                 TaskRun.objects.filter(
+                    _run_repository_filter(repository),
                     state__wizard_head_branch=branch,
-                    task__repository__iexact=repository,
                     task__deleted=False,
                 )
-                .exclude(status__in=(TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED))
+                .exclude(status__in=_TERMINAL_RUN_STATUSES)
                 .select_related(*TASK_RUN_SELECT_RELATED)
                 .first()
             )
@@ -132,6 +167,9 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     branch = pull_request.get("head", {}).get("ref")
     repository_full_name = (payload.get("repository") or {}).get("full_name")
     task_run = find_task_run(pr_url=pr_url, branch=branch, repository=repository_full_name)
+    claimed_pr_urls = (
+        read_pr_urls(task_run.output if isinstance(task_run.output, dict) else {}) if task_run is not None else []
+    )
 
     logger.info(
         "github_pr_webhook_processed",
@@ -167,10 +205,24 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
         # same-branch webhook for a different PR from marking this run's PR as merged.
-        run_output = task_run.output if isinstance(task_run.output, dict) else {}
-        if run_output.get("pr_url") == pr_url:
+        if pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
-        _resolve_signal_reports_for_task(task_run.task_id, pr_url)
+        # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
+        # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
+        # doesn't apply — a merged PR resolves its report.
+        _transition_signal_reports_for_task(
+            task_run.task_id, pr_url, SignalReport.Status.RESOLVED, "github_pr_webhook_signal_report_resolved"
+        )
+
+    if task_run and action == "closed" and not merged:
+        # Same trust rule as the merge branch: only the run that claims this PR URL.
+        if pr_url in claimed_pr_urls:
+            _cancel_wizard_run_on_close(task_run)
+        # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
+        # archives (suppresses) its report so it leaves the inbox instead of lingering.
+        _transition_signal_reports_for_task(
+            task_run.task_id, pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
+        )
 
     return HttpResponse(status=200)
 
@@ -184,7 +236,11 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
     and later webhook lookups never resolve the PR.
     """
-    if not _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed"):
+    recorded = _append_run_pr_url(task_run, pr_url)
+    if not recorded and pr_url not in read_pr_urls(task_run.output):
+        return
+    post_pr_created_thread_update(task_run, pr_url)
+    if not recorded:
         return
     # Publish-only (no append_log): the S3 run log has a live writer — the agent is streaming
     # log batches at exactly this moment — and append_log's read-modify-write would race it.
@@ -198,6 +254,31 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
         task_run.publish_stream_state_event()
     except Exception:
         logger.warning("github_pr_webhook_pr_events_failed", run_id=str(task_run.id), exc_info=True)
+
+
+def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
+    try:
+        with transaction.atomic():
+            locked = TaskRun.objects.select_for_update().get(id=task_run.id)
+            state = locked.state if isinstance(locked.state, dict) else {}
+            existing_verified = state.get("verified_pr_urls")
+            verified_pr_urls = list(
+                dict.fromkeys([*(existing_verified if isinstance(existing_verified, list) else []), pr_url])
+            )
+            locked.state = {**state, "verified_pr_urls": verified_pr_urls}
+            if pr_url in read_pr_urls(locked.output):
+                locked.save(update_fields=["state", "updated_at"])
+                task_run.state = locked.state
+                task_run.output = locked.output
+                return False
+            locked.output = merge_pr_output(locked.output, {"pr_urls": [pr_url]})
+            locked.save(update_fields=["state", "output", "updated_at"])
+        task_run.state = locked.state
+        task_run.output = locked.output
+        return True
+    except Exception:
+        logger.warning("github_pr_webhook_record_pr_url_failed", run_id=str(task_run.id), exc_info=True)
+        return False
 
 
 def _record_run_pr_merged(task_run: TaskRun) -> None:
@@ -218,6 +299,68 @@ def _record_run_pr_merged(task_run: TaskRun) -> None:
         task_run.publish_stream_state_event()
     except Exception:
         logger.warning("github_pr_webhook_pr_merged_events_failed", run_id=str(task_run.id), exc_info=True)
+    _complete_wizard_run_on_merge(task_run)
+
+
+def _complete_wizard_run_on_merge(task_run: TaskRun) -> None:
+    """Wind down a wizard cloud run's Temporal workflow once its PR merges.
+
+    A wizard run's only deliverable is its setup PR; once that merges, nothing is left for the
+    sandbox to do, yet without this signal the workflow idles until the sandbox TTL expires and
+    the onboarding UI reports the run as running for hours. Best-effort: the webhook must stay
+    2xx even if Temporal is unreachable or the workflow already finished.
+    """
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if "wizard_config" not in state:
+        return
+    if task_run.environment != TaskRun.Environment.CLOUD:
+        return
+    if task_run.status in _TERMINAL_RUN_STATUSES:
+        return
+
+    def _signal() -> None:
+        try:
+            signal_workflow_completion(task_run.id, TaskRun.Status.COMPLETED, None)
+        except Exception:
+            logger.warning("github_pr_webhook_wizard_completion_signal_failed", run_id=str(task_run.id), exc_info=True)
+
+    # The pr_merged write has committed by the time the caller's atomic block exits; on_commit
+    # keeps the signal after that commit even if this path ever runs inside an outer transaction.
+    transaction.on_commit(_signal)
+
+
+def _cancel_wizard_run_on_close(task_run: TaskRun) -> None:
+    """Cancel a wizard cloud run when its setup PR is closed without merging.
+
+    Closing the setup PR is the user's clearest "I don't want this" signal, yet without this
+    hook the workflow keeps the sandbox running until its TTL expires and the onboarding UI
+    reports the run as in flight for hours. Scoped to wizard runs: closing a regular task
+    run's PR is a normal review action owned by the CI follow-up loop. Best-effort: the
+    webhook must stay 2xx even if Temporal is unreachable or the run just finished.
+    """
+    state = task_run.state if isinstance(task_run.state, dict) else {}
+    if "wizard_config" not in state:
+        return
+    if task_run.environment != TaskRun.Environment.CLOUD:
+        return
+    if task_run.status in _TERMINAL_RUN_STATUSES:
+        return
+
+    def _cancel() -> None:
+        try:
+            cancel_task_run(
+                task_run.id,
+                task_run.task_id,
+                task_run.team_id,
+                reason="Setup pull request was closed",
+                source="pr_closed",
+            )
+        except Exception:
+            logger.warning("github_pr_webhook_wizard_cancel_failed", run_id=str(task_run.id), exc_info=True)
+
+    # cancel_task_run does a synchronous Temporal round-trip; on_commit keeps it out of any
+    # open transaction and after the webhook's own writes have committed.
+    transaction.on_commit(_cancel)
 
 
 def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> bool:
@@ -249,6 +392,23 @@ def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, fai
 _TASK_ATTRIBUTION_KEYS = ("task_id", "run_id", "origin_product", "signal_report_id", "environment", "mode", "title")
 
 
+def _account_type(payload: dict) -> str | None:
+    """Whether the webhook's repo is owned by a GitHub org or a personal account.
+
+    ``repository.owner.type`` is "Organization" or "User"; the top-level
+    ``organization`` object is present only for org-owned repos and backs it up
+    when the owner block is missing. Returns None when neither signal is present.
+    """
+    owner_type = ((payload.get("repository") or {}).get("owner") or {}).get("type")
+    if owner_type == "Organization":
+        return "organization"
+    if owner_type == "User":
+        return "personal"
+    if payload.get("organization"):
+        return "organization"
+    return None
+
+
 def _pr_payload_properties(payload: dict) -> dict:
     pull_request = payload.get("pull_request") or {}
     return {
@@ -261,6 +421,8 @@ def _pr_payload_properties(payload: dict) -> dict:
         "pr_deletions": pull_request.get("deletions"),
         "pr_changed_files": pull_request.get("changed_files"),
         "pr_commits": pull_request.get("commits"),
+        "account_type": _account_type(payload),
+        "repo_owner_type": ((payload.get("repository") or {}).get("owner") or {}).get("type"),
     }
 
 
@@ -312,11 +474,15 @@ def _resolve_external_team(payload: dict) -> Team | None:
     return integration.team if integration else None
 
 
-def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
-    """Mark signal reports linked to a merged PR's task as resolved.
+def _transition_signal_reports_for_task(
+    task_id: uuid.UUID, pr_url: str, target_status: SignalReport.Status, success_log_event: str
+) -> None:
+    """Transition signal reports linked to a task's PR to ``target_status``.
 
-    Kept tolerant: a single bad transition should not fail the whole webhook,
-    since GitHub retries 5xx responses and we've already acknowledged the PR event.
+    Covers both PR outcomes: a merged PR resolves its reports, a closed-unmerged PR archives
+    (suppresses) them so they leave the inbox instead of lingering as if work were still pending.
+    Kept tolerant: a single bad transition should not fail the whole webhook, since GitHub retries
+    5xx responses and we've already acknowledged the PR event.
     """
     reports = (
         SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
@@ -332,7 +498,7 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
 
     for report in reports:
         try:
-            updated_fields = report.transition_to(SignalReport.Status.RESOLVED)
+            updated_fields = report.transition_to(target_status)
         except InvalidStatusTransition:
             logger.warning(
                 "github_pr_webhook_signal_report_invalid_transition",
@@ -343,7 +509,7 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
             continue
         report.save(update_fields=updated_fields)
         logger.info(
-            "github_pr_webhook_signal_report_resolved",
+            success_log_event,
             report_id=str(report.id),
             task_id=str(task_id),
             pr_url=pr_url,

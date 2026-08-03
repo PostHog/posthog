@@ -25,6 +25,9 @@ const OVERVIEW: RepoOverviewApi = {
     success_rate_prev: 0.82,
     rerun_cycles: 41,
     rerun_cycles_prev: 30,
+    // Matches the cost_series merges below: 8 merges x 7 daily buckets.
+    merged_pr_count: 56,
+    merged_pr_count_prev: 49,
     median_open_to_merge_seconds: 14 * 3600,
     median_open_to_merge_seconds_prev: 19 * 3600,
     billable_minutes: 5230,
@@ -83,6 +86,8 @@ function healthItem(
         repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
         workflow_name: workflowName,
         run_count: 320,
+        successful_run_count: Math.round(320 * successRate),
+        conclusive_run_count: 320,
         success_rate: successRate,
         success_rate_prev: successRate - 0.03,
         p50_seconds: 540,
@@ -90,6 +95,8 @@ function healthItem(
         last_failure_at: failures.some((f) => f > 0) ? '2026-07-01T16:00:00Z' : null,
         latest_run_failed: false,
         latest_run_conclusion: 'success',
+        latest_run_id: 123456,
+        latest_run_attempt: 1,
         granularity: 'day',
         billable_minutes: costUsd * 12,
         estimated_cost_usd: costUsd,
@@ -215,7 +222,6 @@ const meta: Meta = {
             get: {
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 'api/projects/:team_id/engineering_analytics/repo_overview/': OVERVIEW,
-                'api/projects/:team_id/engineering_analytics/master_failures/': [],
                 'api/projects/:team_id/engineering_analytics/repo_run_activity/': ACTIVITY,
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {
                     open_prs: 18,

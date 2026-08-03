@@ -14,7 +14,6 @@ const {
     checkProductStaleness,
     productPrefix,
     productEffectiveCost,
-    STALENESS_COVERAGE_THRESHOLD,
     STALENESS_FALLBACK_SECONDS_PER_FILE,
 } = require('./turbo-discover')
 

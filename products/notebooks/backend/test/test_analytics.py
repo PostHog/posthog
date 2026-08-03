@@ -10,8 +10,10 @@ from posthog.auth import SessionAuthentication
 
 from products.notebooks.backend.analytics import (
     NOTEBOOK_CREATED_EVENT,
+    NOTEBOOK_READ_EVENT,
     NotebookCreationSource,
     capture_notebook_created,
+    capture_notebook_read,
     notebook_node_count,
 )
 from products.notebooks.backend.presentation.views.notebook import classify_request_source
@@ -22,17 +24,15 @@ class _FakeKeyAuth:
 
 
 class _FakeRequest:
-    def __init__(self, authenticator, mcp_consumer=None, mcp_oauth_client=None):
+    def __init__(self, authenticator, mcp_consumer=None):
         self.successful_authenticator = authenticator
         self.META = {}
         if mcp_consumer is not None:
             self.META["HTTP_X_POSTHOG_MCP_CONSUMER"] = mcp_consumer
-        if mcp_oauth_client is not None:
-            self.META["HTTP_X_POSTHOG_MCP_OAUTH_CLIENT_NAME"] = mcp_oauth_client
 
 
-def _fake_request(authenticator, mcp_consumer=None, mcp_oauth_client=None) -> Request:
-    return cast(Request, _FakeRequest(authenticator, mcp_consumer, mcp_oauth_client))
+def _fake_request(authenticator, mcp_consumer=None) -> Request:
+    return cast(Request, _FakeRequest(authenticator, mcp_consumer))
 
 
 class TestNotebookAnalytics(BaseTest):
@@ -54,16 +54,11 @@ class TestNotebookAnalytics(BaseTest):
         self.assertEqual(extra, {})
 
     def test_classify_request_source_api_key_captures_mcp_client_identity(self):
-        # The MCP server forwards mcp_consumer (posthog-code -> PostHog Code) and mcp_oauth_client
-        # (the OAuth app, e.g. Claude), which is how Q4 (PostHog Code) is split from Q5.
-        source, extra = classify_request_source(
-            _fake_request(_FakeKeyAuth(), mcp_consumer="posthog-code", mcp_oauth_client="Claude")
-        )
+        # The MCP server forwards mcp_consumer (posthog-code -> PostHog Desktop), which is how
+        # PostHog Desktop is split from a customer's own MCP client.
+        source, extra = classify_request_source(_fake_request(_FakeKeyAuth(), mcp_consumer="posthog-code"))
         self.assertEqual(source, NotebookCreationSource.MCP)
-        self.assertEqual(
-            extra,
-            {"api_key_type": "_FakeKeyAuth", "mcp_consumer": "posthog-code", "mcp_oauth_client": "Claude"},
-        )
+        self.assertEqual(extra, {"api_key_type": "_FakeKeyAuth", "mcp_consumer": "posthog-code"})
 
     def test_classify_request_source_no_authenticator_defaults_to_ui(self):
         source, extra = classify_request_source(_fake_request(None))
@@ -91,4 +86,33 @@ class TestNotebookAnalytics(BaseTest):
         self.assertEqual(
             args[2],
             {"short_id": "abc123", "creation_source": "ui", "visibility": "private", "node_count": 3},
+        )
+
+    @patch("products.notebooks.backend.analytics.report_user_action")
+    def test_capture_notebook_read_builds_props_and_drops_none(self, mock_report):
+        capture_notebook_read(
+            request=_fake_request(SessionAuthentication()),
+            user=self.user,
+            short_id="abc123",
+            read_source=NotebookCreationSource.MCP,
+            is_creator=False,
+            user_access_level="viewer",
+            api_key_type="PersonalAPIKeyAuthentication",
+            mcp_consumer="posthog-code",
+        )
+        self.assertEqual(mock_report.call_count, 1)
+        args, _ = mock_report.call_args
+        self.assertEqual(args[0], self.user)
+        self.assertEqual(args[1], NOTEBOOK_READ_EVENT)
+        # mcp_consumer flows through; the None-valued optional props are dropped.
+        self.assertEqual(
+            args[2],
+            {
+                "short_id": "abc123",
+                "read_source": "mcp",
+                "is_creator": False,
+                "user_access_level": "viewer",
+                "api_key_type": "PersonalAPIKeyAuthentication",
+                "mcp_consumer": "posthog-code",
+            },
         )

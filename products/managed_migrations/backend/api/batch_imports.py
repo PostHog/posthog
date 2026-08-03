@@ -1,9 +1,19 @@
+import json
 import uuid
+from copy import deepcopy
 from datetime import timedelta
+from typing import TYPE_CHECKING, cast
 
+from django.conf import settings
+from django.db import transaction
+
+import boto3
+import structlog
 import posthoganalytics
+from botocore.config import Config as BotoConfig
+from botocore.exceptions import BotoCoreError, ClientError
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -12,9 +22,71 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 
-from products.managed_migrations.backend.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
+from products.managed_migrations.backend import trial_storage
+from products.managed_migrations.backend.models.batch_imports import (
+    DEFAULT_SEND_RATE,
+    BatchImport,
+    BatchImportConfigBuilder,
+    ContentType,
+    DateRangeExportSource,
+    get_aws_external_id,
+)
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+logger = structlog.get_logger(__name__)
+
+S3_ROLE_ARN_REGEX = r"^arn:aws:iam::\d{12}:role\/[\w+=,.@\/-]+$"
+
+
+def _is_iam_role_auth_enabled(user: User, team: "Team") -> bool:
+    return bool(
+        posthoganalytics.feature_enabled(
+            "managed-migrations-iam-role-auth",
+            str(user.distinct_id),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={"organization": {"id": str(team.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+    )
+
+
+TRIAL_RECORD_LIMIT_DEFAULT = 1_000
+TRIAL_RECORD_LIMIT_MAX = 50_000
+
+
+class BatchImportTrialOptionsMixin(serializers.Serializer):
+    """Write-only trial options shared by every create serializer."""
+
+    is_trial = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+        help_text="Run a trial instead of a real import: parse and transform up to trial_record_limit source records and store browsable results, without ingesting any events.",
+    )
+    trial_record_limit = serializers.IntegerField(
+        write_only=True,
+        required=False,
+        default=TRIAL_RECORD_LIMIT_DEFAULT,
+        min_value=1,
+        max_value=TRIAL_RECORD_LIMIT_MAX,
+        help_text=f"Maximum number of source records to process in a trial run (1 to {TRIAL_RECORD_LIMIT_MAX}). Ignored unless is_trial is set.",
+    )
+
+
+def _apply_output_sink(config_builder: BatchImportConfigBuilder, validated_data: dict) -> None:
+    """Point the job at its output: the trial results bucket for trial runs, capture otherwise."""
+    if validated_data.get("is_trial"):
+        config_builder.to_trial_output(
+            record_limit=validated_data.get("trial_record_limit", TRIAL_RECORD_LIMIT_DEFAULT)
+        )
+    else:
+        config_builder.to_capture(send_rate=DEFAULT_SEND_RATE)
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -78,24 +150,57 @@ class BatchImportSerializer(serializers.ModelSerializer):
         return None
 
 
-class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
-    """Serializer for creating BatchImports with config builder methods"""
+class BatchImportS3SourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImportSerializer):
+    """Serializer for creating BatchImports reading JSONL files from S3."""
+
+    _builder_method = "from_s3"
 
     content_type = serializers.ChoiceField(
         choices=["mixpanel", "captured", "amplitude"],
         write_only=True,
         required=True,
+        help_text="Format of the events in the source files.",
     )
     source_type = serializers.ChoiceField(
         choices=["s3"],
         write_only=True,
         required=True,
+        help_text="Source storage type.",
     )
-    s3_bucket = serializers.CharField(write_only=True, required=False)
-    s3_prefix = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    s3_region = serializers.CharField(write_only=True, required=False)
-    access_key = serializers.CharField(write_only=True, required=False)
-    secret_key = serializers.CharField(write_only=True, required=False)
+    s3_bucket = serializers.CharField(write_only=True, required=True, help_text="Name of the S3 bucket to import from.")
+    s3_prefix = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Key prefix limiting which objects in the bucket are imported.",
+    )
+    s3_region = serializers.CharField(
+        write_only=True, required=True, help_text="AWS region the bucket lives in, e.g. us-east-1."
+    )
+    access_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="AWS access key ID. Use together with secret_key; mutually exclusive with role_arn.",
+    )
+    secret_key = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text="AWS secret access key. Use together with access_key; mutually exclusive with role_arn.",
+    )
+    role_arn = serializers.RegexField(
+        regex=S3_ROLE_ARN_REGEX,
+        write_only=True,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "ARN of an IAM role in your AWS account that trusts PostHog's import role. "
+            "Recommended alternative to access keys; only works with AWS S3 (no custom endpoint_url). "
+            "Fetch the trust policy to configure from the aws_iam_setup endpoint."
+        ),
+    )
     endpoint_url = serializers.CharField(
         write_only=True,
         required=False,
@@ -103,9 +208,15 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
         default=None,
         help_text="Custom endpoint URL for S3-compatible storage (e.g. Cloudflare R2, MinIO).",
     )
-    import_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
+    import_events = serializers.BooleanField(
+        write_only=True, required=False, default=True, help_text="Whether to import regular events."
+    )
+    generate_identify_events = serializers.BooleanField(
+        write_only=True, required=False, default=True, help_text="Whether to generate $identify events."
+    )
+    generate_group_identify_events = serializers.BooleanField(
+        write_only=True, required=False, default=False, help_text="Whether to generate $groupidentify events."
+    )
 
     class Meta:
         model = BatchImport
@@ -125,10 +236,13 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "s3_region",
             "access_key",
             "secret_key",
+            "role_arn",
             "endpoint_url",
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
+            "is_trial",
+            "trial_record_limit",
         ]
         read_only_fields = [
             "id",
@@ -141,27 +255,113 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
             "import_config",
         ]
 
+    def _is_iam_role_enabled(self) -> bool:
+        return _is_iam_role_auth_enabled(self.context["request"].user, self.context["get_team"]())
+
+    def validate(self, data: dict) -> dict:
+        data = super().validate(data)
+
+        has_access_key = bool(data.get("access_key"))
+        has_secret_key = bool(data.get("secret_key"))
+        has_role = bool(data.get("role_arn"))
+
+        if has_role and not (settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN and self._is_iam_role_enabled()):
+            raise serializers.ValidationError("IAM role authentication is not available for this project")
+
+        if has_role and (has_access_key or has_secret_key):
+            raise serializers.ValidationError("Provide either role_arn or access keys, not both")
+        if has_access_key != has_secret_key:
+            raise serializers.ValidationError(
+                "Both access_key and secret_key are required for access key authentication"
+            )
+        if not has_role and not has_access_key:
+            raise serializers.ValidationError(
+                "Authentication is required: provide role_arn (recommended) or access_key and secret_key"
+            )
+        if has_role and data.get("endpoint_url"):
+            raise serializers.ValidationError(
+                "IAM role authentication only works with AWS S3; S3-compatible storage must use access keys"
+            )
+        if (
+            has_role
+            and settings.MANAGED_MIGRATIONS_VALIDATE_ROLE_ON_CREATE
+            and settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN
+        ):
+            self._validate_role_access(data)
+
+        return data
+
+    def _validate_role_access(self, data: dict) -> None:
+        external_id = get_aws_external_id(self.context["get_team"]())
+        boto_timeout = BotoConfig(connect_timeout=5, read_timeout=10)
+        try:
+            sts = boto3.client("sts", config=boto_timeout)
+            import_role = sts.assume_role(
+                RoleArn=settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN,
+                RoleSessionName="posthog-managed-migration-validation",
+                DurationSeconds=900,
+            )["Credentials"]
+        except (ClientError, BotoCoreError) as err:
+            # PostHog-side failure (our role grant or STS), not the customer's setup: skip
+            # validation rather than block the create. The worker re-validates the full
+            # chain and pauses the job with an actionable message if the role is broken.
+            logger.exception("managed_migrations_import_role_assume_failed")
+            capture_exception(err)
+            return
+
+        customer_sts = boto3.client(
+            "sts",
+            aws_access_key_id=import_role["AccessKeyId"],
+            aws_secret_access_key=import_role["SecretAccessKey"],
+            aws_session_token=import_role["SessionToken"],
+            config=boto_timeout,
+        )
+        try:
+            credentials = customer_sts.assume_role(
+                RoleArn=data["role_arn"],
+                RoleSessionName="posthog-managed-migration-validation",
+                ExternalId=external_id,
+                DurationSeconds=900,
+            )["Credentials"]
+        except (ClientError, BotoCoreError):
+            raise serializers.ValidationError(
+                "PostHog could not assume this IAM role. Verify the role exists, its trust policy "
+                "allows PostHog's import role, and the External ID matches the one shown in setup."
+            )
+
+        s3 = boto3.client(
+            "s3",
+            region_name=data["s3_region"],
+            aws_access_key_id=credentials["AccessKeyId"],
+            aws_secret_access_key=credentials["SecretAccessKey"],
+            aws_session_token=credentials["SessionToken"],
+            config=boto_timeout,
+        )
+        try:
+            s3.list_objects_v2(Bucket=data["s3_bucket"], Prefix=data.get("s3_prefix", ""), MaxKeys=1)
+        except (ClientError, BotoCoreError):
+            raise serializers.ValidationError(
+                "The IAM role was assumed successfully, but listing the bucket failed. "
+                "Check the role's s3:ListBucket and s3:GetObject permissions for this bucket and prefix."
+            )
+
     def create(self, validated_data: dict, **kwargs) -> BatchImport:
-        """Create BatchImport using config builder pattern."""
         batch_import = BatchImport(
             team_id=self.context["team_id"],
             created_by_id=self.context["request"].user.id,
         )
 
-        content_type_map = {
-            "mixpanel": ContentType.MIXPANEL,
-            "amplitude": ContentType.AMPLITUDE,
-            "captured": ContentType.CAPTURED,
-        }
+        content_type = ContentType(validated_data["content_type"])
+        role_arn = validated_data.get("role_arn") or None
 
-        content_type = content_type_map[validated_data["content_type"]]
-
-        config_builder = batch_import.config.json_lines(content_type).from_s3(
+        config_builder = getattr(batch_import.config.json_lines(content_type), self._builder_method)(
             bucket=validated_data["s3_bucket"],
             prefix=validated_data.get("s3_prefix", ""),
             region=validated_data["s3_region"],
-            access_key_id=validated_data["access_key"],
-            secret_access_key=validated_data["secret_key"],
+            access_key_id=validated_data.get("access_key") or None,
+            secret_access_key=validated_data.get("secret_key") or None,
+            role_arn=role_arn,
+            external_id=get_aws_external_id(self.context["get_team"]()) if role_arn else None,
             endpoint_url=validated_data.get("endpoint_url"),
         )
 
@@ -172,113 +372,26 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
                 .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
             )
 
-        config_builder.to_capture(send_rate=1000)
+        _apply_output_sink(config_builder, validated_data)
 
         batch_import.save()
         return batch_import
 
 
-class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
-    """Serializer for creating BatchImports with S3 gzipped JSONL source"""
+class BatchImportS3GzipSourceCreateSerializer(BatchImportS3SourceCreateSerializer):
+    """Serializer for creating BatchImports with S3 gzipped JSONL source."""
 
-    content_type = serializers.ChoiceField(
-        choices=["mixpanel", "captured", "amplitude"],
-        write_only=True,
-        required=True,
-    )
+    _builder_method = "from_s3_gzip"
+
     source_type = serializers.ChoiceField(
         choices=["s3_gzip"],
         write_only=True,
         required=True,
+        help_text="Source storage type.",
     )
-    s3_bucket = serializers.CharField(write_only=True, required=False)
-    s3_prefix = serializers.CharField(write_only=True, required=False, allow_blank=True)
-    s3_region = serializers.CharField(write_only=True, required=False)
-    access_key = serializers.CharField(write_only=True, required=False)
-    secret_key = serializers.CharField(write_only=True, required=False)
-    endpoint_url = serializers.CharField(
-        write_only=True,
-        required=False,
-        allow_blank=True,
-        default=None,
-        help_text="Custom endpoint URL for S3-compatible storage (e.g. Cloudflare R2, MinIO).",
-    )
-    import_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_identify_events = serializers.BooleanField(write_only=True, required=False, default=True)
-    generate_group_identify_events = serializers.BooleanField(write_only=True, required=False, default=False)
-
-    class Meta:
-        model = BatchImport
-        fields = [
-            "id",
-            "team_id",
-            "created_at",
-            "updated_at",
-            "state",
-            "status",
-            "display_status_message",
-            "import_config",
-            "content_type",
-            "source_type",
-            "s3_bucket",
-            "s3_prefix",
-            "s3_region",
-            "access_key",
-            "secret_key",
-            "endpoint_url",
-            "import_events",
-            "generate_identify_events",
-            "generate_group_identify_events",
-        ]
-        read_only_fields = [
-            "id",
-            "team_id",
-            "created_at",
-            "updated_at",
-            "state",
-            "status",
-            "display_status_message",
-            "import_config",
-        ]
-
-    def create(self, validated_data: dict, **kwargs) -> BatchImport:
-        """Create BatchImport using config builder pattern."""
-        batch_import = BatchImport(
-            team_id=self.context["team_id"],
-            created_by_id=self.context["request"].user.id,
-        )
-
-        content_type_map = {
-            "mixpanel": ContentType.MIXPANEL,
-            "amplitude": ContentType.AMPLITUDE,
-            "captured": ContentType.CAPTURED,
-        }
-
-        content_type = content_type_map[validated_data["content_type"]]
-
-        config_builder = batch_import.config.json_lines(content_type).from_s3_gzip(
-            bucket=validated_data["s3_bucket"],
-            prefix=validated_data.get("s3_prefix", ""),
-            region=validated_data["s3_region"],
-            access_key_id=validated_data["access_key"],
-            secret_access_key=validated_data["secret_key"],
-            endpoint_url=validated_data.get("endpoint_url"),
-        )
-
-        if content_type == ContentType.AMPLITUDE:
-            config_builder = (
-                config_builder.with_import_events(validated_data.get("import_events", True))
-                .with_generate_identify_events(validated_data.get("generate_identify_events", True))
-                .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
-            )
-
-        config_builder.to_capture(send_rate=1000)
-
-        batch_import.save()
-        return batch_import
 
 
-class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
+class BatchImportDateRangeSourceCreateSerializer(BatchImportTrialOptionsMixin, BatchImportSerializer):
     """Serializer for creating BatchImports with date range source (mixpanel, amplitude, etc.)"""
 
     start_date = serializers.DateTimeField(write_only=True, required=True)
@@ -331,6 +444,8 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
             "import_events",
             "generate_identify_events",
             "generate_group_identify_events",
+            "is_trial",
+            "trial_record_limit",
         ]
         read_only_fields = [
             "id",
@@ -410,7 +525,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", True))
                 )
 
-            config_builder.to_capture(send_rate=1000)
+            _apply_output_sink(config_builder, validated_data)
 
             batch_import.save()
             return batch_import
@@ -428,6 +543,11 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
     content_type = serializers.SerializerMethodField()
     status_message = serializers.CharField(source="display_status_message", allow_null=True)
     display_status = serializers.SerializerMethodField()
+    is_trial = serializers.BooleanField(
+        read_only=True, help_text="Whether this job is a trial run (stores browsable results instead of ingesting)."
+    )
+    trial_record_limit = serializers.SerializerMethodField()
+    promoted_from_trial_id = serializers.SerializerMethodField()
 
     class Meta:
         model = BatchImport
@@ -443,29 +563,42 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
             "created_at",
             "status_message",
             "state",
+            "is_trial",
+            "trial_record_limit",
+            "promoted_from_trial_id",
         ]
 
+    @extend_schema_field({"type": "string"})
     def get_source_type(self, obj):
         """Extract source type from import_config"""
         source = obj.import_config.get("source", {})
         return source.get("type", "s3")
 
+    @extend_schema_field({"type": "string", "nullable": True})
     def get_start_date(self, obj):
         """Extract start date from import_config"""
         source = obj.import_config.get("source", {})
         return source.get("start")
 
+    @extend_schema_field({"type": "string", "nullable": True})
     def get_end_date(self, obj):
         """Extract end date from import_config"""
         source = obj.import_config.get("source", {})
         return source.get("end")
 
+    @extend_schema_field({"type": "string"})
     def get_content_type(self, obj):
         """Extract content type from import_config"""
         data_format = obj.import_config.get("data_format", {})
         content = data_format.get("content", {})
         return content.get("type", "captured")
 
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_promoted_from_trial_id(self, obj):
+        """Id of the trial run this real import was promoted from, if any."""
+        return obj.import_config.get("promoted_from_trial_id")
+
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by_id:
             try:
@@ -475,10 +608,55 @@ class BatchImportResponseSerializer(serializers.ModelSerializer):
                 return None
         return None
 
+    @extend_schema_field({"type": "string"})
     def get_display_status(self, obj):
         if obj.status == BatchImport.Status.RUNNING and obj.lease_id is None:
             return "waiting_to_start"
         return obj.status
+
+    @extend_schema_field({"type": "integer", "nullable": True})
+    def get_trial_record_limit(self, obj):
+        """The trial's source-record cap from the sink config; null for real imports."""
+        if not obj.is_trial:
+            return None
+        return obj.import_config.get("sink", {}).get("record_limit")
+
+
+class TrialRecordsResponseSerializer(serializers.Serializer):
+    """One page of trial-run results, proxied from the trial output store."""
+
+    records = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text="Trial records in source order: each has seq (global index), source (the original source event), outputs (the event(s) it would produce), and error (why it would be dropped, if it would be).",
+    )
+    page = serializers.IntegerField(help_text="Zero-based index of this page.")
+    total_pages = serializers.IntegerField(help_text="Number of result pages written so far.")
+    total_records = serializers.IntegerField(help_text="Number of source records processed so far.")
+    summary = serializers.JSONField(
+        allow_null=True,
+        help_text="Running aggregates: output event name counts, error counts, dropped/skipped totals, timestamp range.",
+    )
+
+
+class BatchImportAWSIAMSetupSerializer(serializers.Serializer):
+    """Values a customer needs to configure cross-account IAM role access for S3 imports."""
+
+    available = serializers.BooleanField(
+        help_text="Whether IAM role authentication is available on this PostHog deployment."
+    )
+    external_id = serializers.CharField(
+        help_text="External ID to pin in the role trust policy's sts:ExternalId condition. Stable per project."
+    )
+    posthog_role_arn = serializers.CharField(
+        allow_blank=True, help_text="ARN of PostHog's import role -- the principal your role must trust."
+    )
+    trust_policy = serializers.CharField(
+        allow_blank=True, help_text="Ready-to-paste IAM trust policy JSON for the role in your AWS account."
+    )
+    permission_policy_template = serializers.CharField(
+        allow_blank=True,
+        help_text="IAM permission policy JSON template; replace YOUR_BUCKET and YOUR_PREFIX with your values.",
+    )
 
 
 class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -529,48 +707,146 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = BatchImportResponseSerializer(queryset, many=True)
         return Response({"results": serializer.data})
 
-    def create(self, request: Request, **kwargs) -> Response:
-        """Create a new managed migration/batch import."""
-        existing_running_import = BatchImport.objects.filter(
-            team_id=self.team_id, status=BatchImport.Status.RUNNING
-        ).first()
+    def _running_import_conflict(self, is_trial: bool) -> Response | None:
+        """One running job per team and per kind: a trial only conflicts with
+        another running trial, a real import only with another real import, so
+        users can trial their next migration while one is ingesting.
 
-        if existing_running_import:
+        The kind check runs in Python (a team has at most a handful of running
+        rows): a JSON-path exclude() would silently drop rows whose config has
+        no sink key at all, letting a running legacy-shaped import go unnoticed.
+        """
+        running = BatchImport.objects.filter(team_id=self.team_id, status=BatchImport.Status.RUNNING)
+        conflict = next((job for job in running if job.is_trial == is_trial), None)
+        if conflict is None:
+            return None
+        if is_trial:
             return Response(
                 {
-                    "error": "Cannot create a new batch import while another import is already running for this organization.",
-                    "detail": f"Please wait for the current import (ID: {existing_running_import.id}) to complete or pause it before starting a new one.",
+                    "error": "Cannot create a new trial run while another trial is already running for this project.",
+                    "detail": f"Please wait for the current trial (ID: {conflict.id}) to complete before starting a new one.",
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        return Response(
+            {
+                "error": "Cannot create a new batch import while another import is already running for this organization.",
+                "detail": f"Please wait for the current import (ID: {conflict.id}) to complete or pause it before starting a new one.",
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        migration = serializer.save()
-
-        source_type = request.data.get("source_type", "unknown")
-        content_type = request.data.get("content_type", "unknown")
-
+    def _capture_batch_import_created(self, request: Request, migration: BatchImport, properties: dict) -> None:
         distinct_id = (
             request.user.distinct_id
             if request.user.is_authenticated and request.user.distinct_id
             else str(uuid.uuid4())
         )
-
         posthoganalytics.capture(
             "batch import created",
             distinct_id=distinct_id,
             properties={
                 "batch_import_id": migration.id,
-                "source_type": source_type,
-                "content_type": content_type,
                 "team_id": self.team_id,
+                "is_trial": migration.is_trial,
                 "$process_person_profile": False,
+                **properties,
+            },
+        )
+
+    def create(self, request: Request, **kwargs) -> Response:
+        """Create a new managed migration/batch import."""
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        conflict = self._running_import_conflict(is_trial=serializer.validated_data.get("is_trial", False))
+        if conflict:
+            return conflict
+
+        migration = serializer.save()
+
+        self._capture_batch_import_created(
+            request,
+            migration,
+            {
+                "source_type": request.data.get("source_type", "unknown"),
+                "content_type": request.data.get("content_type", "unknown"),
             },
         )
 
         response_serializer = BatchImportResponseSerializer(migration)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+    def _is_iam_role_enabled_for_team(self) -> bool:
+        return _is_iam_role_auth_enabled(cast(User, self.request.user), self.team)
+
+    @extend_schema(
+        responses={200: BatchImportAWSIAMSetupSerializer},
+        description=(
+            "Values needed to set up cross-account IAM role access for S3 imports: the external ID, "
+            "PostHog's import role ARN, and ready-to-paste trust/permission policy JSON."
+        ),
+    )
+    @action(methods=["GET"], detail=False)
+    def aws_iam_setup(self, request: Request, **kwargs) -> Response:
+        external_id = get_aws_external_id(self.team)
+        posthog_role_arn = settings.MANAGED_MIGRATIONS_IMPORT_ROLE_ARN
+
+        if not posthog_role_arn or not self._is_iam_role_enabled_for_team():
+            serializer = BatchImportAWSIAMSetupSerializer(
+                {
+                    "available": False,
+                    "external_id": external_id,
+                    "posthog_role_arn": "",
+                    "trust_policy": "",
+                    "permission_policy_template": "",
+                }
+            )
+            return Response(serializer.data)
+
+        trust_policy = json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {"AWS": posthog_role_arn},
+                        "Action": "sts:AssumeRole",
+                        "Condition": {"StringEquals": {"sts:ExternalId": external_id}},
+                    }
+                ],
+            },
+            indent=2,
+        )
+        permission_policy_template = json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["s3:ListBucket"],
+                        "Resource": "arn:aws:s3:::YOUR_BUCKET",
+                        "Condition": {"StringLike": {"s3:prefix": ["YOUR_PREFIX*"]}},
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": ["s3:GetObject"],
+                        "Resource": "arn:aws:s3:::YOUR_BUCKET/YOUR_PREFIX*",
+                    },
+                ],
+            },
+            indent=2,
+        )
+        serializer = BatchImportAWSIAMSetupSerializer(
+            {
+                "available": True,
+                "external_id": external_id,
+                "posthog_role_arn": posthog_role_arn,
+                "trust_policy": trust_policy,
+                "permission_policy_template": permission_policy_template,
+            }
+        )
+        return Response(serializer.data)
 
     @action(methods=["POST"], detail=True)
     def pause(self, request: Request, **kwargs) -> Response:
@@ -616,3 +892,121 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return Response({"status": "resumed"})
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "page", int, description="Zero-based results page index (see total_pages in the response)."
+            )
+        ],
+        responses={200: TrialRecordsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True)
+    def trial_records(self, request: Request, **kwargs) -> Response:
+        """Fetch one page of a trial run's results (source event paired with its would-be output events)."""
+        batch_import = self.get_object()
+
+        if not batch_import.is_trial:
+            return Response({"error": "This import is not a trial run"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            page = int(request.query_params.get("page", "0"))
+        except ValueError:
+            return Response({"error": "page must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        if page < 0:
+            return Response({"error": "page must be non-negative"}, status=status.HTTP_400_BAD_REQUEST)
+
+        trial = batch_import.trial_progress() or {}
+        total_pages = trial.get("pages_written", 0)
+        if total_pages == 0:
+            # A trial that emitted no records has no pages — show an empty state, not an error.
+            return Response(
+                {
+                    "records": [],
+                    "page": 0,
+                    "total_pages": 0,
+                    "total_records": trial.get("records_emitted", 0),
+                    "summary": trial.get("summary"),
+                }
+            )
+        if page >= total_pages:
+            return Response(
+                {"error": f"Page {page} does not exist", "total_pages": total_pages},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            records = trial_storage.read_trial_page(batch_import.team_id, str(batch_import.id), page)
+        except trial_storage.TrialResultsUnavailable:
+            return Response(
+                {"error": "Trial results have expired and are no longer available"},
+                status=status.HTTP_410_GONE,
+            )
+
+        return Response(
+            {
+                "records": records,
+                "page": page,
+                "total_pages": total_pages,
+                "total_records": trial.get("records_emitted", 0),
+                "summary": trial.get("summary"),
+            }
+        )
+
+    @extend_schema(request=None, responses={201: BatchImportResponseSerializer})
+    @action(methods=["POST"], detail=True)
+    def promote(self, request: Request, **kwargs) -> Response:
+        """Start the real import from a completed trial run, reusing its source config and credentials."""
+        trial = self.get_object()
+
+        if not trial.is_trial:
+            return Response({"error": "Only trial runs can be promoted"}, status=status.HTTP_400_BAD_REQUEST)
+        if trial.status != BatchImport.Status.COMPLETED:
+            return Response({"error": "Only completed trial runs can be promoted"}, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            # Lock the trial row so concurrent promotes of the same trial serialize
+            # behind the already-promoted check below.
+            trial = BatchImport.objects.select_for_update().get(pk=trial.pk)
+
+            promoted = BatchImport.objects.filter(
+                team_id=self.team_id, import_config__promoted_from_trial_id=str(trial.id)
+            ).first()
+            if promoted is not None:
+                return Response(
+                    {
+                        "error": "This trial has already been promoted to a full import.",
+                        "detail": f"The import created from this trial is {promoted.id}.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            conflict = self._running_import_conflict(is_trial=False)
+            if conflict:
+                return conflict
+
+            import_config = deepcopy(trial.import_config)
+            import_config["sink"] = {"type": "capture", "send_rate": DEFAULT_SEND_RATE}
+            # The worker ignores unknown config keys and never writes import_config
+            # back, so this link doubles as the promotion single-use marker.
+            import_config["promoted_from_trial_id"] = str(trial.id)
+
+            migration = BatchImport.objects.create(
+                team_id=self.team_id,
+                created_by_id=cast(User, request.user).pk,
+                import_config=import_config,
+                secrets=trial.secrets,
+            )
+
+        response_data = BatchImportResponseSerializer(migration).data
+        self._capture_batch_import_created(
+            request,
+            migration,
+            {
+                "promoted_from_trial_id": str(trial.id),
+                "source_type": response_data["source_type"],
+                "content_type": response_data["content_type"],
+            },
+        )
+
+        return Response(response_data, status=status.HTTP_201_CREATED)

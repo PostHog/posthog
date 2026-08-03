@@ -60,6 +60,7 @@ function renderAll(options: {
     pinnedEntries?: any[]
     searchQuery?: string
     onCommit?: any
+    eventNames?: string[]
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -67,6 +68,7 @@ function renderAll(options: {
                 taxonomicGroupTypes={options.groupTypes}
                 onChange={jest.fn()}
                 searchQuery={options.searchQuery ?? ''}
+                eventNames={options.eventNames}
             >
                 <MenuFilterCombobox
                     drillTo="all"
@@ -239,6 +241,7 @@ describe('MenuFilterCombobox', () => {
     function renderEventsWithSelection(options: {
         searchQuery?: string
         selectedEntry?: MenuFilterEntry
+        selectedRename?: { label: string; raw: string }
     }): ReturnType<typeof render> {
         return render(
             <Provider>
@@ -250,6 +253,7 @@ describe('MenuFilterCombobox', () => {
                     <MenuFilterCombobox
                         drillTo="all"
                         selectedEntry={options.selectedEntry}
+                        selectedRename={options.selectedRename}
                         onCommit={jest.fn()}
                         onBack={jest.fn()}
                     />
@@ -310,6 +314,33 @@ describe('MenuFilterCombobox', () => {
             expect(preview?.textContent).toContain('$pageview')
         }
     )
+
+    it('labels the committed selection with the series rename, keeping the raw event key visible', async () => {
+        apiGet.mockImplementation((url: string) => {
+            if (url.includes('event_definitions')) {
+                return Promise.resolve({
+                    results: [
+                        { id: 'def-1', name: 'user signed up' },
+                        { id: 'def-2', name: '$pageview' },
+                    ],
+                    count: 2,
+                })
+            }
+            return Promise.resolve({ results: [], count: 0 })
+        })
+
+        renderEventsWithSelection({
+            selectedEntry: syntheticEventSelected('user signed up'),
+            selectedRename: { label: 'Signed up', raw: 'user signed up' },
+        })
+
+        await waitFor(() => expect(rowTexts().length).toBeGreaterThan(1))
+        // Idle promotion floats the committed selection to the first row; its label is
+        // the series' rename, with the raw event key kept inline so the connection to
+        // the underlying event is visible.
+        expect(rowTexts()[0]).toContain('Signed up')
+        expect(rowTexts()[0]).toContain('user signed up')
+    })
 
     it('prefers an exact value match over the friendly-label heuristic when a custom event shares the label', async () => {
         // A custom event literally named "Pageview" coexists with core
@@ -432,6 +463,37 @@ describe('MenuFilterCombobox', () => {
         const recentIdx = rows.findIndex((t) => t.includes('my_recent_event'))
         const contentIdx = rows.findIndex((t) => t.includes('autocapture'))
         expect(contentIdx).toBeGreaterThan(recentIdx)
+    })
+
+    it("promotes the context event's primary property after recents, above the content rows", async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            eventNames: ['$mcp_tool_call'],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'my_recent_event', 'Events')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const rows = rowTexts()
+        expect(rows[0]).toContain('my_recent_event')
+        expect(rows[1]).toContain('MCP tool name')
+        const contentIdx = rows.findIndex((t) => t.includes('autocapture'))
+        expect(contentIdx).toBeGreaterThan(1)
+    })
+
+    it('shows a promoted property that is also a recent only once, under recents', async () => {
+        apiGet.mockResolvedValue({ results: [{ id: 1, name: 'autocapture' }], count: 1 })
+
+        renderAll({
+            groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.EventProperties],
+            eventNames: ['$mcp_tool_call'],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, '$mcp_tool_name', 'Event properties')],
+        })
+
+        await waitFor(() => expect(rowTexts().some((t) => t.includes('autocapture'))).toBe(true))
+        const promotedRows = rowTexts().filter((t) => t.includes('MCP tool name') || t.includes('$mcp_tool_name'))
+        expect(promotedRows).toHaveLength(1)
     })
 
     it('shows a recent that is also in the catalog only once (deduped from content)', async () => {

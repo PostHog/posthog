@@ -118,6 +118,29 @@ class TestQueryDateRange(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("week", IntervalType.WEEK),
+            ("month", IntervalType.MONTH),
+            ("quarter", IntervalType.QUARTER),
+            ("year", IntervalType.YEAR),
+        ]
+    )
+    def test_adjusted_start_of_interval_filters_from_start_of_day(self, _name, interval):
+        # For intervals coarser than a day, the WHERE lower bound must round `date_from` down to the start of
+        # its day, not the start of the interval bucket — otherwise a relative range shorter than the bucket
+        # (e.g. "last 7 days" grouped by month) pulls in events from before date_from. Guards against the guard
+        # being narrowed to only some of these intervals again.
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        adjusted = QueryDateRange(
+            team=self.team, date_range=DateRange(date_from="-3d"), interval=interval, now=now
+        ).date_from_with_adjusted_start_of_interval_hogql()
+
+        self.assertEqual(adjusted.name, "toStartOfInterval")
+        interval_period = adjusted.args[1]
+        assert isinstance(interval_period, ast.Call)
+        self.assertEqual(interval_period.name, "toIntervalDay")
+
+    @parameterized.expand(
+        [
             # now is 2021-08-25T10:00Z (a Wednesday): clip to the end of the last complete interval
             ("day", IntervalType.DAY, "-7d", "2021-08-24T23:59:59.999999Z"),
             ("week_sunday_start", IntervalType.WEEK, "-30d", "2021-08-21T23:59:59.999999Z"),

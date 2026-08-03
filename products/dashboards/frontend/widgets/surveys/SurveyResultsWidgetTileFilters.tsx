@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
@@ -29,9 +29,7 @@ export function SurveyResultsWidgetTileFilters({
 }: DashboardWidgetTileFiltersProps): JSX.Element {
     const surveyId = parseSurveyResultsWidgetConfig(config).surveyId ?? null
 
-    const configRef = useRef(config)
-    configRef.current = config
-    const { persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig)
+    const { getLatestConfig, persistConfigNow } = useWidgetTileConfigPersist(onUpdateConfig, config)
 
     // Reflect the pick immediately rather than waiting for the persist round-trip to update `config`.
     const [optimisticSurveyId, setOptimisticSurveyId] = useState<string | null | undefined>(undefined)
@@ -39,8 +37,7 @@ export function SurveyResultsWidgetTileFilters({
 
     const applySurveyId = async (value: string | null): Promise<void> => {
         setOptimisticSurveyId(value)
-        const nextConfig = patchSurveyResultsWidgetConfig(configRef.current, value)
-        configRef.current = nextConfig
+        const nextConfig = patchSurveyResultsWidgetConfig(getLatestConfig(), value)
         try {
             await persistConfigNow(nextConfig)
         } finally {

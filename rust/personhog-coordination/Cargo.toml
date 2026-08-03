@@ -8,7 +8,9 @@ publish = false
 assignment-coordination = { path = "../common/assignment-coordination" }
 async-trait = { workspace = true }
 etcd-client = "0.18"
+futures = { workspace = true }
 k8s-awareness = { path = "../common/k8s-awareness" }
+metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -281,3 +281,73 @@ class TestExternalDataSchemaAdmin(BaseTest):
         schema.refresh_from_db()
         assert "partition_mode_override" not in schema.sync_type_config
         mock_start.assert_not_called()
+
+    @parameterized.expand([(True,), (False,)])
+    def test_recreate_schedule_passes_should_sync_through(self, should_sync: bool) -> None:
+        # Guards the recovery action for schemas left without a Temporal schedule: it must
+        # recreate with the schema's own should_sync so a disabled schema comes back paused
+        # instead of silently starting recurring syncs, and it must not trigger a run (runs
+        # fired through the schedule are always billable; operators use "Trigger sync" for a
+        # non-billable one).
+        schema = self._schema(should_sync=should_sync)
+
+        with patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync:
+            response = self.admin.recreate_schedule_view(self._request("post"), schema.id)
+
+        assert response.status_code == 302
+        assert str(schema.id) in response.url
+        mock_sync.assert_called_once_with(schema, create=True, should_sync=should_sync, trigger_immediately=False)
+
+    def test_recreate_schedule_get_does_not_recreate(self) -> None:
+        schema = self._schema()
+
+        with patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync:
+            response = self.admin.recreate_schedule_view(self._request("get"), schema.id)
+
+        assert response.status_code == 302
+        mock_sync.assert_not_called()
+
+    def test_recreate_schedule_denies_without_change_permission(self) -> None:
+        schema = self._schema()
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync,
+            patch.object(self.admin, "has_change_permission", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                self.admin.recreate_schedule_view(self._request("post"), schema.id)
+
+        mock_sync.assert_not_called()
+
+    def test_recreate_schedule_rejects_direct_query_source(self) -> None:
+        # Direct-query sources have no per-schema schedules by design; recreating one would
+        # start scheduled syncs on a source that is only ever queried live.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+        )
+        schema = ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name="public.users")
+
+        with patch(f"{_ADMIN_MODULE}.sync_external_data_job_workflow") as mock_sync:
+            response = self.admin.recreate_schedule_view(self._request("post"), schema.id)
+
+        assert response.status_code == 302
+        assert str(schema.id) in response.url
+        mock_sync.assert_not_called()
+
+    def test_recreate_schedule_temporal_failure_flashes_error(self) -> None:
+        # A Temporal outage must surface as an admin flash message, not a 500.
+        schema = self._schema()
+
+        with patch(
+            f"{_ADMIN_MODULE}.sync_external_data_job_workflow",
+            side_effect=Exception("connect failed"),
+        ):
+            response = self.admin.recreate_schedule_view(self._request("post"), schema.id)
+
+        assert response.status_code == 302
+        assert str(schema.id) in response.url

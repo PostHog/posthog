@@ -6,6 +6,7 @@ from products.feature_flags.backend.api import (
     organization_feature_flag,
     scheduled_change,
     staff_cache,
+    staff_team_config,
     staff_teams,
 )
 
@@ -24,6 +25,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"feature_flags_staff_cache",
         staff_cache.FeatureFlagsStaffCacheViewSet,
         "feature_flags_staff_cache",
+    )
+    routers.root.register(
+        r"feature_flags_staff_team_config",
+        staff_team_config.FeatureFlagsStaffTeamConfigViewSet,
+        "feature_flags_staff_team_config",
     )
     routers.projects.register(
         r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["project_id"]

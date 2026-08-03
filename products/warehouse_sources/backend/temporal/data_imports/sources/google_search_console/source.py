@@ -12,12 +12,9 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
@@ -27,7 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (
@@ -44,11 +42,25 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Fallback messages for unexpected failures during credential validation. The raw exception can
+# embed OAuth tokens, ids, or an HTML error body, so we capture it for debugging and show generic
+# guidance instead of surfacing `str(e)` to the user.
+_LOAD_CONNECTION_ERROR = (
+    "PostHog couldn't load your Google Search Console connection. Please reconnect your Google account and try again."
+)
+_LIST_SITES_ERROR = (
+    "PostHog couldn't reach Google Search Console to list your properties. Please try again in a few minutes."
+)
+
 
 @SourceRegistry.register
 class GoogleSearchConsoleSource(
     ResumableSource[GoogleSearchConsoleSourceConfig, GoogleSearchConsoleResumeConfig], OAuthMixin
 ):
+    supported_versions = ("v3",)
+    default_version = "v3"
+    api_docs_url = "https://developers.google.com/webmaster-tools"
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -71,7 +83,10 @@ class GoogleSearchConsoleSource(
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
 
-    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+    def get_oauth_accounts(
+        self, integration_id: int, team_id: int, search: str | None = None
+    ) -> list[IntegrationAccount]:
+        # Search Console sites are few, so `search` is ignored here and the endpoint filters the list.
         try:
             session = google_search_console_session(integration_id, team_id)
         except Integration.DoesNotExist:
@@ -116,6 +131,7 @@ class GoogleSearchConsoleSource(
         with_counts: bool = False,
         names: list[str] | None = None,
         force_refresh: bool = False,
+        api_version: str | None = None,
     ) -> list[SourceSchema]:
         schemas = [
             SourceSchema(
@@ -162,6 +178,7 @@ class GoogleSearchConsoleSource(
         config: GoogleSearchConsoleSourceConfig,
         team_id: int,
         schema_name: Optional[str] = None,
+        api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
             session = google_search_console_session(config.google_search_console_integration_id, team_id)
@@ -173,10 +190,11 @@ class GoogleSearchConsoleSource(
         except Exception as e:
             if "matching query does not exist" in str(e):
                 return False, (
-                    "Your Google Search Console connection is no longer available — it may have been "
+                    "Your Google Search Console connection is no longer available. It may have been "
                     "disconnected. Please reconnect your Google Search Console account."
                 )
-            return False, f"Could not load Google Search Console credentials: {e}"
+            capture_exception(e)
+            return False, _LOAD_CONNECTION_ERROR
 
         try:
             sites = list_sites(session)
@@ -187,7 +205,8 @@ class GoogleSearchConsoleSource(
                     False,
                     "Google Search Console rejected the credentials. Please reconnect your account and ensure it has read access to the property.",
                 )
-            return False, f"Failed to list Google Search Console sites: {e}"
+            capture_exception(e)
+            return False, _LIST_SITES_ERROR
         except RefreshError:
             # Raised while AuthorizedSession refreshes the OAuth access token (e.g. invalid_scope or
             # invalid_grant): the stored token is missing the required permissions, or has expired or
@@ -200,7 +219,8 @@ class GoogleSearchConsoleSource(
                 "and grant access to Search Console.",
             )
         except Exception as e:
-            return False, f"Failed to list Google Search Console sites: {e}"
+            capture_exception(e)
+            return False, _LIST_SITES_ERROR
 
         normalized = {url: site.get("permissionLevel") for site in sites if (url := site.get("siteUrl")) is not None}
         site_url = normalize_site_url(config.site_url)
@@ -232,7 +252,7 @@ class GoogleSearchConsoleSource(
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
             category=DataWarehouseSourceCategory.ANALYTICS,
-            keywords=["gsc"],
+            keywords=["gsc", "seo", "search analytics", "organic search"],
             label="Google Search Console",
             caption=(
                 "Connect a verified Google Search Console property to sync daily Search Analytics performance data "

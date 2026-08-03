@@ -3,6 +3,7 @@ import {
     fillBucketSeries,
     formatBucketLabel,
     pivotDurationHistogram,
+    pivotLatencyHeatmap,
     selectionToDurationRange,
     snapDurationToBucket,
     visibleDurationRange,
@@ -86,6 +87,35 @@ describe('durationBuckets', () => {
 
     it('selectionToDurationRange returns null for an empty axis', () => {
         expect(selectionToDurationRange([], 0, 0)).toBeNull()
+    })
+
+    it('pivotLatencyHeatmap keeps sentinel-only time buckets on the x axis and fills the y series', () => {
+        // Two data buckets (1ms at t0, 5ms at t2) plus a quiet t1 that only has the backend's
+        // {bucket_ns: 0, count: 0} sentinel — t1 must stay on the axis with an all-zero column,
+        // and the y axis must fill the missing 2ms bucket between the data rows.
+        const rows = [
+            { time: 't0', bucket_ns: 1 * MS, count: 3 },
+            { time: 't1', bucket_ns: 0, count: 0 },
+            { time: 't2', bucket_ns: 5 * MS, count: 2 },
+        ]
+        expect(pivotLatencyHeatmap(rows)).toEqual({
+            timeBuckets: ['t0', 't1', 't2'],
+            bucketsNs: [1 * MS, 2 * MS, 5 * MS],
+            labels: ['1ms', '2ms', '5ms'],
+            cells: [
+                [3, 0, 0], // 1ms row
+                [0, 0, 0], // 2ms row (gap-filled)
+                [0, 0, 2], // 5ms row
+            ],
+        })
+    })
+
+    it('pivotLatencyHeatmap of an all-sentinel response keeps the x axis and no rows', () => {
+        const rows = [
+            { time: 't0', bucket_ns: 0, count: 0 },
+            { time: 't1', bucket_ns: 0, count: 0 },
+        ]
+        expect(pivotLatencyHeatmap(rows)).toEqual({ timeBuckets: ['t0', 't1'], bucketsNs: [], labels: [], cells: [] })
     })
 
     it('visibleDurationRange orders min/max regardless of sort direction and clamps indices', () => {

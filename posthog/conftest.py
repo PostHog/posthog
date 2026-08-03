@@ -11,7 +11,7 @@ from posthog.test.base import PostHogTestCase, run_clickhouse_statement_in_paral
 
 try:
     from hogli_commands.quarantine.pytest_support import apply_quarantine_markers
-except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath (e.g. ee/pytest.ini)
+except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpath
     apply_quarantine_markers = None
 
 from django.conf import settings
@@ -96,7 +96,11 @@ def reset_clickhouse_tables():
     from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
     from posthog.models.app_metrics.sql import TRUNCATE_APP_METRICS_TABLE_SQL
     from posthog.models.channel_type.sql import TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL
-    from posthog.models.event.sql import TRUNCATE_EVENTS_RECENT_TABLE_SQL, TRUNCATE_EVENTS_TABLE_SQL
+    from posthog.models.event.sql import (
+        TRUNCATE_EVENTS_JSON_TABLE_SQL,
+        TRUNCATE_EVENTS_RECENT_TABLE_SQL,
+        TRUNCATE_EVENTS_TABLE_SQL,
+    )
     from posthog.models.exchange_rate.sql import TRUNCATE_EXCHANGE_RATE_TABLE_SQL
     from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
     from posthog.models.performance.sql import TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL
@@ -121,6 +125,7 @@ def reset_clickhouse_tables():
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
     TABLES_TO_CREATE_DROP: list[str] = [
         TRUNCATE_EVENTS_TABLE_SQL(),
+        TRUNCATE_EVENTS_JSON_TABLE_SQL(),
         TRUNCATE_EVENTS_RECENT_TABLE_SQL(),
         TRUNCATE_PERSON_TABLE_SQL,
         TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
@@ -470,19 +475,19 @@ def mock_two_factor_sso_enforcement_check(request, mocker):
 
 
 @pytest.fixture(autouse=True)
-def mock_email_mfa_verifier(request, mocker):
+def mock_code_based_verifier(request, mocker):
     """
-    Mock the EmailMFAVerifier.should_send_email_mfa_verification method to return False for all tests.
-    Can be disabled by using @pytest.mark.disable_mock_email_mfa_verifier decorator.
+    Mock the CodeBasedVerifier.should_send_code_based_verification method to return False for all tests.
+    Can be disabled by using @pytest.mark.disable_mock_code_based_verifier decorator.
     """
-    from posthog.helpers.two_factor_session import EmailMFACheckResult
+    from posthog.helpers.two_factor_session import CodeBasedVerificationCheckResult
 
-    if "disable_mock_email_mfa_verifier" in request.keywords:
+    if "disable_mock_code_based_verifier" in request.keywords:
         return
 
     mocker.patch(
-        "posthog.helpers.two_factor_session.EmailMFAVerifier.should_send_email_mfa_verification",
-        return_value=EmailMFACheckResult(should_send=False),
+        "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
+        return_value=CodeBasedVerificationCheckResult(should_send=False),
     )
 
 

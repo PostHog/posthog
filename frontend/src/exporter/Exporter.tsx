@@ -3,7 +3,7 @@ import './Exporter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import { Suspense, useEffect } from 'react'
+import { Suspense, useEffect, useSyncExternalStore } from 'react'
 
 import { Logo } from 'lib/brand'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
@@ -18,6 +18,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { ChartDisplayType } from '~/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
 
@@ -27,6 +29,7 @@ const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightSce
 const LazyNotebookScene = lazyWithRetry(() => import('./scenes/ExporterNotebookScene'))
 const LazyRecordingScene = lazyWithRetry(() => import('./scenes/ExporterRecordingScene'))
 const LazyInterviewScene = lazyWithRetry(() => import('./scenes/ExporterInterviewScene'))
+const LazyQueryScene = lazyWithRetry(() => import('./scenes/ExporterQueryScene'))
 
 function ExportedSceneSkeleton(): JSX.Element {
     return (
@@ -36,16 +39,37 @@ function ExportedSceneSkeleton(): JSX.Element {
     )
 }
 
-function resolveForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dark' | null {
+const PREFERS_DARK_MEDIA_QUERY = '(prefers-color-scheme: dark)'
+
+function subscribeToColorSchemeChanges(onChange: () => void): () => void {
+    const media = window.matchMedia?.(PREFERS_DARK_MEDIA_QUERY)
+    if (!media) {
+        return () => {}
+    }
+    // Shared/embedded pages are viewed from browsers we don't control; old WebKit (Safari < 14)
+    // only implements the legacy listener API, and throwing here would crash the whole page
+    if (typeof media.addEventListener !== 'function') {
+        media.addListener(onChange)
+        return () => media.removeListener(onChange)
+    }
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+}
+
+function getSystemPrefersDark(): boolean {
+    return typeof window !== 'undefined' && !!window.matchMedia?.(PREFERS_DARK_MEDIA_QUERY)?.matches
+}
+
+function useResolvedForcedTheme(theme?: 'light' | 'dark' | 'system'): 'light' | 'dark' | null {
+    // Subscribe so a shared page left open follows system light/dark switches without a reload
+    const systemPrefersDark = useSyncExternalStore(subscribeToColorSchemeChanges, getSystemPrefersDark)
     if (theme === 'light' || theme === 'dark') {
         return theme
     }
     if (theme !== 'system') {
         return null
     }
-    return typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)')?.matches
-        ? 'dark'
-        : 'light'
+    return systemPrefersDark ? 'dark' : 'light'
 }
 
 export function Exporter(props: ExportedData): JSX.Element {
@@ -57,6 +81,8 @@ export function Exporter(props: ExportedData): JSX.Element {
         notebook,
         insights,
         inline_query_results: inlineQueryResults,
+        query,
+        query_results: queryResults,
         themes,
         accessToken,
         exportToken,
@@ -64,7 +90,20 @@ export function Exporter(props: ExportedData): JSX.Element {
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
-    const forcedTheme = resolveForcedTheme(exportOptions.theme)
+    const forcedTheme = useResolvedForcedTheme(exportOptions.theme)
+
+    // A metric insight sizes to a compact card rather than filling the viewport, so drop the 100vh floor
+    // that would otherwise leave empty space below it (see Exporter.scss and ExportedInsight.scss).
+    // Applies to both saved insights and ad-hoc query exports — the image exporter narrows
+    // the screenshot viewport for both.
+    const metricQuery = insight?.query ?? query
+    const metric =
+        metricQuery &&
+        isInsightVizNode(metricQuery) &&
+        isTrendsQuery(metricQuery.source) &&
+        metricQuery.source.trendsFilter?.display === ChartDisplayType.Metric
+            ? metricQuery
+            : undefined
 
     const { currentTeam } = useValues(teamLogic)
     const { ref: elementRef, height, width } = useResizeObserver()
@@ -109,6 +148,7 @@ export function Exporter(props: ExportedData): JSX.Element {
             <div
                 className={clsx('Exporter', {
                     'Exporter--insight': !!insight,
+                    'Exporter--metric': !!metric,
                     'Exporter--dashboard': !!dashboard,
                     'Exporter--recording': !!recording,
                     'Exporter--notebook': !!notebook,
@@ -180,6 +220,15 @@ export function Exporter(props: ExportedData): JSX.Element {
                 ) : insight ? (
                     <Suspense fallback={<ExportedSceneSkeleton />}>
                         <LazyInsightScene insight={insight} themes={themes!} exportOptions={exportOptions} />
+                    </Suspense>
+                ) : query ? (
+                    <Suspense fallback={<ExportedSceneSkeleton />}>
+                        <LazyQueryScene
+                            query={query}
+                            queryResults={queryResults}
+                            themes={themes!}
+                            exportOptions={exportOptions}
+                        />
                     </Suspense>
                 ) : dashboard ? (
                     <Suspense fallback={<ExportedSceneSkeleton />}>

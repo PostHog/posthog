@@ -24,7 +24,6 @@
 ## Automatic notifications
 
 - [ ] Publish to changelog?
-- [ ] Alert Sales and Marketing teams?
 
 ## Docs update
 
@@ -39,6 +38,10 @@
      - "Fully autonomous" when no human drove it; leave the PR unassigned for the owning team to triage. -->
 
 **Autonomy:** Human-driven (agent-assisted) - or - Fully autonomous
+
+<!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
+     - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
+-->
 
 <!-- Keep this short: 1-3 short paragraphs or a handful of bullets — not an exhaustive log. Include:
      - tools/agent used and link to session. List the agent and tool names used, but do not include tool call results.
@@ -58,6 +61,7 @@
 - Description: high-level rationale, not a step-by-step replay.
 - Body: pass it straight to the creation tool's `body` arg (GitHub MCP `create_pull_request` body, or `gh pr create --body-file -` via stdin) — don't write it to a temp file first; the arg preserves markdown and newlines verbatim.
 - Public OSS repo: no internal customers, incidents, or operational metrics.
+- Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. See AGENTS.md, "Stacked PRs" and /stacking-prs.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.

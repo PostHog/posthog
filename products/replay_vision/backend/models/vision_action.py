@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 
 from django.core.validators import MinValueValidator
@@ -22,7 +23,34 @@ class TriggerType(models.TextChoices):
 
 class ActionMode(models.TextChoices):
     GROUP_SUMMARY = "group_summary", "Group summary"  # one summary synthesized from a group of observations
+    ALERT = "alert", "Alert"  # deliver only when the alert condition holds over the window
     PER_OBSERVATION = "per_observation", "Per observation"  # reserved; rejected at the API for now
+
+
+class AlertFrequency(models.TextChoices):
+    # Notify about every new match since the previous check (tiled windows, batched per check).
+    EVERY_MATCH = "every_match", "Every new match"
+    # Notify when the metric crosses the threshold over a rolling window; re-arms after it clears.
+    ON_BREACH = "on_breach", "When a threshold is crossed"
+
+
+class AlertMetric(models.TextChoices):
+    COUNT = "count", "Count of matching observations"
+    AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
+
+
+class AlertDirection(models.TextChoices):
+    # Which side of the threshold breaches. Both bounds are inclusive.
+    ABOVE = "above", "At or above"
+    BELOW = "below", "At or below"
+
+
+@dataclass(frozen=True)
+class _ScheduleKey:
+    """Cadence identity: `save()` compares these by equality to detect a schedule change."""
+
+    rrule: str
+    timezone: str
 
 
 class VisionAction(TeamScopedRootMixin, UUIDModel):
@@ -58,7 +86,7 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         max_length=20,
         choices=ActionMode.choices,
         default=ActionMode.GROUP_SUMMARY,
-        help_text="What the action produces. MVP supports 'group_summary' only.",
+        help_text="What the action produces: a scheduled group summary, or an alert that only delivers when its condition holds.",
     )
 
     next_run_at = models.DateTimeField(
@@ -81,6 +109,15 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
+    alert_config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text=(
+            "Alert condition for mode='alert': {frequency: every_match|on_breach, metric, threshold, "
+            "window_days}. every_match notifies about each new match since the previous check; on_breach "
+            "fires when the metric reaches the threshold over a rolling window, after `selection` targeting."
+        ),
+    )
     # How many observations may feed one group summary. When the window holds more, they're sampled
     # evenly across it (not just the newest). Not exposed in the API/UI yet — tune via Django admin.
     max_observations = models.PositiveIntegerField(
@@ -131,7 +168,7 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         if not ({"trigger_type", "trigger_config"} & self.get_deferred_fields()):
             self._cached_schedule_key = self._schedule_key()
 
-    def _schedule_key(self) -> tuple[str, str] | None:
+    def _schedule_key(self) -> "_ScheduleKey | None":
         # Both the rrule AND the timezone determine the next fire time, so a change to either must
         # trigger a recompute — keying on the rrule alone would miss a timezone-only edit.
         if self.trigger_type != TriggerType.SCHEDULE:
@@ -140,17 +177,16 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
         rrule = cfg.get("rrule")
         if not rrule:
             return None
-        return (rrule, cfg.get("timezone", "UTC"))
+        return _ScheduleKey(rrule=rrule, timezone=cfg.get("timezone", "UTC"))
 
     def _recompute_next_run_at(self) -> None:
         key = self._schedule_key()
         if key is None:
             self.next_run_at = None
             return
-        rrule, timezone_str = key
         starts_at = self.created_at or timezone.now()
         occurrences = compute_next_occurrences(
-            rrule_string=rrule, starts_at=starts_at, timezone_str=timezone_str, count=1
+            rrule_string=key.rrule, starts_at=starts_at, timezone_str=key.timezone, count=1
         )
         self.next_run_at = occurrences[0] if occurrences else None
 

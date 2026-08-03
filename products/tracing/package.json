@@ -4,9 +4,11 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
@@ -18,7 +20,7 @@
         "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",
-        "fast-deep-equal": "*",
+        "fast-equals": "catalog:",
         "react": "*",
         "react-window": "*"
     }

@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { initKeaTests } from '~/test/init'
 

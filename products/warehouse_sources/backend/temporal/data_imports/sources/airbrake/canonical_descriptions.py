@@ -1,0 +1,71 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "projects": {
+        "description": "Airbrake projects accessible to the connected user key, with per-project error and deploy counters.",
+        "docs_url": "https://docs.airbrake.io/docs/devops-tools/api/",
+        "columns": {
+            "id": "Unique identifier for the project.",
+            "name": "Name of the project as shown in Airbrake.",
+            "deployId": "Identifier of the project's most recent deploy.",
+            "deployAt": "Timestamp of the project's most recent deploy.",
+            "noticeTotalCount": "Total number of notices (error occurrences) recorded for the project.",
+            "rejectionCount": "Number of notices rejected (e.g. over quota or filtered).",
+            "fileCount": "Number of distinct source files referenced by the project's errors.",
+            "deployCount": "Total number of deploys tracked for the project.",
+            "groupResolvedCount": "Number of error groups marked as resolved.",
+            "groupUnresolvedCount": "Number of error groups not yet resolved.",
+        },
+    },
+    "groups": {
+        "description": "Error groups (aggregated occurrences of the same error) across every project the key can access.",
+        "docs_url": "https://docs.airbrake.io/docs/devops-tools/api/",
+        "columns": {
+            "id": "Unique identifier for the error group.",
+            "projectId": "Identifier of the project the group belongs to.",
+            "resolved": "Whether the group has been marked as resolved.",
+            "errors": "Error type, message, and backtrace of the group's representative error.",
+            "context": "Context shared by the group's notices, such as the environment.",
+            "lastDeployId": "Identifier of the deploy most recently associated with the group.",
+            "lastDeployAt": "Timestamp of the deploy most recently associated with the group.",
+            "lastNoticeId": "Identifier of the group's most recent notice.",
+            "lastNoticeAt": "Timestamp of the group's most recent notice.",
+            "noticeCount": "Number of notices in the group since it was last resolved.",
+            "noticeTotalCount": "Total number of notices ever recorded in the group.",
+            "createdAt": "Timestamp when the error group was first created.",
+        },
+    },
+    "notices": {
+        "description": "Individual error occurrences, fetched per error group across every project.",
+        "docs_url": "https://docs.airbrake.io/docs/devops-tools/api/",
+        "columns": {
+            "id": "Unique identifier for the notice.",
+            "projectId": "Identifier of the project the notice belongs to.",
+            "groupId": "Identifier of the error group the notice was aggregated into.",
+            "deployId": "Identifier of the deploy active when the notice was recorded.",
+            "deployAt": "Timestamp of the deploy active when the notice was recorded.",
+            "errors": "Error type, message, and backtrace captured by the notifier.",
+            "context": "Request/runtime context: environment, hostname, language, severity, notifier, and more.",
+            "environment": "Application-supplied environment variables attached to the notice.",
+            "session": "Application-supplied session data attached to the notice.",
+            "params": "Application-supplied parameters attached to the notice.",
+            "createdAt": "Timestamp when the notice was recorded.",
+        },
+    },
+    "deploys": {
+        "description": "Deploys tracked per project. Airbrake's API returns no deploy identifier, so this table is full-refresh only; projectId is added by PostHog for joinability.",
+        "docs_url": "https://docs.airbrake.io/docs/devops-tools/api/",
+        "columns": {
+            "projectId": "Identifier of the project the deploy belongs to (added by PostHog; not returned by the Airbrake API).",
+            "environment": "Environment the deploy targeted, e.g. production.",
+            "username": "User who performed the deploy.",
+            "email": "Email of the user who performed the deploy.",
+            "gravatarId": "Gravatar hash of the deploying user.",
+            "repository": "Repository the deploy was made from.",
+            "revision": "VCS revision (e.g. git SHA) that was deployed.",
+            "version": "Application version label for the deploy.",
+        },
+    },
+}

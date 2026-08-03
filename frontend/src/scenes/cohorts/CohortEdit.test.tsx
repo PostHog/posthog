@@ -1,16 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
+import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
+import { AnyCohortCriteriaType, BehavioralEventType } from '~/types'
 
 import { CohortEdit } from './CohortEdit'
 
@@ -489,5 +491,120 @@ describe('cohortEditLogic', () => {
                 })
             }
         )
+    })
+
+    describe('criteria row type switching', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        const q = (selector: string): HTMLElement => {
+            const el = document.querySelector(selector)
+            if (!el) {
+                throw new Error(`not found: ${selector}`)
+            }
+            return el as HTMLElement
+        }
+
+        // mockCohort's single criterion is negated ("Did not complete event", stored as
+        // {value: performed_event, negation: true}). Negated criteria store the positive enum
+        // plus a negation flag, so a type pick that doesn't reset negation used to leave rows
+        // permanently stuck on the negated variant (e.g. "Do not have the property").
+        test.each([
+            {
+                pick: 'cohort-personPropertyBehavioral-have_property-type',
+                expectedLabel: 'Have the property',
+                expectedCriteria: {
+                    type: BehavioralFilterKey.Person,
+                    value: BehavioralEventType.HaveProperty,
+                    negation: false,
+                },
+            },
+            {
+                pick: 'cohort-eventBehavioral-performed_event-type',
+                expectedLabel: 'Completed event',
+                expectedCriteria: {
+                    type: BehavioralFilterKey.Behavioral,
+                    value: BehavioralEventType.PerformEvent,
+                    negation: false,
+                },
+            },
+            {
+                pick: 'cohort-personPropertyBehavioral-not_have_property-type',
+                expectedLabel: 'Do not have the property',
+                expectedCriteria: {
+                    type: BehavioralFilterKey.Person,
+                    value: BehavioralEventType.HaveProperty,
+                    negation: true,
+                },
+            },
+        ])(
+            'switching a negated row via $pick lands on $expectedLabel',
+            async ({ pick, expectedLabel, expectedCriteria }) => {
+                render(<CohortEdit id={1} />)
+
+                await waitFor(() => {
+                    expect(q('[data-attr="cohort-selector-field-value"]')).toHaveTextContent('Did not complete event')
+                })
+
+                await userEvent.click(q('[data-attr="cohort-selector-field-value"]'))
+                await waitFor(() => {
+                    expect(q(`[data-attr="${pick}"]`)).toBeInTheDocument()
+                })
+                await userEvent.click(q(`[data-attr="${pick}"]`))
+
+                logic = cohortEditLogic({ id: 1 })
+                await waitFor(() => {
+                    const group = logic.values.cohort.filters.properties.values[0] as {
+                        values: AnyCohortCriteriaType[]
+                    }
+                    expect(group.values[0]).toEqual(expect.objectContaining(expectedCriteria))
+                })
+                expect(q('[data-attr="cohort-selector-field-value"]')).toHaveTextContent(expectedLabel)
+            }
+        )
+    })
+
+    describe('locked type and populate-from controls on existing cohorts', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('renders locked controls as a read-only value with an info tooltip, not a dead-click dropdown', async () => {
+            const cohortId = 10
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Static Cohort',
+                        is_static: true,
+                        // Non-empty filter values so `inferStaticCohortMode` resolves to 'criteria' —
+                        // an empty `values` array is read as the 'people' (upload/manual) mode instead.
+                        filters: mockCohort.filters,
+                        version: 1,
+                        pending_version: 1,
+                        is_calculating: false,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            // The current value is always visible in plain text; the "why can't I change this"
+            // explanation lives in an info tooltip instead of being repeated inline.
+            const typeContainer = (await screen.findByText('Static')).closest('[data-attr="cohort-type"]')
+            const populateFromContainer = screen
+                .getByText('Criteria · One-time snapshot')
+                .closest('[data-attr="static-cohort-mode"]')
+            expect(typeContainer).toBeInTheDocument()
+            expect(populateFromContainer).toBeInTheDocument()
+
+            // The locked controls are read-only text, not interactive select buttons (the dead click):
+            // a LemonSelect would render the data-attr onto a <button>
+            expect(typeContainer?.tagName).not.toBe('BUTTON')
+            expect(populateFromContainer?.tagName).not.toBe('BUTTON')
+        })
     })
 })

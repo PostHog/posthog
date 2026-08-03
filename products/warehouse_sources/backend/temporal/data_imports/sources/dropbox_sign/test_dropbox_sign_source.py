@@ -11,15 +11,17 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.dropbox_sign import (
     DropboxSignResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.dropbox_sign.source import DropboxSignSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import DropboxSignSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dropboxsign import (
+    DropboxSignSourceConfig,
+)
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
@@ -49,8 +51,6 @@ class TestSourceConfig:
         assert config.label == "Dropbox Sign"
         assert config.category == DataWarehouseSourceCategory.SALES
         assert config.releaseStatus == ReleaseStatus.ALPHA
-        # Kept hidden while in alpha.
-        assert config.unreleasedSource is True
         # docsUrl slug must match the posthog.com doc filename (kebab-case).
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/dropbox-sign"
 

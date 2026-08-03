@@ -1,1 +1,1 @@
-0014_teamlogsconfig
+0020_logsretentionrule

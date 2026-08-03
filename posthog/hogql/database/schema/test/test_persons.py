@@ -39,7 +39,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.models.person.util import create_person
-from posthog.models.utils import UUIDT
+from posthog.uuidt import UUIDT
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople

@@ -57,6 +57,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                         showIntervalSelect={modal.showIntervalSelect}
                         control={modal.control}
                         tileId={modal.tileId}
+                        enablePagination
                     />
                 </LemonModal.Content>
                 <div className="flex flex-row justify-end">

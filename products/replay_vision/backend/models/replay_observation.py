@@ -22,6 +22,7 @@ IN_FLIGHT_STATUSES = (ObservationStatus.PENDING, ObservationStatus.RUNNING)
 class ObservationTrigger(models.TextChoices):
     SCHEDULE = "schedule", "Schedule"
     ON_DEMAND = "on_demand", "On demand"
+    RETRY = "retry", "Retry"
 
 
 class ReplayObservation(UUIDModel):
@@ -64,11 +65,16 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
     )
+    created_task_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="PostHog Task minted from this observation's finding. Repeat create_task calls return this id instead of creating a duplicate.",
+    )
 
     triggered_by = models.CharField(
         max_length=16,
         choices=ObservationTrigger.choices,
-        help_text="What started this observation: a per-scanner schedule fire or an explicit /observe/ call.",
+        help_text="What started this observation: a per-scanner schedule fire, an explicit /observe/ call, or a retry of a failed or ineligible observation.",
     )
     triggered_by_user = models.ForeignKey(
         "posthog.User",
@@ -76,7 +82,7 @@ class ReplayObservation(UUIDModel):
         null=True,
         blank=True,
         related_name="+",
-        help_text="Populated for on-demand triggers; null for schedule-driven observations.",
+        help_text="Populated for on-demand and retry triggers; null for schedule-driven observations.",
     )
 
     started_at = models.DateTimeField(null=True, blank=True)

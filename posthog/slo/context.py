@@ -57,6 +57,7 @@ class SloSpec:
 
 @dataclasses.dataclass
 class SloHandle:
+    operation: SloOperation | None = None
     completion_properties: dict[str, JsonValue] = dataclasses.field(default_factory=dict)
     outcome_override: SloOutcome | None = None
 
@@ -120,7 +121,7 @@ def slo_operation(
     a no-exception path as an SLO failure.
     """
 
-    handle = SloHandle()
+    handle = SloHandle(operation=spec.operation)
     base_properties = dict(properties or {})
     base_properties["correlation_id"] = str(uuid4())
     # One coin flip per operation: started+completed share fate, so a sampled

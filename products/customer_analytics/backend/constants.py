@@ -1,7 +1,17 @@
 DEFAULT_ACTIVITY_EVENT = {"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}
 
+# Mirrors frontend `SLACK_ARCHIVES_ORIGIN` in accountLinksLogic.ts. PostHog-internal: hardcodes our
+# own workspace, so Slack links are wrong for any other team. Replace with the per-team workspace
+# URL (from the conversations bot's auth.test) before GA — see COMPROMISES.md.
+SLACK_ARCHIVES_ORIGIN = "https://posthog.slack.com/archives"
+
 # Mirrors frontend `FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP`.
 CUSTOMER_ANALYTICS_CSP_FLAG = "customer-analytics-csp"
+
+# Mirrors frontend `FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES`. Gates the whole warehouse -> person
+# properties feature: creating person-target custom property sources (API + UI), staging rows during
+# syncs, and the post-sync upsert workflow.
+WAREHOUSE_PERSON_PROPERTIES_FLAG = "warehouse-person-properties"
 
 # Account assignment roles, each assignable to a user. Shared by the external account API's
 # request validation and the facade write path so the set is defined once.
@@ -27,3 +37,19 @@ CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES = [
 
 # Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
 CUSTOM_PROPERTY_OPTION_COLORS = [f"preset-{i}" for i in range(1, 11)]
+
+# Bounds the fan-out so one create can't enqueue an unbounded Slack send loop.
+MAX_ANNOUNCEMENT_CHANNELS = 200
+
+# Base URL for constructed Slack message permalinks (<origin>/<channel_id>/p<ts>) in account
+# channel summaries. Hardcodes PostHog's workspace — pre-GA compromise, see COMPROMISES.md.
+# Mirrors the frontend's SLACK_ARCHIVES_ORIGIN in accountLinksLogic.ts.
+SLACK_ARCHIVES_ORIGIN = "https://posthog.slack.com/archives"
+
+# Mirrors models.SlackSummaryCadence — kept as a plain list so the presentation layer's
+# ChoiceFields stay off the model import path.
+SLACK_SUMMARY_CADENCE_CHOICES = ["daily", "weekly", "monthly"]
+
+DELIVERY_IN_FLIGHT_ERROR = "in_flight"
+DELIVERY_RATE_LIMIT_DEFERRED_ERROR = "rate_limited_deferred"
+DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may have been delivered"

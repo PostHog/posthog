@@ -1,7 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { teamLogic } from 'scenes/teamLogic'
+
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import {
     metricsQueryCreate,
@@ -58,6 +62,14 @@ describe('metricsUsageTrackingLogic', () => {
     let logic: ReturnType<typeof metricsUsageTrackingLogic.build>
 
     beforeEach(() => {
+        window.POSTHOG_APP_CONTEXT = {
+            ...window.POSTHOG_APP_CONTEXT,
+            resource_access_control: {
+                ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                [AccessControlResourceType.Metrics]: AccessControlLevel.Viewer,
+                [AccessControlResourceType.Insight]: AccessControlLevel.Editor,
+            },
+        } as AppContext
         initKeaTests()
         jest.mocked(posthog.capture).mockClear()
         jest.mocked(metricsValuesRetrieve).mockReset().mockResolvedValue({ results: [] })
@@ -105,6 +117,22 @@ describe('metricsUsageTrackingLogic', () => {
             'metrics samples panel tab changed',
             () => metricsSamplesLogic.actions.setActiveTab('samples'),
             { tab: 'samples' },
+        ],
+        ['metrics add to dashboard clicked', () => metricsViewerLogic.actions.addToDashboard(), { aggregation: 'sum' }],
+        [
+            // Reports the aggregation persisted on the insight, not the viewer's
+            // current one — those diverge when the user changes the aggregation
+            // while the save request is in flight (viewer state here is 'sum').
+            'metrics insight saved',
+            () =>
+                metricsViewerLogic.actions.saveAsInsightSuccess(
+                    {
+                        short_id: 'abc123',
+                        query: { kind: 'MetricsQuery', clauses: [{ name: 'a', aggregation: 'quantile' }] },
+                    } as any,
+                    {} as any
+                ),
+            { aggregation: 'p95' },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()
@@ -245,5 +273,32 @@ describe('metricsUsageTrackingLogic', () => {
         dispatch(sample)
         expect(captures(event)).toEqual([[event, expectedProperties]])
         expect(allCapturedProperties()).not.toContain(SECRET_ATTR_VALUE)
+    })
+
+    // teamLogic is mounted via connect once `logic` mounts, so its actionCreators are available here.
+    const viewerQueryIntent = (): any =>
+        teamLogic.actionCreators.addProductIntent({
+            product_type: ProductKey.METRICS,
+            intent_context: ProductIntentContext.METRICS_VIEWER_QUERY_RUN,
+        })
+
+    // The intent feeds the growth team's activation funnel; losing the dedupe guard would
+    // instead spam the product-intent API on every 15s live-refresh poll.
+    it('the first real query success records a product intent, once per mount', async () => {
+        metricsViewerLogic.actions.setMetricName(SECRET_METRIC)
+        await expectLogic(logic, () => {
+            metricsViewerLogic.actions.fetchQueryResults({})
+        }).toDispatchActions([viewerQueryIntent()])
+
+        // Live refresh re-runs the same query; the intent must not fire again.
+        await expectLogic(logic, () => {
+            metricsViewerLogic.actions.fetchQueryResults({})
+        }).toNotHaveDispatchedActions([viewerQueryIntent()])
+    })
+
+    it('the empty-name initial query success records no product intent', async () => {
+        await expectLogic(logic, () => {
+            metricsViewerLogic.actions.fetchQueryResults({})
+        }).toNotHaveDispatchedActions([viewerQueryIntent()])
     })
 })

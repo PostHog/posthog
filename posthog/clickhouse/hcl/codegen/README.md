@@ -9,7 +9,7 @@ side-table.
 ## How it works
 
 ```text
-edit OPS HCL ─▶ for each env in ../nodes: hclexp plan (committed goldens ─▶ working composition)
+edit OPS HCL ─▶ for each env in ../manifest.hcl: hclexp plan (committed goldens ─▶ working composition)
             ─▶ gen_migration.py: merge across envs, derive targeting
             ─▶ operations = [run_sql_with_exceptions(...), ...]
 ```
@@ -19,7 +19,7 @@ composition for every role of an env at once. Goldens hold only the managed set,
 `DROP` is a real removal — nothing unmanaged to prune — and `plan` unions roles and
 orders statements by cross-role dependency, so each operation arrives with its `roles`,
 engine, and order already resolved (no text parsing). A node's schema =
-`compose(its layers)` (see `../nodes`); placement falls out of it:
+`compose(its layers)` (see `../manifest.hcl`); placement falls out of it:
 
 - **`node_roles`** = the roles whose composition surfaced a statement. A change to a
   `roles/shared/` object appears in every managed role's node → `node_roles` = those roles
@@ -30,7 +30,7 @@ engine, and order already resolved (no text parsing). A node's schema =
 - **Env-specific** statements (only some envs) are flagged for `settings.CLOUD_DEPLOYMENT`
   gating.
 
-There is no object→roles map — `../nodes` (the composition manifest) is the single
+There is no object→roles map — `../manifest.hcl` (the composition manifest) is the single
 source of truth for placement.
 
 ## Usage
@@ -56,7 +56,7 @@ and bump `max_migration.txt`.
   comment; the human writes the `CLOUD_DEPLOYMENT` branch (auto-gating is a follow-up).
 - `--auto` writes the next numbered `migrations/NNNN_<name>.py` and bumps `max_migration.txt`;
   without it the body goes to stdout (or `--out`) for manual placement.
-- Scoped to OPS + LOGS (see `../nodes`). Other roles that also host the shared
+- Scoped to OPS + LOGS (see `../manifest.hcl`). Other roles that also host the shared
   `query_log_archive` path are commented out, so shared-object changes target only
   OPS + LOGS; `events_recent` derives as OPS-only until the DATA node is modeled.
 
@@ -64,4 +64,4 @@ and bump `max_migration.txt`.
 
 Placement is the manifest + which layer a file lives in. Put cross-role objects in
 `roles/shared/`, OPS-only in `roles/ops/<shared|prod|env>/`, and add the (env, role) line
-to `../nodes`. `check.sh` verifies every composition against its golden.
+to `../manifest.hcl`. `check.sh` verifies every composition against its golden.

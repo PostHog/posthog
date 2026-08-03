@@ -222,7 +222,14 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     className
                 )}
                 aria-disabled={disabled || !!disabledReason}
-                onClick={() => focus()}
+                onClick={(event) => {
+                    // Native segmented inputs (notably `type="time"` in Safari) reset to their
+                    // first segment when focused again. The input already handles its own clicks;
+                    // only focus it when the surrounding input chrome was clicked.
+                    if (event.target !== internalInputRef.current) {
+                        focus()
+                    }
+                }}
                 ref={ref}
             >
                 {prefix}

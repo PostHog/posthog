@@ -48,7 +48,7 @@ There is deliberately no `gc.collect()` before the freeze: a full pass over the 
 The window must always close — GC left disabled in a long-lived process means unbounded cycle growth — hence the `try`/`finally` and the guard test asserting `gc.isenabled()` and a nonzero freeze count after a `manage.py` boot.
 Pytest processes get the same window via a dedicated early-loaded plugin, `pytest_boot_gc.py`, registered with `-p pytest_boot_gc` in `pytest.ini`.
 `-p` plugins load before pytest-django's `load_initial_conftests` hook, which is what runs `django.setup()`, so the disable is already in effect when setup's several million permanent allocations happen.
-The root conftest still closes the window (freeze, re-enable, threshold tuning) via `_end_gc_boot_window` at collection finish; its own `gc.disable()` call stays as a fallback for test configs that do not load the plugin (e.g. `ee/pytest.ini`).
+The root conftest still closes the window (freeze, re-enable, threshold tuning) via `_end_gc_boot_window` at collection finish; its own `gc.disable()` call stays as a fallback for test configs that do not load the plugin.
 This saves ~0.2–0.4s per test process.
 Celery's `django.setup()` happens inside its Django fixup, not in an entrypoint we own, so celery workers do not get the window yet.
 

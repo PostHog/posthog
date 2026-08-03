@@ -13,7 +13,6 @@ from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.onboarding_delegation import mark_delegators_accepted
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -214,9 +213,6 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                     mark_delegators_accepted(invite_id=sibling_pk)
             self.delete()
 
-        # Side effects that don't need the membership/invite rows are fine to run after commit.
-        self._sync_user_product_list_for_accessible_teams(user)
-
         if is_email_available(with_absolute_urls=True):
             from posthog.tasks.email import send_member_join
 
@@ -232,16 +228,6 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
         # user is NOT a delegator of this invite — stamping them would corrupt the field's
         # meaning for anyone who happens to be both a delegate here and a delegator elsewhere.
         mark_delegators_accepted(invite_id=self.id)
-
-    def _sync_user_product_list_for_accessible_teams(self, user: "User") -> None:
-        """Sync UserProductList for all teams the user has access to."""
-        from posthog.rbac.user_access_control import UserAccessControl
-
-        uac = UserAccessControl(user=user, organization_id=str(self.organization.id))
-        accessible_teams = uac.filter_queryset_by_access_level(self.organization.teams.all(), include_all_if_admin=True)
-
-        for team in accessible_teams:
-            backfill_user_product_list_for_new_user(user, team)
 
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""

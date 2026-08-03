@@ -23,6 +23,24 @@ We currently use [Braintrust](https://braintrust.dev) as our evaluation platform
 
 For historical eval runs, see the [full Experiments list in Braintrust](https://www.braintrust.dev/app/PostHog/p/Max%20AI/experiments).
 
+## Sandboxed evals
+
+The sandboxed coding-agent evals (`products/posthog_ai/eval_harness/`) run on a standalone harness rather than pytest:
+
+```bash
+flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness [SELECTOR ...]"
+```
+
+Selectors are substrings matched against `<domain>/<module>::<fn>` (for example `experiments`, `sql`, or `eval_lifecycle_skills`); omit them to run every suite, or pass `--list` to see the ids.
+`--eval <substr>` filters cases by name.
+Sandboxes run locally under Docker by default; `--provider modal` runs them remotely on Modal.
+
+Every suite runs concurrently, with one global semaphore bounding live sandboxes, so selecting more suites raises throughput without raising peak load.
+
+- [`products/posthog_ai/eval_harness/README.md`](../../../products/posthog_ai/eval_harness/README.md) covers the flags, the provider prerequisites, and how to add a suite.
+- [`products/posthog_ai/evals/AGENTS.md`](../../../products/posthog_ai/evals/AGENTS.md) is the Hedgebox dataset reference every eval case is written against.
+- [`products/posthog_ai/eval_harness/harness/README.md`](../../../products/posthog_ai/eval_harness/harness/README.md) explains how the harness itself works.
+
 ## Offline evals
 
 ### Datasets

@@ -14,27 +14,33 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
-    DeltaTableHelper,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_transient_object_store_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import DeltaTableHelper
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_row_sink import (
+    PersonPropertyRowSink,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
     decrement_rows,
     increment_rows,
     will_hit_billing_limit,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
+    extract_available_column_names,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
     from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
         ImportDataActivityInputs,
     )
@@ -184,7 +190,9 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
 
 
 async def handle_non_retryable_error(
-    job_inputs: "PipelineInputs",
+    team_id: int,
+    source_id: str,
+    run_id: str,
     error_msg: str,
     logger: FilteringBoundLogger,
     error: Exception,
@@ -194,9 +202,7 @@ async def handle_non_retryable_error(
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
             raise NonRetryableException() from error
 
-        retry_key = build_non_retryable_errors_redis_key(
-            job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
-        )
+        retry_key = build_non_retryable_errors_redis_key(team_id, source_id, run_id)
         attempts = await redis_client.incr(retry_key)
 
         if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
@@ -225,6 +231,74 @@ async def reset_rows_synced_if_needed(
     ):
         job.rows_synced = 0
         await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
+
+
+def resolve_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+) -> list[str] | None:
+    """Resolve the primary keys for an incremental merge with a stable precedence.
+
+    1. Persisted `sync_type_config["primary_key_columns"]` (a user override or an earlier
+       detection) — always wins.
+    2. Otherwise the keys the source detected live this run.
+    3. Otherwise fall back to an `id` column when the schema has one — mirroring the discovery
+       path, which sync-time driver detection (e.g. a flaky Snowflake `SHOW PRIMARY KEYS`) lacks.
+
+    Returns None when no key can be resolved, so the keyless-table guardrail still fires.
+    """
+    if schema.primary_key_columns:
+        return schema.primary_key_columns
+    if resource.primary_keys:
+        return list(resource.primary_keys)
+    # Case-insensitive: engines like Snowflake uppercase unquoted identifiers, so the column
+    # arrives as `ID`. Return the actual stored casing — the merge indexes batches by real name.
+    id_column = next(
+        (name for name in extract_available_column_names(schema.schema_metadata) if name.lower() == "id"), None
+    )
+    if id_column is not None:
+        return [id_column]
+    return None
+
+
+async def persist_primary_keys(
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    is_incremental: bool,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Persist a freshly resolved primary key so future runs stop depending on flaky live
+    detection (e.g. a Snowflake `SHOW PRIMARY KEYS` that intermittently returns nothing).
+
+    Only fills an empty stored value — never overwrites a user override — and checks again
+    inside the row lock so a concurrent API edit isn't clobbered. Best-effort: a failure here
+    must not fail an otherwise successful sync.
+    """
+    if not is_incremental or schema.primary_key_columns:
+        return
+    primary_keys = resource.primary_keys
+    if not primary_keys:
+        return
+
+    resolved = list(primary_keys)
+
+    def _set_if_absent(config: dict[str, Any]) -> None:
+        if not config.get("primary_key_columns"):
+            config["primary_key_columns"] = resolved
+
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    try:
+        config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id,
+            schema.team_id,
+            mutate=_set_if_absent,
+        )
+        schema.sync_type_config = config
+    except Exception:
+        await logger.aexception("Failed to persist detected primary keys into sync_type_config")
 
 
 def validate_incremental_sync(
@@ -263,10 +337,30 @@ async def handle_reset_or_full_refresh(
     schema: "ExternalDataSchema",
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
+    webhook_only: bool = False,
 ) -> None:
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import (
+        ExternalDataSchema,
+        update_sync_type_config_keys,
+    )
 
-    if reset_pipeline and not should_resume:
+    if reset_pipeline and webhook_only:
+        # A webhook-only table's rows exist only as webhook-delivered events — the poll does
+        # no backfill, so a wipe could never be rebuilt. Consume the reset request by resuming
+        # webhook ingestion over the existing table: buffered webhook files drain this run, and
+        # any events lost while ingestion was off are unrecoverable either way. Only the flag is
+        # cleared; the incremental watermark and initial_sync_complete are kept since nothing
+        # was wiped.
+        await logger.adebug("Skipping table reset for webhook-only schema; resuming webhook ingestion")
+        await database_sync_to_async_pool(update_sync_type_config_keys)(
+            schema.id, schema.team_id, removes=["reset_pipeline"]
+        )
+        # Also drop it from the in-memory config: a later watermark save (update_incremental_field_values
+        # / V3 staging) persists this same schema's sync_type_config, which would otherwise write
+        # reset_pipeline back and leave every subsequent run treated as a reset.
+        if schema.sync_type_config:
+            schema.sync_type_config.pop("reset_pipeline", None)
+    elif reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
         await delta_table_helper.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
@@ -306,10 +400,18 @@ async def handle_corrupted_delta_log(
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
 ) -> bool:
-    """Detect and revive a Delta table whose `_delta_log` is unreadable, before extraction.
+    """Detect and revive a corrupt Delta table before extraction.
 
-    Interrupted repartition swaps and OOM-crashed merges can leave `_delta_log` inconsistent (open raises
-    DeltaError / FileNotFoundError), after which every sync fails to open the table and loops forever.
+    Two corruption signatures trigger it:
+
+    - `_delta_log` unreadable (open raises DeltaError / FileNotFoundError) — interrupted repartition
+      swaps and OOM-crashed merges leave this, after which every sync fails to open the table and
+      loops forever.
+    - The schema's `delta_revive_required` marker — set by the repartition activity when the log
+      opens fine but references data files that are gone from S3 (a hollow table an interleaved swap
+      left behind). Only a full scan discovers that state, so it arrives as a marker rather than a
+      check here.
+
     Runs before extraction so the table self-heals in the same run:
 
     - Salvage: an interrupted repartition swap that left a `ready` temp table is finished from temp (no
@@ -319,15 +421,29 @@ async def handle_corrupted_delta_log(
 
     Returns True if a revive happened. Best-effort: any failure here must not block the sync.
     """
-    try:
-        if not await delta_table_helper.is_table_corrupted():
+    revive_marker = schema.delta_revive_required
+    if revive_marker is None:
+        try:
+            if not await delta_table_helper.is_table_corrupted():
+                return False
+        except Exception as e:
+            if is_transient_object_store_error(e):
+                # `is_table_corrupted` opens the table via `DeltaTable.is_deltatable`, which can hit
+                # the same IMDS/STS credential-provider or connectivity blips as any other delta-rs
+                # object-store call — not evidence the table is corrupt, just a blip talking to our
+                # own S3 bucket. Skip the revive check this sync rather than reporting a defect; the
+                # next sync's check runs fresh.
+                await logger.awarning(
+                    f"handle_corrupted_delta_log: is_table_corrupted transient object-store error, "
+                    f"skipping revive check schema_id={schema.id}: {e}"
+                )
+                return False
+            capture_exception(e)
             return False
-    except Exception as e:
-        capture_exception(e)
-        return False
 
     await logger.awarning(
-        f"handle_corrupted_delta_log: unreadable delta log detected, reviving schema_id={schema.id}",
+        f"handle_corrupted_delta_log: {'revive marker set' if revive_marker else 'unreadable delta log detected'}, "
+        f"reviving schema_id={schema.id}",
         schema_id=str(schema.id),
     )
 
@@ -336,7 +452,7 @@ async def handle_corrupted_delta_log(
     # and clears the markers when temp is also gone (the terminal corrupt state), so we then fall to reset.
     swap = schema.repartition_swap
     if swap and swap.get("state") == "ready" and swap.get("temp_uri") and swap.get("live_uri"):
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
             _resume_swap_with_missing_live,
         )
         from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
@@ -360,6 +476,17 @@ async def handle_corrupted_delta_log(
                 logger=logger,
             )
             if result.get("outcome") == "completed":
+                from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+                    update_sync_type_config_keys,
+                )
+
+                # The completed swap copied the full temp table over live, so any hollow-table
+                # marker is stale now. Refresh the in-memory config from the persisted result —
+                # this schema object keeps saving `sync_type_config` for the rest of the run, and
+                # a stale copy would write the marker back, re-arming the revive every sync.
+                schema.sync_type_config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+                    schema.id, schema.team_id, removes=["delta_revive_required"]
+                )
                 await logger.ainfo(
                     f"handle_corrupted_delta_log: salvaged from interrupted swap schema_id={schema.id}",
                     schema_id=str(schema.id),
@@ -375,10 +502,35 @@ async def handle_corrupted_delta_log(
         update_sync_type_config_keys,
     )
 
-    await delta_table_helper.reset_table()
+    try:
+        await delta_table_helper.reset_table()
+    except Exception as e:
+        if is_transient_object_store_error(e):
+            # A rate-limited or connectivity blip purging the old table's S3 prefix isn't a bug —
+            # the revive markers stay set, so the next sync attempt retries the same reset from
+            # scratch. Escalating this through the non-retryable-error policy below would burn
+            # through its attempt budget on pure S3 throttling and give up on a revivable schema.
+            await logger.awarning(
+                f"handle_corrupted_delta_log: reset_table transient object-store error, retrying next sync, "
+                f"schema_id={schema.id}: {e}"
+            )
+            return False
+        # A reset that can't even complete (e.g. the storage backend rejects the delete) leaves the
+        # revive markers in place, so an unguarded re-raise here would repeat this exact same failing
+        # reset on every subsequent sync attempt forever. Give up after a few identical failures
+        # instead of looping — same policy as any other non-retryable import error.
+        capture_exception(e)
+        await logger.aexception(
+            f"handle_corrupted_delta_log: reset_table failed, schema_id={schema.id}: {e}", exc_info=e
+        )
+        await handle_non_retryable_error(schema.team_id, str(job.pipeline_id), str(job.id), str(e), logger, e)
+
     await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
-    await database_sync_to_async_pool(update_sync_type_config_keys)(
-        schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap"]
+    # Refresh the in-memory config from the persisted result — this schema object keeps saving
+    # `sync_type_config` for the rest of the run (incremental staging, partition bookkeeping), and
+    # a stale copy would write the marker back, re-arming a non-billable revive on every sync.
+    schema.sync_type_config = await database_sync_to_async_pool(update_sync_type_config_keys)(
+        schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap", "delta_revive_required"]
     )
     was_billable = bool(job.billable)
     if job.billable:
@@ -536,44 +688,11 @@ async def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa
         await cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
 
 
-async def run_pre_write_defensive_compact(
-    delta_table_helper: DeltaTableHelper,
-    schema: "ExternalDataSchema",
-    resource: SourceResponse,
-    logger: FilteringBoundLogger,
-) -> None:
-    """Best-effort pre-write compact + vacuum at the start of a sync run.
+async def person_property_sink_clear_chunks(sink: PersonPropertyRowSink):
+    if await sink.should_stage():
+        await sink.clear_chunks()
 
-    Delegates to `DeltaTableHelper.run_maintenance`, which compacts a fragmented Delta
-    target (a sync that arrived fragmented because earlier attempts failed before
-    reaching `_post_run_operations` — keeping the subsequent per-partition merge scans
-    cheap) and otherwise vacuums on a commit-count cadence so a table that OOMs its merge
-    every run and never reaches post-load compaction still sheds tombstones (the
-    ~99%-dead-file tables). The helper returns the single vacuum watermark to persist, so
-    this function is the sole writer of `last_vacuum_version`. Wrapped in try/except so a
-    maintenance failure never blocks the actual sync; the original error path is unaffected.
 
-    Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the behaviour
-    identical across pipelines without each having to know how to look up `partition_count`
-    or how to swallow maintenance errors.
-    """
-    try:
-        from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
-            update_sync_type_config_keys,
-        )
-
-        partition_count_for_compact = schema.partition_count or resource.partition_count
-        last_vacuum_version = (schema.sync_type_config or {}).get("last_vacuum_version")
-        commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
-        new_version = await delta_table_helper.run_maintenance(
-            partition_count=partition_count_for_compact,
-            last_vacuum_version=last_vacuum_version,
-            commit_threshold=commit_threshold,
-        )
-        if new_version is not None and new_version != last_vacuum_version:
-            await database_sync_to_async_pool(update_sync_type_config_keys)(
-                schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
-            )
-    except Exception as e:
-        capture_exception(e)
-        await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)
+async def stage_chunk_for_person_property_sink(sink: PersonPropertyRowSink, index: int, pa_table: pa.Table):
+    if await sink.should_stage():
+        await sink.stage_chunk(chunk=index, table=pa_table)

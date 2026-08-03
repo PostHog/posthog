@@ -5,7 +5,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 
 
-def get_survey_response(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
+def get_survey_response(node: ast.Call, args: list[ast.Expr], use_new_schema: bool = False) -> ast.Expr:
     """
     Process getSurveyResponse() function call and return HogQL AST.
 
@@ -30,22 +30,21 @@ def get_survey_response(node: ast.Call, args: list[ast.Expr]) -> ast.Expr:
     is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
 
     # Build the property keys for lookup
-    id_based_key = _build_id_based_key(question_index, question_id)
+    id_based_key = _build_id_based_key(question_index, question_id, use_new_schema)
     index_based_key = _build_index_based_key(question_index)
 
     if is_multiple_choice:
-        return _build_multiple_choice_expr(id_based_key, index_based_key)
+        return _build_multiple_choice_expr(id_based_key, index_based_key, use_new_schema)
 
-    return _build_coalesce_expr(id_based_key, index_based_key)
+    return _build_coalesce_expr(id_based_key, index_based_key, use_new_schema)
 
 
-def _build_id_based_key(question_index: int, question_id: str | None) -> str | ast.Expr:
+def _build_id_based_key(question_index: int, question_id: str | None, use_new_schema: bool) -> str | ast.Expr:
     """Build the ID-based property key. Returns string when static, ast.Expr when dynamic."""
     if question_id:
         return f"$survey_response_{question_id}"
 
-    # Dynamic key: extract ID from the question at the given index in the questions array
-    # concat('$survey_response_', JSONExtractString(JSONExtractArrayRaw(properties, '$survey_questions')[index], 'id'))
+    # Dynamic key: extract ID from the question at the given index in the questions array.
     return ast.Call(
         name="concat",
         args=[
@@ -54,13 +53,7 @@ def _build_id_based_key(question_index: int, question_id: str | None) -> str | a
                 name="JSONExtractString",
                 args=[
                     ast.ArrayAccess(
-                        array=ast.Call(
-                            name="JSONExtractArrayRaw",
-                            args=[
-                                ast.Field(chain=["properties"]),
-                                ast.Constant(value="$survey_questions"),
-                            ],
-                        ),
+                        array=_build_property_array_raw("$survey_questions", use_new_schema),
                         property=ast.Constant(value=question_index + 1),
                     ),
                     ast.Constant(value="id"),
@@ -77,36 +70,36 @@ def _build_index_based_key(question_index: int) -> str:
     return f"$survey_response_{question_index}"
 
 
-def _build_property_access(key: str | ast.Expr) -> ast.Expr:
+def _build_property_access(key: str | ast.Expr, use_new_schema: bool) -> ast.Expr:
     """Build property access expression.
 
-    Always uses JSONExtractString to ensure consistent String return type.
-    This avoids type mismatches when PropertySwapper would wrap ast.Field
-    accesses with type conversion functions (e.g., toFloat for Numeric properties).
+    Native JSON static-key access reads the subcolumn and stringifies the value. Legacy and dynamic-key access use
+    JSONExtractString to keep a consistent String return type.
     """
+    if use_new_schema and isinstance(key, str):
+        return ast.Call(name="toString", args=[ast.Field(chain=["properties", key])])
+
+    properties = _properties_document() if use_new_schema else ast.Field(chain=["properties"])
     return ast.Call(
         name="JSONExtractString",
-        args=[ast.Field(chain=["properties"]), _key_as_expr(key)],
+        args=[properties, _key_as_expr(key)],
     )
 
 
-def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
+def _build_coalesce_expr(id_based_key: str | ast.Expr, index_based_key: str, use_new_schema: bool) -> ast.Expr:
     """Build COALESCE expression for single-choice survey response."""
-    # coalesce(nullif(properties.$id_key, ''), nullif(properties.$index_key, ''))
-    # Using ast.Field enables materialized column optimization when available
-    return ast.Call(
-        name="coalesce",
-        args=[
-            ast.Call(
-                name="nullif",
-                args=[_build_property_access(id_based_key), ast.Constant(value="")],
-            ),
-            ast.Call(
-                name="nullif",
-                args=[_build_property_access(index_based_key), ast.Constant(value="")],
-            ),
-        ],
-    )
+    # Always check the id-based key first: modern SDKs store responses under $survey_response_<question_id>.
+    # Runtime keys cannot address a native subcolumn, so only that arm explicitly reconstructs the document.
+    response_keys: list[str | ast.Expr] = [id_based_key, index_based_key]
+
+    coalesce_args: list[ast.Expr] = [
+        ast.Call(
+            name="nullif",
+            args=[_build_property_access(response_key, use_new_schema), ast.Constant(value="")],
+        )
+        for response_key in response_keys
+    ]
+    return ast.Call(name="coalesce", args=coalesce_args)
 
 
 def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
@@ -114,44 +107,61 @@ def _key_as_expr(key: str | ast.Expr) -> ast.Expr:
     return ast.Constant(value=key) if isinstance(key, str) else key
 
 
-def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: str) -> ast.Expr:
+def _properties_document() -> ast.Expr:
+    return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
+
+
+def _build_property_array_raw(key: str | ast.Expr, use_new_schema: bool) -> ast.Expr:
+    if use_new_schema and isinstance(key, str):
+        json_value = ast.Call(name="toJSONString", args=[ast.Field(chain=["properties", key])])
+        return ast.Call(
+            name="JSONExtractArrayRaw",
+            args=[ast.Call(name="ifNull", args=[json_value, ast.Constant(value="[]")])],
+        )
+
+    properties = _properties_document() if use_new_schema else ast.Field(chain=["properties"])
+    return ast.Call(
+        name="JSONExtractArrayRaw",
+        args=[properties, _key_as_expr(key)],
+    )
+
+
+def _build_property_presence(key: str | ast.Expr, use_new_schema: bool) -> ast.Expr:
+    if use_new_schema and isinstance(key, str):
+        return ast.Call(name="isNotNull", args=[ast.Field(chain=["properties", key])])
+
+    properties = _properties_document() if use_new_schema else ast.Field(chain=["properties"])
+    return ast.Call(
+        name="JSONHas",
+        args=[properties, _key_as_expr(key)],
+    )
+
+
+def _build_multiple_choice_expr(id_based_key: str | ast.Expr, index_based_key: str, use_new_schema: bool) -> ast.Expr:
     """Build if() expression for multiple-choice survey response.
 
     Note: JSONExtractArrayRaw doesn't benefit from materialization like string properties do.
     """
-    id_key_expr = _key_as_expr(id_based_key)
+    index_value = _build_property_array_raw(index_based_key, use_new_schema)
+    id_value = _build_property_array_raw(id_based_key, use_new_schema)
     return ast.Call(
         name="if",
         args=[
             ast.And(
                 exprs=[
-                    ast.Call(
-                        name="JSONHas",
-                        args=[ast.Field(chain=["properties"]), id_key_expr],
-                    ),
+                    _build_property_presence(id_based_key, use_new_schema),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Gt,
                         left=ast.Call(
                             name="length",
-                            args=[
-                                ast.Call(
-                                    name="JSONExtractArrayRaw",
-                                    args=[ast.Field(chain=["properties"]), id_key_expr],
-                                ),
-                            ],
+                            args=[id_value],
                         ),
                         right=ast.Constant(value=0),
                     ),
                 ]
             ),
-            ast.Call(
-                name="JSONExtractArrayRaw",
-                args=[ast.Field(chain=["properties"]), id_key_expr],
-            ),
-            ast.Call(
-                name="JSONExtractArrayRaw",
-                args=[ast.Field(chain=["properties"]), ast.Constant(value=index_based_key)],
-            ),
+            id_value,
+            index_value,
         ],
     )
 

@@ -6,7 +6,9 @@ from parameterized import parameterized
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SavvyCalSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.savvycal import (
+    SavvyCalSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.savvycal import SavvyCalResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.savvycal.source import SavvyCalSource
