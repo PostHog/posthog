@@ -17,11 +17,11 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.synthetic_user import SyntheticUser
 
-from products.customer_analytics.backend.facade.contracts import (
+from products.customer_analytics.backend.models import CustomPropertyDefinition, DataType
+from products.workflows.backend.services.account_audience import (
     AccountAudienceCustomPropertyFilter,
     AccountAudienceFilters,
 )
-from products.customer_analytics.backend.models import CustomPropertyDefinition, DataType
 
 
 class _AudiencePrincipal(SyntheticUser):

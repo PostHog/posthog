@@ -123,6 +123,7 @@ if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
     from products.customer_analytics.backend.models import CustomPropertyValue
+    from products.workflows.backend.services.account_audience import AccountAudienceFilters
 
 
 def _to_assignment(assignment) -> contracts.AccountAssignment | None:
@@ -416,7 +417,7 @@ def get_account_group_type_name(team: Team) -> str | None:
     return None
 
 
-def count_accounts_for_audience(team: Team, filters: contracts.AccountAudienceFilters) -> int:
+def count_accounts_for_audience(team: Team, filters: "AccountAudienceFilters") -> int:
     from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
         account_audience,
     )
@@ -425,7 +426,7 @@ def count_accounts_for_audience(team: Team, filters: contracts.AccountAudienceFi
 
 
 def list_account_external_ids_for_audience(
-    team: Team, filters: contracts.AccountAudienceFilters, *, cursor: str | None, limit: int
+    team: Team, filters: "AccountAudienceFilters", *, cursor: str | None, limit: int
 ) -> list[str]:
     from products.customer_analytics.backend.hogql_queries import (  # noqa: PLC0415 — keeps HogQL off the import path
         account_audience,
