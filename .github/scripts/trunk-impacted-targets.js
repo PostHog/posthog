@@ -117,6 +117,24 @@ const TRIPWIRES = [
     // bin/ appears in the backend, frontend, and E2E path filters alike.
     'bin/**',
     'patches/**',
+    // Holds the Depot-runner copies of the workflows and composite actions in
+    // .github/, so it decides what runs for everyone the same way.
+    '.depot/**',
+    // The toolchain every suite runs inside. ci-python.yml gates on
+    // .flox/env/manifest.toml for that reason.
+    '.flox/**',
+    // ClickHouse, Postgres, and Temporal configuration mounted by every
+    // docker-compose file, so it defines the services all the suites test
+    // against.
+    'docker/**',
+    // duckgres.yaml is mounted into the same stack, and intent-map.yaml steers
+    // bin/sandbox and hogli, both already tripwires.
+    'devenv/**',
+    // Lint rules that run repo-wide: a new rule fails code that merged in a
+    // parallel lane, which is the same conflict .oxlintrc.json is here for.
+    '.semgrep/**',
+    // Holds the markdownlint config, which is the same class of rule change.
+    '.config/**',
     'tsconfig.json',
     'tsconfig.*.json',
     'babel.config.js',
@@ -148,6 +166,60 @@ const TOOLS_INDEPENDENT = [
     'query-performance-ai',
     'infra-scripts',
 ]
+
+// Top-level trees that hold a lane instead of falling through to ALL, keyed by
+// directory. Every entry names the suite that would catch a conflict in it, and
+// a tree nobody has placed here still widens, so the list grows by decision
+// rather than by default.
+const STANDALONE_TREES = new Map([
+    // A cargo workspace of its own (cli/Cargo.lock, outside rust/ and outside
+    // the pnpm workspace). ci-cli.yml also builds it from services/mcp sources,
+    // so the two trees have to share a lane.
+    ['cli', ['cli', 'svc:mcp']],
+    // Go service with its own CI. ci-hog.yml ignores livestream/** explicitly,
+    // so its Hog implementation is not covered by the shared hog suite either.
+    ['livestream', ['livestream']],
+    // Another standalone cargo workspace, and nothing in the dev or CI stack
+    // builds it: the UDF binary reaches ClickHouse through its image.
+    ['funnel-udf', ['funnel-udf']],
+    // Terragrunt definitions for dashboards and alerts. No suite compiles them,
+    // and terragrunt-posthog.yaml is the only workflow that reads the tree.
+    ['terraform', ['terraform']],
+    // ci-python.yml validates the policy files through the pr-approval-agent
+    // pytest suite, which already owns that lane.
+    ['.stamphog', ['tools:pr-approval-agent']],
+])
+
+// Editor, IDE, and agent configuration. No suite reads any of it, so one shared
+// lane between the lot costs nothing and keeps the inert set to files that
+// genuinely compile into nothing. Two trees stay off both lists: agent-os/ and
+// share/ hold only markdown today, which the prose rule already claims, and
+// anything else appearing there should widen until someone classifies it.
+//
+// .posthog-code is the entry that looks like an exception and is not. The
+// desktop app does parse .posthog-code/environments/*.toml, but it parses
+// whichever repository a user opens, and EnvironmentService's suite writes its
+// fixtures to a temp directory instead of reading this repository's copy. That
+// suite also covers a file being invalid TOML or off-schema, both of which the
+// service skips, so a config and a parser that disagree leave an environment
+// unlisted rather than failing anything. No suite here would catch the pair, so
+// sharing the desktop product's lane would serialize the two for no validation.
+const REPO_CONFIG_DIRS = [
+    '.claude',
+    '.codex',
+    '.cursor',
+    '.dagster_home',
+    '.husky',
+    '.idea',
+    '.interface-design',
+    '.posthog-code',
+    '.run',
+    '.vscode',
+    '.zed',
+]
+for (const dir of REPO_CONFIG_DIRS) {
+    STANDALONE_TREES.set(dir, ['repo-config'])
+}
 
 // Supports the three forms used in TRIPWIRES: `**` spanning directories, `*`
 // within a single path segment, and literal names. The two star forms are
@@ -555,10 +627,21 @@ function computeTargets(changedFiles, context) {
         // a README under posthog/ into the backend lane.
         //
         // The exception is markdown that is a build input: `hogli build:skills`
-        // zips products/*/skills/*, and ci-agent-skills.yml gates on those paths
-        // and on .agents/. Both fall through to their directory rules below.
-        const isSkillSource = top === '.agents' || (top === 'products' && segments[2] === 'skills')
-        if (/\.mdx?$/.test(file) && !isSkillSource) {
+        // zips products/*/skills/*, ci-agent-skills.yml gates on those paths and
+        // on .agents/, and ci-python.yml runs the pr-approval-agent suite over
+        // .stamphog/. All of them fall through to their directory rules below.
+        const isBuildInput =
+            top === '.agents' || top === '.stamphog' || (top === 'products' && segments[2] === 'skills')
+
+        // The same suite reads every AGENT_APPROVALS.md wherever it sits, so the
+        // file belongs to that lane rather than to the tree holding it. On the
+        // product lane its own directory rule would give it, a policy change and
+        // a parser change would be free to merge in parallel.
+        if (segments[segments.length - 1] === 'AGENT_APPROVALS.md') {
+            targets.add('tools:pr-approval-agent')
+            continue
+        }
+        if (/\.mdx?$/.test(file) && !isBuildInput) {
             inertFiles++
             continue
         }
@@ -596,6 +679,13 @@ function computeTargets(changedFiles, context) {
         }
         if (top === '.agents') {
             targets.add('agents')
+            continue
+        }
+        const standalone = STANDALONE_TREES.get(top)
+        if (standalone) {
+            for (const target of standalone) {
+                targets.add(target)
+            }
             continue
         }
         if (top === 'tools') {
