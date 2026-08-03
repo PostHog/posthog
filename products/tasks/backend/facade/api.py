@@ -179,6 +179,7 @@ __all__ = [
     "get_task_run_session",
     "sync_task_run_session",
     "get_task_run_detail",
+    "capture_task_run_event",
     "get_task_run_sandbox_connection",
     "get_task_run_living_artifact",
     "capture_relay_command_telemetry",
@@ -607,6 +608,12 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
     need to deep-link a run to its task.
     """
     return TaskRun.objects.filter(id=run_id, team_id=team_id).values_list("task_id", flat=True).first()
+
+
+def capture_task_run_event(run_id: str | UUID, team_id: int, event: str, properties: dict) -> None:
+    run = TaskRun.objects.filter(id=run_id, team_id=team_id).first()
+    if run is not None:
+        run.capture_event(event, properties)
 
 
 def task_exists(task_id: str | UUID, team_id: int) -> bool:

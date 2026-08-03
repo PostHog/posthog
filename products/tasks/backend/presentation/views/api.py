@@ -386,10 +386,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if parent_run is None:
             raise NotFound("Parent run not found")
         if parent_run.is_terminal:
-            parent_run.capture_event("task_spawn_rejected", {"reason": "terminal_parent"})
+            tasks_facade.capture_task_run_event(
+                parent_run.id, self.team_id, "task_spawn_rejected", {"reason": "terminal_parent"}
+            )
             raise ValidationError({"parent_run_id": "Parent run must be active"})
         if parent_run.state.get("parent_task_id") is not None:
-            parent_run.capture_event("task_spawn_rejected", {"reason": "depth_limit"})
+            tasks_facade.capture_task_run_event(
+                parent_run.id, self.team_id, "task_spawn_rejected", {"reason": "depth_limit"}
+            )
             raise ValidationError({"parent_run_id": "Child runs cannot spawn tasks"})
 
         parent_task = tasks_facade.get_task_detail(parent_run.task_id, self.team_id, self._user_id())
@@ -397,10 +401,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise NotFound("Parent task not found")
 
         if (limit_response := cloud_usage_limit_response(request.user, self.team_id)) is not None:
-            parent_run.capture_event("task_spawn_rejected", {"reason": "usage_limit"})
+            tasks_facade.capture_task_run_event(
+                parent_run.id, self.team_id, "task_spawn_rejected", {"reason": "usage_limit"}
+            )
             return limit_response
         if tasks_facade.spawned_task_run_rate_capped(self.team_id):
-            parent_run.capture_event("task_spawn_rejected", {"reason": "rate_limit"})
+            tasks_facade.capture_task_run_event(
+                parent_run.id, self.team_id, "task_spawn_rejected", {"reason": "rate_limit"}
+            )
             return Response({"detail": "Team task run rate limit exceeded"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
         wake_on = data.pop("wake_on")

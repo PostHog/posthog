@@ -86,7 +86,7 @@ def _queue_wake(parent_run: TaskRun, child_run: TaskRun, event: ChildEvent, mess
 
 def _claim_resume(run_id: str) -> tuple[TaskRun | None, list[dict[str, Any]], int]:
     with transaction.atomic():
-        run = TaskRun.objects.select_for_update().select_related("task", "task__created_by").get(id=run_id)
+        run = TaskRun.objects.select_for_update(of=("self",)).select_related("task", "task__created_by").get(id=run_id)
         state = dict(run.state or {})
         resume = state.get(ORCHESTRATION_RESUME_STATE_KEY)
         resume = dict(resume) if isinstance(resume, dict) else {}
