@@ -165,6 +165,25 @@ pub const CAPTURE_LEGACY_ANALYTICS: WarningSource = WarningSource {
     pipeline_step: "capture_validation",
 };
 
+/// Capture's AI events endpoint (`rust/capture/src/ai_endpoint.rs`, `/i/v0/ai`).
+/// One multipart event per request, so warnings from this source always carry
+/// `count = 1`.
+pub const CAPTURE_AI_EVENTS: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "ai_events",
+    pipeline_step: "capture_validation",
+};
+
+/// Capture's OTLP trace endpoint (`rust/capture/src/otel`, `/i/v0/ai/otel`).
+/// Split from `CAPTURE_AI_EVENTS` by `path` because the two AI endpoints take
+/// unrelated payload formats and fail for unrelated reasons, so a spike in one
+/// says nothing about the other.
+pub const CAPTURE_AI_OTEL: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "ai_otel",
+    pipeline_step: "capture_validation",
+};
+
 /// Sink-agnostic emitter seam. The Kafka implementation is
 /// [`KafkaWarningEmitter`]; tests use
 /// [`test_support::CollectingEmitter`].
