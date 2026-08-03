@@ -19,28 +19,24 @@ from products.slack_app.backend.api import (
     _team_join_onboarding_cache_key,
     route_posthog_code_event_to_relevant_region,
 )
-from products.slack_app.backend.services.slack_auth import get_cached_auth_state
+from products.slack_app.backend.services.slack_auth import get_cached_auth_state, write_auth_state_ok
+
+MEMBER_EMAIL = "dev@example.com"
 
 
-@override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-class TestMemberJoinedChannelRouting(TestCase):
-    """Routing-level coverage for the channel onboarding flow.
+class _SlackRoutingTestBase(TestCase):
+    """Shared workspace fixtures for the routing tests below: real Postgres
+    rows for the org/team/membership/integration, with the side-effecting
+    Slack API mocked per test."""
 
-    Each test patches ``SlackIntegration`` so we can assert against the Slack
-    client without standing up a real WebClient. The Slack workspace row is
-    real Postgres state — only the side-effecting Slack API is mocked.
-    """
-
-    BOT_USER_ID = "U_BOT"
     SLACK_TEAM_ID = "T12345"
-    CHANNEL_ID = "C_NEW_CHANNEL"
 
     def setUp(self):
         cache.clear()
         self.factory = RequestFactory()
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create(email="dev@example.com", distinct_id="user-1")
+        self.user = User.objects.create(email=MEMBER_EMAIL, distinct_id="user-1")
         OrganizationMembership.objects.create(organization=self.organization, user=self.user)
         self.integration = Integration.objects.create(
             team=self.team,
@@ -57,12 +53,18 @@ class TestMemberJoinedChannelRouting(TestCase):
         # resolver short-circuits; ``bot_user_id=None`` keeps
         # ``get_cached_bot_user_id`` falling through to the (mocked)
         # ``auth.test`` call the onboarding flow expects.
-        from products.slack_app.backend.services.slack_auth import write_auth_state_ok
-
         write_auth_state_ok(self.integration.id, bot_user_id=None)
 
     def _request(self):
         return self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+
+
+@override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+class TestMemberJoinedChannelRouting(_SlackRoutingTestBase):
+    """Routing-level coverage for the channel onboarding flow."""
+
+    BOT_USER_ID = "U_BOT"
+    CHANNEL_ID = "C_NEW_CHANNEL"
 
     def _event(self, *, user: str | None = None, channel: str | None = None) -> dict:
         return {
@@ -186,38 +188,11 @@ class TestMemberJoinedChannelRouting(TestCase):
 
 
 @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-class TestTeamJoinRouting(TestCase):
-    """Routing-level coverage for the new-workspace-member welcome DM.
+class TestTeamJoinRouting(_SlackRoutingTestBase):
+    """Routing-level coverage for the new-workspace-member welcome DM, with
+    the assistant feature flag patched at the ``api`` import site."""
 
-    Same shape as the channel onboarding tests above: real Postgres rows for
-    the workspace/org/membership, mocked Slack client, and the assistant
-    feature flag patched at the ``api`` import site.
-    """
-
-    SLACK_TEAM_ID = "T12345"
     JOINER_ID = "U_NEW"
-    MEMBER_EMAIL = "dev@example.com"
-
-    def setUp(self):
-        cache.clear()
-        self.factory = RequestFactory()
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create(email=self.MEMBER_EMAIL, distinct_id="user-1")
-        OrganizationMembership.objects.create(organization=self.organization, user=self.user)
-        self.integration = Integration.objects.create(
-            team=self.team,
-            kind="slack",
-            integration_id=self.SLACK_TEAM_ID,
-            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
-            sensitive_config={"access_token": "xoxb-test"},
-        )
-        from products.slack_app.backend.services.slack_auth import write_auth_state_ok
-
-        write_auth_state_ok(self.integration.id, bot_user_id=None)
-
-    def _request(self):
-        return self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
 
     def _event(self, *, email: str | None = MEMBER_EMAIL, **user_flags) -> dict:
         profile = {"email": email} if email is not None else {}
@@ -225,9 +200,7 @@ class TestTeamJoinRouting(TestCase):
 
     def _mock_slack(self, slack_cls_mock, *, post_ok: bool = True):
         instance = MagicMock()
-        if post_ok:
-            instance.client.chat_postMessage.return_value = {"ok": True}
-        else:
+        if not post_ok:
             instance.client.chat_postMessage.side_effect = RuntimeError("slack down")
         slack_cls_mock.return_value = instance
         return instance
@@ -262,24 +235,21 @@ class TestTeamJoinRouting(TestCase):
         slack_cls.assert_not_called()
         assert cache.get(_team_join_onboarding_cache_key(self.SLACK_TEAM_ID, self.JOINER_ID)) is None
 
-    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=True)
+    @parameterized.expand(
+        [
+            ("no_org_membership", "stranger@example.com", True),
+            ("assistant_flag_off", MEMBER_EMAIL, False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled")
     @patch("products.slack_app.backend.api.SlackIntegration")
-    def test_joiner_without_org_membership_gets_no_dm(self, slack_cls, _flag):
+    def test_ineligible_joiner_gets_no_dm(self, _name, email, flag_enabled, slack_cls, flag_mock):
+        flag_mock.return_value = flag_enabled
         instance = self._mock_slack(slack_cls)
 
         result = route_posthog_code_event_to_relevant_region(
-            self._request(), self._event(email="stranger@example.com"), self.SLACK_TEAM_ID
+            self._request(), self._event(email=email), self.SLACK_TEAM_ID
         )
-
-        assert result == ROUTE_HANDLED_LOCALLY
-        instance.client.chat_postMessage.assert_not_called()
-
-    @patch("products.slack_app.backend.api.is_slack_app_assistant_enabled", return_value=False)
-    @patch("products.slack_app.backend.api.SlackIntegration")
-    def test_assistant_flag_off_gets_no_dm(self, slack_cls, _flag):
-        instance = self._mock_slack(slack_cls)
-
-        result = route_posthog_code_event_to_relevant_region(self._request(), self._event(), self.SLACK_TEAM_ID)
 
         assert result == ROUTE_HANDLED_LOCALLY
         instance.client.chat_postMessage.assert_not_called()
