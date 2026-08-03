@@ -52,6 +52,12 @@ REPLAY_VISION_PROVIDER_CALL = Histogram(
     buckets=_PROVIDER_CALL_BUCKETS,
 )
 
+REPLAY_VISION_MISSION_PASSES = Counter(
+    "replay_vision_mission_passes_total",
+    "Full mission passes sent to the provider; rate against observations shows how hard the retry layers multiply",
+    ["model", "path"],
+)
+
 REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS = Counter(
     "replay_vision_quota_exhausted_skips_total",
     "Observations skipped because the org's monthly credit quota was exhausted",
@@ -146,6 +152,12 @@ def record_provider_call(provider: str, model: str, scanner_type: str, outcome: 
     labels = {"provider": provider, "model": model, "scanner_type": scanner_type, "outcome": outcome}
     REPLAY_VISION_PROVIDER_CALL.labels(**labels).observe(seconds)
     _otel.record_histogram_twin(REPLAY_VISION_PROVIDER_CALL, seconds, labels)
+
+
+def record_mission_pass(model: str, path: str) -> None:
+    labels = {"model": model, "path": path}
+    REPLAY_VISION_MISSION_PASSES.labels(**labels).inc()
+    _otel.record_counter_twin(REPLAY_VISION_MISSION_PASSES, 1, labels)
 
 
 def record_quota_exhausted_skip(scanner_type: str) -> None:

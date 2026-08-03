@@ -154,6 +154,17 @@ pub const CAPTURE_LEGACY_RATE_LIMIT: WarningSource = WarningSource {
     pipeline_step: "capture_rate_limit",
 };
 
+/// Capture's legacy analytics validation path (`rust/capture/src/events/analytics.rs`
+/// and its `v0_endpoint` caller). Unlike `CAPTURE_V1_ANALYTICS`, the legacy
+/// pipeline aborts the whole request on the first invalid event, so warnings
+/// from this source charge the full batch's event count rather than a per-event
+/// tally.
+pub const CAPTURE_LEGACY_ANALYTICS: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "legacy_analytics",
+    pipeline_step: "capture_validation",
+};
+
 /// Sink-agnostic emitter seam. The Kafka implementation is
 /// [`KafkaWarningEmitter`]; tests use
 /// [`test_support::CollectingEmitter`].

@@ -156,7 +156,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             ]),
             { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
         )
-        .pipe(createCreateEventStep(EVENTS_OUTPUT))
+        .pipe(createCreateEventStep(EVENTS_OUTPUT, options.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS))
         .pipe(
             topHog(
                 createEmitEventStep({

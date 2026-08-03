@@ -36,7 +36,7 @@ impl WarningType {
     /// This list exists so the trust-allowlist invariant below can still be
     /// airtight: `captureProduced` must equal "reachable by one of capture's two
     /// emit routes", and without this the direct route would be invisible to it.
-    pub const DIRECT_EMIT: [Self; 1] = [Self::HighVolumeDistinctId];
+    pub const DIRECT_EMIT: [Self; 2] = [Self::HighVolumeDistinctId, Self::DistinctIdTruncated];
 
     /// Map a capture error tag (`v1::Error::tag()` / per-event drop detail) to a
     /// registered warning type. Returns `None` for anything not on the allowlist —
@@ -56,6 +56,7 @@ impl WarningType {
             "missing_event_uuid" => Some(Self::MissingEventUuid),
             "invalid_event_uuid" => Some(Self::InvalidEventUuid),
             "duplicate_event_uuid" => Some(Self::DuplicateEventUuid),
+            "message_size_too_large" => Some(Self::MessageSizeTooLarge),
             _ => None,
         }
     }
