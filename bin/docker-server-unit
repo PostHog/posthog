@@ -11,8 +11,9 @@ chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
 export PROMETHEUS_METRICS_EXPORT_PORT=8001
 export STATSD_PORT=${STATSD_PORT:-8125}
 
-# Dual-mode support: USE_GRANIAN env var switches between Granian and Unit (default)
-if [ "${USE_GRANIAN:-false}" = "true" ]; then
+# Dual-mode support: USE_GRANIAN env var switches between Granian (default) and Unit.
+# Set USE_GRANIAN=false to revert to the legacy NGINX Unit server.
+if [ "${USE_GRANIAN:-true}" = "true" ]; then
     # Granian config is env-only and uses granian's own documented GRANIAN_*
     # env vars (the CLI reads them natively) — no aliases, no flag plumbing.
     # The exports below only set PostHog defaults where they differ from
@@ -47,7 +48,7 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
         export GRANIAN_LOOP=${GRANIAN_LOOP:-uvloop}
     fi
 
-    echo "🚀 Starting with Granian ${GRANIAN_INTERFACE} server (opt-in via USE_GRANIAN=true)..."
+    echo "🚀 Starting with Granian ${GRANIAN_INTERFACE} server..."
 
     # The container runs as root (Unit needs it for its control socket), but the
     # application must not: Unit drops its app processes to nobody via
@@ -64,7 +65,7 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
 
     exec $DROP_PRIVILEGES granian "$APP_TARGET"
 else
-    echo "🔧 Starting with Nginx Unit server (default, stable)..."
+    echo "⚠️  Starting with Nginx Unit server (archived/unmaintained, legacy fallback)..."
 
     export NGINX_UNIT_PYTHON_PROTOCOL=${NGINX_UNIT_PYTHON_PROTOCOL:-wsgi}
     export NGINX_UNIT_APP_PROCESSES=${NGINX_UNIT_APP_PROCESSES:-4}
