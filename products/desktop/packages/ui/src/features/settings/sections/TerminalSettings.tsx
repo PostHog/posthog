@@ -1,13 +1,21 @@
-import { ANALYTICS_EVENTS } from "@posthog/shared";
+import { X } from "@phosphor-icons/react";
+import { useHostTRPCClient } from "@posthog/host-router/react";
+import { Button } from "@posthog/quill";
+import { ANALYTICS_EVENTS, compactHomePath } from "@posthog/shared";
 import { SettingRow } from "@posthog/ui/features/settings/SettingRow";
 import {
   type TerminalFont,
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
 import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
+import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
+import { logger } from "@posthog/ui/shell/logger";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Flex, Select, Switch, Text, TextField } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
+
+const log = logger.scope("terminal-settings");
 
 export function TerminalSettings() {
   const terminalFont = useSettingsStore((s) => s.terminalFont);
@@ -22,6 +30,14 @@ export function TerminalSettings() {
   const setTerminalGpuRendering = useSettingsStore(
     (s) => s.setTerminalGpuRendering,
   );
+  const terminalDefaultCwd = useSettingsStore((s) => s.terminalDefaultCwd);
+  const setTerminalDefaultCwd = useSettingsStore(
+    (s) => s.setTerminalDefaultCwd,
+  );
+
+  const hostClient = useHostTRPCClient();
+  const { localWorkspaces } = useHostCapabilities();
+  const [isChoosingDirectory, setIsChoosingDirectory] = useState(false);
 
   const [draftCustomFont, setDraftCustomFont] = useState(
     terminalCustomFontFamily,
@@ -67,10 +83,69 @@ export function TerminalSettings() {
     setTerminalGpuRendering(enabled);
   };
 
+  const handleDefaultCwdChange = (path: string) => {
+    track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+      setting_name: "terminal_default_cwd",
+      new_value: path.length > 0,
+      old_value: terminalDefaultCwd.length > 0,
+    });
+    setTerminalDefaultCwd(path);
+  };
+
+  const handleChooseDefaultCwd = async () => {
+    if (isChoosingDirectory) return;
+    setIsChoosingDirectory(true);
+    try {
+      const path = await hostClient.os.selectDirectory.query();
+      if (path) handleDefaultCwdChange(path);
+    } catch (error) {
+      log.error("Failed to open directory picker", { error });
+      toast.error("Failed to open directory picker");
+    } finally {
+      setIsChoosingDirectory(false);
+    }
+  };
+
   const showCustomInput = terminalFont === "custom";
 
   return (
     <Flex direction="column" gap="1" py="4">
+      {localWorkspaces && (
+        <SettingRow
+          label="Default directory"
+          description="Choose which directory new terminal sessions open in. Leave this unset to use the directory you most recently worked in."
+        >
+          <Flex align="center" gap="2" className="min-w-0">
+            {terminalDefaultCwd && (
+              <>
+                <Text
+                  className="max-w-[220px] truncate text-[12px]"
+                  title={terminalDefaultCwd}
+                >
+                  {compactHomePath(terminalDefaultCwd)}
+                </Text>
+                <button
+                  type="button"
+                  aria-label="Clear default directory"
+                  className="cursor-pointer p-0 opacity-60 hover:opacity-100"
+                  onClick={() => handleDefaultCwdChange("")}
+                >
+                  <X size={12} />
+                </button>
+              </>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              loading={isChoosingDirectory}
+              onClick={() => void handleChooseDefaultCwd()}
+            >
+              {terminalDefaultCwd ? "Change…" : "Choose directory…"}
+            </Button>
+          </Flex>
+        </SettingRow>
+      )}
+
       <SettingRow
         label="Font"
         description="Font used to render the terminal output"

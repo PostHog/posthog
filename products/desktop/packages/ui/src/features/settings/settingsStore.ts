@@ -233,9 +233,13 @@ interface SettingsStore {
   terminalFont: TerminalFont;
   terminalCustomFontFamily: string;
   terminalGpuRendering: boolean;
+  // Directory new standalone terminals open in. Any path, not just a
+  // registered project folder. Empty means "infer from recent folders".
+  terminalDefaultCwd: string;
   setTerminalFont: (font: TerminalFont) => void;
   setTerminalCustomFontFamily: (value: string) => void;
   setTerminalGpuRendering: (enabled: boolean) => void;
+  setTerminalDefaultCwd: (path: string) => void;
 
   // Conversation thread (new-thread)
   conversationCollapseMode: CollapseMode;
@@ -466,11 +470,13 @@ export const useSettingsStore = create<SettingsStore>()(
       terminalFont: "berkeley-mono",
       terminalCustomFontFamily: "",
       terminalGpuRendering: true,
+      terminalDefaultCwd: "",
       setTerminalFont: (font) => set({ terminalFont: font }),
       setTerminalCustomFontFamily: (value) =>
         set({ terminalCustomFontFamily: value }),
       setTerminalGpuRendering: (enabled) =>
         set({ terminalGpuRendering: enabled }),
+      setTerminalDefaultCwd: (path) => set({ terminalDefaultCwd: path }),
 
       // Conversation thread (new-thread)
       conversationCollapseMode: COLLAPSE_MODE_DEFAULT,
@@ -613,6 +619,7 @@ export const useSettingsStore = create<SettingsStore>()(
         terminalFont: state.terminalFont,
         terminalCustomFontFamily: state.terminalCustomFontFamily,
         terminalGpuRendering: state.terminalGpuRendering,
+        terminalDefaultCwd: state.terminalDefaultCwd,
 
         // Conversation thread (new-thread)
         conversationCollapseMode: state.conversationCollapseMode,

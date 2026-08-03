@@ -1,6 +1,7 @@
 import { exec } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir, platform } from "node:os";
+import { join } from "node:path";
 import {
   ROOT_LOGGER,
   type RootLogger,
@@ -50,6 +51,15 @@ function getDefaultShell(): string {
     return process.env.COMSPEC || "cmd.exe";
   }
   return process.env.SHELL || "/bin/bash";
+}
+
+/** Resolve a leading "~" against the home directory. Other paths pass through. */
+export function expandHomePath(path: string, home: string): string {
+  if (path === "~") return home;
+  if (path.startsWith("~/") || path.startsWith("~\\")) {
+    return join(home, path.slice(2));
+  }
+  return path;
 }
 
 function getShellArgs(shell: string): string[] {
@@ -403,7 +413,9 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
 
   private resolveWorkingDir(sessionId: string, cwd?: string): string {
     const home = homedir();
-    const workingDir = cwd || home;
+    // Expand "~" before the existence check: a tilde path is real to the user
+    // but not to existsSync, so it would otherwise be discarded for home.
+    const workingDir = cwd ? expandHomePath(cwd, home) : home;
 
     if (!existsSync(workingDir)) {
       this.log.warn(

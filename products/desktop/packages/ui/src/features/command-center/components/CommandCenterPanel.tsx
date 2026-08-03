@@ -293,7 +293,10 @@ function TerminalCell({
 }) {
   const clearCell = useCommandCenterStore((s) => s.clearCell);
   const { getRecentFolders, getFolderDisplayName } = useFolders();
-  const cwd = terminalCwd ?? getRecentFolders(1)[0]?.path;
+  const defaultCwd = useSettingsStore((s) => s.terminalDefaultCwd);
+  // Cells restored from a previous session may predate the setting, so fall
+  // back to it here too rather than only at creation time.
+  const cwd = terminalCwd ?? (defaultCwd || getRecentFolders(1)[0]?.path);
   const folderName = cwd ? getFolderDisplayName(cwd) : null;
   const stateKey = getTerminalCellStateKey(terminalId);
 

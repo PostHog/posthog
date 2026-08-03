@@ -48,6 +48,10 @@ describe("feature settingsStore defaults", () => {
       "local",
     );
   });
+
+  it("leaves the default terminal directory unset", () => {
+    expect(useSettingsStore.getState().terminalDefaultCwd).toBe("");
+  });
 });
 
 describe("feature settingsStore cloud selections", () => {
@@ -597,5 +601,44 @@ describe("feature settingsStore hydration", () => {
     await useSettingsStore.persist.rehydrate();
 
     expect(useSettingsStore.getState()._hasHydrated).toBe(true);
+  });
+});
+
+describe("feature settingsStore terminal default directory", () => {
+  beforeEach(async () => {
+    await resetPersistenceMocks();
+
+    useSettingsStore.setState({ terminalDefaultCwd: "" });
+  });
+
+  it.each([
+    ["a chosen directory", "/Users/luke/Documents/Jarvis"],
+    ["a cleared directory", ""],
+  ])("persists %s", async (_label, value) => {
+    useSettingsStore.getState().setTerminalDefaultCwd(value);
+
+    await waitForPersistedWrite();
+
+    const lastCall = setItem.mock.calls[setItem.mock.calls.length - 1];
+    const persisted = JSON.parse(lastCall[1]);
+
+    expect(persisted.state.terminalDefaultCwd).toBe(value);
+  });
+
+  it("rehydrates the default terminal directory", async () => {
+    getItem.mockResolvedValue(
+      JSON.stringify({
+        state: { terminalDefaultCwd: "/Users/luke/Documents/Jarvis" },
+        version: 0,
+      }),
+    );
+
+    useSettingsStore.setState({ terminalDefaultCwd: "" });
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState().terminalDefaultCwd).toBe(
+      "/Users/luke/Documents/Jarvis",
+    );
   });
 });

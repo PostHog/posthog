@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMockRepositoryRepository } from "../../db/repositories/repository-repository.mock";
@@ -190,6 +190,69 @@ describe("ShellService.createSession workspace env", () => {
     } finally {
       restoreEnv("ELECTRON_RUN_AS_NODE", saved.runAsNode);
       restoreEnv("POSTHOG_CODE_INTERNAL_CHILD", saved.internalChild);
+    }
+  });
+});
+
+describe("ShellService.createSession working directory", () => {
+  function spawnedCwd(): string {
+    return mockPty.spawn.mock.calls[0][2].cwd;
+  }
+
+  beforeEach(() => {
+    mockPty.spawn.mockReset();
+    mockPty.spawn.mockReturnValue(createMockPtyProcess());
+  });
+
+  it("spawns in a cwd that exists on disk", async () => {
+    const tempDir = mkdtempSync(path.join(tmpdir(), "shell-cwd-"));
+    try {
+      const { service } = createService();
+
+      await service.createSession({ sessionId: "session-1", cwd: tempDir });
+
+      expect(spawnedCwd()).toBe(tempDir);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ["no cwd", undefined],
+    ["an empty cwd", ""],
+    ["a cwd that does not exist", "/does/not/exist"],
+  ])("falls back to home for %s", async (_label, cwd) => {
+    const { service } = createService();
+
+    await service.createSession({ sessionId: "session-1", cwd });
+
+    expect(spawnedCwd()).toBe(homedir());
+  });
+
+  it.each([
+    ["a bare tilde", "~"],
+    ["a trailing-slash tilde", "~/"],
+  ])("expands %s to the home directory", async (_label, cwd) => {
+    const { service } = createService();
+
+    await service.createSession({ sessionId: "session-1", cwd });
+
+    expect(spawnedCwd()).toBe(homedir());
+  });
+
+  it("expands a tilde path before checking that it exists", async () => {
+    const tempDir = mkdtempSync(path.join(homedir(), ".shell-cwd-test-"));
+    try {
+      const { service } = createService();
+
+      await service.createSession({
+        sessionId: "session-1",
+        cwd: `~/${path.basename(tempDir)}`,
+      });
+
+      expect(spawnedCwd()).toBe(tempDir);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 });
