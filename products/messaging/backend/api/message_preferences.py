@@ -1,7 +1,5 @@
 import re
 
-from django.http import StreamingHttpResponse
-
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
@@ -12,6 +10,7 @@ from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.plugins import plugin_server_api
 
 from products.messaging.backend.models.message_category import MessageCategory
@@ -84,7 +83,9 @@ class ImportOptOutsCsvResultSerializer(serializers.Serializer):
     total_rows = serializers.IntegerField(help_text="Number of non-empty data rows read from the file.")
     opted_out = serializers.IntegerField(help_text="Number of recipient and category pairs recorded as opted out.")
     skipped_rows = serializers.IntegerField(help_text="Number of rows skipped because they were missing or invalid.")
-    errors = serializers.ListField(
+    # The metaclass pops declared fields off the class, so this doesn't actually shadow
+    # Serializer.errors at runtime — mypy just can't see that.
+    errors = serializers.ListField(  # type: ignore[assignment]
         child=serializers.CharField(),
         help_text="The first few row-level problems, so the user can fix their file.",
     )
@@ -191,9 +192,11 @@ class MessagePreferencesViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         filename_suffix = (
             UNSAFE_FILENAME_CHARACTERS.sub("-", category_key).strip("-") if category_key else "all-marketing"
         )
-        response = StreamingHttpResponse(rows, content_type="text/csv")
-        response["Content-Disposition"] = f'attachment; filename="opt-outs-{filename_suffix or "category"}.csv"'
-        return response
+        return streaming_response(
+            rows,
+            content_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="opt-outs-{filename_suffix or "category"}.csv"'},
+        )
 
     @extend_schema(
         request={"multipart/form-data": ImportOptOutsCsvRequestSerializer},

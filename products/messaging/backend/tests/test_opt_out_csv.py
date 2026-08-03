@@ -1,6 +1,10 @@
+from collections.abc import Iterator
 from io import BytesIO
+from typing import cast
 
 from posthog.test.base import APIBaseTest
+
+from django.http import StreamingHttpResponse
 
 from parameterized import parameterized
 
@@ -36,7 +40,8 @@ class TestOptOutCsv(APIBaseTest):
     def _export(self, **params) -> str:
         response = self.client.get(f"{self.base_url}/export_opt_outs_csv/", params)
         self.assertEqual(response.status_code, 200)
-        return b"".join(response.streaming_content).decode("utf-8")
+        streamed = cast(StreamingHttpResponse, response).streaming_content
+        return b"".join(cast(Iterator[bytes], streamed)).decode("utf-8")
 
     @parameterized.expand(["identifier", "email", "recipient", "email_address"])
     def test_import_accepts_common_recipient_column_names(self, column: str):
