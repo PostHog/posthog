@@ -106,6 +106,20 @@ class TestCanvasSourceAdapter(SimpleTestCase):
                 ),
                 "too_many_files",
             ),
+            (
+                "too_many_assets",
+                project(
+                    assets={
+                        f"assets/{i}.png": {
+                            "encoding": "base64",
+                            "contentType": "image/png",
+                            "content": "",
+                        }
+                        for i in range(MAX_SOURCE_FILES)
+                    }
+                ),
+                "too_many_files",
+            ),
         ]
     )
     def test_invalid_projects_produce_error_diagnostics(self, _name, candidate, expected_code):

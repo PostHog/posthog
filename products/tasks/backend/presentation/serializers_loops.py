@@ -487,7 +487,9 @@ class LoopWriteSerializer(serializers.Serializer):
         context_target = attrs.get("context_target")
         if context_target:
             team_id = self.context["team"].id
-            if not loops_facade.context_channel_exists(team_id, context_target.get("channel_id")):
+            if not loops_facade.context_channel_exists(
+                team_id, context_target.get("channel_id"), self.context.get("user_id")
+            ):
                 raise serializers.ValidationError({"context_target": "Context channel not found for this team."})
             canvas_id = (context_target.get("outputs") or {}).get("canvas_id")
             if canvas_id and not loops_facade.context_canvas_exists(team_id, canvas_id):

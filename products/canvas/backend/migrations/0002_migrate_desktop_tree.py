@@ -82,13 +82,15 @@ def migrate_desktop_tree(apps, schema_editor):
         # 1. Top-level folders → channels. Deeper folders resolve through their
         # top-level ancestor; "Unfiled" is the tree's system folder, not a channel.
         channel_by_folder_id: dict[str, Any] = {}
-        channel_by_top_path: dict[str, Any] = {}
+        channel_by_top_path: dict[tuple[str, int | None], Any] = {}
         for folder in team_folders:
             top = re.split(r"(?<!\\)/", folder.path or "")[0]
             normalized = _normalize_channel_name(top.replace("\\/", "/"))
             if not normalized or normalized == "unfiled":
                 continue
-            channel = channel_by_top_path.get(top)
+            owner_key = folder.created_by_id if normalized == "me" else None
+            cache_key = (top, owner_key)
+            channel = channel_by_top_path.get(cache_key)
             if channel is None:
                 if normalized == "me" and folder.created_by_id:
                     channel, _ = Channel.objects.get_or_create(
@@ -106,12 +108,13 @@ def migrate_desktop_tree(apps, schema_editor):
                         deleted=False,
                         defaults={"created_by_id": folder.created_by_id},
                     )
-                channel_by_top_path[top] = channel
+                channel_by_top_path[cache_key] = channel
             channel_by_folder_id[str(folder.id)] = channel
 
-        def channel_for_path(path: str, _channels=channel_by_top_path):
+        def channel_for_path(path: str, owner_id: int | None, _channels=channel_by_top_path):
             top = re.split(r"(?<!\\)/", path or "")[0]
-            return _channels.get(top)
+            normalized = _normalize_channel_name(top.replace("\\/", "/"))
+            return _channels.get((top, owner_id if normalized == "me" else None))
 
         # 2. Dashboard rows → Canvas rows (UUIDs preserved).
         home_canvas_ids: set[str] = set()
@@ -127,7 +130,9 @@ def migrate_desktop_tree(apps, schema_editor):
         home_assigned: set = set()
         for row in team_dashboards:
             meta = row.meta or {}
-            channel = channel_by_folder_id.get(str(meta.get("channelId") or "")) or channel_for_path(row.path)
+            channel = channel_by_folder_id.get(str(meta.get("channelId") or "")) or channel_for_path(
+                row.path, row.created_by_id
+            )
             if channel is None:
                 counts["dashboard_skipped_no_channel"] += 1
                 continue
@@ -189,7 +194,7 @@ def migrate_desktop_tree(apps, schema_editor):
         # 4. Shortcuts (stars) → ChannelStar. Desktop shortcuts point at channel
         # folders by path (`ref`).
         for shortcut in FileSystemShortcut.objects.filter(team_id=team_id, surface="desktop"):
-            channel = channel_for_path(shortcut.ref or shortcut.path or "")
+            channel = channel_for_path(shortcut.ref or shortcut.path or "", shortcut.user_id)
             if channel is None or not shortcut.user_id:
                 counts["star_skipped_no_channel"] += 1
                 continue
@@ -204,7 +209,7 @@ def migrate_desktop_tree(apps, schema_editor):
         ):
             if not filing.ref:
                 continue
-            channel = channel_for_path(filing.path)
+            channel = channel_for_path(filing.path, filing.created_by_id)
             if channel is None:
                 counts["task_filing_skipped_no_channel"] += 1
                 continue

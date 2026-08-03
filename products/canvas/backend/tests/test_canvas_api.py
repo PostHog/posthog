@@ -226,11 +226,16 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         first = self._publish(canvas_id, expected_current_version_id=None)
         assert first.status_code == status.HTTP_200_OK
 
-        response = self._publish(canvas_id, expected_current_version_id=None)
+        response = self._publish(
+            canvas_id,
+            self._project("export default function C() { return 2 }"),
+            expected_current_version_id=None,
+        )
         assert response.status_code == status.HTTP_409_CONFLICT
         body = response.json()
         assert body["code"] == "version_conflict"
         assert body["current_version_id"] == first.json()["current_version_id"]
+        assert len(self.storage.objects) == 1
 
     def test_validation_errors_reject_publish(self):
         canvas_id = self._create_canvas()
@@ -279,6 +284,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             response = self._publish(canvas_id, expected_current_version_id=None)
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert not CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id).exists()
+        assert self.storage.objects == {}
 
     def test_edit_applies_operations_to_stored_head(self):
         canvas_id = self._create_canvas()

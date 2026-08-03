@@ -384,6 +384,15 @@ def publish_source_project(
     upload. Returns (canvas, version, build, first_publish). Raises
     CanvasVersionConflict, CanvasBuildCapacityExceeded, or ObjectStorageError.
     """
+    with transaction.atomic(), team_scope(canvas.team_id):
+        current = Canvas.objects.for_team(canvas.team_id).select_for_update().get(pk=canvas.pk)
+        current_id = str(current.current_source_version_id) if current.current_source_version_id else None
+        expected = str(expected_version_id) if expected_version_id else None
+        if has_expected_version and current_id != expected:
+            raise CanvasVersionConflict(current_id)
+        _lock_team_build_capacity(canvas.team_id)
+        _assert_build_capacity(canvas.team_id)
+
     key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
 
     with transaction.atomic(), team_scope(canvas.team_id):

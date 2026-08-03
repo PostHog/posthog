@@ -388,7 +388,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 name=name,
                 has_expected_version=has_expected_version,
                 expected_version_id=expected_version_id,
-                task_id=self._request_task_id(request),
+                task_id=self._sandbox_task_id(request),
                 created_by_id=user.id if user else None,
             )
         except build_service.CanvasVersionConflict as conflict:
@@ -505,7 +505,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task_id = self._request_task_id(request)
         if task_id is None or not self._is_sandbox_authenticated(request):
             return None
-        return task_id if tasks_facade.task_exists(task_id, self.team_id) else None
+        user = request.user if isinstance(request.user, User) else None
+        if user is None or not tasks_facade.task_owned_by_user(task_id, self.team_id, user.id):
+            return None
+        return task_id
 
     def _announce_canvas_created(self, request: Request, canvas: Canvas) -> None:
         """Announce a canvas's first publish in the generating task's thread.

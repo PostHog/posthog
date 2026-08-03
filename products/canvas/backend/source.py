@@ -11,6 +11,7 @@ can be exercised without a database and shared with the build worker.
 """
 
 import re
+import json
 from typing import Any
 
 from products.canvas.backend.contract import (
@@ -298,7 +299,8 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
         diagnostics.append(diagnostic("error", "invalid_entry", f'entryHtml must be "{CANVAS_ENTRY_HTML}"'))
 
     files = project.get("files") or {}
-    if len(files) > limits["maxSourceFiles"]:
+    assets = project.get("assets") or {}
+    if len(files) + len(assets) > limits["maxSourceFiles"]:
         diagnostics.append(
             diagnostic(
                 "error",
@@ -324,7 +326,7 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
                     path=path,
                 )
             )
-    for path, asset in (project.get("assets") or {}).items():
+    for path, asset in assets.items():
         path_problem = _validate_path(path)
         if path_problem is not None:
             diagnostics.append(diagnostic("error", "invalid_path", path_problem, path=path))
@@ -340,7 +342,8 @@ def validate_source_project(project: dict[str, Any]) -> list[dict[str, Any]]:
                     path=path,
                 )
             )
-    if total_bytes > limits["maxSourceTotalBytes"]:
+    canonical_size = len(json.dumps(project, separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    if total_bytes > limits["maxSourceTotalBytes"] or canonical_size > limits["maxSourceTotalBytes"]:
         diagnostics.append(
             diagnostic(
                 "error",

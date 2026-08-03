@@ -62,6 +62,15 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
         self.assertTrue(any(file["path"].endswith(".js") for file in files))
 
+    def test_runtime_uses_the_document_bound_message_port(self) -> None:
+        result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
+
+        runtime = next(file["content"] for file in result["files"] if file["path"] == "assets/canvas-runtime.js")
+        self.assertIn('event.data?.type!=="connect"', runtime)
+        self.assertIn("event.ports[0]", runtime)
+        self.assertIn("port.postMessage", runtime)
+        self.assertNotIn("parent.postMessage({channel,...message}", runtime)
+
     def test_freezes_declared_capabilities_into_manifest(self) -> None:
         project = self._project('document.body.textContent = "Hello"')
         project["capabilities"] = {

@@ -602,6 +602,10 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
 
 
+def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
+    return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
+
+
 def is_signal_report_task(task_id: str | UUID, team_id: int) -> bool:
     """Whether the task is a genuine Signals report task rather than a PostHog Code task.
 

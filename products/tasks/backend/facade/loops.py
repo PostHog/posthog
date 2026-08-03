@@ -642,12 +642,13 @@ def repository_accessible_via_integration(team_id: int, integration_id: int, ful
     return not inaccessible_repositories_via_integration(team_id, integration_id, [full_name])
 
 
-def context_channel_exists(team_id: int, channel_id: str) -> bool:
+def context_channel_exists(team_id: int, channel_id: str, user_id: int | None) -> bool:
     """Whether `channel_id` is a live channel in this team (loop context-attach validation)."""
     parsed = _parse_uuid(channel_id)
     if parsed is None:
         return False
-    return Channel.objects.filter(team_id=team_id, id=parsed, deleted=False).exists()
+    visible = ~Q(channel_type=Channel.ChannelType.PERSONAL) | Q(created_by_id=user_id)
+    return Channel.objects.filter(Q(team_id=team_id, id=parsed, deleted=False) & visible).exists()
 
 
 def context_canvas_exists(team_id: int, canvas_id: str) -> bool:

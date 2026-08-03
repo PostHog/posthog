@@ -15,6 +15,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import connection, transaction
+from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
@@ -168,7 +169,12 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
     channel_id = (loop.context_target or {}).get("channel_id")
     if not channel_id:
         return None
-    exists = Channel.objects.for_team(loop.team_id, canonical=True).filter(id=channel_id, deleted=False).exists()
+    visible = ~Q(channel_type=Channel.ChannelType.PERSONAL) | Q(created_by_id=loop.created_by_id)
+    exists = (
+        Channel.objects.for_team(loop.team_id, canonical=True)
+        .filter(Q(id=channel_id, deleted=False) & visible)
+        .exists()
+    )
     return str(channel_id) if exists else None
 
 

@@ -772,6 +772,23 @@ class LoopContextVisibilityAPITest(LoopsAPITestCase):
     def _context_target(self) -> dict:
         return {"channel_id": str(self.channel.id), "name": "Growth Team", "outputs": {"post_to_feed": True}}
 
+    def test_create_rejects_another_members_personal_channel(self):
+        channel = Channel.objects.create(
+            team=self.team,
+            name="me",
+            channel_type=Channel.ChannelType.PERSONAL,
+            created_by=self.peer,
+        )
+        target = {**self._context_target(), "channel_id": str(channel.id)}
+
+        response = self.owner_client.post(
+            self._loops_url(),
+            self._valid_loop_payload(visibility="team", context_target=target),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+
     @parameterized.expand(
         [
             ("personal", status.HTTP_400_BAD_REQUEST),
