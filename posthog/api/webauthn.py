@@ -353,7 +353,7 @@ class WebAuthnLoginViewSet(viewsets.ViewSet):
             if sso_enforcement_response := self._check_sso_enforcement(verified_user):
                 return sso_enforcement_response
 
-            if not is_email_verified_for_login(verified_user):
+            if not is_email_verified_for_login(verified_user, request=request):
                 return Response(
                     {
                         "error": (

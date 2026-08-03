@@ -139,6 +139,10 @@ function VerifyEmail(): JSX.Element {
                                 </div>
                                 <p className="mb-6">An email has been sent with a link to verify your email address.</p>
                                 <GetHelp />
+                                <p className="text-xs text-muted mt-6">
+                                    If you've already verified your email, then{' '}
+                                    <Link to={urls.login()}>log in here</Link>.
+                                </p>
                             </>
                         ) : view === 'verify' ? (
                             <>

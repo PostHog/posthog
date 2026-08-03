@@ -888,6 +888,20 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
+class LoginTriggeredEmailVerificationThrottle(UserOrEmailRateThrottle):
+    """
+    Rate limit verification emails sent as a side effect of a login attempt against an
+    unverified account.
+
+    `is_email_verified_for_login` resends the verification email on every matching login
+    attempt, so retrying a login a few times in a row would otherwise flood the inbox with
+    identical links instead of giving the user anywhere new to go.
+    """
+
+    scope = "login_triggered_email_verification"
+    rate = "1/2minutes"
+
+
 class OnboardingDelegationThrottle(UserRateThrottle):
     # Delegation sends PostHog-branded emails to caller-supplied recipients, so we cap it tightly
     # to prevent a compromised admin session (or a misbehaving integration) from using the endpoint

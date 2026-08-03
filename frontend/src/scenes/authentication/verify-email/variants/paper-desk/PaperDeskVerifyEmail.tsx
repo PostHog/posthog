@@ -213,15 +213,26 @@ function VerifyEmail(): JSX.Element {
         <PaperDeskScene notes={notes}>
             <PaperDeskCard
                 footer={
-                    <p className="mt-5 mb-0 text-sm text-secondary text-center">
-                        Wrong address?{' '}
-                        <Link
-                            to={urls.signup()}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
-                        >
-                            Start over →
-                        </Link>
-                    </p>
+                    <div className="mt-5 flex flex-col gap-1.5 text-sm text-secondary text-center">
+                        <p className="m-0">
+                            Already verified?{' '}
+                            <Link
+                                to={urls.login()}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Log in →
+                            </Link>
+                        </p>
+                        <p className="m-0">
+                            Wrong address?{' '}
+                            <Link
+                                to={urls.signup()}
+                                className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-warning"
+                            >
+                                Start over →
+                            </Link>
+                        </p>
+                    </div>
                 }
             >
                 <div className="flex flex-col items-center text-center">

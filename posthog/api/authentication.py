@@ -71,6 +71,7 @@ from posthog.passkey import generate_passkey_authentication_options, verify_pass
 from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
+    LoginTriggeredEmailVerificationThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -187,7 +188,7 @@ def get_safe_next_url(next_url: str | None, request: Request) -> str | None:
     return None
 
 
-def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
+def is_email_verified_for_login(user: User, next_url: str | None = None, request: Request | None = None) -> bool:
     """
     Send a verification email when the login policy requires it.
 
@@ -203,7 +204,12 @@ def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool
     if is_email_verification_disabled(user):
         return True
 
-    EmailVerifier.create_token_and_send_email_verification(user, next_url)
+    # Retrying a login a few times in a row (e.g. because the first verification email hasn't
+    # arrived yet) would otherwise resend an identical email on every attempt. Cap it so repeated
+    # attempts fall through to the same pending state without flooding the inbox.
+    if request is None or LoginTriggeredEmailVerificationThrottle().allow_request(request, None):  # type: ignore[arg-type]
+        EmailVerifier.create_token_and_send_email_verification(user, next_url)
+
     if user.is_email_verified is False:
         return False
 
@@ -325,7 +331,7 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        if not is_email_verified_for_login(user, next_url):
+        if not is_email_verified_for_login(user, next_url, request):
             raise serializers.ValidationError(
                 "Your account is awaiting verification. Please check your email for a verification link.",
                 code="not_verified",

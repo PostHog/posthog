@@ -245,6 +245,21 @@ class TestLoginAPI(APIBaseTest):
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user, None)
 
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    def test_email_unverified_user_login_does_not_resend_verification_email_on_repeat_attempts(
+        self, mock_send_email_verification, mock_is_email_available
+    ):
+        self.user.is_email_verified = False
+        self.user.save()
+
+        for _ in range(3):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "not_verified")
+
+        mock_send_email_verification.assert_called_once_with(self.user, None)
+
     @parameterized.expand(
         [
             # A relative `next` (e.g. an /oauth/authorize continuation) must be forwarded so the
