@@ -46,7 +46,6 @@ export function MetricsQueryNode(props: {
                 <MetricsSeriesChart
                     series={series.map((s) => ({ labels: s.labels, points: s.points, metricName: s.metricName }))}
                     fallbackName={fallbackName}
-                    className="flex flex-col w-full h-full"
                 />
             ) : !responseLoading ? (
                 <div className="flex-1 flex items-center justify-center text-secondary text-sm">
