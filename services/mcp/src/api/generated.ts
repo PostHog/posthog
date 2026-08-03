@@ -72617,6 +72617,10 @@ export namespace Schemas {
       runtime_adapter?: RuntimeAdapterEnum;
       model?: string;
       reasoning_effort?: ReasoningEffortEnum;
+      /** @nullable */
+      sandbox_environment_id?: string | null;
+      /** @nullable */
+      custom_image_id?: string | null;
       wake_on?: WakeOnEnum[];
     }
 

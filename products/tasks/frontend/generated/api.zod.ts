@@ -3040,6 +3040,8 @@ export const TasksSpawnCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
         ),
+    sandbox_environment_id: zod.uuid().nullish(),
+    custom_image_id: zod.uuid().nullish(),
     wake_on: zod.array(zod.enum(['pr_merged']).describe('\* `pr_merged` - pr_merged')).optional(),
 })
 

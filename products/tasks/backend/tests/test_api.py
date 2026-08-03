@@ -1030,6 +1030,16 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
             **overrides,
         }
 
+    def _bundle_entry(self, run, **overrides):
+        entry = {
+            "id": "abcdef0123456789abcdef0123456789",
+            "name": "my-skill.zip",
+            "type": "skill_bundle",
+            "storage_path": f"{run.get_artifact_s3_prefix()}/abcdef01_my-skill.zip",
+        }
+        entry.update(overrides)
+        return entry
+
     @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
     @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
     @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
@@ -1063,6 +1073,115 @@ class TestTaskSpawnAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.state["parent_task_id"], str(parent_run.task_id))
         self.assertEqual(run.state["wake_on"], ["pr_merged"])
+
+    @patch("posthog.storage.object_storage.tag")
+    @patch("posthog.storage.object_storage.copy")
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_copies_parent_skill_bundles(self, _flag, _gate, _trigger, copy, _tag):
+        parent_run = self._parent_run()
+        entry = self._bundle_entry(parent_run)
+        parent_run.artifacts = [entry]
+        parent_run.save(update_fields=["artifacts", "updated_at"])
+
+        response = self.client.post(self.url, self._payload(parent_run), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        child_run = Task.objects.get(id=response.json()["id"]).runs.get()
+        target = f"{child_run.get_artifact_s3_prefix()}/abcdef01_my-skill.zip"
+        copy.assert_called_once_with(entry["storage_path"], target)
+        self.assertEqual(child_run.artifacts[0]["storage_path"], target)
+
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_rejects_forged_parent_bundle_path_and_cleans_up(self, _flag, _gate):
+        parent_run = self._parent_run()
+        parent_run.artifacts = [self._bundle_entry(parent_run, storage_path="other-team/private.zip")]
+        parent_run.save(update_fields=["artifacts", "updated_at"])
+
+        with self.assertRaisesRegex(ValueError, "owning run"):
+            self.client.post(self.url, self._payload(parent_run), format="json")
+
+        self.assertTrue(Task.objects.get(title="Implement child").deleted)
+
+    @patch("posthog.storage.object_storage.copy", side_effect=RuntimeError("s3 down"))
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_bundle_copy_failure_cleans_up_without_starting(self, _flag, _gate, _copy):
+        parent_run = self._parent_run()
+        parent_run.artifacts = [self._bundle_entry(parent_run)]
+        parent_run.save(update_fields=["artifacts", "updated_at"])
+
+        with self.assertRaisesRegex(RuntimeError, "s3 down"):
+            self.client.post(self.url, self._payload(parent_run), format="json")
+
+        child = Task.objects.get(title="Implement child")
+        self.assertTrue(child.deleted)
+        self.assertEqual(child.runs.get().status, TaskRun.Status.NOT_STARTED)
+
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_copies_imported_mcp_servers_without_relayed_servers(self, _flag, _gate, _trigger):
+        parent_run = self._parent_run()
+        parent_run.imported_mcp_servers = [{"type": "http", "name": "docs", "url": "https://example.com"}]
+        parent_run.relayed_mcp_servers = [{"name": "local"}]
+        parent_run.save(update_fields=["imported_mcp_servers", "relayed_mcp_servers", "updated_at"])
+
+        response = self.client.post(self.url, self._payload(parent_run), format="json")
+
+        child_run = Task.objects.get(id=response.json()["id"]).runs.get()
+        self.assertEqual(child_run.imported_mcp_servers, parent_run.imported_mcp_servers)
+        self.assertIsNone(child_run.relayed_mcp_servers)
+
+    @patch("products.tasks.backend.facade.api._trigger_task_processing_workflow")
+    @patch("products.tasks.backend.presentation.views.api.cloud_usage_limit_response", return_value=None)
+    @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
+    def test_spawn_inherits_and_overrides_sandbox_environment(self, _flag, _gate, _trigger):
+        inherited = SandboxEnvironment.objects.create(team=self.team, created_by=self.user, name="Inherited")
+        override = SandboxEnvironment.objects.create(team=self.team, created_by=self.user, name="Override")
+        inherited_image = SandboxCustomImage.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Inherited image",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="inherited:latest",
+        )
+        override_image = SandboxCustomImage.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Override image",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="override:latest",
+        )
+        parent_run = self._parent_run(
+            state={
+                "sandbox_environment_id": str(inherited.id),
+                "custom_image_id": str(inherited_image.id),
+            }
+        )
+
+        inherited_response = self.client.post(
+            self.url, self._payload(parent_run, title="Inherited child"), format="json"
+        )
+        override_response = self.client.post(
+            self.url,
+            self._payload(
+                parent_run,
+                title="Override child",
+                sandbox_environment_id=str(override.id),
+                custom_image_id=str(override_image.id),
+            ),
+            format="json",
+        )
+
+        inherited_run = Task.objects.get(id=inherited_response.json()["id"]).runs.get()
+        override_run = Task.objects.get(id=override_response.json()["id"]).runs.get()
+        self.assertEqual(inherited_run.state["sandbox_environment_id"], str(inherited.id))
+        self.assertEqual(inherited_run.state["custom_image_id"], str(inherited_image.id))
+        self.assertEqual(override_run.state["sandbox_environment_id"], str(override.id))
+        self.assertEqual(override_run.state["custom_image_id"], str(override_image.id))
 
     @patch("products.tasks.backend.feature_flags.is_tasks_orchestration_enabled", return_value=True)
     def test_spawn_rejects_child_parent_run(self, _flag):

@@ -3710,6 +3710,10 @@ export interface TaskSpawnRequestApi {
     runtime_adapter?: RuntimeAdapterEnumApi
     model?: string
     reasoning_effort?: ReasoningEffortEnumApi
+    /** @nullable */
+    sandbox_environment_id?: string | null
+    /** @nullable */
+    custom_image_id?: string | null
     wake_on?: WakeOnEnumApi[]
 }
 
