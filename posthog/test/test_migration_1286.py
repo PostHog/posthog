@@ -9,8 +9,8 @@ from parameterized import parameterized
 
 
 class BackfillCimdVerificationTokenUrlMigrationTest(TestMigrations):
-    migrate_from = "1284_cimdverificationtoken_cimd_url"
-    migrate_to = "1285_backfill_cimd_verification_token_url"
+    migrate_from = "1285_cimdverificationtoken_cimd_url"
+    migrate_to = "1286_backfill_cimd_verification_token_url"
 
     CLASS_DATA_LEVEL_SETUP = False
 

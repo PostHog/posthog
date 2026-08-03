@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1283_alter_integration_kind"),
+        ("posthog", "1284_organization_enforce_verified_domains"),
     ]
 
     operations = [
