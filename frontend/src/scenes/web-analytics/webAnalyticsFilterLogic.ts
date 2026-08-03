@@ -210,7 +210,7 @@ export const webAnalyticsFilterLogic = kea<webAnalyticsFilterLogicType>([
                                     newValue = [...oldValue, value]
                                 }
                                 return {
-                                    type: PropertyFilterType.Event,
+                                    type,
                                     key,
                                     operator: PropertyOperator.Exact,
                                     value: newValue,
