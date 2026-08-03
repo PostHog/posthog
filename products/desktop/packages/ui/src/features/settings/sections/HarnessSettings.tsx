@@ -201,13 +201,13 @@ export function HarnessSettings() {
         label="Hooks"
         description={
           <SettingDescription
-            text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml"
+            text="Execute commands at specific points in Codex's lifecycle, defined in .codex/hooks.json or config.toml. Review them with /hooks inside a session"
             docsUrl="https://learn.chatgpt.com/docs/hooks"
           />
         }
         noBorder
       >
-        <CopyableCommand command="/hooks" />
+        <span />
       </SettingRow>
 
       {/* Permissions */}
