@@ -25,15 +25,15 @@ These are the tools that change state. Treat this as a map, not a spec: the tool
 current set and each tool's exact inputs by inspecting the tool itself (`posthog:exec info <tool>` /
 `posthog:exec schema <tool>`) rather than trusting an enumerated list here.
 
-| Tool                                       | Purpose                                                                                                                                                     |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `posthog:view-create`                      | Create (or upsert) a view from HogQL. Same `name` → updates the existing view.                                                                              |
-| `posthog:view-update`                      | Change name / query / description / sync frequency. Editing the query re-infers columns and needs the current `edited_history_id` (optimistic concurrency). |
-| `posthog:view-materialize`                 | Turn a virtual view into a materialized table + a sync schedule. Rate-limited.                                                                              |
-| `posthog:view-run` / `view-run-history`    | Trigger a materialization refresh now (must already be materialized) / read recent run statuses to debug failures.                                          |
-| `posthog:view-unmaterialize`               | Drop the physical table + schedule; keep the view definition as virtual.                                                                                    |
-| `posthog:view-delete`                      | Soft-delete a view. Refused if other views depend on it, or if it's owned by a managed viewset (e.g. `revenue_analytics_*`).                                |
-| `posthog:saved-query-column-annotations-*` | Attach human/agent-readable descriptions to the view and its columns (discoverability).                                                                     |
+| Tool                                            | Purpose                                                                                                                                                     |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog:view-create`                           | Create (or upsert) a view from HogQL. Same `name` → updates the existing view.                                                                              |
+| `posthog:view-update`                           | Change name / query / description / sync frequency. Editing the query re-infers columns and needs the current `edited_history_id` (optimistic concurrency). |
+| `posthog:view-materialize`                      | Turn a virtual view into a materialized table + a sync schedule. Rate-limited.                                                                              |
+| `posthog:view-run` / `posthog:view-run-history` | Trigger a materialization refresh now (must already be materialized) / read recent run statuses to debug failures.                                          |
+| `posthog:view-unmaterialize`                    | Drop the physical table + schedule; keep the view definition as virtual.                                                                                    |
+| `posthog:view-delete`                           | Soft-delete a view. Refused if other views depend on it, or if it's owned by a managed viewset (e.g. `revenue_analytics_*`).                                |
+| `posthog:saved-query-column-annotations-*`      | Attach human/agent-readable descriptions to the view and its columns (discoverability).                                                                     |
 
 ## The workflow
 
