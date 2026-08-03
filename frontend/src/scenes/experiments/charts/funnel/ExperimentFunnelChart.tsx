@@ -5,39 +5,25 @@ import {
     type FunnelStepClickData,
     RATE_TO_PERCENT,
     type Series,
-    type TooltipContext,
-    TooltipFooter,
-    TooltipSurface,
-    TooltipSwatch,
     funnelConversionRate,
 } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
-import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
-import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import {
-    ExperimentActorsQuery,
     ExperimentFunnelMetric,
     ExperimentFunnelMetricStep,
     ExperimentQuery,
     NewExperimentQueryResponse,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { EXPOSURE_DEFAULT_EVENT } from '~/scenes/experiments/exposureContract'
 import { getExperimentVariants, getVariantColor } from '~/scenes/experiments/utils'
 import { Experiment, StepOrderValue } from '~/types'
 
-interface VariantFunnelMeta {
-    variantKey: string
-    /** Absolute converted count per step; index 0 is the exposure count. */
-    counts: number[]
-}
+import { openExperimentPersonsModal } from './experimentPersonsModal'
+import { FunnelTooltip } from './FunnelTooltip'
+import { StepFooterCell } from './StepFooterCell'
+import type { VariantFunnelMeta } from './types'
 
 /** Step label at index 0 — the frontend-only step that precedes the backend's step numbering. */
 const EXPOSURE_STEP_LABEL = 'Experiment exposure'
@@ -61,173 +47,6 @@ function getStepName(step: ExperimentFunnelMetricStep | undefined, stepNumber: n
         return step.custom_name || step.name || step.table_name || `Step ${stepNumber}`
     }
     return `Step ${stepNumber}`
-}
-
-/**
- * `funnelStep` for the actors query behind a click on frontend step `stepIndex`, or null when the
- * click isn't queryable. The frontend prepends an "Experiment exposure" step at index 0 that the
- * backend actors funnel doesn't have, so frontend index N maps to backend step number N, negated
- * for drop-offs. The exposure step itself can't be queried, and neither can drop-offs at the first
- * metric step ("exposed but never entered the funnel").
- */
-export function experimentActorsFunnelStep(stepIndex: number, converted: boolean): number | null {
-    if (stepIndex < 1 || (!converted && stepIndex === 1)) {
-        return null
-    }
-    return converted ? stepIndex : -stepIndex
-}
-
-function openExperimentPersonsModal({
-    stepIndex,
-    stepName,
-    converted,
-    variantKey,
-    orderType,
-    experimentQuery,
-    experiment,
-}: {
-    stepIndex: number
-    stepName: string
-    converted: boolean
-    variantKey: string
-    orderType?: StepOrderValue
-    experimentQuery: ExperimentQuery
-    experiment: Experiment
-}): void {
-    const funnelStep = experimentActorsFunnelStep(stepIndex, converted)
-    if (funnelStep == null) {
-        return
-    }
-
-    const query: ExperimentActorsQuery = {
-        kind: NodeKind.ExperimentActorsQuery,
-        source: experimentQuery,
-        funnelStep,
-        funnelStepBreakdown: variantKey,
-        includeRecordings: true,
-        exposureConfig: experiment.exposure_criteria?.exposure_config || {
-            kind: NodeKind.ExperimentEventExposureConfig,
-            event: EXPOSURE_DEFAULT_EVENT,
-            properties: [],
-        },
-        multipleVariantHandling: experiment.exposure_criteria?.multiple_variant_handling || 'exclude',
-        featureFlagKey: experiment.feature_flag?.key || '',
-    }
-
-    openPersonsModal({
-        title: funnelTitle({
-            converted,
-            step: stepIndex + 1,
-            breakdown_value: variantKey,
-            label: stepName,
-            order_type: orderType,
-        }),
-        query,
-        additionalSelect: { matched_recordings: 'matched_recordings' },
-    })
-}
-
-function TooltipRow({ label, value }: { label: string; value: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex items-center justify-between gap-4">
-            <span className="opacity-60">{label}</span>
-            <strong className="tabular-nums">{value}</strong>
-        </div>
-    )
-}
-
-/** Tooltip for the hovered variant's bar: its counts at this step and how it converted into it. */
-function FunnelTooltip({
-    ctx,
-    steps,
-    showClickHint,
-}: {
-    ctx: TooltipContext<VariantFunnelMeta>
-    steps: string[]
-    showClickHint: boolean
-}): JSX.Element | null {
-    const entry = ctx.seriesData.find((e) => e.series.key === ctx.hoveredSeriesKey) ?? ctx.seriesData[0]
-    const meta = entry?.series.meta
-    if (!entry || !meta) {
-        return null
-    }
-    const stepIndex = ctx.dataIndex
-    const count = meta.counts[stepIndex] ?? 0
-    const previousCount = stepIndex > 0 ? (meta.counts[stepIndex - 1] ?? 0) : null
-    return (
-        <TooltipSurface>
-            <div className="flex items-center gap-2 font-semibold mb-1">
-                <TooltipSwatch color={entry.color} />
-                <span className="truncate">
-                    {steps[stepIndex]} · {meta.variantKey}
-                </span>
-            </div>
-            <TooltipRow label={stepIndex === 0 ? 'Entered' : 'Converted'} value={humanFriendlyNumber(count)} />
-            {previousCount != null && (
-                <>
-                    <TooltipRow label="Dropped off" value={humanFriendlyNumber(Math.max(previousCount - count, 0))} />
-                    <TooltipRow
-                        label="Conversion so far"
-                        value={percentage(funnelConversionRate(count, meta.counts[0] ?? 0), 2, true)}
-                    />
-                    <TooltipRow
-                        label="Conversion from previous"
-                        value={percentage(funnelConversionRate(count, previousCount), 2, true)}
-                    />
-                </>
-            )}
-            {showClickHint && stepIndex > 0 && <TooltipFooter>Click to view users</TooltipFooter>}
-        </TooltipSurface>
-    )
-}
-
-/** One cell of the per-step legend below the plot, pixel-aligned under that step's bars. */
-function StepFooterCell({
-    stepIndex,
-    steps,
-    stepTotals,
-}: {
-    stepIndex: number
-    steps: string[]
-    stepTotals: number[]
-}): JSX.Element {
-    const label = steps[stepIndex]
-    const count = stepTotals[stepIndex]
-    const previousCount = stepIndex > 0 ? stepTotals[stepIndex - 1] : null
-    const droppedOff = previousCount != null ? Math.max(previousCount - count, 0) : 0
-    const droppedOffRate = previousCount ? 1 - funnelConversionRate(count, previousCount) : 0
-    return (
-        <div className="flex flex-col gap-1 px-1 py-2 text-xs">
-            <div className="flex items-center gap-1.5 font-medium">
-                <Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />
-                <span className="truncate" title={label}>
-                    {label}
-                </span>
-            </div>
-            <Tooltip title="Users who completed this step, with conversion rate relative to the first step">
-                <div className="flex items-center gap-1.5">
-                    <IconTrendingFlat className="text-success shrink-0" />
-                    <span>
-                        {pluralize(count, 'user')}{' '}
-                        <span className="text-secondary">
-                            ({percentage(funnelConversionRate(count, stepTotals[0]), 2)})
-                        </span>
-                    </span>
-                </div>
-            </Tooltip>
-            {previousCount != null && (
-                <Tooltip title="Users who didn't complete this step, with drop-off rate relative to the previous step">
-                    <div className="flex items-center gap-1.5">
-                        <IconTrendingFlatDown className="text-danger shrink-0" />
-                        <span>
-                            {pluralize(droppedOff, 'user')}{' '}
-                            <span className="text-secondary">({percentage(droppedOffRate, 2)})</span>
-                        </span>
-                    </div>
-                </Tooltip>
-            )}
-        </div>
-    )
 }
 
 /** Experiment funnel metric results as a quill-charts funnel — one band per step, one bar per variant. */
