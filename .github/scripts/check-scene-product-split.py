@@ -4,18 +4,18 @@
 CI guard: a product's frontend belongs in ``products/<name>/frontend/``, not in
 ``frontend/src/scenes/<name>/``.
 
-Seventeen products exist as a directory under ``products/`` while their UI still
-lives under ``frontend/src/scenes/``. That split has a concrete cost beyond tidiness:
-``.github/scripts/trunk-impacted-targets.js`` assigns merge-queue lanes by path, and
-a change anywhere under ``frontend/`` reports ``fe:core`` plus every ``fe:product:*``
-target — 80 targets, so the PR serializes against every other frontend PR. A change
-confined to ``products/<name>/frontend/`` reports only ``fe:product:<name>``.
+Some products exist as a directory under ``products/`` while their UI still lives
+under ``frontend/src/scenes/``. That split has a cost beyond tidiness:
+``.github/scripts/trunk-impacted-targets.js`` assigns merge-queue lanes by path, so a
+change anywhere under ``frontend/`` reports ``fe:core`` plus every ``fe:product:*``
+target and serializes against every other frontend PR. A change confined to
+``products/<name>/frontend/`` reports only ``fe:product:<name>``.
 
-A dependency graph does not fix this. The frontend module graph has a 2226-module
-strongly connected component (27% of it, spanning 31 products), so reverse-reachability
-from any file under ``frontend/src`` reaches ~73 products regardless of what changed.
-Path is the only signal that discriminates, which makes the directory a real boundary
-rather than a stylistic preference.
+A dependency graph cannot replace the path signal. The frontend module graph contains
+a large strongly connected component spanning many products, and every member of an
+SCC has identical reverse-reachability by definition, so the closure from a file under
+``frontend/src`` reaches most products no matter what changed. That makes the directory
+a real boundary rather than a stylistic preference.
 
 Two tiers, both derived mechanically from the tree so there is nothing to curate:
 
@@ -25,22 +25,22 @@ Two tiers, both derived mechanically from the tree so there is nothing to curate
     home, so growing the scenes/ copy is backsliding. Growth fails CI.
 
 ``observe``
-    The migration hasn't reached halfway. Growth is reported, not failed — a hard
-    gate here would block ~86 files/month of legitimate work in trees nobody has
+    The migration hasn't reached halfway. Growth is reported, not failed, because a
+    hard gate here would block a steady stream of legitimate work in trees nobody has
     started moving. A dir promotes itself to ``enforce`` once the migration passes
     halfway; no one has to remember to flip it.
 
 Files under a ``generated/`` directory don't count toward either side: orval writes
 those, so they'd otherwise tip a product into ``enforce`` before a human moved anything.
 
-A new top-level scene dir fails when ``products/<name>/`` already exists — a product's
-UI started in the wrong tree and the destination is unambiguous. A new dir with no
-counterpart only warns: settings, onboarding, billing and friends are app-level scenes
-with nowhere else to go, and guessing which of those should have been a product is
-exactly the judgement call a linter should not be making.
+A new top-level scene dir fails when ``products/<name>/`` already exists, because the
+destination is then unambiguous. A new dir with no counterpart only warns: settings,
+onboarding, billing and friends are app-level scenes with nowhere else to go, and
+guessing which of those should have been a product is exactly the judgment call a
+linter should not be making.
 
-The baseline is the mechanical output of ``--regenerate-baseline`` — do not hand
-edit it, or it degrades into a curated allowlist.
+The baseline is the mechanical output of ``--regenerate-baseline``. Hand editing it
+degrades it into a curated allowlist.
 
 Usage:
     python .github/scripts/check-scene-product-split.py
@@ -249,7 +249,7 @@ def main() -> int:
                     f"     - {d.name}/  {was} -> {d.scene_files} files  ({d.product_files} already in {d.destination})"
                 )
 
-        print("\n  A change under frontend/ reports all 80 merge-queue targets and serializes")
+        print("\n  A change under frontend/ reports every merge-queue target and serializes")
         print("  against every other frontend PR. A change under products/<name>/frontend/")
         print("  reports one. See products/README.md for product frontend layout.")
         print("\n  If a file genuinely cannot move yet, say why in the PR and regenerate:")
@@ -265,11 +265,14 @@ def main() -> int:
         print("  and `bin/hogli product:bootstrap <name>`. Regenerate to record it either way.")
 
     if grew_observed:
-        print(f"\n  ⚠️  {len(grew_observed)} unmigrated tree(s) grew (not failing — migration hasn't reached halfway):")
+        print(f"\n  ⚠️  {len(grew_observed)} scene tree(s) grew (not failing):")
         for d, was in grew_observed:
-            print(
-                f"     - {d.name}/  {was} -> {d.scene_files} files  (destination {d.destination} has {d.product_files})"
+            where = (
+                f"destination {d.destination} has {d.product_files}, so the migration hasn't reached halfway"
+                if d.product
+                else "app-level scene, no product counterpart"
             )
+            print(f"     - {d.name}/  {was} -> {d.scene_files} files  ({where})")
         print("\n  Regenerate to bank the new count, or move the files instead.")
 
     if shrank:
