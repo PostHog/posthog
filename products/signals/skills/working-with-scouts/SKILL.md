@@ -34,16 +34,18 @@ Three sibling skills carry the mechanics — reach for them when a workflow belo
 ## First: is the fleet running?
 
 Don't delegate to a fleet that isn't there.
-`posthog:scout-config-list` is the authoritative roster — one row per scout with its schedule, `enabled`, `emit` posture, and `description`.
+Two reads answer it: `posthog:scout-metadata-get` says whether the project is **enrolled** to run scouts at all, and `posthog:scout-config-list` is the roster — one row per scout with its schedule, `enabled`, `emit` posture, and `description`.
+Check enrollment first, whatever the roster shows — config rows outlive enrollment, so a drained project can carry a roster of enabled scouts that never run (stale `last_run_at` across the board is the tell).
 (Scout tools were recently renamed from `signals-scout-*` to `scout-*`; if a `scout-*` name comes back unknown, try the legacy `signals-scout-*` name.)
 
-- **Empty roster** — check enrollment before concluding anything: `posthog:scout-metadata-get` says whether the project is enrolled to run scouts.
-  Not enrolled: point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/code) onboarding rather than inventing activity.
-  Enrolled but empty: the project is likely newly enrolled and awaiting its first coordinator tick (configs auto-register then) — say so instead of re-sending them through onboarding.
-- **Rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
+- **Not enrolled** — point the user at the Signals scout settings / [PostHog Desktop](https://posthog.com/code) onboarding rather than inventing activity.
+- **Enrolled, empty roster** — likely newly enrolled and awaiting the first coordinator tick (configs auto-register then); say so instead of re-sending the user through onboarding.
+- **Enrolled, rows exist** — note each scout's `enabled`, `emit` (`false` = dry-run: it runs but writes nothing), and `status` / `pause_reason`.
   A paused or dry-run scout explains most "scouts aren't doing anything" complaints before any deeper digging.
+  Also check `emit_eligibility` on `posthog:scout-project-profile-get`: when `can_emit` is false (the org hasn't approved AI processing, or the `signals_scout` source is disabled), every scout write is silently dropped even on an enabled `emit: true` scout — surface its `remediation` line before promising coverage.
 
 The `description` on each row says what that scout watches — scan it to answer "which scout covers X?" without loading any skill bodies.
+(A row with an empty description is usually an orphan whose skill was since deleted — it can't run, so don't count it as coverage.)
 PostHog ships specialists for most product surfaces (error tracking, logs, web analytics, AI observability, experiments, feature flags, session replay, surveys, revenue, and more) plus a cross-product generalist, and teams add custom `signals-scout-*` skills beyond that.
 
 ## The working loop
@@ -133,7 +135,8 @@ Some feedback loops run on their own — knowing they exist changes how you work
 A fleet left alone drifts; a fleet reviewed occasionally compounds.
 Every few weeks (or when someone says "are the scouts even worth it?"), run a calibration pass:
 
-1. **Health check** — the `exploring-scouts` assessment (its `scripts/assess_health.py` does the heavy lifting): cadence adherence, success rate, report rate, signal-to-noise, memory growth.
+1. **Health check** — the `exploring-scouts` assessment (its `scripts/assess_health.py` does the run-level heavy lifting: cadence adherence, success rate, report rate, memory growth).
+   Two blind spots to cover yourself: the script only assesses scouts with runs in the window, so walk the roster for enabled scouts with no recent run rows (often the most broken ones); and it counts report writes, not outcomes, so judge signal-to-noise by resolving written reports via `inbox-reports-list` and reading their statuses.
    Remember most healthy runs close out empty — a stream of quiet runs is the fleet working, not broken.
 2. **Review the fleet's asks** — sweep `scout-scratchpad-search {"text": "improve:"}` and the `Scout self-improvement:` inbox reports; apply the re-confirmed ones.
    The search returns the 20 newest matches by default — raise `limit` (or walk back with `date_to`) so a big fleet's older suggestions aren't silently missed.

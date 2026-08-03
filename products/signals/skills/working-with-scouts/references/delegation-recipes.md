@@ -18,7 +18,7 @@ A new custom event ("`checkout_v2_completed`", "`ai_summary_generated`") that no
 
 Almost always already covered — the canonical fleet ships anomaly watchers for error tracking, logs, web analytics, and most other surfaces.
 
-1. Find the specialist in `scout-config-list` and confirm it's `enabled` with `emit: true`.
+1. Find the specialist in `scout-config-list` and confirm it's `enabled` with `emit: true` — and that the project can emit at all (`emit_eligibility.can_emit` on `scout-project-profile-get`; when false, writes are silently dropped fleet-wide).
 2. If the ask has a specific edge ("especially the checkout service", "only production"), leave the scout a **note** with that focus.
 3. Only escalate to a skill edit if the scout structurally can't see what you care about (wrong threshold, missing disqualifier) — and it keeps proving that across runs.
 
