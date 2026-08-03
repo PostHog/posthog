@@ -107,7 +107,6 @@ from products.notifications.backend.facade.api import (
 from products.tasks.backend.facade import api as tasks_facade
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
-from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
 
@@ -3903,6 +3902,10 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        from ee.hogai.context.experiment.format import (
+            ExperimentTimeseriesFormatter,  # noqa: PLC0415 — keeps the heavy ee.hogai/langgraph chain off the import path
+        )
+
         response["formatted_results"] = ExperimentTimeseriesFormatter(response).format()
         return response
 
