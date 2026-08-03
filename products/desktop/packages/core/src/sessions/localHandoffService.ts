@@ -27,12 +27,23 @@ export interface LocalHandoffHost {
     folderPath: string;
     remoteUrl?: string;
   }): Promise<unknown>;
+  getWorktreeLocation(): Promise<string>;
+  cloneRepository(input: {
+    repoUrl: string;
+    targetPath: string;
+    cloneId: string;
+  }): Promise<unknown>;
+  addAdditionalDirectory(input: {
+    taskId: string;
+    path: string;
+  }): Promise<void>;
 }
 
 export interface LocalHandoffPending {
   taskId: string;
   repoPath: string;
   branchName: string | null;
+  repositoryPaths?: Record<string, string>;
 }
 
 export interface ContinueAfterDirtyTreeContext {
@@ -98,11 +109,23 @@ export class LocalHandoffService {
 
   public async start(taskId: string, task: Task): Promise<void> {
     try {
+      const repositories = task.repositories?.length
+        ? task.repositories
+        : task.repository
+          ? [task.repository]
+          : [];
+      const repositoryPaths = await this.resolveRepositoryPaths(repositories);
+      const paths = Object.values(repositoryPaths);
       const targetPath =
-        (await this.resolveRepoPathFromRemote(task.repository)) ??
-        (await this.resolveRepoPathFromPicker(task.repository));
+        paths[0] ?? (await this.resolveRepoPathFromPicker(task.repository));
 
       if (!targetPath) return;
+
+      await Promise.all(
+        paths
+          .slice(1)
+          .map((path) => this.host.addAdditionalDirectory({ taskId, path })),
+      );
 
       const preflight = await this.sessionService.preflightToLocal(
         taskId,
@@ -111,7 +134,11 @@ export class LocalHandoffService {
 
       if (preflight.canHandoff) {
         this.closeConfirm();
-        await this.sessionService.handoffToLocal(taskId, targetPath);
+        await this.sessionService.handoffToLocal(
+          taskId,
+          targetPath,
+          repositoryPaths,
+        );
         return;
       }
 
@@ -120,6 +147,7 @@ export class LocalHandoffService {
           taskId,
           repoPath: targetPath,
           branchName: preflight.localGitState?.branch ?? null,
+          repositoryPaths,
         });
         return;
       }
@@ -162,6 +190,7 @@ export class LocalHandoffService {
       await this.sessionService.handoffToLocal(
         pending.taskId,
         pending.repoPath,
+        pending.repositoryPaths,
       );
     } catch (error) {
       this.notifier.logError("Failed to resume handoff to local", error);
@@ -178,6 +207,31 @@ export class LocalHandoffService {
       remoteUrl,
     });
     return repo?.path ?? null;
+  }
+
+  private async resolveRepositoryPaths(
+    repositories: string[],
+  ): Promise<Record<string, string>> {
+    if (repositories.length === 0) return {};
+    const cloneRoot = `${(await this.host.getWorktreeLocation()).replace(/\/$/, "")}/linked-repositories`;
+    const paths = await Promise.all(
+      repositories.map(async (repository) => {
+        const existing = await this.resolveRepoPathFromRemote(repository);
+        if (existing) return [repository.toLowerCase(), existing] as const;
+        const targetPath = `${cloneRoot}/${repository.toLowerCase()}`;
+        await this.host.cloneRepository({
+          repoUrl: repository,
+          targetPath,
+          cloneId: globalThis.crypto.randomUUID(),
+        });
+        await this.host.addFolder({
+          folderPath: targetPath,
+          remoteUrl: repository,
+        });
+        return [repository.toLowerCase(), targetPath] as const;
+      }),
+    );
+    return Object.fromEntries(paths);
   }
 
   private async resolveRepoPathFromPicker(

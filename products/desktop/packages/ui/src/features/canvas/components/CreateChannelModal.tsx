@@ -15,9 +15,11 @@ import {
   Textarea,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
+import { useUpdateTaskChannelRepositories } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { useNavigate } from "@tanstack/react-router";
@@ -56,11 +58,18 @@ export function CreateChannelModal({
   const spacesLayout = useChannelsLayout();
   const { createChannel, isCreating } = useChannelMutations();
   const { generate, isStarting } = useGenerateContext();
+  const linkRepositories = useUpdateTaskChannelRepositories();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  // Repositories to link to the new space, chosen in the optional step. They
+  // must share one GitHub integration, tracked alongside the selection.
+  const [repositories, setRepositories] = useState<string[]>([]);
+  const [repoIntegration, setRepoIntegration] = useState<number | null>(null);
   // Create mode's step. Describe mode has no name step, so it starts past it.
-  const [step, setStep] = useState<"name" | "describe">("name");
+  const [step, setStep] = useState<"name" | "describe" | "repositories">(
+    "name",
+  );
 
   // Reset the fields each time the modal opens so a previous draft never
   // lingers. Adjusted inline during render (prev-prop comparison) rather than in
@@ -71,6 +80,8 @@ export function CreateChannelModal({
     if (open) {
       setName("");
       setDescription("");
+      setRepositories([]);
+      setRepoIntegration(null);
       setStep("name");
     }
   }
@@ -80,10 +91,10 @@ export function CreateChannelModal({
   const remaining = MAX_CONTEXT_NAME_LENGTH - name.length;
   const nameError = isDescribeMode ? null : validateChannelName(trimmedName);
 
-  const busy = isCreating || isStarting;
+  const busy = isCreating || isStarting || linkRepositories.isPending;
   const canAdvance = !busy && !!trimmedName && !nameError;
-  // "Create" seeds the plan session, so it needs the description; "Skip" is the
-  // way through without one.
+  // Describe mode's "Create" seeds the plan session, so it needs a description.
+  // In create mode the description is optional (the space just skips context.md).
   const canDescribe = !busy && !!trimmedDescription;
 
   // `busy` only disables the buttons a render after the mutation starts, so a
@@ -103,8 +114,9 @@ export function CreateChannelModal({
 
   // Create the channel and land in its feed — the intro (name, creation line,
   // context.md card) and "joined" row there are derived from the channel row.
-  // With a description, also launch the plan session that builds context.md.
-  const submitCreate = async (withContextMd: boolean) => {
+  // Repositories link when the repositories step's "Create" is used (not
+  // "Skip"), and a non-empty description always seeds the context.md session.
+  const submitCreate = async ({ withRepos }: { withRepos: boolean }) => {
     let contextId: string;
     try {
       const channel = await createChannel(trimmedName);
@@ -127,7 +139,24 @@ export function CreateChannelModal({
       return;
     }
 
-    if (withContextMd && trimmedDescription) {
+    // Link the chosen repositories to the fresh space. The space already
+    // exists, so a failure here only warns — the user can retry from its
+    // context page.
+    if (withRepos && repositories.length > 0) {
+      try {
+        await linkRepositories.mutateAsync({
+          channelId: contextId,
+          githubIntegration: repoIntegration,
+          repositories,
+        });
+      } catch (error) {
+        toast.error("Couldn't link repositories", {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    if (trimmedDescription) {
       track(ANALYTICS_EVENTS.CONTEXT_ACTION, {
         action_type: "generate_started",
         channel_id: contextId,
@@ -174,14 +203,15 @@ export function CreateChannelModal({
     });
   };
 
-  // The description step's primary action: seed context.md, for a channel that
-  // already exists (describe mode) or one this dialog is about to create.
+  // The description step's primary action. Describe mode seeds context.md for an
+  // existing channel; create mode advances to the optional repositories step
+  // (the description is optional, so this never blocks on it).
   const submitDescribeStep = async () => {
-    if (!canDescribe) return;
     if (isDescribeMode) {
+      if (!canDescribe) return;
       await submitDescribe();
-    } else {
-      await submitCreate(true);
+    } else if (!busy) {
+      setStep("repositories");
     }
   };
 
@@ -321,12 +351,12 @@ export function CreateChannelModal({
           </Button>
         </DialogFooter>
 
-        {/* Step two, nested inside step one rather than replacing it: quill
-            scales and dims a parent that has a nested dialog open, so the name
-            step stays visible behind — the stack is the affordance that says
-            there's another step. Dismissing it (Escape) returns here. */}
+        {/* Step two (About), nested inside step one rather than replacing it:
+            quill scales and dims a parent that has a nested dialog open, so the
+            name step stays visible behind. It stays open behind the optional
+            repositories step too, so the stack reads first-on-top. */}
         <Dialog
-          open={step === "describe"}
+          open={step === "describe" || step === "repositories"}
           onOpenChange={(next) => {
             if (!busy && !next) setStep("name");
           }}
@@ -353,24 +383,93 @@ export function CreateChannelModal({
             </DialogBody>
 
             <DialogFooter>
-              {/* Skip still creates the channel — it only forgoes the
-                  context.md, which the channel's intro card offers later. */}
               <Button
-                variant="default"
+                variant="outline"
                 disabled={busy}
-                onClick={() => void submitOnce(() => submitCreate(false))}
+                onClick={() => setStep("name")}
               >
-                Skip
+                Back
               </Button>
+              {/* The description is optional; Next always advances to the
+                  repositories step and a filled description seeds context.md. */}
               <Button
                 variant="primary"
-                disabled={!canDescribe}
-                loading={busy}
+                disabled={busy}
                 onClick={() => void submitOnce(submitDescribeStep)}
               >
-                Create
+                Next
               </Button>
             </DialogFooter>
+
+            {/* Step three (Repositories, optional), nested inside step two. */}
+            <Dialog
+              open={step === "repositories"}
+              onOpenChange={(next) => {
+                if (!busy && !next) setStep("describe");
+              }}
+            >
+              <DialogContent
+                showCloseButton={false}
+                className="sm:max-w-lg"
+                style={
+                  {
+                    "--quill-dialog-top-gap": "max(1rem, 10vh + 3rem)",
+                  } as CSSProperties
+                }
+              >
+                <DialogHeader>
+                  <DialogTitle>Link repositories</DialogTitle>
+                </DialogHeader>
+
+                <DialogBody viewportClassName="flex flex-col gap-3">
+                  <p className="text-[13px] text-muted-foreground">
+                    New tasks in this {spacesLayout ? "space" : "channel"} can
+                    work across these repositories. You can change them later.
+                  </p>
+                  <RepositoriesField
+                    selected={repositories}
+                    integrationId={repoIntegration}
+                    disabled={busy}
+                    onChange={(nextRepositories, nextIntegration) => {
+                      setRepositories(nextRepositories);
+                      setRepoIntegration(nextIntegration);
+                    }}
+                  />
+                </DialogBody>
+
+                <DialogFooter>
+                  <Button
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => setStep("describe")}
+                  >
+                    Back
+                  </Button>
+                  {/* Skip creates the space without linking repos; Create links
+                      the selected ones. Either way a description seeds
+                      context.md. */}
+                  <Button
+                    variant="default"
+                    disabled={busy}
+                    onClick={() =>
+                      void submitOnce(() => submitCreate({ withRepos: false }))
+                    }
+                  >
+                    Skip
+                  </Button>
+                  <Button
+                    variant="primary"
+                    disabled={busy || repositories.length === 0}
+                    loading={busy}
+                    onClick={() =>
+                      void submitOnce(() => submitCreate({ withRepos: true }))
+                    }
+                  >
+                    Create
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </DialogContent>
         </Dialog>
       </DialogContent>

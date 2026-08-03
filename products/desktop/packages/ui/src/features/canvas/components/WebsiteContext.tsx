@@ -1,4 +1,8 @@
-import { FileTextIcon, SparkleIcon } from "@phosphor-icons/react";
+import {
+  FileTextIcon,
+  GitBranchIcon,
+  SparkleIcon,
+} from "@phosphor-icons/react";
 import { FolderInstructionsConflictError } from "@posthog/api-client/posthog-client";
 import { buildContextSaveProps } from "@posthog/core/canvas/canvasAnalytics";
 import {
@@ -11,9 +15,11 @@ import {
   Button as QuillButton,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import type { TaskChannel } from "@posthog/shared/domain-types";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { CreateChannelModal } from "@posthog/ui/features/canvas/components/CreateChannelModal";
 import { channelPageIcon } from "@posthog/ui/features/canvas/components/channelPages";
+import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import {
@@ -21,6 +27,10 @@ import {
   useFolderInstructionsMutations,
   useFolderInstructionsVersions,
 } from "@posthog/ui/features/canvas/hooks/useFolderInstructions";
+import {
+  useBackendChannel,
+  useUpdateTaskChannelRepositories,
+} from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import {
@@ -68,6 +78,7 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
   const channelName =
     channels.find((c) => c.id === channelId)?.name ??
     (spacesLayout ? "Space" : "Channel");
+  const { channel: backendChannel } = useBackendChannel(channelName);
 
   const {
     data: latest,
@@ -179,11 +190,6 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           <PageHeaderHeading>
             <PageHeaderTitleRow>
               <PageHeaderTitle>Context</PageHeaderTitle>
-              {latest?.version != null && (
-                <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
-                  v{latest.version}
-                </PageHeaderChip>
-              )}
             </PageHeaderTitleRow>
             <PageHeaderDescription>
               Background every agent working in this{" "}
@@ -193,102 +199,109 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
           </PageHeaderHeading>
         </PageHeader>
       )}
-      <Flex
-        align="center"
-        justify="between"
-        gap="3"
-        px="4"
-        py="2"
-        className="shrink-0 border-b border-b-(--gray-5)"
-      >
-        <Flex align="center" gap="3">
-          <SegmentedControl.Root
-            value={mode}
-            onValueChange={(value) => setMode(value as Mode)}
-            size="1"
-          >
-            <SegmentedControl.Item value="rendered">
-              Rendered
-            </SegmentedControl.Item>
-            <SegmentedControl.Item value="edit">Edit</SegmentedControl.Item>
-          </SegmentedControl.Root>
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4 px-6 py-4">
+        {spacesLayout && backendChannel ? (
+          <>
+            <SpaceRepositories channel={backendChannel} />
+            <div className="border-gray-5 border-t" />
+          </>
+        ) : null}
 
-          {/* Background-refetch indicator: the initial load uses the full-screen
-              spinner below; this only fires on revalidations (every mount, plus
-              after publish/delete invalidations) so the user knows the view is
-              live and not just stale cache. */}
-          {isFetchingLatest && !isLoadingLatest ? (
-            <Flex align="center" gap="1">
-              <Spinner size="1" />
-              <Text className="text-[12px] text-gray-10">Refreshing…</Text>
-            </Flex>
-          ) : null}
-
-          {versions.length > 0 ? (
-            <Select.Root
+        <Flex align="center" justify="between" gap="3" wrap="wrap">
+          <Flex align="center" gap="2">
+            <FileTextIcon size={15} className="text-gray-11" />
+            <Text size="2" weight="medium">
+              CONTEXT.md
+            </Text>
+            {latest?.version != null && (
+              <PageHeaderChip icon={channelPageIcon("context", { size: 12 })}>
+                v{latest.version}
+              </PageHeaderChip>
+            )}
+            {/* Background-refetch indicator: the initial load uses the
+                full-screen spinner; this only fires on revalidations so the
+                user knows the view is live, not stale cache. */}
+            {isFetchingLatest && !isLoadingLatest ? (
+              <Flex align="center" gap="1">
+                <Spinner size="1" />
+                <Text className="text-[12px] text-gray-10">Refreshing…</Text>
+              </Flex>
+            ) : null}
+          </Flex>
+          <Flex align="center" gap="2">
+            {versions.length > 0 ? (
+              <Select.Root
+                size="1"
+                value={selectedVersionId ?? "latest"}
+                onValueChange={(value) => {
+                  if (value === "latest") {
+                    setSelectedVersionId(null);
+                  } else {
+                    setSelectedVersionId(value);
+                    setMode("rendered");
+                  }
+                }}
+                disabled={isLoadingVersions}
+              >
+                <Select.Trigger />
+                <Select.Content>
+                  <Select.Item value="latest">
+                    Latest (v{latest?.version ?? "—"})
+                  </Select.Item>
+                  {versions
+                    .filter((v) => !v.is_latest)
+                    .map((v) => (
+                      <Select.Item key={v.id} value={v.id}>
+                        v{v.version} · {formatTimestamp(v.created_at)}
+                      </Select.Item>
+                    ))}
+                </Select.Content>
+              </Select.Root>
+            ) : null}
+            <SegmentedControl.Root
+              value={mode}
+              onValueChange={(value) => setMode(value as Mode)}
               size="1"
-              value={selectedVersionId ?? "latest"}
-              onValueChange={(value) => {
-                if (value === "latest") {
-                  setSelectedVersionId(null);
-                } else {
-                  setSelectedVersionId(value);
-                  setMode("rendered");
-                }
-              }}
-              disabled={isLoadingVersions}
             >
-              <Select.Trigger />
-              <Select.Content>
-                <Select.Item value="latest">
-                  Latest (v{latest?.version ?? "—"})
-                </Select.Item>
-                {versions
-                  .filter((v) => !v.is_latest)
-                  .map((v) => (
-                    <Select.Item key={v.id} value={v.id}>
-                      v{v.version} · {formatTimestamp(v.created_at)}
-                    </Select.Item>
-                  ))}
-              </Select.Content>
-            </Select.Root>
-          ) : null}
+              <SegmentedControl.Item value="rendered">
+                Rendered
+              </SegmentedControl.Item>
+              <SegmentedControl.Item value="edit">Edit</SegmentedControl.Item>
+            </SegmentedControl.Root>
+            {mode === "edit" ? (
+              <>
+                {hasDraft ? (
+                  <Button
+                    size="1"
+                    variant="soft"
+                    color="gray"
+                    onClick={() => {
+                      setDraft(latest?.content ?? "");
+                      setHasDraft(false);
+                    }}
+                    disabled={isPublishing}
+                  >
+                    Discard
+                  </Button>
+                ) : null}
+                <Button
+                  size="1"
+                  variant="solid"
+                  onClick={onSave}
+                  disabled={
+                    isPublishing ||
+                    (hasInstructions ? !hasDraft : draft.trim().length === 0)
+                  }
+                >
+                  {isPublishing ? <Spinner size="1" /> : null}
+                  Save new version
+                </Button>
+              </>
+            ) : null}
+          </Flex>
         </Flex>
 
-        {mode === "edit" ? (
-          <Flex align="center" gap="2">
-            {hasDraft ? (
-              <Button
-                size="1"
-                variant="soft"
-                color="gray"
-                onClick={() => {
-                  setDraft(latest?.content ?? "");
-                  setHasDraft(false);
-                }}
-                disabled={isPublishing}
-              >
-                Discard
-              </Button>
-            ) : null}
-            <Button
-              size="1"
-              variant="solid"
-              onClick={onSave}
-              disabled={
-                isPublishing ||
-                (hasInstructions ? !hasDraft : draft.trim().length === 0)
-              }
-            >
-              {isPublishing ? <Spinner size="1" /> : null}
-              Save new version
-            </Button>
-          </Flex>
-        ) : null}
-      </Flex>
-
-      {publishError ? (
-        <Box px="4" pt="3">
+        {publishError ? (
           <Callout.Root color={isConflict ? "amber" : "red"} size="1">
             <Callout.Text>
               {isConflict
@@ -296,29 +309,29 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                 : `Save failed: ${publishError.message}`}
             </Callout.Text>
           </Callout.Root>
-        </Box>
-      ) : null}
+        ) : null}
 
-      <ScrollArea
-        type="auto"
-        scrollbars="vertical"
-        className="scroll-area-constrain-width min-h-0 flex-1"
-      >
-        <Box p="4">
-          {selectedVersion ? (
-            <Callout.Root color="gray" size="1">
-              <Callout.Text>
-                Viewing v{selectedVersion.version} metadata. Past content is not
-                fetched today — switch to "Latest" to read or edit current
-                content.
-              </Callout.Text>
-            </Callout.Root>
-          ) : mode === "rendered" ? (
-            hasInstructions ? (
-              <Box className="text-[13px]">
+        {selectedVersion ? (
+          <Callout.Root color="gray" size="1">
+            <Callout.Text>
+              Viewing v{selectedVersion.version} metadata. Past content is not
+              fetched today — switch to "Latest" to read or edit current
+              content.
+            </Callout.Text>
+          </Callout.Root>
+        ) : mode === "rendered" ? (
+          hasInstructions ? (
+            <ScrollArea
+              type="auto"
+              scrollbars="vertical"
+              className="scroll-area-constrain-width min-h-0 flex-1"
+            >
+              <Box className="rounded-lg border border-gray-5 bg-gray-2 px-6 py-5 text-[13px]">
                 <MarkdownRenderer content={renderedContent} />
               </Box>
-            ) : (
+            </ScrollArea>
+          ) : (
+            <Flex align="center" justify="center" className="min-h-0 flex-1">
               <EmptyState
                 channelId={channelId}
                 channelName={channelName}
@@ -328,26 +341,63 @@ export function WebsiteContext({ channelId }: WebsiteContextProps) {
                   setMode("edit");
                 }}
               />
-            )
-          ) : (
-            <TextArea
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                setHasDraft(true);
-              }}
-              size="2"
-              rows={24}
-              placeholder={
-                spacesLayout
-                  ? "# Space context\n\nWrite markdown describing this space…"
-                  : "# Channel context\n\nWrite markdown describing this channel…"
-              }
-              className="font-[var(--code-font-family)]"
-            />
-          )}
-        </Box>
-      </ScrollArea>
+            </Flex>
+          )
+        ) : (
+          <TextArea
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setHasDraft(true);
+            }}
+            size="2"
+            placeholder={
+              spacesLayout
+                ? "# Space context\n\nWrite markdown describing this space…"
+                : "# Channel context\n\nWrite markdown describing this channel…"
+            }
+            className="min-h-0 flex-1 font-[var(--code-font-family)]"
+          />
+        )}
+      </div>
+    </Flex>
+  );
+}
+
+// The space's connected repositories: a header row that matches the CONTEXT.md
+// header, then the shared chips + add-picker field. Reads straight from the
+// channel — the mutation applies each add/remove optimistically to the cache —
+// so there's no local mirror and no Save button.
+function SpaceRepositories({ channel }: { channel: TaskChannel }) {
+  const update = useUpdateTaskChannelRepositories();
+
+  return (
+    <Flex direction="column" gap="2">
+      <Flex align="center" gap="2">
+        <GitBranchIcon size={15} className="text-gray-11" />
+        <Text size="2" weight="medium">
+          Repositories
+        </Text>
+        {update.isPending ? (
+          <Spinner size="1" />
+        ) : update.error ? (
+          <Text size="1" color="red">
+            Couldn't save
+          </Text>
+        ) : null}
+      </Flex>
+
+      <RepositoriesField
+        selected={channel.repositories ?? []}
+        integrationId={channel.github_integration ?? null}
+        onChange={(repositories, githubIntegration) =>
+          update.mutate({
+            channelId: channel.id,
+            githubIntegration,
+            repositories,
+          })
+        }
+      />
     </Flex>
   );
 }
