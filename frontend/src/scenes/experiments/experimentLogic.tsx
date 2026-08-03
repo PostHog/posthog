@@ -139,7 +139,10 @@ import {
     getExperimentVariants,
     getOrderedMetricsWithResults,
     initializeMetricOrdering,
+    conflictPreservedFields,
+    isExperimentConflictError,
     isLegacyExperiment,
+    toConcurrencyPayload,
     toExperimentWritePayload,
     toFlagVariantsInput,
 } from './utils'
@@ -852,23 +855,47 @@ export interface experimentLogicActions {
         newUuid: string
         uuid: string
     }
-    endExperiment: (openCleanupPr?: boolean) => {
-        openCleanupPr: boolean
+    duplicateSharedMetricAsInlineMetric: ({
+        sharedMetricId,
+        isSecondary,
+        newUuid,
+    }: {
+        isSecondary: boolean
+        newUuid: string
+        sharedMetricId: SharedMetric['id']
+    }) => {
+        isSecondary: boolean
+        newUuid: string
+        sharedMetricId: number
     }
-    endExperimentWithoutShipping: (openCleanupPr?: boolean) => {
+    endExperiment: (
+        openCleanupPr?: boolean,
+        repository?: string | null
+    ) => {
         openCleanupPr: boolean
+        repository: string | null
+    }
+    endExperimentWithoutShipping: (
+        openCleanupPr?: boolean,
+        repository?: string | null
+    ) => {
+        openCleanupPr: boolean
+        repository: string | null
     }
     finishExperiment: ({
         selectedVariantKey,
         releaseToEveryone,
         openCleanupPr,
+        repository,
     }: {
         openCleanupPr?: boolean
         releaseToEveryone: boolean
+        repository?: string | null
         selectedVariantKey: string
     }) => {
         openCleanupPr: boolean
         releaseToEveryone: boolean
+        repository: string | null
         selectedVariantKey: string
     }
     freezeExposure: () => {
@@ -1501,17 +1528,30 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
-        endExperiment: (openCleanupPr: boolean = false) => ({ openCleanupPr }),
-        endExperimentWithoutShipping: (openCleanupPr: boolean = false) => ({ openCleanupPr }),
+        endExperiment: (openCleanupPr: boolean = false, repository: string | null = null) => ({
+            openCleanupPr,
+            repository,
+        }),
+        endExperimentWithoutShipping: (openCleanupPr: boolean = false, repository: string | null = null) => ({
+            openCleanupPr,
+            repository,
+        }),
         finishExperiment: ({
             selectedVariantKey,
             releaseToEveryone,
             openCleanupPr,
+            repository,
         }: {
             selectedVariantKey: string
             releaseToEveryone: boolean
             openCleanupPr?: boolean
-        }) => ({ selectedVariantKey, releaseToEveryone, openCleanupPr: openCleanupPr ?? false }),
+            repository?: string | null
+        }) => ({
+            selectedVariantKey,
+            releaseToEveryone,
+            openCleanupPr: openCleanupPr ?? false,
+            repository: repository ?? null,
+        }),
         pauseExperiment: true,
         resumeExperiment: true,
         freezeExposure: true,
@@ -1619,6 +1659,19 @@ export const experimentLogic = kea<experimentLogicType>([
         removeSharedMetricFromExperiment: (sharedMetricId: SharedMetric['id']) => ({ sharedMetricId }),
         duplicateMetric: ({ uuid, isSecondary, newUuid }: { uuid: string; isSecondary: boolean; newUuid: string }) => ({
             uuid,
+            isSecondary,
+            newUuid,
+        }),
+        duplicateSharedMetricAsInlineMetric: ({
+            sharedMetricId,
+            isSecondary,
+            newUuid,
+        }: {
+            sharedMetricId: SharedMetric['id']
+            isSecondary: boolean
+            newUuid: string
+        }) => ({
+            sharedMetricId,
             isSecondary,
             newUuid,
         }),
@@ -1835,6 +1888,44 @@ export const experimentLogic = kea<experimentLogicType>([
 
                     const newMetric = { ...originalMetric, uuid: newUuid, name }
                     metrics.splice(originalIndex + 1, 0, newMetric)
+
+                    return {
+                        ...state,
+                        [metricsKey]: metrics,
+                    }
+                },
+                duplicateSharedMetricAsInlineMetric: (state, { sharedMetricId, isSecondary, newUuid }) => {
+                    const metricType = isSecondary ? 'secondary' : 'primary'
+                    const savedMetric = (state?.saved_metrics || []).find(
+                        (m: ExperimentSavedMetric) =>
+                            m.saved_metric === sharedMetricId && m.metadata?.type === metricType
+                    )
+
+                    if (!savedMetric) {
+                        return state
+                    }
+
+                    const metricsKey = isSecondary ? 'metrics_secondary' : 'metrics'
+                    const metrics = [...(state?.[metricsKey] || [])]
+
+                    const query = savedMetric.query
+                    const name = `${savedMetric.name || getDefaultMetricTitle(query)} (copy)`
+
+                    /**
+                     * Build a single-use (inline) copy of the shared metric. The shared metric's
+                     * breakdowns live on the join metadata, so merge them into breakdownFilter here
+                     * the same way we do when rendering shared metrics.
+                     */
+                    const newMetric = {
+                        ...query,
+                        uuid: newUuid,
+                        name,
+                        breakdownFilter: {
+                            ...query?.breakdownFilter,
+                            breakdowns: savedMetric.metadata?.breakdowns || [],
+                        },
+                    }
+                    metrics.push(newMetric)
 
                     return {
                         ...state,
@@ -2333,7 +2424,7 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
-        endExperiment: async ({ openCleanupPr }) => {
+        endExperiment: async ({ openCleanupPr, repository }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -2342,6 +2433,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
                         open_cleanup_pr: openCleanupPr,
+                        ...(repository ? { repository } : {}),
                     }
                 )
                 actions.setExperiment(response)
@@ -2352,8 +2444,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setEndExperimentLoading(false)
             }
         },
-        endExperimentWithoutShipping: async ({ openCleanupPr }) => {
-            actions.endExperiment(openCleanupPr)
+        endExperimentWithoutShipping: async ({ openCleanupPr, repository }) => {
+            actions.endExperiment(openCleanupPr, repository)
             actions.closeFinishExperimentModal()
             lemonToast.success('Experiment ended successfully')
 
@@ -2668,7 +2760,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr }) => {
+        finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr, repository }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -2679,6 +2771,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
                         open_cleanup_pr: openCleanupPr,
+                        ...(repository ? { repository } : {}),
                     }
                 )
                 actions.setExperiment(response)
@@ -2778,12 +2871,31 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: combinedMetricsIds,
-                update_feature_flag_params: false,
-            })
+            try {
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    ...toConcurrencyPayload(values.unmodifiedExperiment),
+                    saved_metrics_ids: combinedMetricsIds,
+                    update_feature_flag_params: false,
+                })
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                } else {
+                    throw error
+                }
+            }
 
             actions.loadExperiment({ triggeredBy: 'config_change' })
+        },
+        duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
+            // Listeners run after reducers, so the copy is only there if the shared metric was actually found
+            const metrics = (isSecondary ? values.experiment.metrics_secondary : values.experiment.metrics) || []
+            if (metrics.some((metric) => metric.uuid === newUuid)) {
+                lemonToast.success('Metric duplicated as a single-use metric')
+            }
         },
         removeSharedMetricFromExperiment: async ({ sharedMetricId }) => {
             const sharedMetricsIds = values.experiment.saved_metrics
@@ -2801,12 +2913,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
             )
 
-            await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                saved_metrics_ids: sharedMetricsIds,
-                metrics: cleanedMetrics,
-                metrics_secondary: cleanedMetricsSecondary,
-                update_feature_flag_params: false,
-            })
+            try {
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    ...toConcurrencyPayload(values.unmodifiedExperiment),
+                    saved_metrics_ids: sharedMetricsIds,
+                    metrics: cleanedMetrics,
+                    metrics_secondary: cleanedMetricsSecondary,
+                    update_feature_flag_params: false,
+                })
+            } catch (error: any) {
+                if (isExperimentConflictError(error)) {
+                    lemonToast.error(
+                        error.data?.detail ||
+                            'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                    )
+                } else {
+                    throw error
+                }
+            }
 
             actions.loadExperiment({ triggeredBy: 'config_change' })
         },
@@ -3472,16 +3596,40 @@ export const experimentLogic = kea<experimentLogicType>([
             null as Experiment | null,
             {
                 updateExperiment: async (update: ExperimentUpdatePayload) => {
-                    const response: Experiment = await api.update(
-                        `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
-                        update
-                    )
-                    const responseWithMetricsOrdering = initializeMetricOrdering(response)
-                    refreshTreeItem('experiment', String(values.experimentId))
-                    actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                    // Also update the main experiment state
-                    actions.setExperiment(responseWithMetricsOrdering)
-                    return responseWithMetricsOrdering
+                    try {
+                        const response: Experiment = await api.update(
+                            `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                            { ...toConcurrencyPayload(values.unmodifiedExperiment), ...update }
+                        )
+                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
+                        refreshTreeItem('experiment', String(values.experimentId))
+                        actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                        // Also update the main experiment state
+                        actions.setExperiment(responseWithMetricsOrdering)
+                        return responseWithMetricsOrdering
+                    } catch (error: any) {
+                        if (isExperimentConflictError(error)) {
+                            lemonToast.error(
+                                error.data?.detail ||
+                                    'This experiment was changed while you were editing it. Review the latest changes and try again.'
+                            )
+                            // Reload so the next save carries the current version and base state,
+                            // but keep this update's rejected scalar fields in local state so the
+                            // user's edit isn't lost — they can review the fresh state and save again.
+                            const preserved = conflictPreservedFields(update)
+                            try {
+                                const fresh: Experiment = await api.get(
+                                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
+                                )
+                                const freshWithOrdering = initializeMetricOrdering(fresh)
+                                actions.setUnmodifiedExperiment(structuredClone(freshWithOrdering))
+                                actions.setExperiment({ ...freshWithOrdering, ...preserved })
+                            } catch {
+                                actions.loadExperiment()
+                            }
+                        }
+                        throw error
+                    }
                 },
             },
         ],

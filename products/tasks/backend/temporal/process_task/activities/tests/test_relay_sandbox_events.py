@@ -12,10 +12,12 @@ import httpx_sse
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
+    FINAL_MESSAGE_MAX_CHARS,
+    FinalMessageTracker,
     RelaySandboxEventsInput,
     TaskRunRedisStream,
     _flush_pending_text,
@@ -24,6 +26,7 @@ from products.tasks.backend.temporal.process_task.activities.relay_sandbox_event
     _is_keepalive_event,
     _is_session_update,
     _mark_error_unless_run_is_terminal,
+    _persist_final_message,
     _relay_loop,
     relay_sandbox_events,
 )
@@ -61,6 +64,11 @@ class TestIsEndOfTurn:
                 "non_notification",
                 {"type": "event", "notification": {"result": {"stopReason": "end_turn"}}},
                 False,
+            ),
+            (
+                "pi_turn_complete",
+                {"type": "pi_event", "event": {"type": "turn_completed"}},
+                True,
             ),
         ]
     )
@@ -146,6 +154,9 @@ class TestIsActiveAgentUpdate:
     )
     def test_session_update_sub_types(self, _name: str, sub_type: str, expected: bool) -> None:
         assert _is_active_agent_update(self._su(sub_type)) is expected
+
+    def test_pi_generation_event_is_active(self) -> None:
+        assert _is_active_agent_update({"type": "pi_event", "event": {"type": "assistant_message_chunk"}})
 
     @parameterized.expand(
         [
@@ -826,6 +837,105 @@ class TestRelaySandboxEventsWorkflowOptions:
         args, kwargs = execute_activity_mock.await_args
         assert args[0] is relay_sandbox_events_module.relay_sandbox_events_deferred_completion
         assert kwargs["start_to_close_timeout"] == RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT
+
+
+def _agent_chunk_event(text: str) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {"update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text}}},
+        },
+    }
+
+
+class TestFinalMessageTracker:
+    def test_snapshots_joined_prose_at_end_of_turn(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("Weekly "))
+        tracker.collect(_agent_chunk_event("summary."))
+
+        assert tracker.end_turn() == "Weekly summary."
+
+    def test_tool_only_turn_returns_none_so_prior_report_survives(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("The report."))
+        assert tracker.end_turn() == "The report."
+
+        assert tracker.end_turn() is None
+
+    def test_later_turn_replaces_earlier_one(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("First turn."))
+        assert tracker.end_turn() == "First turn."
+        tracker.collect(_agent_chunk_event("Second turn."))
+        assert tracker.end_turn() == "Second turn."
+
+    def test_reset_drops_partial_turn(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("half a mess"))
+        tracker.reset()
+
+        assert tracker.end_turn() is None
+
+    def test_truncates_to_cap(self) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("x" * (FINAL_MESSAGE_MAX_CHARS + 100)))
+
+        result = tracker.end_turn()
+        assert result is not None
+        assert len(result) == FINAL_MESSAGE_MAX_CHARS
+
+    @parameterized.expand(
+        [
+            (
+                "tool_call_update",
+                {
+                    "type": "notification",
+                    "notification": {"method": "session/update", "params": {"update": {"sessionUpdate": "tool_call"}}},
+                },
+            ),
+            ("non_session_method", {"type": "notification", "notification": {"method": "_posthog/console"}}),
+            ("keepalive", {"type": "keepalive"}),
+        ]
+    )
+    def test_non_prose_events_are_ignored(self, _name, event) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(event)
+
+        assert tracker.end_turn() is None
+
+
+@pytest.mark.django_db
+class TestPersistFinalMessage:
+    def _make_run(self, **kwargs) -> TaskRun:
+        from posthog.models import Organization, Team
+
+        organization = Organization.objects.create(name="Test Org")
+        team = Team.objects.create(organization=organization, name="Test Team")
+        task = Task.objects.create(team=team, title="t", description="d")
+        return task.create_run(mode="background", **kwargs)
+
+    def test_merges_final_message_into_existing_output(self) -> None:
+        run = self._make_run()
+        run.output = {"pr_url": "https://github.com/o/r/pull/1"}
+        run.save(update_fields=["output", "updated_at"])
+
+        _persist_final_message(str(run.id), "The report.")
+
+        run.refresh_from_db()
+        assert run.output == {"pr_url": "https://github.com/o/r/pull/1", "final_message": "The report."}
+
+    def test_sets_output_when_none(self) -> None:
+        run = self._make_run()
+
+        _persist_final_message(str(run.id), "The report.")
+
+        run.refresh_from_db()
+        assert run.output == {"final_message": "The report."}
+
+    def test_missing_run_does_not_raise(self) -> None:
+        _persist_final_message("00000000-0000-0000-0000-000000000000", "The report.")
 
 
 class TestFlushPendingText:

@@ -1,6 +1,13 @@
 import { render } from '@testing-library/react'
 
+import {
+    buildInsertCommands,
+    getMarkdownNotebookDefaultRegistry,
+    mergeMarkdownNotebookRegistries,
+    omitInsertCommands,
+} from 'lib/components/MarkdownNotebook'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { NotebookNodeType } from '../types'
 import { KNOWN_NODES } from '../utils'
@@ -8,12 +15,38 @@ import {
     NOTEBOOK_MARKDOWN_REGISTRY,
     RealNotebookNodeEdit,
     getEditableNodeAttributeKeys,
+    getHiddenInsertCommandKeysForFeatureFlags,
     getMarkdownNodeAttributeLabel,
     getMarkdownRegistryForFeatureFlags,
     getQueryTitle,
     getSerializableAttributeInputValue,
     getSerializableProps,
 } from './markdownNotebookRegistry'
+
+// Mirrors how MarkdownNotebook composes its menu, so the assertions cover the list a user sees
+// rather than the registry alone: built-in commands are not registry entries, so a node hidden
+// from the registry can still reach the menu through a built-in that inserts the same tag.
+function getInsertCommandsByLabel(featureFlags: FeatureFlagsSet, label: string): { key: string; category: string }[] {
+    const noop = (): void => {}
+    const commands = omitInsertCommands(
+        buildInsertCommands(
+            mergeMarkdownNotebookRegistries(
+                getMarkdownNotebookDefaultRegistry(),
+                getMarkdownRegistryForFeatureFlags(featureFlags)
+            ),
+            noop,
+            noop,
+            noop,
+            noop,
+            noop
+        ),
+        getHiddenInsertCommandKeysForFeatureFlags(featureFlags)
+    )
+
+    return commands
+        .filter((command) => command.label === label)
+        .map((command) => ({ key: command.key, category: command.category }))
+}
 
 describe('markdownNotebookRegistry', () => {
     describe('getMarkdownRegistryForFeatureFlags', () => {
@@ -31,6 +64,27 @@ describe('markdownNotebookRegistry', () => {
             const flagOff = getMarkdownRegistryForFeatureFlags({})
             expect(flagOff.components.SQLV2.insertCommand).toBeUndefined()
             expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
+        })
+    })
+
+    describe('insert menu SQL commands', () => {
+        // Exactly one SQL entry either way, and it stays in the menu's top group across the
+        // flag flip so SQL doesn't move on people when the revamped cell takes over.
+        it.each([
+            [
+                'the revamped SQL cell replaces the legacy one when the flag is on',
+                true,
+                [{ key: 'component-SQLV2', category: 'Common' }],
+            ],
+            [
+                'the legacy SQL cell is the only one when the flag is off',
+                false,
+                [{ key: 'query-sql', category: 'Common' }],
+            ],
+        ])('%s', (_label, isFlagOn, expectedCommands) => {
+            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: isFlagOn }, 'SQL')).toEqual(
+                expectedCommands
+            )
         })
     })
 

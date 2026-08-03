@@ -38,7 +38,7 @@ import type {
     PaginatedTaskRunDetailDTOListApi,
     PaginatedTaskSummaryDTOListApi,
     PaginatedTaskThreadMessageDTOListApi,
-    PatchedChannelWriteApi,
+    PatchedChannelUpdateApi,
     PatchedLoopWriteApi,
     PatchedSandboxCustomImageUpdateApi,
     PatchedSandboxEnvironmentWriteApi,
@@ -46,6 +46,7 @@ import type {
     PatchedTaskRunSetOutputRequestApi,
     PatchedTaskRunUpdateApi,
     PatchedTaskWriteApi,
+    PinnedTaskIdsResponseApi,
     RepositoryReadinessResponseApi,
     SandboxCustomImageBuildApi,
     SandboxCustomImageDTOApi,
@@ -68,6 +69,8 @@ import type {
     TaskCreateApi,
     TaskDetailDTOApi,
     TaskMentionsListParams,
+    TaskPinRequestApi,
+    TaskPinResponseApi,
     TaskPresenceBeaconRequestApi,
     TaskRepositoriesResponseApi,
     TaskRunAppendLogRequestApi,
@@ -85,6 +88,8 @@ import type {
     TaskRunCommandResponseApi,
     TaskRunCreateRequestSchemaApi,
     TaskRunDetailDTOApi,
+    TaskRunLivingArtifactChartRequestApi,
+    TaskRunLivingArtifactChartResponseApi,
     TaskRunLivingArtifactCreateRequestApi,
     TaskRunLivingArtifactEditRequestApi,
     TaskRunLivingArtifactOpenResponseApi,
@@ -93,6 +98,8 @@ import type {
     TaskRunRelayMessageRequestApi,
     TaskRunRelayMessageResponseApi,
     TaskRunStartRequestApi,
+    TaskSessionResponseApi,
+    TaskSessionSyncResponseApi,
     TaskStagedArtifactsFinalizeUploadRequestApi,
     TaskStagedArtifactsFinalizeUploadResponseApi,
     TaskStagedArtifactsPrepareUploadRequestApi,
@@ -927,14 +934,14 @@ export const getTaskChannelsPartialUpdateUrl = (projectId: string, id: string) =
 export const taskChannelsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedChannelWriteApi?: PatchedChannelWriteApi,
+    patchedChannelUpdateApi?: PatchedChannelUpdateApi,
     options?: RequestInit
 ): Promise<ChannelDTOApi> => {
     return apiMutator<ChannelDTOApi>(getTaskChannelsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedChannelWriteApi),
+        body: JSON.stringify(patchedChannelUpdateApi),
     })
 }
 
@@ -1109,6 +1116,27 @@ export const tasksDestroy = async (projectId: string, id: string, options?: Requ
     return apiMutator<void>(getTasksDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getTasksPinCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${id}/pin/`
+}
+
+/**
+ * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
+ */
+export const tasksPinCreate = async (
+    projectId: string,
+    id: string,
+    taskPinRequestApi: TaskPinRequestApi,
+    options?: RequestInit
+): Promise<TaskPinResponseApi> => {
+    return apiMutator<TaskPinResponseApi>(getTasksPinCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(taskPinRequestApi),
     })
 }
 
@@ -1490,7 +1518,7 @@ export const getTasksRunsCommandCreateUrl = (projectId: string, taskId: string, 
 }
 
 /**
- * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, and mcp_response commands.
+ * Queue user_message JSON-RPC commands through the task workflow and forward sandbox control commands to the agent server. Supports user_message, cancel, close, permission_response, set_config_option, mcp_response, native Pi RPC commands, and Pi queue operations.
  * @summary Send command to task run
  */
 export const tasksRunsCommandCreate = async (
@@ -1718,6 +1746,49 @@ export const tasksRunsStreamTokenRetrieve = async (
     })
 }
 
+export const getTasksRunsTaskSessionRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/task_session/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Get active task session storage access
+ */
+export const tasksRunsTaskSessionRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskSessionResponseApi> => {
+    return apiMutator<TaskSessionResponseApi>(getTasksRunsTaskSessionRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsTaskSessionSyncCreateUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/task_session_sync/`
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ * @summary Replace the active native task session
+ */
+export const tasksRunsTaskSessionSyncCreate = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    tasksRunsTaskSessionSyncCreateBody?: Blob,
+    options?: RequestInit
+): Promise<TaskSessionSyncResponseApi> => {
+    return apiMutator<TaskSessionSyncResponseApi>(getTasksRunsTaskSessionSyncCreateUrl(projectId, taskId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/octet-stream', ...options?.headers },
+        body: tasksRunsTaskSessionSyncCreateBody,
+    })
+}
+
 export const getTasksRunsLivingArtifactsListUrl = (projectId: string, taskId: string, runId: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/`
 }
@@ -1814,6 +1885,32 @@ export const tasksRunsLivingArtifactsEdit = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(taskRunLivingArtifactEditRequestApi),
+        }
+    )
+}
+
+export const getTasksRunsLivingArtifactsChartUrl = (projectId: string, taskId: string, runId: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${runId}/living_artifacts/chart/`
+}
+
+/**
+ * Renders a PostHog insight (ad-hoc query JSON or a saved insight) to a PNG server-side and registers it as a slack_file living artifact in one call. Blocks until the render finishes.
+ * @summary Render an insight chart and attach it as a living artifact
+ */
+export const tasksRunsLivingArtifactsChart = async (
+    projectId: string,
+    taskId: string,
+    runId: string,
+    taskRunLivingArtifactChartRequestApi: TaskRunLivingArtifactChartRequestApi,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactChartResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactChartResponseApi>(
+        getTasksRunsLivingArtifactsChartUrl(projectId, taskId, runId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(taskRunLivingArtifactChartRequestApi),
         }
     )
 }
@@ -1934,6 +2031,24 @@ export const tasksActiveWizardRunRetrieve = async (
     options?: RequestInit
 ): Promise<WizardCloudRunDTOApi | void> => {
     return apiMutator<WizardCloudRunDTOApi | void>(getTasksActiveWizardRunRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksPinnedRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tasks/pinned/`
+}
+
+/**
+ * Return the visible tasks pinned by the requester in the current project.
+ * @summary List pinned tasks
+ */
+export const tasksPinnedRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PinnedTaskIdsResponseApi> => {
+    return apiMutator<PinnedTaskIdsResponseApi>(getTasksPinnedRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

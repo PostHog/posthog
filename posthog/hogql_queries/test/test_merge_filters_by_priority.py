@@ -42,6 +42,19 @@ class TestMergeFiltersByPriority(SimpleTestCase):
         assert merged["filterTestAccounts"] is True
         assert merged["breakdown_filter"] == {"breakdown": "$browser", "breakdown_type": "event"}
 
+    @parameterized.expand(
+        [
+            ("null tile breakdown inherits dashboard breakdown", None, {"breakdown": "$os", "breakdown_type": "event"}),
+            ("empty tile breakdown clears dashboard breakdown", {}, {}),
+        ]
+    )
+    def test_tile_breakdown_null_inherits_empty_clears(self, _name, tile_breakdown, expected_breakdown):
+        merged = merge_filters_by_priority(
+            {"breakdown_filter": {"breakdown": "$os", "breakdown_type": "event"}},
+            {"breakdown_filter": tile_breakdown},
+        )
+        assert merged["breakdown_filter"] == expected_breakdown
+
     def test_properties_on_different_keys_are_and_combined_dashboard_first(self):
         dashboard_prop = {"key": "$country", "value": "US", "type": "event"}
         tile_prop = {"key": "$browser", "value": "Chrome", "type": "event"}

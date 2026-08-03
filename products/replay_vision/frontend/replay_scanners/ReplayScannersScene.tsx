@@ -5,6 +5,7 @@ import { useState } from 'react'
 import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonInput,
     LemonSwitch,
@@ -37,8 +38,9 @@ import { FilterPill } from '../components/FilterPill'
 import { IngestionLimitBanner } from '../components/IngestionLimitBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
+import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionDeleteDisabledReason, getReplayVisionEditDisabledReason } from '../utils/accessControl'
-import { formatCredits } from '../utils/credits'
+import { creditsToUsd, formatCreditCount } from '../utils/credits'
 import { VisionMetrics } from './components/VisionMetrics'
 import { VisionUsageTab } from './components/VisionUsageTab'
 import { type ScannersSorting, SCANNERS_PAGE_SIZE, replayScannersLogic } from './replayScannersLogic'
@@ -135,6 +137,7 @@ export function ReplayScannersScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
+    const { showUsd } = useValues(visionQuotaLogic)
 
     if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
         // Flags load asynchronously, so wait for them before deciding the page doesn't exist.
@@ -203,7 +206,10 @@ export function ReplayScannersScene(): JSX.Element {
             title: 'Spend this period',
             key: 'credits_this_month',
             render: (_, scanner) => (
-                <span className="text-sm tabular-nums">{formatCredits(scanner.credits_this_month)}</span>
+                <div className="text-sm tabular-nums">
+                    <div>{formatCreditCount(scanner.credits_this_month)}</div>
+                    {showUsd && <div className="text-muted text-xs">≈ {creditsToUsd(scanner.credits_this_month)}</div>}
+                </div>
             ),
             sorter: true,
         },
@@ -280,6 +286,17 @@ export function ReplayScannersScene(): JSX.Element {
             />
 
             <IngestionLimitBanner />
+
+            {(scannerStats?.total ?? 0) - (scannerStats?.enabled ?? 0) > 0 && (
+                <LemonBanner type="warning" dismissKey="replay-vision-launch-beta-scanners">
+                    Replay vision is out of beta and scans now use billed credits. Your scanners were turned off for the
+                    launch, so re-enable the ones you want to keep running. See{' '}
+                    <Link to="https://posthog.com/docs/replay-vision/quota-and-limits" target="_blank">
+                        how credits are priced
+                    </Link>{' '}
+                    in the docs, or check the Usage tab for current spend.
+                </LemonBanner>
+            )}
 
             <ProductIntroduction
                 productName="Replay vision"

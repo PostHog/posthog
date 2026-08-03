@@ -5141,6 +5141,31 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
         self.assertEqual(launch_response.json()["status"], "running")
 
+    def test_launch_experiment_endpoint_with_list_body(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "List Body Endpoint",
+                "feature_flag_key": "list-body-endpoint-flag",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # The endpoint declares no request body, so a JSON array must not reach the flag serializer
+        # as a non-dict `request.data`.
+        launch_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/launch/",
+            [],
+            format="json",
+        )
+        self.assertEqual(launch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(launch_response.json()["status"], "running")
+
+        flag = FeatureFlag.objects.get(key="list-body-endpoint-flag", team=self.team)
+        self.assertTrue(flag.active)
+
     def test_archive_experiment_endpoint(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -5865,6 +5890,126 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
         self.assertEqual(resp.json()["run_status"], "queued")
         self.assertFalse(resp.json()["is_terminal"])
+
+    @parameterized.expand(
+        [
+            # (name, stored_repository, cached_repos, expected_body)
+            (
+                "no_integration",
+                None,
+                None,
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+            (
+                "single_repo",
+                None,
+                [{"full_name": "acme/web"}],
+                {"repository": "acme/web", "source": "single_repo", "candidates": ["acme/web"]},
+            ),
+            (
+                "ambiguous",
+                None,
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/api", "acme/web"]},
+            ),
+            (
+                "explicit",
+                "acme/api",
+                [{"full_name": "acme/web"}, {"full_name": "acme/api"}],
+                {"repository": "acme/api", "source": "explicit", "candidates": ["acme/api", "acme/web"]},
+            ),
+            (
+                "stale_explicit_needs_a_new_choice",
+                "gone/repo",
+                [{"full_name": "acme/web"}],
+                {"repository": None, "source": "ambiguous", "candidates": ["acme/web"]},
+            ),
+            (
+                "stale_explicit_with_empty_cache",
+                "gone/repo",
+                [],
+                {"repository": None, "source": "no_integration", "candidates": []},
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_flag_cleanup_target_endpoint(
+        self, _name, stored_repository, cached_repos, expected_body, mock_resolve_github, _mock_access
+    ):
+        exp_id = self._create_running_experiment(name="Cleanup Target", flag_key="cleanup-target-flag")["id"]
+        if stored_repository:
+            Experiment.objects.filter(id=exp_id).update(repository=stored_repository)
+        if cached_repos is None:
+            mock_resolve_github.return_value = None
+        else:
+            mock_resolve_github.return_value = SimpleNamespace(
+                list_all_cached_repositories=lambda max_repos: cached_repos
+            )
+
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(resp.json(), expected_body)
+
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=False)
+    def test_flag_cleanup_target_requires_code_access(self, _mock_access):
+        exp_id = self._create_running_experiment(name="Cleanup Target Denied", flag_key="cleanup-target-denied-flag")[
+            "id"
+        ]
+        resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_target/")
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+    @parameterized.expand(
+        [
+            # (name, open_cleanup_pr, repository, expected_status)
+            # Nothing persists in any of these: the value only sticks when a cleanup PR
+            # actually opens against it (team flag on + repo in the installation).
+            ("not_persisted_when_cleanup_does_not_run", True, "acme/web", status.HTTP_200_OK),
+            ("ignored_without_opt_in", False, "acme/web", status.HTTP_200_OK),
+            ("invalid_format_rejected", True, "not-a-repo", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=False)
+    def test_end_endpoint_repository(
+        self, _name, open_cleanup_pr, repository, expected_status, _mock_flag, _mock_access
+    ):
+        exp_id = self._create_running_experiment(name="End With Repo", flag_key="end-with-repo-flag")["id"]
+
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+            {"conclusion": "won", "open_cleanup_pr": open_cleanup_pr, "repository": repository},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, expected_status, resp.content)
+        self.assertIsNone(Experiment.objects.get(id=exp_id).repository)
+
+    @patch("products.experiments.backend.presentation.views.has_tasks_access", return_value=True)
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    @patch("products.experiments.backend.experiment_service.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.experiments.backend.experiment_service.tasks_facade.create_and_run_task")
+    @patch("products.tasks.backend.facade.repo_selection.resolve_team_github_integration")
+    def test_end_endpoint_repository_persists_normalized_when_cleanup_opens(
+        self, mock_resolve_github, mock_create_task, _mock_flag, _mock_report, _mock_access
+    ):
+        mock_resolve_github.return_value = SimpleNamespace(
+            list_all_cached_repositories=lambda max_repos: [{"full_name": "Acme/Web"}, {"full_name": "acme/api"}]
+        )
+        mock_create_task.return_value = SimpleNamespace(task_id=uuid4())
+        exp_id = self._create_running_experiment(name="End With Repo Live", flag_key="end-with-repo-live-flag")["id"]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{exp_id}/end/",
+                {"conclusion": "won", "open_cleanup_pr": True, "repository": "ACME/Web"},
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual(mock_create_task.call_args.kwargs["repository"], "Acme/Web")
+        self.assertEqual(Experiment.objects.get(id=exp_id).repository, "acme/web")
 
     def test_ship_variant_endpoint_default_preserves_groups(self):
         data = self._create_running_experiment(name="Ship Endpoint", flag_key="ship-endpoint-flag")
@@ -8821,3 +8966,377 @@ class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
             "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
             "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )
+
+
+class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
+    """Optimistic concurrency on experiment updates: stale writes carrying `version` +
+    `original_experiment` merge concurrent metric changes per uuid and 409 on everything else.
+    Guards the incident class where a stale tab's full-array PATCH silently deleted metrics
+    other users had added since the tab loaded."""
+
+    def _metric(self, event: str) -> dict:
+        return {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}}
+
+    def _create_experiment(self, key: str, metrics: list | None = None, metrics_secondary: list | None = None) -> dict:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": f"Concurrency {key}",
+                "feature_flag_key": key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+                "metrics": metrics or [],
+                "metrics_secondary": metrics_secondary or [],
+                "allow_unknown_events": True,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()
+
+    def _patch(self, experiment_id: int, payload: dict) -> Any:
+        return self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"allow_unknown_events": True, **payload},
+        )
+
+    def _original(self, snapshot: dict) -> dict:
+        """The base snapshot the frontend sends: the metric collections as this client last saw them."""
+        return {
+            "metrics": snapshot.get("metrics") or [],
+            "metrics_secondary": snapshot.get("metrics_secondary") or [],
+            "saved_metrics_ids": [
+                {"id": link["saved_metric"], "metadata": link["metadata"]}
+                for link in snapshot.get("saved_metrics") or []
+            ],
+        }
+
+    def _events(self, metrics: list) -> set[str]:
+        return {metric["source"]["event"] for metric in metrics}
+
+    def test_stale_delete_merges_with_concurrent_additions(self) -> None:
+        # Incident replay: a stale tab deletes 1 of the 3 metrics it saw while teammates
+        # added 4 more; the stale write must not remove the 4 unseen metrics.
+        snapshot = self._create_experiment(
+            "incident-replay", metrics_secondary=[self._metric(f"e{i}") for i in (1, 2, 3)]
+        )
+        teammate_write = self._patch(
+            snapshot["id"],
+            {"metrics_secondary": [*snapshot["metrics_secondary"], *(self._metric(f"e{i}") for i in (4, 5, 6, 7))]},
+        )
+        self.assertEqual(teammate_write.status_code, status.HTTP_200_OK)
+
+        stale_delete = self._patch(
+            snapshot["id"],
+            {
+                "metrics_secondary": snapshot["metrics_secondary"][1:],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_delete.status_code, status.HTTP_200_OK, stale_delete.json())
+        result = stale_delete.json()
+        self.assertEqual(self._events(result["metrics_secondary"]), {"e2", "e3", "e4", "e5", "e6", "e7"})
+        self.assertEqual(
+            set(result["secondary_metrics_ordered_uuids"]),
+            {metric["uuid"] for metric in result["metrics_secondary"]},
+        )
+
+    def test_concurrent_additions_of_different_metrics_both_survive(self) -> None:
+        snapshot = self._create_experiment("both-add", metrics=[self._metric("base")])
+        self.assertEqual(
+            self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]}).status_code,
+            status.HTTP_200_OK,
+        )
+
+        stale_add = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [*snapshot["metrics"], self._metric("mine")],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_add.status_code, status.HTTP_200_OK, stale_add.json())
+        self.assertEqual(self._events(stale_add.json()["metrics"]), {"base", "theirs", "mine"})
+
+    def test_same_metric_edited_by_both_conflicts(self) -> None:
+        snapshot = self._create_experiment("double-edit", metrics=[self._metric("original_event")])
+        their_metric = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "their_event"}}
+        self.assertEqual(self._patch(snapshot["id"], {"metrics": [their_metric]}).status_code, status.HTTP_200_OK)
+
+        my_metric = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "my_event"}}
+        stale_edit = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [my_metric],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_edit.status_code, status.HTTP_409_CONFLICT)
+        body = stale_edit.json()
+        self.assertIn("detail", body)
+        self.assertEqual(body["current_version"], 1)
+        self.assertEqual(body["conflicting_metric_uuids"], [snapshot["metrics"][0]["uuid"]])
+        experiment = Experiment.objects.get(id=snapshot["id"])
+        self.assertEqual((experiment.metrics or [])[0]["source"]["event"], "their_event")
+
+    @parameterized.expand(
+        [
+            ("stale_delete_vs_concurrent_edit", "delete_mine"),
+            ("stale_edit_vs_concurrent_delete", "delete_theirs"),
+        ]
+    )
+    def test_edit_vs_delete_of_same_metric_conflicts(self, _name: str, mode: str) -> None:
+        snapshot = self._create_experiment(f"edit-vs-delete-{mode}", metrics=[self._metric("contested")])
+        edited = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "edited"}}
+        theirs = [] if mode == "delete_theirs" else [edited]
+        self.assertEqual(self._patch(snapshot["id"], {"metrics": theirs}).status_code, status.HTTP_200_OK)
+
+        mine = [edited] if mode == "delete_theirs" else []
+        stale_write = self._patch(
+            snapshot["id"],
+            {
+                "metrics": mine,
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_write.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(stale_write.json()["conflicting_metric_uuids"], [snapshot["metrics"][0]["uuid"]])
+
+    @parameterized.expand(
+        [
+            ("their_description_edit", {"description": "theirs"}, "description"),
+            ("their_stats_config_edit", {"stats_config": {"method": "frequentist"}}, "stats_config"),
+        ]
+    )
+    def test_concurrent_scalar_edit_does_not_block_stale_metrics_write(
+        self, _name: str, their_payload: dict, edited_field: str
+    ) -> None:
+        # A metric-only PATCH omits scalar fields, so it can't clobber them: the other
+        # side's scalar edit and this stale metric addition must both survive.
+        snapshot = self._create_experiment(f"scalar-{edited_field}", metrics=[self._metric("base")])
+        self.assertEqual(self._patch(snapshot["id"], their_payload).status_code, status.HTTP_200_OK)
+
+        stale_metrics_write = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [*snapshot["metrics"], self._metric("mine")],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_metrics_write.status_code, status.HTTP_200_OK, stale_metrics_write.json())
+        self.assertEqual(self._events(stale_metrics_write.json()["metrics"]), {"base", "mine"})
+        their_value = their_payload[edited_field]
+        current_value = stale_metrics_write.json()[edited_field]
+        if isinstance(their_value, dict):
+            self.assertEqual({key: current_value.get(key) for key in their_value}, their_value)
+        else:
+            self.assertEqual(current_value, their_value)
+
+    def test_stale_scalar_write_conflicts_with_any_concurrent_change(self) -> None:
+        snapshot = self._create_experiment("stale-scalar", metrics=[self._metric("base")])
+        concurrent = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]})
+        self.assertEqual(concurrent.status_code, status.HTTP_200_OK)
+
+        stale_description_write = self._patch(
+            snapshot["id"],
+            {
+                "description": "mine",
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_description_write.status_code, status.HTTP_409_CONFLICT)
+        self.assertIn("description", stale_description_write.json()["conflicting_fields"])
+
+    def test_stale_reorder_keeps_relative_order_and_appends_concurrent_addition(self) -> None:
+        snapshot = self._create_experiment("reorder", metrics=[self._metric("m1"), self._metric("m2")])
+        added = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("m3")]})
+        self.assertEqual(added.status_code, status.HTTP_200_OK)
+        added_uuid = next(m["uuid"] for m in added.json()["metrics"] if m["source"]["event"] == "m3")
+
+        uuid_1, uuid_2 = (metric["uuid"] for metric in snapshot["metrics"])
+        stale_reorder = self._patch(
+            snapshot["id"],
+            {
+                "metrics": snapshot["metrics"],
+                "primary_metrics_ordered_uuids": [uuid_2, uuid_1],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_reorder.status_code, status.HTTP_200_OK, stale_reorder.json())
+        self.assertEqual(stale_reorder.json()["primary_metrics_ordered_uuids"], [uuid_2, uuid_1, added_uuid])
+
+    def test_stale_shared_metric_removal_keeps_concurrently_linked_metric(self) -> None:
+        saved_1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Shared one",
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "s1"}},
+        )
+        saved_2 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Shared two",
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "s2"}},
+        )
+        created = self._create_experiment("shared-removal")
+        linked = self._patch(
+            created["id"], {"saved_metrics_ids": [{"id": saved_1.id, "metadata": {"type": "secondary"}}]}
+        )
+        self.assertEqual(linked.status_code, status.HTTP_200_OK)
+        snapshot = linked.json()
+
+        concurrent_link = self._patch(
+            snapshot["id"],
+            {
+                "saved_metrics_ids": [
+                    {"id": saved_1.id, "metadata": {"type": "secondary"}},
+                    {"id": saved_2.id, "metadata": {"type": "secondary"}},
+                ]
+            },
+        )
+        self.assertEqual(concurrent_link.status_code, status.HTTP_200_OK)
+
+        stale_removal = self._patch(
+            snapshot["id"],
+            {
+                "saved_metrics_ids": [],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_removal.status_code, status.HTTP_200_OK, stale_removal.json())
+        remaining = [link["saved_metric"] for link in stale_removal.json()["saved_metrics"]]
+        self.assertEqual(remaining, [saved_2.id])
+
+    def test_shared_metric_metadata_double_edit_conflicts(self) -> None:
+        saved = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Contested shared",
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": "s1"}},
+        )
+        created = self._create_experiment("shared-metadata")
+        linked = self._patch(created["id"], {"saved_metrics_ids": [{"id": saved.id, "metadata": {"type": "primary"}}]})
+        self.assertEqual(linked.status_code, status.HTTP_200_OK)
+        snapshot = linked.json()
+
+        their_edit = self._patch(
+            snapshot["id"], {"saved_metrics_ids": [{"id": saved.id, "metadata": {"type": "secondary"}}]}
+        )
+        self.assertEqual(their_edit.status_code, status.HTTP_200_OK)
+
+        stale_edit = self._patch(
+            snapshot["id"],
+            {
+                "saved_metrics_ids": [{"id": saved.id, "metadata": {"type": "primary", "breakdowns": []}}],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_edit.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(stale_edit.json()["conflicting_metric_uuids"], [f"saved_metric:{saved.id}"])
+
+    def test_update_without_version_keeps_last_write_wins_behavior(self) -> None:
+        snapshot = self._create_experiment("no-version", metrics=[self._metric("base")])
+        self.assertEqual(
+            self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]}).status_code,
+            status.HTTP_200_OK,
+        )
+
+        unversioned_write = self._patch(snapshot["id"], {"metrics": snapshot["metrics"]})
+
+        self.assertEqual(unversioned_write.status_code, status.HTTP_200_OK)
+        self.assertEqual(self._events(unversioned_write.json()["metrics"]), {"base"})
+
+    def test_null_stored_version_is_treated_as_zero(self) -> None:
+        snapshot = self._create_experiment("null-version", metrics=[self._metric("base")])
+        Experiment.objects.filter(id=snapshot["id"]).update(version=None)
+
+        versioned_write = self._patch(snapshot["id"], {"description": "updated", "version": 0})
+
+        self.assertEqual(versioned_write.status_code, status.HTTP_200_OK)
+        self.assertEqual(versioned_write.json()["version"], 1)
+
+    def test_sequential_writes_with_refreshed_version_increment_monotonically(self) -> None:
+        snapshot = self._create_experiment("sequential", metrics=[self._metric("base")])
+        first = self._patch(snapshot["id"], {"description": "first", "version": snapshot["version"]})
+        self.assertEqual(first.status_code, status.HTTP_200_OK)
+        self.assertEqual(first.json()["version"], snapshot["version"] + 1)
+
+        second = self._patch(snapshot["id"], {"description": "second", "version": first.json()["version"]})
+        self.assertEqual(second.status_code, status.HTTP_200_OK)
+        self.assertEqual(second.json()["version"], snapshot["version"] + 2)
+
+    def test_launch_fingerprint_churn_is_not_a_phantom_metric_conflict(self) -> None:
+        snapshot = self._create_experiment("launch-churn", metrics=[self._metric("base")])
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{snapshot['id']}/launch/")
+        self.assertEqual(launch.status_code, status.HTTP_200_OK, launch.json())
+
+        # The launch rewrote every metric fingerprint; that server-side churn must not read
+        # as a concurrent edit of the metric this stale write edits.
+        my_metric = {**snapshot["metrics"][0], "source": {"kind": "EventsNode", "event": "edited"}}
+        stale_edit = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [my_metric],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_edit.status_code, status.HTTP_200_OK, stale_edit.json())
+        self.assertEqual(self._events(stale_edit.json()["metrics"]), {"edited"})
+        self.assertIsNotNone(stale_edit.json()["start_date"])
+
+    def test_stale_metric_addition_merges_after_concurrent_launch(self) -> None:
+        # A concurrent launch changes start_date, but a metric-only PATCH omits it,
+        # so the stale addition merges and the launch survives.
+        snapshot = self._create_experiment("launch-merge", metrics=[self._metric("base")])
+        launch = self.client.post(f"/api/projects/{self.team.id}/experiments/{snapshot['id']}/launch/")
+        self.assertEqual(launch.status_code, status.HTTP_200_OK)
+
+        stale_edit = self._patch(
+            snapshot["id"],
+            {
+                "metrics": [*snapshot["metrics"], self._metric("mine")],
+                "version": snapshot["version"],
+                "original_experiment": self._original(snapshot),
+            },
+        )
+
+        self.assertEqual(stale_edit.status_code, status.HTTP_200_OK, stale_edit.json())
+        self.assertEqual(self._events(stale_edit.json()["metrics"]), {"base", "mine"})
+        self.assertIsNotNone(stale_edit.json()["start_date"])
+
+    def test_version_without_original_is_plain_compare_and_swap(self) -> None:
+        snapshot = self._create_experiment("plain-cas", metrics=[self._metric("base")])
+        self.assertEqual(
+            self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("theirs")]}).status_code,
+            status.HTTP_200_OK,
+        )
+
+        stale_write = self._patch(
+            snapshot["id"],
+            {"metrics": snapshot["metrics"], "version": snapshot["version"]},
+        )
+
+        self.assertEqual(stale_write.status_code, status.HTTP_409_CONFLICT)
+        body = stale_write.json()
+        self.assertEqual(body["current_version"], snapshot["version"] + 1)
+        self.assertNotIn("conflicting_fields", body)

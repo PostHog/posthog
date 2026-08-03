@@ -238,6 +238,7 @@ async fn async_main(config: Config) -> Result<()> {
         config.ingestion_worker_concurrent_batches,
         config.transport_compression_enabled,
     );
+    transport.set_max_body_bytes(config.transport_max_body_bytes);
     if let Some(recorder) = &debug_recorder {
         transport.set_debug_recorder(Arc::clone(recorder));
     }

@@ -1,5 +1,6 @@
 import time
 import socket
+import ipaddress
 from collections.abc import Callable, Generator
 from contextlib import _GeneratorContextManager, contextmanager
 from typing import Any
@@ -25,6 +26,17 @@ _INTERNAL_IP_ERROR = (
     "Use a host that's reachable from the public internet."
 )
 _DNS_FAILURE_ERROR = "Host could not be resolved"
+
+
+def is_team_allowlisted_for_internal_hosts(team_id: int) -> bool:
+    """Whether this team may point warehouse sources at PostHog-internal hosts.
+
+    Only our own internal analytics projects: team 2 in US, team 1 in EU.
+    Gates both the SSRF host check and the egress-proxy bypass for direct
+    connections to internal databases.
+    """
+    region = get_instance_region()
+    return (region == "US" and team_id == 2) or (region == "EU" and team_id == 1)
 
 
 def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
@@ -68,7 +80,7 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
         _log("allow", "e2e", None)
         return True, None
 
-    if (region == "US" and team_id == 2) or (region == "EU" and team_id == 1):
+    if is_team_allowlisted_for_internal_hosts(team_id):
         _log("allow", "team_allowlist", None)
         return True, None
 
@@ -172,6 +184,25 @@ def _logged_connection(config, team_id: int | None) -> Generator[None]:
         raise
 
 
+def _require_loopback(host: str) -> str:
+    """Refuse to treat a non-loopback address as a tunnel bind.
+
+    ClickHouse skips the egress proxy for tunneled connections on the strength of the tunnel
+    branch only ever yielding its own loopback bind address (`SSHTunnel.get_tunnel` pins
+    `local_bind_address` to 127.0.0.1). That invariant lives in a different file from the
+    bypass, so enforce it where the address is produced: if a future change makes this branch
+    yield anything else — a fallback to the configured host, a non-loopback bind — the proxy
+    bypass would silently extend to it, and this raises instead.
+    """
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = False
+    if not is_loopback:
+        raise Exception(f"SSH tunnel bound to non-loopback address {host!r}; refusing to use it")
+    return host
+
+
 @contextmanager
 def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, int]]:
     """Yield `(host, port)` for a database connection, going through an SSH tunnel if configured."""
@@ -184,7 +215,7 @@ def open_ssh_tunnel(config, team_id: int | None = None) -> Generator[tuple[str, 
                 if tunnel is None:
                     raise Exception("Can't open tunnel to SSH server")
 
-                yield tunnel.local_bind_host, tunnel.local_bind_port
+                yield _require_loopback(tunnel.local_bind_host), tunnel.local_bind_port
         else:
             yield config.host, config.port
 
@@ -207,7 +238,7 @@ def make_ssh_tunnel_factory(
                 with ssh_tunnel.get_tunnel(config.host, config.port) as tunnel:
                     if tunnel is None:
                         raise Exception("Can't open tunnel to SSH server")
-                    yield tunnel.local_bind_host, tunnel.local_bind_port
+                    yield _require_loopback(tunnel.local_bind_host), tunnel.local_bind_port
 
         return with_ssh_func
 
@@ -229,6 +260,16 @@ class SSHTunnelMixin:
         self, config, team_id: int | None = None
     ) -> Callable[[], _GeneratorContextManager[tuple[str, int]]]:
         return make_ssh_tunnel_factory(config, team_id)
+
+    def ssh_tunnel_enabled(self, config) -> bool:
+        """Whether the tunnel helpers above will tunnel rather than connect directly.
+
+        For callers that need to know which branch was taken, because the `(host, port)` they
+        receive means something different in each case: a tunnel yields our own local bind
+        address, while a direct connection yields the user's configured host. Shares
+        `_enabled_ssh_tunnel` with the branch itself so the two cannot drift apart.
+        """
+        return _enabled_ssh_tunnel(config) is not None
 
     def ssh_tunnel_is_valid(self, config, team_id: int) -> tuple[bool, str | None]:
         if hasattr(config, "ssh_tunnel") and config.ssh_tunnel and config.ssh_tunnel.enabled:
