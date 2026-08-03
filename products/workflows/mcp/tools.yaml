@@ -304,6 +304,28 @@ tools:
             Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG,
             LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected
             results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.
+    workflows-patch-action-email:
+        operation: hog_flows_actions_email_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: WorkflowActionEmailPatchSchema
+        title: Patch a workflow step's email
+        description: >
+            Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design
+            changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template,
+            addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and
+            email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
+            server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
+            nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
+            reaches real people until workflows-publish; a rejection saying active workflows can't be edited means draft
+            editing isn't enabled for this project yet. The full updated workflow is returned. Prefer this over
+            workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in
+            sync. For library templates use workflows-patch-email-template instead.
     workflows-patch-graph:
         operation: hog_flows_graph_partial_update
         enabled: true
