@@ -76,8 +76,7 @@ from products.slack_app.backend.views import (
 from products.stamphog.backend.facade.webhooks import stamphog_github_webhook
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
-from products.tasks.backend.agent_proxy_callback import agent_proxy_port_forward_resolve
-from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.facade.agent_proxy import agent_proxy_callback, agent_proxy_port_forward_resolve
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,

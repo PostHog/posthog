@@ -4625,7 +4625,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
         run.state = {"sandbox_url": "https://sandbox.modal.run"}
         run.save(update_fields=["state"])
-        port_forward = TaskRunPortForward.objects.create(
+        port_forward = TaskRunPortForward.objects.unscoped().create(
             task=task,
             task_run=run,
             team=self.team,
@@ -4665,7 +4665,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         task, run = self._create_run_for_origin(Task.OriginProduct.USER_CREATED)
         run.state = {"sandbox_url": "https://sandbox.modal.run", "sandbox_connect_token": "connect-token"}
         run.save(update_fields=["state"])
-        port_forward = TaskRunPortForward.objects.create(
+        port_forward = TaskRunPortForward.objects.unscoped().create(
             task=task,
             task_run=run,
             team=self.team,

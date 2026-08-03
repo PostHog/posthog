@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
             options={
                 "db_table": "posthog_task_run_port_forward",
                 "indexes": [
-                    models.Index(fields=["team", "task_run", "status"], name="task_run_pf_team_run_status_idx"),
+                    models.Index(fields=["team", "task_run", "status"], name="task_run_pf_team_run_stat_idx"),
                     models.Index(fields=["expires_at"], name="task_run_pf_expires_at_idx"),
                 ],
                 "constraints": [

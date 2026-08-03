@@ -2007,7 +2007,11 @@ def list_task_run_port_forwards(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    forwards = TaskRunPortForward.objects.filter(task_run=run, team_id=team_id).order_by("port", "created_at")
+    forwards = (
+        TaskRunPortForward.objects.for_team(team_id)
+        .filter(task_run=run, team_id=team_id)
+        .order_by("port", "created_at")
+    )
     return [_task_run_port_forward_to_dto(port_forward) for port_forward in forwards]
 
 
@@ -2017,7 +2021,9 @@ def get_task_run_port_forward(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    port_forward = TaskRunPortForward.objects.filter(id=forward_id, task_run=run, team_id=team_id).first()
+    port_forward = (
+        TaskRunPortForward.objects.for_team(team_id).filter(id=forward_id, task_run=run, team_id=team_id).first()
+    )
     return _task_run_port_forward_to_dto(port_forward) if port_forward else None
 
 
@@ -2050,7 +2056,7 @@ def create_task_run_port_forward(
 
     defaults = {"name": name[:80], "created_by_id": created_by_id}
     try:
-        port_forward, _created = TaskRunPortForward.objects.get_or_create(
+        port_forward, _created = TaskRunPortForward.objects.for_team(team_id).get_or_create(
             task_run=run,
             task_id=run.task_id,
             team_id=team_id,
@@ -2059,7 +2065,7 @@ def create_task_run_port_forward(
             defaults=defaults,
         )
     except IntegrityError:
-        port_forward = TaskRunPortForward.objects.get(
+        port_forward = TaskRunPortForward.objects.for_team(team_id).get(
             task_run=run,
             team_id=team_id,
             port=port,
@@ -2075,7 +2081,9 @@ def stop_task_run_port_forward(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    port_forward = TaskRunPortForward.objects.filter(id=forward_id, task_run=run, team_id=team_id).first()
+    port_forward = (
+        TaskRunPortForward.objects.for_team(team_id).filter(id=forward_id, task_run=run, team_id=team_id).first()
+    )
     if port_forward is None:
         return None
     if port_forward.status == TaskRunPortForward.Status.ACTIVE:
@@ -2096,12 +2104,16 @@ def create_task_run_port_forward_token(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None, None
-    port_forward = TaskRunPortForward.objects.filter(
-        id=forward_id,
-        task_run=run,
-        team_id=team_id,
-        status=TaskRunPortForward.Status.ACTIVE,
-    ).first()
+    port_forward = (
+        TaskRunPortForward.objects.for_team(team_id)
+        .filter(
+            id=forward_id,
+            task_run=run,
+            team_id=team_id,
+            status=TaskRunPortForward.Status.ACTIVE,
+        )
+        .first()
+    )
     if port_forward is None:
         return None, None
     if error := _validate_port_forward_target(run, port_forward.port):
@@ -2140,7 +2152,8 @@ def resolve_task_run_port_forward(token: str) -> contracts.TaskRunPortForwardRes
         return None
 
     port_forward = (
-        TaskRunPortForward.objects.select_related("task_run")
+        TaskRunPortForward.objects.for_team(payload.team_id)
+        .select_related("task_run")
         .filter(
             id=forward_id,
             task_run_id=run_id,

@@ -308,6 +308,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskRunPortForward
                               |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
@@ -645,6 +646,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskRunPortForward
                         |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
