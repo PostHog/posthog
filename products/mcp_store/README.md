@@ -7,9 +7,12 @@ This is unrelated to `products/*/mcp/tools.yaml`, which exposes PostHog's own en
 
 ## Settings experience and rollout
 
-The MCP servers area lives under Settings and remains behind the outer `mcp-servers` feature flag (`MCP_SERVERS`).
-Within that area, the `mcp-gateway` feature flag (`MCP_GATEWAY`) selects the gateway experience described below.
-When `mcp-gateway` is off, Settings continues to render the existing marketplace UI.
+Two independent feature flags gate two surfaces — neither flag depends on the other:
+
+- The Settings → MCP servers page is gated by the `mcp-servers` feature flag (`MCP_SERVERS`).
+  On that page, the `mcp-gateway` feature flag (`MCP_GATEWAY`) selects the gateway experience described below; when it is off, Settings renders the existing marketplace UI.
+- The standalone gateway scene at `/mcp-servers` and its nav entry are gated solely by `mcp-gateway` and are reachable even with `mcp-servers` off.
+
 Keep both layers until the legacy `mcp-servers` flag and marketplace logic are removed in a follow-up change.
 
 The gateway experience has these pages and workflows:
