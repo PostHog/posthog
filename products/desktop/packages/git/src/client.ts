@@ -4,13 +4,6 @@ export type GitClient = SimpleGit;
 
 export interface CreateGitClientOptions extends Partial<SimpleGitOptions> {
   abortSignal?: AbortSignal;
-  /**
-   * Opt in to `GIT_CONFIG_COUNT`-style config in the `env` passed to the
-   * client. Only for callers that build that env themselves (e.g. injecting an
-   * `http.extraHeader` token) — leaving it off keeps simple-git's guard against
-   * config smuggled in through the inherited environment.
-   */
-  allowConfigEnv?: boolean;
 }
 
 export const PERFORMANCE_CONFIG = [
@@ -23,12 +16,7 @@ export function createGitClient(
   baseDir?: string,
   options?: CreateGitClientOptions,
 ): GitClient {
-  const {
-    abortSignal: signal,
-    config: callerConfig,
-    allowConfigEnv,
-    ...rest
-  } = options ?? {};
+  const { abortSignal: signal, config: callerConfig, ...rest } = options ?? {};
   const config = callerConfig
     ? [...PERFORMANCE_CONFIG, ...callerConfig]
     : PERFORMANCE_CONFIG;
@@ -46,7 +34,6 @@ export function createGitClient(
       allowUnsafeFsMonitor: true,
       allowUnsafeEditor: true,
       allowUnsafePager: true,
-      ...(allowConfigEnv && { allowUnsafeConfigEnvCount: true }),
     },
     ...rest,
   });

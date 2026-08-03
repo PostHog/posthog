@@ -2,23 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createGitClient } from "@posthog/git/client";
+import { execGit } from "@posthog/git/git-exec";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const mocks = vi.hoisted(() => ({
-  cloneRun: vi.fn(),
-  getCurrentBranch: vi.fn(),
-}));
-
-vi.mock("@posthog/git/sagas/clone", () => ({
-  CloneSaga: class {
-    run = mocks.cloneRun;
-  },
-}));
-
-vi.mock("@posthog/git/queries", () => ({
-  getCurrentBranch: mocks.getCurrentBranch,
-}));
 
 vi.mock("../../../utils/github-token", () => ({
   resolveGithubToken: vi.fn(() => undefined),
@@ -26,71 +11,99 @@ vi.mock("../../../utils/github-token", () => ({
 
 const { cloneRepoTool } = await import("./clone-repo");
 
+const REPO_URL = "https://github.com/PostHog/posthog.git";
+
 describe("clone_repo", () => {
   let cwd: string;
+  let sourcePath: string;
+  let targetPath: string;
+  let previousConfigGlobal: string | undefined;
+
+  async function git(args: string[], repoPath: string): Promise<string> {
+    const result = await execGit(args, { cwd: repoPath });
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || result.error);
+    }
+    return result.stdout.trim();
+  }
 
   beforeEach(async () => {
     cwd = await mkdtemp(path.join(tmpdir(), "posthog-code-clone-tool-"));
-    mocks.cloneRun.mockReset().mockResolvedValue({
-      success: true,
-      data: { targetPath: path.join(cwd, "repos", "PostHog", "posthog") },
-    });
-    mocks.getCurrentBranch.mockReset().mockResolvedValue("feature");
+    sourcePath = path.join(cwd, "source");
+    targetPath = path.join(cwd, "repos", "PostHog", "posthog");
+    await mkdir(sourcePath, { recursive: true });
+
+    await git(["init", "--initial-branch=master", "."], sourcePath);
+    await git(["config", "user.name", "PostHog Code test"], sourcePath);
+    await git(["config", "user.email", "test@posthog.com"], sourcePath);
+    await git(["config", "commit.gpgsign", "false"], sourcePath);
+    await writeFile(path.join(sourcePath, "README.md"), "master\n");
+    await git(["add", "README.md"], sourcePath);
+    await git(["commit", "-m", "initial commit"], sourcePath);
+    await git(["tag", "v1"], sourcePath);
+    await git(["checkout", "-b", "feature"], sourcePath);
+    await writeFile(path.join(sourcePath, "README.md"), "feature\n");
+    await git(["add", "README.md"], sourcePath);
+    await git(["commit", "-m", "feature commit"], sourcePath);
+    await git(["checkout", "master"], sourcePath);
+
+    // Serve github.com/PostHog/posthog from the local fixture. This lands in a
+    // config file rather than GIT_CONFIG_* env so the tool's own auth env (which
+    // takes GIT_CONFIG_COUNT) still applies on top of it.
+    const configPath = path.join(cwd, "gitconfig");
+    await writeFile(
+      configPath,
+      `[url "${pathToFileURL(sourcePath).href}"]\n\tinsteadOf = ${REPO_URL}\n`,
+    );
+    previousConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = configPath;
   });
 
   afterEach(async () => {
+    if (previousConfigGlobal === undefined) {
+      delete process.env.GIT_CONFIG_GLOBAL;
+    } else {
+      process.env.GIT_CONFIG_GLOBAL = previousConfigGlobal;
+    }
     await rm(cwd, { recursive: true, force: true });
   });
 
-  it("authenticates a shallow clone without persisting the token in origin", async () => {
-    mocks.cloneRun.mockImplementationOnce(async (input) => {
-      await mkdir(input.targetPath, { recursive: true });
-      const git = createGitClient(input.targetPath);
-      await git.init();
-      await git.addRemote("origin", input.repoUrl);
-      return { success: true, data: { targetPath: input.targetPath } };
-    });
-
+  it("clones one commit of the requested branch, without tags or a token in origin", async () => {
     const result = await cloneRepoTool.handler(
       { cwd, token: "test-token" },
       { repo: "PostHog/posthog", branch: "feature" },
     );
 
     expect(result.isError).toBeUndefined();
-    const cloneInput = mocks.cloneRun.mock.calls[0]?.[0];
-    expect(cloneInput).toMatchObject({
-      repoUrl: "https://github.com/PostHog/posthog.git",
-      targetPath: path.join(cwd, "repos", "PostHog", "posthog"),
-      branch: "feature",
-      shallow: true,
-    });
-    expect(cloneInput.env).toMatchObject({
-      GIT_CONFIG_COUNT: "1",
-      GIT_CONFIG_KEY_0: "http.extraHeader",
-    });
-    expect(cloneInput.env.GIT_CONFIG_VALUE_0).not.toContain("test-token");
+    expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], targetPath)).toBe(
+      "feature",
+    );
     expect(
-      Buffer.from(
-        cloneInput.env.GIT_CONFIG_VALUE_0.replace("AUTHORIZATION: basic ", ""),
-        "base64",
-      ).toString("utf8"),
-    ).toBe("x-access-token:test-token");
-    const targetGit = createGitClient(
-      path.join(cwd, "repos", "PostHog", "posthog"),
-    );
-    expect((await targetGit.remote(["get-url", "origin"]))?.trim()).toBe(
-      "https://github.com/PostHog/posthog.git",
-    );
+      await git(["rev-parse", "--is-shallow-repository"], targetPath),
+    ).toBe("true");
+    expect(await git(["rev-list", "--count", "HEAD"], targetPath)).toBe("1");
+    expect(await git(["tag", "--list"], targetPath)).toBe("");
+    // The token rides in an http.extraHeader env var, so it must not have been
+    // persisted into the checkout's config the way a URL credential would be.
+    expect(
+      await git(["config", "--get", "remote.origin.url"], targetPath),
+    ).toBe(REPO_URL);
+    expect(
+      await git(["config", "--local", "--list"], targetPath),
+    ).not.toContain("test-token");
   });
 
   it("removes credentials from an existing clone origin", async () => {
-    const targetPath = path.join(cwd, "repos", "PostHog", "posthog");
     await mkdir(targetPath, { recursive: true });
-    const git = createGitClient(targetPath);
-    await git.init();
-    await git.addRemote(
-      "origin",
-      "https://x-access-token:stale-token@github.com/PostHog/posthog.git",
+    await git(["init", "."], targetPath);
+    await git(
+      [
+        "remote",
+        "add",
+        "origin",
+        "https://x-access-token:stale-token@github.com/PostHog/posthog.git",
+      ],
+      targetPath,
     );
 
     const result = await cloneRepoTool.handler(
@@ -99,42 +112,16 @@ describe("clone_repo", () => {
     );
 
     expect(result.isError).toBeUndefined();
-    expect((await git.remote(["get-url", "origin"]))?.trim()).toBe(
-      "https://github.com/PostHog/posthog.git",
-    );
+    expect(
+      await git(["config", "--get", "remote.origin.url"], targetPath),
+    ).toBe(REPO_URL);
   });
 
   it("fetches a missing branch into an existing shallow clone", async () => {
-    const sourcePath = path.join(cwd, "source");
-    const targetPath = path.join(cwd, "repos", "PostHog", "posthog");
-    await mkdir(sourcePath, { recursive: true });
-    await createGitClient().raw([
-      "init",
-      "--initial-branch=master",
-      sourcePath,
-    ]);
-
-    const sourceGit = createGitClient(sourcePath);
-    await sourceGit.addConfig("user.name", "PostHog Code test");
-    await sourceGit.addConfig("user.email", "test@posthog.com");
-    await writeFile(path.join(sourcePath, "README.md"), "master\n");
-    await sourceGit.add("README.md");
-    await sourceGit.commit("initial commit");
-    await sourceGit.checkoutLocalBranch("feature");
-    await writeFile(path.join(sourcePath, "README.md"), "feature\n");
-    await sourceGit.add("README.md");
-    await sourceGit.commit("feature commit");
-    await sourceGit.checkout("master");
-
-    await mkdir(path.dirname(targetPath), { recursive: true });
-    await createGitClient().clone(pathToFileURL(sourcePath).href, targetPath, [
-      "--depth",
-      "1",
-      "--single-branch",
-      "--no-tags",
-      "--branch",
-      "master",
-    ]);
+    await cloneRepoTool.handler(
+      { cwd, token: "test-token" },
+      { repo: "PostHog/posthog", branch: "master" },
+    );
 
     const result = await cloneRepoTool.handler(
       { cwd, token: "test-token" },
@@ -142,19 +129,18 @@ describe("clone_repo", () => {
     );
 
     expect(result.isError).toBeUndefined();
-    const targetGit = createGitClient(targetPath);
-    expect((await targetGit.branchLocal()).current).toBe("feature");
-    expect(
-      await targetGit.raw([
-        "rev-parse",
-        "--abbrev-ref",
-        "--symbolic-full-name",
-        "@{upstream}",
-      ]),
-    ).toBe("origin/feature");
-    expect(await targetGit.raw(["rev-parse", "--is-shallow-repository"])).toBe(
-      "true",
+    expect(await git(["rev-parse", "--abbrev-ref", "HEAD"], targetPath)).toBe(
+      "feature",
     );
-    expect(await targetGit.raw(["rev-list", "--count", "HEAD"])).toBe("1");
+    expect(
+      await git(
+        ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+        targetPath,
+      ),
+    ).toBe("origin/feature");
+    expect(
+      await git(["rev-parse", "--is-shallow-repository"], targetPath),
+    ).toBe("true");
+    expect(await git(["rev-list", "--count", "HEAD"], targetPath)).toBe("1");
   });
 });
