@@ -130,6 +130,7 @@ def _make_paginate_dependent_resource(
     resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = None,
     initial_state: Optional[dict[str, Any]] = None,
     data_selector_required: bool = False,
+    data_selector_empty_ok: bool = False,
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -199,6 +200,7 @@ def _make_paginate_dependent_resource(
                 resume_hook=child_resume_hook if resume_hook is not None else None,
                 initial_paginator_state=child_initial,
                 data_selector_required=data_selector_required,
+                data_selector_empty_ok=data_selector_empty_ok,
             ):
                 if parent_record:
                     for child_record in child_page:
@@ -315,6 +317,7 @@ def create_resources(
                     None if has_dependent_resource else initial_paginator_state
                 ),
                 data_selector_required: bool = bool(endpoint_config.get("data_selector_required")),
+                data_selector_empty_ok: bool = bool(endpoint_config.get("data_selector_empty_ok")),
                 data_selector_malformed_retryable: bool = bool(
                     endpoint_config.get("data_selector_malformed_retryable")
                 ),
@@ -339,6 +342,7 @@ def create_resources(
                     resume_hook=resume_hook,
                     initial_paginator_state=initial_paginator_state,
                     data_selector_required=data_selector_required,
+                    data_selector_empty_ok=data_selector_empty_ok,
                     data_selector_malformed_retryable=data_selector_malformed_retryable,
                 ):
                     yield list(convert_types(page, columns_config))
@@ -376,6 +380,7 @@ def create_resources(
                 resume_hook=dependent_resume_hook,
                 initial_state=dependent_initial_state,
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
+                data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
             )
 
             resources[resource_name] = Resource(

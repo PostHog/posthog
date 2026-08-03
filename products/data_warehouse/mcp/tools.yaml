@@ -487,6 +487,9 @@ tools:
     warehouse-saved-queries-descendants-create:
         operation: warehouse_saved_queries_descendants_create
         enabled: false
+    warehouse-saved-queries-resume-create:
+        operation: warehouse_saved_queries_resume_create
+        enabled: false
     warehouse-saved-queries-resume-schedules-create:
         operation: warehouse_saved_queries_resume_schedules_create
         enabled: false

@@ -22,6 +22,7 @@ from django.utils.html import escape
 from django.views.decorators.http import require_http_methods
 
 import jwt
+import pydantic
 import requests
 import structlog
 import posthoganalytics
@@ -42,6 +43,8 @@ from rest_framework.views import APIView
 from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
+
+from posthog.schema import UserUIConfiguration
 
 from posthog.api.email_verification import EmailVerifier, email_verification_token_generator
 from posthog.api.oauth.toolbar_service import (
@@ -234,6 +237,15 @@ class UserSerializer(serializers.ModelSerializer):
         ),
     )
     scene_personalisation = ScenePersonalisationBasicSerializer(many=True, read_only=True)
+    ui_configuration = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers "
+            "sidebar section and item visibility. Send the complete object: it replaces the stored value "
+            "wholesale. Null means no customization; absent keys mean the element is shown."
+        ),
+    )
     anonymize_data = ClassicBehaviorBooleanFieldSerializer(
         help_text="Whether PostHog should anonymize events captured for this user when identified."
     )
@@ -308,6 +320,7 @@ class UserSerializer(serializers.ModelSerializer):
             "role_at_organization",
             "passkeys_enabled_for_2fa",
             "hide_mcp_hints",
+            "ui_configuration",
             "onboarding_skipped_at",
             "onboarding_skipped_reason",
             "onboarding_skipped_organization_id",
@@ -628,6 +641,20 @@ class UserSerializer(serializers.ModelSerializer):
 
         return cast(Notifications, current_settings)
 
+    def validate_ui_configuration(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
+        if value is None:
+            return None
+        try:
+            UserUIConfiguration.model_validate(value)
+        except pydantic.ValidationError as e:
+            errors = "; ".join(
+                f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()
+            )
+            raise serializers.ValidationError(
+                f"Does not match the UserUIConfiguration schema: {errors}", code="invalid_input"
+            )
+        return value
+
     def validate_password_change(
         self, instance: User, current_password: Optional[str], password: Optional[str]
     ) -> Optional[str]:
@@ -945,6 +972,7 @@ class UserViewSet(
         "has_seen_product_intro_for",
         "events_column_config",
         "role_at_organization",
+        "ui_configuration",
     ]
     time_sensitive_exclude_actions = [
         "hedgehog_config",

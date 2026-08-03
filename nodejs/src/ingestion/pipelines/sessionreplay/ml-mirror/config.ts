@@ -1,5 +1,7 @@
 import os from 'node:os'
 
+import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ } from '~/common/config/kafka-topics'
+
 export type MlMirrorConfig = {
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
@@ -55,16 +57,24 @@ export type MlMirrorConfig = {
      * memory incident should not need a code deploy of the shared replay ingester.
      */
     SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: number
+    /**
+     * How long to wait for the sidecar to answer one image.
+     *
+     * Must exceed the sidecar's own IMAGE_SCRUB_JOB_TIMEOUT_MS plus the time a request can sit in
+     * its admission queue, and the ordering is load-bearing rather than a matter of taste. The
+     * sidecar answers a job it cannot finish by retiring the worker and returning 500, which is a
+     * considered answer about that image and is what lets a genuinely unprocessable one be blamed
+     * and parked. Give up first and that answer never arrives: the image looks merely slow on every
+     * attempt, never earns blame, and sits at the head of a partition shared by every team whose
+     * records hash to it. A timeout is then what it should be, the sidecar saying nothing at all.
+     */
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
-    SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
+    /** Where images the sidecar cannot process are parked so they stop holding their partition. */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: string
+    /** Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s). */
+    SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
     // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
-    // Scrub-phase budget, covering scrub time only — mid-batch flush time is excluded (each flush is
-    // separately bounded at 2x the S3 write timeout). Sized so scrub plus the worst-case flushes for
-    // one poll batch stays under Kafka's max.poll.interval.ms (300s), or a hung sidecar/S3 evicts us
-    // mid-batch and livelocks.
-    SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
-
     /**
      * Cap on messages scrubbed concurrently per pod. Each in-flight scrub occupies one libuv
      * threadpool thread (UV_THREADPOOL_SIZE, default 4, shared with the recorder's snappy
@@ -96,10 +106,10 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,
         SESSION_RECORDING_ML_IMAGE_SCRUB_DEDUP_MAX_REFS: 250_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: 500_000,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 45 * 1000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 50,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
         SESSION_RECORDING_ML_ANONYMIZE_MAX_CONCURRENCY: 0,
     }
 }

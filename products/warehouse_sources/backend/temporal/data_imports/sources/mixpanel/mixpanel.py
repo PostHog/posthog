@@ -12,9 +12,9 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.settings import (
     DEFAULT_EXPORT_LOOKBACK_DAYS,
     EXPORT_API_PATH_SEGMENT,
@@ -199,8 +199,17 @@ def validate_credentials(
             "plan that includes the data export API, and the account must be in good standing. Check your "
             "Mixpanel plan and billing, then try again.",
         )
+    if response.status_code == 400:
+        return (
+            False,
+            "Mixpanel rejected the request (400). This usually means the project ID isn't valid for the "
+            "selected region. Check your project ID and region, then try again.",
+        )
 
-    return False, f"Mixpanel returned an unexpected status ({response.status_code}) while validating credentials."
+    return (
+        False,
+        "Could not validate your Mixpanel credentials. Check the region, username, secret, and project ID, then try again.",
+    )
 
 
 def _check_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> requests.Response:

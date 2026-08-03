@@ -982,9 +982,29 @@ export interface TeamCustomerAnalyticsConfigApi {
     account_group_type_index?: number | null
 }
 
+/**
+ * * `off` - Off
+ * * `opt_out` - Opt Out
+ * * `opt_in` - Opt In
+ */
+export type EmailTrackingConsentModeEnumApi =
+    (typeof EmailTrackingConsentModeEnumApi)[keyof typeof EmailTrackingConsentModeEnumApi]
+
+export const EmailTrackingConsentModeEnumApi = {
+    Off: 'off',
+    OptOut: 'opt_out',
+    OptIn: 'opt_in',
+} as const
+
 export interface TeamWorkflowsConfigApi {
     /** When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics. */
     capture_workflows_engagement_events?: boolean
+    /** Recipient-consent enforcement for open/click tracking on marketing workflow emails. 'off': no enforcement, tracking follows each email step's own setting. 'opt_out': track by default but not recipients who have opted out. 'opt_in': only track recipients who have explicitly opted in. Transactional emails are exempt from consent enforcement.
+     *
+     * * `off` - Off
+     * * `opt_out` - Opt Out
+     * * `opt_in` - Opt In */
+    email_tracking_consent_mode?: EmailTrackingConsentModeEnumApi
 }
 
 /**
@@ -2739,6 +2759,7 @@ export interface FileSystemApi {
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at: string
+    readonly created_by: UserBasicApi | null
     /** @nullable */
     readonly last_viewed_at: string | null
     /**
@@ -2775,6 +2796,7 @@ export interface PatchedFileSystemApi {
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at?: string
+    readonly created_by?: UserBasicApi | null
     /** @nullable */
     readonly last_viewed_at?: string | null
     /**
@@ -3549,6 +3571,8 @@ export interface UserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at: string | null
     readonly onboarding_skipped_reason: OnboardingSkippedReasonEnumApi | null
@@ -3656,6 +3680,8 @@ export interface PatchedUserApi {
     passkeys_enabled_for_2fa?: boolean | null
     /** When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions. */
     hide_mcp_hints?: boolean
+    /** Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers sidebar section and item visibility. Send the complete object: it replaces the stored value wholesale. Null means no customization; absent keys mean the element is shown. */
+    ui_configuration?: unknown
     /** @nullable */
     readonly onboarding_skipped_at?: string | null
     readonly onboarding_skipped_reason?: OnboardingSkippedReasonEnumApi | null
@@ -3706,6 +3732,11 @@ export interface UserGitHubIntegrationItemApi {
     repository_selection?: string | null
     /** Installation account metadata from GitHub. */
     account?: UserGitHubAccountApi | null
+    /**
+     * The connected user's own GitHub login (distinct from the installation account).
+     * @nullable
+     */
+    github_login?: string | null
     /** True when this installation id matches a team-level GitHub integration on the active project. */
     uses_shared_installation: boolean
     /** When this integration row was created. */

@@ -144,17 +144,94 @@ describe('dashboardBreakdownColors', () => {
             ])
         })
 
-        it('ignores non-matching insight types', () => {
+        it('handles funnel insights with trends visualization, without a baseline row', () => {
             const tiles = [
                 createTestTile({
-                    result: [],
+                    result: [{ breakdown_value: ['Chrome'] }, { breakdown_value: ['Firefox'] }],
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.FunnelsQuery,
+                            funnelsFilter: {
+                                funnelVizType: FunnelVizType.Trends,
+                            },
+                        },
+                    } as InsightVizNode<InsightQueryNode>,
+                }),
+            ]
+
+            expect(extractBreakdownValues(tiles, null)).toEqual([
+                { breakdownValue: 'Chrome', breakdownType: 'event' },
+                { breakdownValue: 'Firefox', breakdownType: 'event' },
+            ])
+        })
+
+        it('handles retention insights with a breakdown', () => {
+            const retentionTile = (result: any[]): DashboardTile<QueryBasedInsightModel> =>
+                createTestTile({
+                    result,
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.RetentionQuery,
+                            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                        },
+                    } as InsightVizNode<InsightQueryNode>,
+                })
+
+            const tiles = [
+                retentionTile([
+                    { breakdown_value: 'Chrome' },
+                    { breakdown_value: 'Chrome' },
+                    { breakdown_value: '$$_posthog_breakdown_other_$$' },
+                    { breakdown_value: null },
+                ]),
+                retentionTile([{ breakdown_value: 'Firefox' }]),
+            ]
+
+            expect(extractBreakdownValues(tiles, null)).toEqual([
+                { breakdownValue: '$$_posthog_breakdown_other_$$', breakdownType: 'event' },
+                { breakdownValue: 'Chrome', breakdownType: 'event' },
+                { breakdownValue: 'Firefox', breakdownType: 'event' },
+            ])
+        })
+
+        it.each([
+            [
+                'paths insight',
+                createTestTile({
+                    result: [{ breakdown_value: 'Chrome' }],
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: { kind: NodeKind.PathsQuery },
+                    } as InsightVizNode<InsightQueryNode>,
+                }),
+            ],
+            [
+                'time-to-convert funnel',
+                createTestTile({
+                    result: [{ breakdown_value: 'Chrome' }],
+                    query: {
+                        kind: NodeKind.InsightVizNode,
+                        source: {
+                            kind: NodeKind.FunnelsQuery,
+                            funnelsFilter: { funnelVizType: FunnelVizType.TimeToConvert },
+                        },
+                    } as InsightVizNode<InsightQueryNode>,
+                }),
+            ],
+            [
+                'retention insight without a breakdown filter',
+                createTestTile({
+                    result: [{ breakdown_value: 'Chrome' }],
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: { kind: NodeKind.RetentionQuery },
                     } as InsightVizNode<InsightQueryNode>,
                 }),
-            ]
-            expect(extractBreakdownValues(tiles, null)).toEqual([])
+            ],
+        ])('ignores %s', (_name, tile) => {
+            expect(extractBreakdownValues([tile], null)).toEqual([])
         })
 
         it('handles cohort breakdowns', () => {

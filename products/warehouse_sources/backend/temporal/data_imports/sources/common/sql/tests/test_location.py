@@ -4,12 +4,12 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
     fill_missing_from_dotted_name,
     normalize_namespace,
     resolve_source_location,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 
 
 def _source_inputs(

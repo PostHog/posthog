@@ -42,6 +42,22 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class SignalImplementationRunDTO:
+    """Identity of a signals-origin ("self-driving") implementation run that produced a PR.
+
+    Returned by ``find_signal_implementation_run``. Consumers (stamphog's inbox carve-out) use it
+    to confirm a bot-authored PR is a PostHog Code self-driving implementation and to find whose
+    review preferences apply.
+    """
+
+    run_id: UUID
+    task_id: UUID
+    team_id: int
+    signal_report_id: UUID
+    task_created_by_id: int | None = None
+
+
+@dataclass(frozen=True)
 class WizardCloudRunDTO:
     """A team's active onboarding wizard cloud run.
 
@@ -136,6 +152,7 @@ class TaskDetailDTO:
     origin_product: str
     runtime: str
     repository: str | None
+    repositories: list[str]
     github_integration: int | None
     github_user_integration: UUID | None
     signal_report: UUID | None
@@ -159,6 +176,8 @@ class ChannelDTO:
     id: UUID
     name: str
     channel_type: str
+    github_integration: int | None
+    repositories: list[str]
     created_at: datetime
     created_by: "TaskUserBasicInfo | None" = None
 
@@ -206,6 +225,38 @@ class TaskMentionDTO:
     content: str
     created_at: datetime
     author: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
+class TaskActivityDTO:
+    """One task the requesting user is involved in, for the task-centric activity feed.
+
+    Unlike ``TaskMentionDTO`` (one row per mention message), this is one row per task,
+    surfacing the most recent relevant activity. ``activity_kind`` classifies the winning
+    signal so the client can pick row copy; ``snippet``/``latest_author``/``latest_message_id``
+    describe the thread message tied to ``activity_at`` (empty/None when the winning signal is
+    task creation, which has no message).
+    """
+
+    id: UUID
+    task_id: UUID
+    task_title: str
+    channel_id: UUID | None
+    channel_name: str | None
+    activity_at: datetime
+    activity_kind: str
+    snippet: str
+    latest_author: "TaskUserBasicInfo | None" = None
+    latest_message_id: UUID | None = None
+    is_unread: bool = True
+
+
+@dataclass(frozen=True)
+class TaskActivityPageDTO:
+    results: list[TaskActivityDTO]
+    unread_count: int
+    next_before: datetime | None = None
+    next_before_id: UUID | None = None
 
 
 @dataclass(frozen=True)

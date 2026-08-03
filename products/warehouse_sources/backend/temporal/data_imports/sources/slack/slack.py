@@ -14,8 +14,7 @@ from asgiref.sync import async_to_sync
 from requests import Request, Response
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SortMode, SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -25,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.slack.settings import (
     ENDPOINTS,
@@ -558,7 +558,15 @@ def slack_source(
     )
 
 
-def validate_credentials(access_token: str) -> bool:
+def validate_credentials(access_token: str) -> tuple[bool, str | None]:
+    """Check a Slack token via ``auth.test``.
+
+    Returns ``(is_valid, error_code)``. On rejection ``error_code`` is Slack's own error
+    (for example ``invalid_auth`` or ``missing_scope``) so the caller can explain the exact
+    problem instead of a generic "invalid credentials". It is ``None`` when the check couldn't
+    complete (network error or an exhausted rate-limit/5xx retry), letting the caller tell a
+    rejected token apart from an unreachable Slack.
+    """
     url = "https://slack.com/api/auth.test"
     headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -566,6 +574,9 @@ def validate_credentials(access_token: str) -> bool:
         response = _slack_get(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
-        return data.get("ok", False)
     except Exception:
-        return False
+        return False, None
+
+    if data.get("ok", False):
+        return True, None
+    return False, data.get("error") or None

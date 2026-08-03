@@ -7,7 +7,6 @@ from urllib.parse import urlencode, urljoin
 from dateutil import parser as dateutil_parser
 from requests import Request, Response
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
 )
@@ -30,15 +29,23 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk_sunshine.settings import (
+    BASE_PATH_BY_VERSION,
     DEFAULT_PAGE_SIZE,
     DEFAULT_QUERY_WINDOW_START,
     MAX_PAGES_PER_QUERY_WINDOW,
     QUERY_PATH,
     RECORDS_PAGE_SIZE,
-    ZENDESK_SUNSHINE_ENDPOINTS,
+    ZENDESK_SUNSHINE_V1,
+    ZENDESK_SUNSHINE_V2,
     ZendeskSunshineEndpointConfig,
+    endpoints_for_version,
 )
+
+# The credential probe hits one reachable list endpoint per version — the object-type catalog,
+# which every account with the API activated can read.
+_VALIDATE_PROBE_PATH = {ZENDESK_SUNSHINE_V1: "objects/types", ZENDESK_SUNSHINE_V2: "custom_objects"}
 
 
 @dataclasses.dataclass
@@ -68,8 +75,12 @@ def normalize_subdomain(subdomain: str) -> str:
     return re.sub(r"\.zendesk\.com$", "", subdomain, flags=re.IGNORECASE)
 
 
-def get_base_url(subdomain: str) -> str:
-    return f"https://{normalize_subdomain(subdomain)}.zendesk.com/api/sunshine/"
+def get_base_url(subdomain: str, api_version: str) -> str:
+    try:
+        base_path = BASE_PATH_BY_VERSION[api_version]
+    except KeyError as e:
+        raise ValueError(f"Unsupported Zendesk Sunshine API version: {api_version!r}") from e
+    return f"https://{normalize_subdomain(subdomain)}.zendesk.com/{base_path}"
 
 
 def to_query_datetime(value: Any) -> str | None:
@@ -176,9 +187,9 @@ class SunshineObjectQueryPaginator(SunshineLinksPaginator):
         self._pages_in_window = int(state.get("pages_in_window") or 0)
 
 
-def _client_config(subdomain: str, api_key: str, email_address: str) -> ClientConfig:
+def _client_config(subdomain: str, api_key: str, email_address: str, api_version: str) -> ClientConfig:
     return {
-        "base_url": get_base_url(subdomain),
+        "base_url": get_base_url(subdomain, api_version),
         "auth": {
             "type": "http_basic",
             # Zendesk API token auth requires the `{email}/token` username form.
@@ -198,9 +209,9 @@ def _top_level_resource(endpoint_config: ZendeskSunshineEndpointConfig, base_url
         "write_disposition": "replace",
         "endpoint": {
             "path": endpoint_config.path,
-            "params": {"per_page": endpoint_config.page_size},
+            "params": {"per_page": endpoint_config.page_size, **endpoint_config.extra_params},
             "paginator": SunshineLinksPaginator(base_url),
-            "data_selector": "data",
+            "data_selector": endpoint_config.data_selector,
         },
         "table_format": "delta",
     }
@@ -221,10 +232,11 @@ def _fanout_resources(
             "field": endpoint_config.resolve_field,
         },
     }
+    child_params.update(endpoint_config.extra_params)
     child_endpoint: Endpoint = {
         "path": endpoint_config.path,
         "params": child_params,
-        "data_selector": "data",
+        "data_selector": endpoint_config.data_selector,
     }
     if endpoint_config.single_page:
         child_endpoint["paginator"] = SinglePagePaginator()
@@ -284,9 +296,9 @@ def _make_resume_hook(
     return save_checkpoint
 
 
-def list_object_type_keys(subdomain: str, api_key: str, email_address: str) -> list[str]:
+def list_object_type_keys(subdomain: str, api_key: str, email_address: str, api_version: str) -> list[str]:
     """Fetch every legacy object type key, following `links.next` pagination."""
-    base_url = get_base_url(subdomain)
+    base_url = get_base_url(subdomain, api_version)
     session = make_tracked_session(redact_values=(api_key,), headers={"Accept": "application/json"})
     session.auth = (f"{email_address}/token", api_key)
 
@@ -312,6 +324,7 @@ def _object_records_incremental(
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
     resumable_source_manager: ResumableSourceManager[ZendeskSunshineResumeConfig],
+    api_version: str,
 ) -> Iterator[list[dict[str, Any]]]:
     """Incremental object records: one `objects/query` walk per object type.
 
@@ -319,8 +332,8 @@ def _object_records_incremental(
     shape by hand: completed types are skipped, and the in-progress type resumes from its
     saved paginator snapshot.
     """
-    base_url = get_base_url(subdomain)
-    client_config = _client_config(subdomain, api_key, email_address)
+    base_url = get_base_url(subdomain, api_version)
+    client_config = _client_config(subdomain, api_key, email_address, api_version)
 
     resume_state = _load_resume_state(resumable_source_manager) or {}
     # Pin the query window across retries: the pipeline advances the incremental watermark
@@ -347,7 +360,7 @@ def _object_records_incremental(
             )
         )
 
-    for type_key in list_object_type_keys(subdomain, api_key, email_address):
+    for type_key in list_object_type_keys(subdomain, api_key, email_address, api_version):
         if type_key in completed:
             continue
         initial_paginator_state = current_child_state if type_key == current_key else None
@@ -382,11 +395,13 @@ def zendesk_sunshine_source(
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ZendeskSunshineResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    endpoint_config = ZENDESK_SUNSHINE_ENDPOINTS[endpoint]
-    base_url = get_base_url(subdomain)
+    endpoints = endpoints_for_version(api_version)
+    endpoint_config = endpoints[endpoint]
+    base_url = get_base_url(subdomain, api_version)
     items: Callable[[], Iterable[Any]]
 
     if endpoint_config.name == "object_records" and should_use_incremental_field:
@@ -400,13 +415,14 @@ def zendesk_sunshine_source(
                 job_id,
                 db_incremental_field_last_value,
                 resumable_source_manager,
+                api_version,
             )
 
         items = incremental_items
     elif endpoint_config.fanout_parent is not None:
-        parent_config = ZENDESK_SUNSHINE_ENDPOINTS[endpoint_config.fanout_parent]
+        parent_config = endpoints[endpoint_config.fanout_parent]
         config: RESTAPIConfig = {
-            "client": _client_config(subdomain, api_key, email_address),
+            "client": _client_config(subdomain, api_key, email_address, api_version),
             "resource_defaults": {},
             "resources": _fanout_resources(endpoint_config, parent_config, base_url),
         }
@@ -425,7 +441,7 @@ def zendesk_sunshine_source(
         items = lambda: dependent_resource  # noqa: E731
     else:
         top_level_config: RESTAPIConfig = {
-            "client": _client_config(subdomain, api_key, email_address),
+            "client": _client_config(subdomain, api_key, email_address, api_version),
             "resource_defaults": {},
             "resources": [_top_level_resource(endpoint_config, base_url)],
         }
@@ -454,10 +470,10 @@ def zendesk_sunshine_source(
     return response
 
 
-def validate_credentials(subdomain: str, api_key: str, email_address: str) -> tuple[bool, str | None]:
+def validate_credentials(subdomain: str, api_key: str, email_address: str, api_version: str) -> tuple[bool, str | None]:
     session = make_tracked_session(redact_values=(api_key,), headers={"Accept": "application/json"})
     response = session.get(
-        urljoin(get_base_url(subdomain), "objects/types"),
+        urljoin(get_base_url(subdomain, api_version), _VALIDATE_PROBE_PATH[api_version]),
         params={"per_page": 1},
         auth=(f"{email_address}/token", api_key),
         timeout=30,
@@ -471,7 +487,7 @@ def validate_credentials(subdomain: str, api_key: str, email_address: str) -> tu
         )
     if response.status_code in (403, 404):
         return False, (
-            "The Zendesk Sunshine (legacy custom objects) API is not available for this account. "
-            "Check that legacy custom objects are activated in Admin Center and that your plan supports them."
+            "The Zendesk custom objects API is not available for this account. "
+            "Check that custom objects are activated in Admin Center and that your plan supports them."
         )
-    return False, f"Zendesk Sunshine returned an unexpected response (HTTP {response.status_code})"
+    return False, f"Zendesk returned an unexpected response (HTTP {response.status_code})"

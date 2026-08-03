@@ -9,10 +9,6 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
@@ -20,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifySourceConfig,
 )
@@ -32,6 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.se
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
+    SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
     SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
     SHOPIFY_STORE_NOT_FOUND_ERROR,
@@ -82,6 +81,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # 402 Payment Required from the Admin API — the store is frozen for an unpaid
             # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
             SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
+            # 401 from the Admin API GraphQL endpoint itself — the token was valid at mint
+            # time but Shopify now rejects it. Retrying cannot recover; the user must
+            # reconnect their integration.
+            SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH: SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE,
         }
 
     @property

@@ -80,7 +80,8 @@ class TestValidateCredentials:
     @mock.patch(POSTMARK_SESSION_PATCH)
     def test_validate_credentials(self, _name: str, status_code: int, expected: bool, mock_session: mock.MagicMock):
         mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("test-token") is expected
+        # The status flows back to the caller so it can distinguish rejection causes.
+        assert validate_credentials("test-token") == (expected, status_code)
 
         # The probe session masks the token by value so it never lands in a captured HTTP sample.
         assert mock_session.call_args.kwargs["redact_values"] == ("test-token",)
@@ -90,9 +91,9 @@ class TestValidateCredentials:
         assert get_kwargs["headers"]["X-Postmark-Server-Token"] == "test-token"
 
     @mock.patch(POSTMARK_SESSION_PATCH)
-    def test_validate_credentials_network_error_returns_false(self, mock_session: mock.MagicMock):
+    def test_validate_credentials_network_error_returns_none_status(self, mock_session: mock.MagicMock):
         mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("test-token") is False
+        assert validate_credentials("test-token") == (False, None)
 
 
 class TestFlatEndpoint:

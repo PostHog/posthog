@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { VisionQuotaApi } from '../generated/api.schemas'
-import { formatCredits } from './credits'
+import { formatCreditCount } from './credits'
 
 export const QUOTA_WARN_THRESHOLD = 0.85
 
@@ -125,7 +125,7 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
         return { disabledReason: `Monthly Replay vision spend limit reached. Resets ${state.resetsOn}.` }
     }
     return {
-        tooltip: `${formatCredits(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,
+        tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,
     }
 }
 
@@ -144,4 +144,27 @@ export function quotaBannerState(
         return { kind: 'warning', resetsOn, quota }
     }
     return { kind: null }
+}
+
+/** "You'll hit your limit around Jul 24": null when uncapped, unused, exhausted, or safely within budget. */
+export function exhaustionForecast(
+    creditsUsed: number,
+    creditLimit: number | null,
+    periodStart: string,
+    periodEnd: string
+): string | null {
+    if (creditLimit === null || creditsUsed <= 0 || creditsUsed >= creditLimit) {
+        return null
+    }
+    const elapsedMs = Date.now() - dayjs(periodStart).valueOf()
+    if (elapsedMs <= 0) {
+        return null
+    }
+    const burnPerMs = creditsUsed / elapsedMs
+    const msToLimit = (creditLimit - creditsUsed) / burnPerMs
+    const exhaustAt = dayjs(Date.now() + msToLimit)
+    if (exhaustAt.isAfter(dayjs(periodEnd))) {
+        return null
+    }
+    return exhaustAt.format('MMM D')
 }

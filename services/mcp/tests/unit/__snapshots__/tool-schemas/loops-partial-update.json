@@ -220,15 +220,15 @@
         "reasoning_effort": {
             "anyOf": [
                 {
-                    "description": "* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max",
-                    "enum": ["low", "medium", "high", "xhigh", "max"],
+                    "description": "* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+                    "enum": ["low", "medium", "high", "xhigh", "max", "ultracode"],
                     "type": "string"
                 },
                 {
                     "type": "null"
                 }
             ],
-            "description": "Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max"
+            "description": "Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode"
         },
         "repositories": {
             "description": "Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.",

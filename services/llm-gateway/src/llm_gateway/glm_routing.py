@@ -1,9 +1,8 @@
-"""Backend selection for GLM (`@cf/...`) traffic during the Cloudflare -> Modal migration.
+"""Backend selection for GLM (`@cf/...`) traffic across Cloudflare, Modal, and Baseten.
 
-Modal takes traffic opted in by the server-side `tasks-glm-modal-inference` flag or by the
-env-configured fraction (caller-forwarded flag headers are deliberately ignored — they must not
-force a backend operators turned off). No cross-backend retries — rollback is turning the
-flag/fraction back down.
+Modal takes traffic opted in by its server-side flag or the environment-configured fraction.
+Baseten takes traffic opted in by its server-side flag. Caller-forwarded flag headers cannot
+select a backend. There are no cross-backend retries.
 """
 
 from __future__ import annotations
@@ -13,7 +12,11 @@ from typing import Any
 
 from fastapi.responses import StreamingResponse
 
+from llm_gateway.anthropic_request import drop_orphaned_clear_thinking
 from llm_gateway.api.handler import (
+    BASETEN_ANTHROPIC_CONFIG,
+    BASETEN_OPENAI_CONFIG,
+    BASETEN_OPENAI_RESPONSES_CONFIG,
     CLOUDFLARE_ANTHROPIC_CONFIG,
     CLOUDFLARE_OPENAI_CONFIG,
     CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
@@ -24,6 +27,14 @@ from llm_gateway.api.handler import (
     handle_llm_request,
 )
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.baseten import (
+    BASETEN_PUBLIC_MODEL,
+    ensure_baseten_configured,
+    is_baseten_configured,
+    make_baseten_anthropic_call,
+    make_baseten_completion_call,
+    make_baseten_responses_call,
+)
 from llm_gateway.cloudflare import (
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
@@ -33,10 +44,8 @@ from llm_gateway.cloudflare import (
     make_cloudflare_responses_call,
 )
 from llm_gateway.config import Settings, get_settings
-from llm_gateway.flags import GLM_MODAL_FLAG, evaluate_flag
+from llm_gateway.flags import GLM_BASETEN_FLAG, GLM_MODAL_FLAG, evaluate_flag
 from llm_gateway.modal import (
-    ensure_modal_configured,
-    ensure_modal_model_allowed,
     is_modal_configured,
     is_modal_served_model,
     make_modal_anthropic_call,
@@ -44,13 +53,14 @@ from llm_gateway.modal import (
     make_modal_responses_call,
     should_route_glm_to_modal,
 )
+from llm_gateway.modal_routing import send_modal_request
 
 LlmCall = Callable[..., Awaitable[Any]]
 
 GLM_REASONING_EFFORTS: frozenset[str] = frozenset({"high", "max"})
 
 
-def normalize_glm_anthropic_request(request_data: dict[str, Any]) -> dict[str, Any]:
+def normalize_glm_anthropic_request(request_data: dict[str, Any], *, product: str) -> dict[str, Any]:
     """Make Claude runtime reasoning settings valid for GLM's Anthropic surface."""
     normalized = dict(request_data)
     output_config = normalized.get("output_config")
@@ -59,22 +69,7 @@ def normalize_glm_anthropic_request(request_data: dict[str, Any]) -> dict[str, A
     if effort in GLM_REASONING_EFFORTS:
         normalized["thinking"] = {"type": "adaptive"}
 
-    thinking = normalized.get("thinking")
-    thinking_type = thinking.get("type") if isinstance(thinking, dict) else None
-    if thinking_type not in {"enabled", "adaptive"}:
-        context_management = normalized.get("context_management")
-        if isinstance(context_management, dict) and isinstance(context_management.get("edits"), list):
-            edits = [
-                edit
-                for edit in context_management["edits"]
-                if not isinstance(edit, dict) or edit.get("type") != "clear_thinking_20251015"
-            ]
-            if edits:
-                normalized["context_management"] = {**context_management, "edits": edits}
-            else:
-                normalized.pop("context_management", None)
-
-    return normalized
+    return drop_orphaned_clear_thinking(normalized, product=product)
 
 
 async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, settings: Settings) -> bool:
@@ -85,9 +80,32 @@ async def _route_to_modal(model: str, user: AuthenticatedUser, product: str, set
         return True
     if should_route_glm_to_modal(model, product=product, user_key=str(user.user_id), settings=settings):
         return True
-    # Server-side flag evaluation only — a caller-forwarded flag header must not be able to force a
-    # backend the operators turned off. Evaluated last, since it can cost a remote roundtrip.
     return await evaluate_flag(GLM_MODAL_FLAG, user.distinct_id) or False
+
+
+async def _route_to_baseten(model: str, user: AuthenticatedUser, settings: Settings) -> bool:
+    if model != BASETEN_PUBLIC_MODEL or not is_baseten_configured(settings):
+        return False
+    return await evaluate_flag(GLM_BASETEN_FLAG, user.distinct_id) or False
+
+
+async def _send_provider_request(
+    request_data: dict[str, Any],
+    user: AuthenticatedUser,
+    is_streaming: bool,
+    product: str,
+    provider_config: ProviderConfig,
+    llm_call: LlmCall,
+) -> dict[str, Any] | StreamingResponse:
+    return await handle_llm_request(
+        request_data=dict(request_data),
+        user=user,
+        model=request_data["model"],
+        is_streaming=is_streaming,
+        provider_config=provider_config,
+        llm_call=llm_call,
+        product=product,
+    )
 
 
 async def _send_via_cloudflare(
@@ -102,37 +120,8 @@ async def _send_via_cloudflare(
     model = request_data["model"]
     ensure_cloudflare_model_allowed(model)
     api_base, api_key = ensure_cloudflare_configured(settings)
-    return await handle_llm_request(
-        request_data=dict(request_data),
-        user=user,
-        model=model,
-        is_streaming=is_streaming,
-        provider_config=provider_config,
-        llm_call=make_call(api_base, api_key),
-        product=product,
-    )
-
-
-async def _send_via_modal(
-    request_data: dict[str, Any],
-    user: AuthenticatedUser,
-    is_streaming: bool,
-    product: str,
-    provider_config: ProviderConfig,
-    make_call: Callable[[str, str, str], LlmCall],
-    settings: Settings,
-) -> dict[str, Any] | StreamingResponse:
-    model = request_data["model"]
-    ensure_modal_model_allowed(model)
-    api_base, modal_key, modal_secret = ensure_modal_configured(settings)
-    return await handle_llm_request(
-        request_data=dict(request_data),
-        user=user,
-        model=model,
-        is_streaming=is_streaming,
-        provider_config=provider_config,
-        llm_call=make_call(api_base, modal_key, modal_secret),
-        product=product,
+    return await _send_provider_request(
+        request_data, user, is_streaming, product, provider_config, make_call(api_base, api_key)
     )
 
 
@@ -143,15 +132,25 @@ async def _send_glm_request(
     product: str,
     *,
     modal_config: ProviderConfig,
+    baseten_config: ProviderConfig,
     cloudflare_config: ProviderConfig,
     make_modal_call: Callable[[str, str, str], LlmCall],
+    make_baseten_call: Callable[[str, str], LlmCall],
     make_cloudflare_call: Callable[[str, str], LlmCall],
 ) -> dict[str, Any] | StreamingResponse:
     model = request_data["model"]
     settings = get_settings()
 
+    if await _route_to_baseten(model, user, settings):
+        api_base, api_key = ensure_baseten_configured(settings)
+        return await _send_provider_request(
+            request_data, user, is_streaming, product, baseten_config, make_baseten_call(api_base, api_key)
+        )
+
     if await _route_to_modal(model, user, product, settings):
-        return await _send_via_modal(request_data, user, is_streaming, product, modal_config, make_modal_call, settings)
+        return await send_modal_request(
+            request_data, user, is_streaming, product, modal_config, make_modal_call, settings, handle_llm_request
+        )
 
     return await _send_via_cloudflare(
         request_data, user, is_streaming, product, cloudflare_config, make_cloudflare_call, settings
@@ -169,13 +168,15 @@ async def send_glm_anthropic_messages(
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     return await _send_glm_request(
-        normalize_glm_anthropic_request(request_data),
+        normalize_glm_anthropic_request(request_data, product=product),
         user,
         is_streaming,
         product,
         modal_config=MODAL_ANTHROPIC_CONFIG,
+        baseten_config=BASETEN_ANTHROPIC_CONFIG,
         cloudflare_config=CLOUDFLARE_ANTHROPIC_CONFIG,
         make_modal_call=make_modal_anthropic_call,
+        make_baseten_call=make_baseten_anthropic_call,
         make_cloudflare_call=make_cloudflare_anthropic_call,
     )
 
@@ -192,8 +193,10 @@ async def send_glm_chat_completions(
         is_streaming,
         product,
         modal_config=MODAL_OPENAI_CONFIG,
+        baseten_config=BASETEN_OPENAI_CONFIG,
         cloudflare_config=CLOUDFLARE_OPENAI_CONFIG,
         make_modal_call=make_modal_completion_call,
+        make_baseten_call=make_baseten_completion_call,
         make_cloudflare_call=make_cloudflare_completion_call,
     )
 
@@ -210,7 +213,9 @@ async def send_glm_responses(
         is_streaming,
         product,
         modal_config=MODAL_OPENAI_RESPONSES_CONFIG,
+        baseten_config=BASETEN_OPENAI_RESPONSES_CONFIG,
         cloudflare_config=CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
         make_modal_call=make_modal_responses_call,
+        make_baseten_call=make_baseten_responses_call,
         make_cloudflare_call=make_cloudflare_responses_call,
     )

@@ -448,7 +448,7 @@ def team_api_test_factory():
 
         @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
         @patch(
-            "products.data_warehouse.backend.presentation.views.managed_warehouse.block_team_deletion",
+            "products.managed_warehouse.backend.facade.api.get_team_deletion_block_reason",
             return_value="Deprovision the managed warehouse first.",
         )
         def test_delete_team_blocked_by_managed_warehouse(
@@ -704,38 +704,37 @@ def team_api_test_factory():
                 ]
             )
 
+        @parameterized.expand(
+            [
+                ("no_existing_token", None, False, status.HTTP_400_BAD_REQUEST),
+                ("existing_token", "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C", False, status.HTTP_200_OK),
+                # Support has no alternative to this token for signing widget identity hashes
+                ("no_existing_token_conversations_enabled", None, True, status.HTTP_200_OK),
+            ]
+        )
         @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
-        def test_generate_first_secret_token_blocked_when_psak_enabled(self, _mock_flag):
+        def test_secret_token_generation_when_psak_enabled(
+            self, _name, existing_token, conversations_enabled, expected_status, _mock_flag
+        ):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
-            self.team.secret_api_token = None
+            self.team.secret_api_token = existing_token
             self.team.secret_api_token_backup = None
+            self.team.conversations_enabled = conversations_enabled
             self.team.save()
 
             response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
 
             self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertIn("project secret API key", response.json()["detail"])
-            self.assertIsNone(self.team.secret_api_token)
-
-        @patch("posthog.api.team.posthoganalytics.feature_enabled", return_value=True)
-        def test_rotate_existing_secret_token_allowed_when_psak_enabled(self, _mock_flag):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
-            self.team.secret_api_token = secret_api_token
-            self.team.secret_api_token_backup = None
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/{self.team.id}/rotate_secret_token/")
-
-            self.team.refresh_from_db()
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotEqual(self.team.secret_api_token, secret_api_token)
-            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
+            self.assertEqual(response.status_code, expected_status)
+            if expected_status == status.HTTP_400_BAD_REQUEST:
+                self.assertIn("project secret API key", response.json()["detail"])
+                self.assertIsNone(self.team.secret_api_token)
+            else:
+                self.assertNotEqual(self.team.secret_api_token, existing_token)
+                self.assertTrue((self.team.secret_api_token or "").startswith("phs_"))
+                self.assertEqual(self.team.secret_api_token_backup, existing_token)
 
         @freeze_time("2022-02-08")
         def test_delete_secret_backup_token(self):
@@ -1715,7 +1714,15 @@ def team_api_test_factory():
             response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
             assert response.status_code == status.HTTP_403_FORBIDDEN
 
+        def _grant_logs_retention_features(self, *features: AvailableFeature) -> None:
+            self.organization.available_product_features = [
+                {"key": feature.value, "name": feature.value.replace("_", " ")} for feature in features
+            ]
+            self.organization.save()
+
         def test_logs_settings_retention_24_hour_restriction(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
             # Set initial retention - first update doesn't set retention_last_updated
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(
@@ -1738,7 +1745,7 @@ def team_api_test_factory():
             with freeze_time("2025-01-01T12:00:00Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 90}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_400_BAD_REQUEST
                 assert "24 hours" in response.json()["detail"]
@@ -1747,12 +1754,12 @@ def team_api_test_factory():
             with freeze_time("2025-01-02T00:00:01Z"):
                 response = self.client.patch(
                     "/api/environments/@current/",
-                    {"logs_settings": {"retention_days": 90}},
+                    {"logs_settings": {"retention_days": 30}},
                 )
                 assert response.status_code == status.HTTP_200_OK
 
         def test_logs_settings_retention_invalid_values_rejected(self):
-            for invalid_days in [7, 15, 20, 45, 100]:
+            for invalid_days in [7, 15, 20, 45, 90, 100]:
                 response = self.client.patch(
                     "/api/environments/@current/",
                     {"logs_settings": {"retention_days": invalid_days}},
@@ -1762,7 +1769,40 @@ def team_api_test_factory():
                 )
                 assert "retention_days must be one of" in response.json()["detail"]
 
+        def test_logs_settings_retention_requires_matching_feature(self):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert "30 days" in response.json()["detail"]
+
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+        def test_logs_settings_retention_downgrade_allowed_after_feature_removed(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 30}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
+            self._grant_logs_retention_features()
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"logs_settings": {"retention_days": 14}},
+            )
+            assert response.status_code == status.HTTP_200_OK
+
         def test_logs_settings_non_retention_changes_not_restricted(self):
+            self._grant_logs_retention_features(AvailableFeature.LOGS_RETENTION_30D)
+
             # Set initial retention
             with freeze_time("2025-01-01T00:00:00Z"):
                 response = self.client.patch(

@@ -730,20 +730,18 @@ class ExperimentQueryRunner(QueryRunner):
         """
         variants_seen = [v.key for _, v in variants]
 
-        has_breakdown = (
-            self.metric.breakdownFilter is not None
-            and self.metric.breakdownFilter.breakdowns
-            and len(self.metric.breakdownFilter.breakdowns) > 0
-        )
+        # Fan out over the breakdown combinations actually present in the results, not over the
+        # metric's breakdown config: a metric can declare breakdowns and still come back with no
+        # rows at all (no data yet), and there is then nothing to fan out over — fall back to the
+        # single breakdown-less zero row so the baseline variant still exists.
+        breakdown_tuples = {bv for bv, _ in variants if bv is not None}
 
         # Type annotation required for empty list so mypy knows the expected element type:
         # list of tuples containing (breakdown_values, stats) where breakdown_values can be None
         variants_missing: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]] = []
         for key in self.variants:
             if key not in variants_seen:
-                if has_breakdown:
-                    # Extract all breakdown value combinations that exist in the results
-                    breakdown_tuples = {bv for bv, _ in variants if bv is not None}
+                if breakdown_tuples:
                     # Use extend to add MULTIPLE tuples - one for each breakdown combination
                     # Each missing variant needs to appear across ALL breakdown values to maintain consistency
                     variants_missing.extend(

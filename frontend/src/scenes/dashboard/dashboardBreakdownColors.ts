@@ -8,7 +8,7 @@ import {
 } from 'scenes/insights/utils'
 
 import { BreakdownFilter } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
+import { hasBreakdownFilter, isFunnelsQuery, isInsightVizNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { CohortType, DashboardTile, FunnelVizType, QueryBasedInsightModel } from '~/types'
 
 export type BreakdownColorSource = 'auto' | 'manual'
@@ -100,18 +100,23 @@ export function extractBreakdownValues(
         .flatMap((tile) => {
             if (isInsightVizNode(tile.insight?.query)) {
                 const querySource = tile.insight?.query.source
-                if (
-                    isFunnelsQuery(querySource) &&
-                    (querySource.funnelsFilter?.funnelVizType === undefined ||
-                        querySource.funnelsFilter?.funnelVizType === FunnelVizType.Steps)
-                ) {
+                if (isFunnelsQuery(querySource)) {
+                    const funnelVizType = querySource.funnelsFilter?.funnelVizType
+                    const isStepsViz = funnelVizType === undefined || funnelVizType === FunnelVizType.Steps
+                    // Time-to-convert renders a single-color histogram, so it has nothing to contribute.
+                    if (!isStepsViz && funnelVizType !== FunnelVizType.Trends) {
+                        return []
+                    }
                     const breakdownType = querySource.breakdownFilter?.breakdown_type || 'event'
-                    const breakdownValues: (BreakdownValueAndType | null)[] = [
-                        {
-                            breakdownValue: FUNNEL_BASELINE_BREAKDOWN_LABEL,
-                            breakdownType,
-                        },
-                    ]
+                    // Only the steps visualization renders a baseline series.
+                    const breakdownValues: (BreakdownValueAndType | null)[] = isStepsViz
+                        ? [
+                              {
+                                  breakdownValue: FUNNEL_BASELINE_BREAKDOWN_LABEL,
+                                  breakdownType,
+                              },
+                          ]
+                        : []
                     tile.insight?.result?.forEach((result: any) => {
                         const key = getFunnelDatasetKey(result)
                         const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
@@ -124,6 +129,17 @@ export function extractBreakdownValues(
                         tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
                             const key = getTrendDatasetKey(result)
                             const breakdownValue = normalizeBreakdownValue(JSON.parse(key)['breakdown_value'])
+                            return breakdownValue == null ? null : { breakdownValue, breakdownType }
+                        }) || []
+                    )
+                } else if (isRetentionQuery(querySource) && hasBreakdownFilter(querySource.breakdownFilter)) {
+                    const breakdownType = querySource.breakdownFilter.breakdown_type || 'event'
+                    // Retention results carry breakdown_value directly. There is no dataset-key helper
+                    // like trends/funnels have, because retention has no resultCustomizations whose
+                    // persisted keys the extraction would need to stay in sync with.
+                    return (
+                        tile.insight?.result?.map((result: any): BreakdownValueAndType | null => {
+                            const breakdownValue = normalizeBreakdownValue(result.breakdown_value)
                             return breakdownValue == null ? null : { breakdownValue, breakdownType }
                         }) || []
                     )

@@ -4,6 +4,7 @@ from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from prometheus_client import Counter
 from rest_framework import status
 from rest_framework.request import Request
 
@@ -20,6 +21,18 @@ from posthog.models.team.team import Team
 from posthog.utils import decompress, load_data_from_request
 from posthog.utils_cors import cors_response
 
+from products.messaging.backend.api.push_identity_tokens import verify_push_identity_token
+
+# Identity verification is opt-in per integration via config["push_identity_verification"]:
+#   "disabled" (default) — no token required; anyone with the public project token can register.
+#   "optional"           — a token is verified and recorded when present, but never required.
+#   "required"           — registration/unregistration is rejected without a valid identity token.
+PUSH_IDENTITY_VERIFICATION_COUNTER = Counter(
+    "push_subscription_identity_verification",
+    "Outcome of push subscription identity token verification.",
+    labelnames=["mode", "operation", "outcome"],
+)
+
 VALID_PLATFORMS = ("android", "ios")
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
@@ -33,16 +46,30 @@ MAX_BODY_BYTES = 16 * 1024
 _encrypted_fields = EncryptedFieldMixin()
 
 
-# Resolve the integration from the app_id alone, not the device platform. An app_id is either a
+# Verification-mode precedence. An app_id can match more than one integration — config identifiers
+# (project_id / bundle_id) aren't covered by a uniqueness constraint — so mode resolution must fail
+# closed: take the strictest mode across every match so a lax duplicate can't downgrade a sibling's
+# `required` policy. Unknown/garbage values sort to 0 (treated as disabled).
+_VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
+
+
+# Resolve integrations from the app_id alone, not the device platform. An app_id is either a
 # Firebase project_id or an APNs bundle_id, so a device can register with either provider regardless
 # of its OS — e.g. an iOS device delivering through Firebase registers with the Firebase project_id.
 # (The client still sends its platform, but it's metadata, not what selects the provider.)
-def _find_integration(team_id: int, app_id: str) -> Integration | None:
-    return (
+def _find_integrations(team_id: int, app_id: str) -> list[Integration]:
+    return list(
         Integration.objects.filter(team_id=team_id)
         .filter(Q(kind="firebase", config__project_id=app_id) | Q(kind="apns", config__bundle_id=app_id))
-        .only("id")
-        .first()
+        .only("id", "config")
+    )
+
+
+def _strictest_verification_mode(integrations: list[Integration]) -> str:
+    return max(
+        (integration.config.get("push_identity_verification", "disabled") for integration in integrations),
+        key=lambda mode: _VERIFICATION_MODE_PRECEDENCE.get(mode, 0),
+        default="disabled",
     )
 
 
@@ -176,8 +203,8 @@ def push_subscriptions(request: Request):
             ),
         )
 
-    integration = _find_integration(team.id, app_id)
-    if not integration:
+    integrations = _find_integrations(team.id, app_id)
+    if not integrations:
         return cors_response(
             request,
             generate_exception_response(
@@ -189,6 +216,31 @@ def push_subscriptions(request: Request):
                 status_code=status.HTTP_400_BAD_REQUEST,
             ),
         )
+
+    operation = "register" if request.method == "POST" else "unregister"
+    verification_mode = _strictest_verification_mode(integrations)
+    if verification_mode in ("optional", "required"):
+        identity_token = data.get("identity_token")
+        verified = isinstance(identity_token, str) and verify_push_identity_token(
+            identity_token, team, distinct_id, app_id
+        )
+        PUSH_IDENTITY_VERIFICATION_COUNTER.labels(
+            mode=verification_mode,
+            operation=operation,
+            outcome="verified" if verified else "unverified",
+        ).inc()
+        if not verified and verification_mode == "required":
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "push_subscriptions",
+                    "A valid identity token is required for this device. Your backend must mint one for "
+                    "the signed-in user with the project's secret API key.",
+                    type="authentication_error",
+                    code="identity_verification_failed",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
 
     property_key = f"$device_push_subscription_{app_id}"
 

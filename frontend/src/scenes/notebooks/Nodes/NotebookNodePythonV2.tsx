@@ -7,6 +7,7 @@ import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
@@ -28,6 +29,9 @@ export type NotebookNodePythonV2Attributes = {
     returnVariable: string
     runId?: string | null
     result?: NotebookNodeSQLV2Result | null
+    // How the run that produced `result` ended. An interrupt persists whatever the cell printed
+    // before the stop landed, so the result alone can't tell the two apart on a reload.
+    runStatus?: NotebookNodeRunTerminalStatus | null
 }
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
@@ -202,9 +206,11 @@ const Component = ({
                 <input
                     type="text"
                     // The dataframe name this cell's result is exposed as to later cells.
+                    // Optional: left empty, the cell binds nothing and later cells can't read it.
                     className="rounded border border-border px-1.5 py-0.5 text-xs font-mono bg-bg-light text-default focus:outline-none focus:ring-1 focus:ring-primary"
                     value={attributes.returnVariable ?? ''}
                     onChange={(event) => updateAttributes({ returnVariable: event.target.value })}
+                    placeholder="Dataframe name (optional)"
                     spellCheck={false}
                 />
             </div>
@@ -305,13 +311,18 @@ export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2
         code: {
             default: '',
         },
+        // Optional: empty means the cell binds no dataframe, so nothing downstream can read it.
+        // A cell that predates the optional name carries its persisted name and keeps exporting it.
         returnVariable: {
-            default: 'df',
+            default: '',
         },
         runId: {
             default: null,
         },
         result: {
+            default: null,
+        },
+        runStatus: {
             default: null,
         },
     },

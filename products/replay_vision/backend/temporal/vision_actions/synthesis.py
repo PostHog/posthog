@@ -63,17 +63,25 @@ _SLACK_MAX_BLOCKS = 49
 
 _SYSTEM_PROMPT = """
 You are summarizing automated observations of user session recordings into one concise group summary
-for a product team. Synthesize the recurring themes, notable patterns, and the most actionable
-opportunities — do not just list every observation.
+for a product team. Synthesize the recurring themes and notable patterns — do not just list every
+observation.
 
 Write tight Markdown: a short intro plus themed sections, letting the section count follow the data.
 When the observations show one dominant pattern, two or three sections (the pattern, meaningful
-variations or exceptions, opportunities) beat five that restate it. Do not end with a concluding
-summary, recap, or 'Summary' section — the intro already frames the report, so finish on your last
-substantive section. ~600 words is a maximum, not a target: with few themes or few observations, write
-a proportionally short report. Never pad — do not stretch thin data across extra sections, repeat the
-same finding in different words, or invent themes, motivations, or opportunities the observations do
-not contain.
+variations or exceptions) beat five that restate it. Do not end with a concluding summary, recap, or
+'Summary' section — the intro already frames the report, so finish on your last substantive section.
+~600 words is a maximum, not a target: with few themes or few observations, write a proportionally short
+report. Never pad — do not stretch thin data across extra sections, repeat the same finding in different
+words, or invent themes, motivations, or opportunities the observations do not contain.
+
+Opportunities to improve are optional, not a required section, and are not a quota. Only suggest an
+improvement when the observations show a real, recurring problem it would address — an actual error,
+failure, or friction point that appears across sessions. Do not pad the report to a fixed number of
+suggestions. A scanner watching a mostly happy path will often have few opportunities or none, and "no
+notable friction this period" is a perfectly good, useful finding — say that plainly instead of
+reaching for improvements the data does not justify. When you do suggest opportunities, cite the
+observations whose friction motivates each one; an opportunity you cannot tie to observed friction does
+not belong in the report.
 
 A header line naming the scanner, the time window, and the recording count is added automatically above
 your output — do not restate that metadata; focus on the observations' content. In particular, never state
@@ -575,7 +583,7 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     # the LLM gateway (settings.OPENAI_BASE_URL), so the generation lands in LLM analytics tagged to
     # Replay Vision AND bills the team's AI credits ($ai_billable) — the same budget
     # is_team_over_ai_credit_budget gates on above.
-    client = OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+    client = OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
     distinct_id = replay_vision_distinct_id(team.id)
     response = client.chat.completions.create(  # type: ignore[call-overload]
         model=SYNTHESIS_MODEL,

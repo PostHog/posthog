@@ -1,4 +1,4 @@
-import { projectQuota, quotaUx, splitProjectedPct } from './quotaProjection'
+import { exhaustionForecast, projectQuota, quotaUx, splitProjectedPct } from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
 
 describe('projectQuota', () => {
@@ -105,13 +105,40 @@ describe('quotaUx', () => {
         expect(ux.tooltip).toBeUndefined()
     })
 
-    it('shows a dollar tooltip near the warn threshold but does not block', () => {
+    it('shows a remaining-credits tooltip near the warn threshold but does not block', () => {
         const ux = quotaUx(makeQuota({ credits_used: 8_500, remaining: 1_500 }))
         expect(ux.disabledReason).toBeUndefined()
-        expect(ux.tooltip).toContain('$15.00')
+        expect(ux.tooltip).toContain('1,500 credits left')
     })
 
     it('returns nothing while usage is well under the threshold', () => {
         expect(quotaUx(makeQuota({ credits_used: 1_000, remaining: 9_000 }))).toEqual({})
+    })
+})
+
+describe('exhaustionForecast', () => {
+    // Frozen 10 days into a July 1-31 period.
+    beforeEach(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-07-11T00:00:00Z'))
+    })
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    const PERIOD_START = '2026-07-01T00:00:00Z'
+    const PERIOD_END = '2026-07-31T00:00:00Z'
+
+    it.each([
+        ['uncapped', 5_000, null],
+        ['no spend yet', 0, 10_000],
+        ['already at the limit', 10_000, 10_000],
+        ['burn too slow to hit the limit this period', 1_000, 10_000],
+    ])('returns null when %s', (_name, creditsUsed, creditLimit) => {
+        expect(exhaustionForecast(creditsUsed, creditLimit, PERIOD_START, PERIOD_END)).toBeNull()
+    })
+
+    it('extrapolates the burn rate to the exhaustion date', () => {
+        // 5,000 of 10,000 spent in 10 days: the other half runs out 10 days from now.
+        expect(exhaustionForecast(5_000, 10_000, PERIOD_START, PERIOD_END)).toBe('Jul 21')
     })
 })

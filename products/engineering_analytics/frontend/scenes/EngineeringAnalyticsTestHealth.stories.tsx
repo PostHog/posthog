@@ -19,6 +19,7 @@ const spark = (tail: number[]): number[] => [...new Array(24 - tail.length).fill
 const FLAKY_TESTS: FlakyTestListApi = {
     items: [
         {
+            runner: 'pytest',
             nodeid: 'posthog/api/test/test_decide/TestDecide::test_flag_rollout_consistency',
             selector: 'posthog/api/test/test_decide.py::TestDecide::test_flag_rollout_consistency',
             classification: 'confirmed_flake',
@@ -30,6 +31,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
             last_signal_at: '2026-07-01T18:30:00Z',
         },
         {
+            runner: 'pytest',
             nodeid: 'posthog/tasks/test/test_usage_report/TestUsageReport::test_full_report',
             selector: 'posthog/tasks/test/test_usage_report.py::TestUsageReport::test_full_report',
             classification: 'suspected_regression',
@@ -41,6 +43,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
             last_signal_at: '2026-07-01T09:12:00Z',
         },
         {
+            runner: 'pytest',
             nodeid: 'posthog/hogql/test/test_resolver/TestResolver::test_asterisk_expander',
             selector: 'posthog/hogql/test/test_resolver.py::TestResolver::test_asterisk_expander',
             classification: 'quarantined',
@@ -52,6 +55,7 @@ const FLAKY_TESTS: FlakyTestListApi = {
             last_signal_at: '2026-06-30T22:45:00Z',
         },
         {
+            runner: 'pytest',
             nodeid: 'posthog/temporal/tests/batch_exports/test_backfill::test_workflow_timeout',
             selector: 'posthog/temporal/tests/batch_exports/test_backfill.py::test_workflow_timeout',
             classification: 'confirmed_flake',

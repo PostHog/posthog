@@ -139,9 +139,18 @@ export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsCreateBodyTargetConfigWindowSecondsDefault = 1800
-export const evaluationsCreateBodyTargetConfigWindowSecondsMin = 10
-export const evaluationsCreateBodyTargetConfigWindowSecondsMax = 7200
+export const evaluationsCreateBodyTargetConfigOneStrategyDefault = `fixed_window`
+export const evaluationsCreateBodyTargetConfigOneWindowSecondsDefault = 1800
+export const evaluationsCreateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigOneWindowSecondsMax = 7200
+
+export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsDefault = 300
+export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax = 1800
+
+export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsDefault = 7200
+export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin = 60
+export const evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax = 7200
 
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
@@ -232,21 +241,48 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `generation` - Generation\n\* `trace` - Trace')
         .optional()
         .describe(
-            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace"
         ),
     target_config: zod
-        .object({
-            window_seconds: zod
-                .number()
-                .min(evaluationsCreateBodyTargetConfigWindowSecondsMin)
-                .max(evaluationsCreateBodyTargetConfigWindowSecondsMax)
-                .default(evaluationsCreateBodyTargetConfigWindowSecondsDefault)
-                .describe(
-                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
-                ),
-        })
+        .union([
+            zod.object({
+                strategy: zod
+                    .enum(['fixed_window'])
+                    .default(evaluationsCreateBodyTargetConfigOneStrategyDefault)
+                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigOneWindowSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigOneWindowSecondsMax)
+                    .default(evaluationsCreateBodyTargetConfigOneWindowSecondsDefault)
+                    .describe(
+                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                    ),
+            }),
+            zod.object({
+                strategy: zod
+                    .enum(['inactivity'])
+                    .describe('Evaluate once the trace has had no new activity for the quiet period.'),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsMax)
+                    .default(evaluationsCreateBodyTargetConfigTwoQuietPeriodSecondsDefault)
+                    .describe('Seconds without new trace activity before the trace counts as settled.'),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMin)
+                    .max(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsMax)
+                    .default(evaluationsCreateBodyTargetConfigTwoMaxAgeSecondsDefault)
+                    .describe(
+                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                    ),
+            }),
+        ])
         .optional()
-        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
+        .describe(
+            "Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'."
+        ),
     model_configuration: zod
         .union([
             zod
@@ -313,9 +349,18 @@ export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
 
-export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsDefault = 1800
-export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin = 10
-export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax = 7200
+export const evaluationsPartialUpdateBodyTargetConfigOneStrategyDefault = `fixed_window`
+export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsDefault = 1800
+export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax = 7200
+
+export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsDefault = 300
+export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax = 1800
+
+export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsDefault = 7200
+export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin = 60
+export const evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax = 7200
 
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -408,21 +453,48 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `generation` - Generation\n\* `trace` - Trace')
         .optional()
         .describe(
-            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n\* `generation` - Generation\n\* `trace` - Trace"
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace. When and how the trace run fires is controlled by target_config's settle strategy.\n\n\* `generation` - Generation\n\* `trace` - Trace"
         ),
     target_config: zod
-        .object({
-            window_seconds: zod
-                .number()
-                .min(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin)
-                .max(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax)
-                .default(evaluationsPartialUpdateBodyTargetConfigWindowSecondsDefault)
-                .describe(
-                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
-                ),
-        })
+        .union([
+            zod.object({
+                strategy: zod
+                    .enum(['fixed_window'])
+                    .default(evaluationsPartialUpdateBodyTargetConfigOneStrategyDefault)
+                    .describe('Wait a fixed window after the first matching generation, then evaluate.'),
+                window_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsMax)
+                    .default(evaluationsPartialUpdateBodyTargetConfigOneWindowSecondsDefault)
+                    .describe(
+                        'Seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change runs already in flight.'
+                    ),
+            }),
+            zod.object({
+                strategy: zod
+                    .enum(['inactivity'])
+                    .describe('Evaluate once the trace has had no new activity for the quiet period.'),
+                quiet_period_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsMax)
+                    .default(evaluationsPartialUpdateBodyTargetConfigTwoQuietPeriodSecondsDefault)
+                    .describe('Seconds without new trace activity before the trace counts as settled.'),
+                max_age_seconds: zod
+                    .number()
+                    .min(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMin)
+                    .max(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsMax)
+                    .default(evaluationsPartialUpdateBodyTargetConfigTwoMaxAgeSecondsDefault)
+                    .describe(
+                        'Hard cap in seconds on the total wait from the first matching generation, even if the trace stays active. Must be at least quiet_period_seconds.'
+                    ),
+            }),
+        ])
         .optional()
-        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
+        .describe(
+            "Target-specific config. For 'trace' target: a settle config discriminated on `strategy` — 'fixed_window' {window_seconds} or 'inactivity' {quiet_period_seconds, max_age_seconds}. Missing strategy means fixed_window. Empty for 'generation'."
+        ),
     model_configuration: zod
         .union([
             zod
@@ -1585,17 +1657,25 @@ export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const llmPromptsListQueryContentDefault = `full`
+export const llmPromptsListQueryOrderByDefault = `-created_at`
 
 export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
     content: zod
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsListQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     created_by_id: zod.number().optional().describe('Filter prompts by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    order_by: zod
+        .string()
+        .min(1)
+        .default(llmPromptsListQueryOrderByDefault)
+        .describe(
+            "Field to sort the prompt list by. Prefix with '-' for descending order.\n\n\* `name` - name\n\* `-name` - -name\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at\n\* `version` - version\n\* `-version` - -version\n\* `latest_version` - latest_version\n\* `-latest_version` - -latest_version\n\* `version_count` - version_count\n\* `-version_count` - -version_count\n\* `first_version_created_at` - first_version_created_at\n\* `-first_version_created_at` - -first_version_created_at\n\* `prompt_size_bytes` - prompt_size_bytes\n\* `-prompt_size_bytes` - -prompt_size_bytes"
+        ),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
 })
 
@@ -1617,6 +1697,12 @@ export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
         .max(llmPromptsCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    config: zod
+        .looseObject({})
+        .nullish()
+        .describe(
+            "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt."
+        ),
     version_description: zod
         .string()
         .max(llmPromptsCreateBodyVersionDescriptionMax)
@@ -1643,7 +1729,7 @@ export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .enum(['full', 'preview', 'none'])
         .default(llmPromptsNameRetrieveQueryContentDefault)
         .describe(
-            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
+            "Controls how much prompt content is included in the response. 'full' includes the full prompt, 'preview' includes a short prompt_preview, and 'none' omits prompt content entirely. The config field is only included with 'full'. The outline field is always included.\n\n\* `full` - full\n\* `preview` - preview\n\* `none` - none"
         ),
     label: zod
         .string()
@@ -1688,6 +1774,12 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             "List of find\/replace operations to apply to the current prompt version. Each edit's 'old' text must match exactly once. Edits are applied sequentially. Mutually exclusive with prompt."
+        ),
+    config: zod
+        .looseObject({})
+        .nullish()
+        .describe(
+            "JSON object with model parameters or any agent configuration to store with this version. If omitted, the current version's config is carried forward; pass null to clear it. Can be combined with either prompt or edits. Don't store secrets here: config is returned to anyone who can read the prompt."
         ),
     base_version: zod
         .number()

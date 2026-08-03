@@ -1,12 +1,14 @@
 import os
 import re
 import json
-from typing import Any, cast
+from collections.abc import Iterable
+from typing import Any, Protocol, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import Q, QuerySet
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -25,6 +27,7 @@ from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
     link_existing_team_github_integration,
+    list_org_github_installations,
 )
 from posthog.api.github_callback.types import (
     FlowKind,
@@ -48,6 +51,10 @@ from posthog.models.integration import (
     ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
+    POSTHOG_CONNECT_ALLOWED_REGIONS,
+    POSTHOG_CONNECT_DEFAULT_SCOPES,
+    POSTHOG_CONNECT_GRANTABLE_SCOPES,
+    POSTHOG_CONNECT_KIND,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -94,6 +101,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
+from products.batch_exports.backend.models.batch_export import get_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
@@ -145,7 +153,7 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         separators=(",", ":"),
     )
     try:
-        # 300s tolerance matches the agentic-provisioning HMAC check at ee/api/agentic_provisioning/signature.py.
+        # 300s tolerance matches the Stripe provisioning HMAC check at ee/partners/stripe/api/provisioning/signature.py.
         stripe.WebhookSignature.verify_header(payload, install_signature, settings.STRIPE_SIGNING_SECRET, tolerance=300)
         return True
     except stripe.SignatureVerificationError:
@@ -175,6 +183,17 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
                 "This integration's authentication token could not be refreshed. "
                 "Please reconnect or disconnect this integration and connect a different account."
             )
+
+
+class _HasNameOrId(Protocol):
+    id: Any
+
+    @property
+    def name(self) -> str | None: ...
+
+
+def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
+    return ", ".join(sorted(it.name or str(it.id) for it in items))
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -403,6 +422,24 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         team_id = self.context["team_id"]
         kind = validated_data["kind"]
 
+        # Setting push identity verification is a security policy change, not a credential upload, so it
+        # needs the same admin bar as editing an integration. Without this a plain member could add a
+        # *new* APNs integration carrying someone else's bundle_id under a different Apple team id —
+        # which sidesteps the overwrite check below, since it creates rather than overwrites — and set
+        # `required` on it. The push endpoint resolves the strictest mode across every integration
+        # matching a bundle_id, so that would start rejecting the real app's device registrations.
+        #
+        # `disabled` is gated too, not just the enabling modes. The overwrite check below reads the
+        # existing ids before the write, so a member racing the first setup of an integration would
+        # still be classified as a create and could land `disabled` over the policy an admin had just
+        # written. Omitting the key entirely stays open to members and is what connecting a channel
+        # without touching the policy does — that path preserves whatever is already stored.
+        requested_verification = (validated_data.get("config") or {}).get("push_identity_verification")
+        if requested_verification and not github_callback_state.has_team_management_access(
+            self.context["request"].user, self.context["get_team"]()
+        ):
+            raise PermissionDenied("Changing push identity verification requires project admin access.")
+
         # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
@@ -458,7 +495,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 key_info = config.get("key_info")
                 if not key_info:
                     raise ValidationError("Firebase service account key must be provided")
-            instance = FirebaseIntegration.integration_from_key(key_info, team_id, request.user)
+            instance = FirebaseIntegration.integration_from_key(
+                key_info,
+                team_id,
+                request.user,
+                push_identity_verification=(validated_data.get("config") or {}).get("push_identity_verification"),
+            )
             return instance
 
         elif validated_data["kind"] == "email":
@@ -670,6 +712,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 team_id=team_id,
                 created_by=request.user,
                 environment=environment,
+                push_identity_verification=config.get("push_identity_verification"),
             )
             return instance
 
@@ -864,6 +907,30 @@ class GitHubLinkExistingRequestSerializer(serializers.Serializer):
     )
 
 
+class GitHubAvailableInstallationSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(
+        help_text="GitHub installation ID to pass to github/link_existing when linking this installation."
+    )
+    account_name = serializers.CharField(
+        allow_null=True,
+        help_text="GitHub account (organization or user) the installation belongs to, for display in the picker.",
+    )
+    account_type = serializers.CharField(
+        allow_null=True,
+        help_text="GitHub account type, e.g. 'Organization' or 'User'.",
+    )
+    source_team_id = serializers.IntegerField(
+        help_text="A project in the organization that already has this installation linked.",
+    )
+
+
+class GitHubAvailableInstallationsResponseSerializer(serializers.Serializer):
+    installations = GitHubAvailableInstallationSerializer(
+        many=True,
+        help_text="Distinct GitHub installations in the organization available to link to this project.",
+    )
+
+
 class GitHubOAuthAuthorizeRequestSerializer(serializers.Serializer):
     installation_id = serializers.CharField(
         required=False,
@@ -918,6 +985,7 @@ class IntegrationViewSet(
         "github_repos",
         "github_branches",
         "github_teams",
+        "github_available_installations",
         "jira_projects",
         "linear_teams",
         "anthropic_managed_agents",
@@ -942,6 +1010,14 @@ class IntegrationViewSet(
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        # A `posthog` connection holds the creator's delegated grant into another project plus personal
+        # target metadata (account email, region, scopes) in its config, and is only usable by its
+        # creator. Unlike team-shared integrations, don't expose other members' connections in
+        # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
+        user_id = getattr(self.request.user, "id", None)
+        return queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
 
     def handle_exception(self, exc: Exception) -> Response:
         # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
@@ -978,15 +1054,24 @@ class IntegrationViewSet(
         functions_using_integration = get_enabled_hog_functions_using_integration(
             team_id=instance.team_id, integration_id=instance.id
         )
+        batch_exports_using_integration = get_batch_exports_using_integration(
+            team_id=instance.team_id, integration_id=instance.id
+        )
+
         used_by = []
+
         if flows_using_integration:
-            flow_names = ", ".join(sorted(flow.name or str(flow.id) for flow in flows_using_integration))
+            flow_names = _concat_names_or_ids(flows_using_integration)
             used_by.append(f"active workflows: {flow_names}")
+
         if functions_using_integration:
-            function_names = ", ".join(
-                sorted(function.name or str(function.id) for function in functions_using_integration)
-            )
+            function_names = _concat_names_or_ids(functions_using_integration)
             used_by.append(f"enabled data pipelines: {function_names}")
+
+        if batch_exports_using_integration:
+            batch_export_names = _concat_names_or_ids(batch_exports_using_integration)
+            used_by.append(f"batch exports: {batch_export_names}")
+
         if used_by:
             raise ValidationError(
                 f"This integration is used by {' and '.join(used_by)}. "
@@ -1049,8 +1134,26 @@ class IntegrationViewSet(
         token = os.urandom(33).hex()
 
         if kind in OauthIntegration.supported_kinds:
+            region: str | None = None
+            scopes: list[str] | None = None
+            if kind == "posthog":
+                region = (request.GET.get("region") or "").upper()
+                if region not in POSTHOG_CONNECT_ALLOWED_REGIONS:
+                    raise ValidationError(f"region must be one of {', '.join(POSTHOG_CONNECT_ALLOWED_REGIONS)}")
+                raw_scopes = (request.GET.get("scopes") or "").strip()
+                if raw_scopes == "full":
+                    scopes = sorted(POSTHOG_CONNECT_GRANTABLE_SCOPES)
+                elif raw_scopes == "read_only":
+                    scopes = sorted(s for s in POSTHOG_CONNECT_GRANTABLE_SCOPES if s.endswith(":read"))
+                else:
+                    scopes = [s for s in re.split(r"[,\s]+", raw_scopes) if s] or list(POSTHOG_CONNECT_DEFAULT_SCOPES)
+                    invalid = [s for s in scopes if s not in POSTHOG_CONNECT_GRANTABLE_SCOPES]
+                    if invalid:
+                        raise ValidationError(f"Unsupported connection scopes: {', '.join(invalid)}")
             try:
-                auth_url = OauthIntegration.authorize_url(kind, next=next, token=token)
+                auth_url = OauthIntegration.authorize_url(
+                    kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
+                )
                 response = redirect(auth_url)
                 # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
                 response.set_cookie("ph_oauth_state", token, max_age=60 * 5)
@@ -1504,6 +1607,22 @@ class IntegrationViewSet(
             ),
         )
         return Response(status=204)
+
+    @extend_schema(responses={200: GitHubAvailableInstallationsResponseSerializer})
+    @action(methods=["GET"], detail=False, url_path="github/available_installations")
+    def github_available_installations(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the org's existing GitHub installations this project can reuse.
+
+        A GitHub App installs once per organization, so a second project links an existing
+        installation rather than reinstalling. This backs the picker: when the org has more than
+        one installation, the client passes the chosen installation_id to github/link_existing.
+        """
+        installations = list_org_github_installations(
+            user=cast(User, request.user),
+            organization=self.organization,
+            exclude_team_id=self.team_id,
+        )
+        return Response({"installations": GitHubAvailableInstallationSerializer(installations, many=True).data})
 
     @extend_schema(
         request=GitHubLinkExistingRequestSerializer,

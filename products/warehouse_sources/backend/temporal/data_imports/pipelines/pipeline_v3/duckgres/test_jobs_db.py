@@ -18,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DUCKGRES_STATUS_TABLE,
     DUCKGRES_STATUS_VIEW,
     DuckgresBatchQueue,
+    _eligibility_ctes,
+    _team_scope,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
@@ -512,6 +514,68 @@ class TestDuckgresTeamFilterAndBacklog:
         count, oldest_age, blocked, blocked_age, failing = await DuckgresBatchQueue.get_backlog_stats(conn)
         assert (count, blocked, failing) == (0, 0, 0)
         assert oldest_age is None and blocked_age is None
+
+    @pytest.mark.asyncio
+    async def test_backlog_stats_reflects_latest_delta_status_not_first(self, conn):
+        """Eligibility now reads the denormalized ``latest_state`` column instead
+        of a per-row LATERAL join to the delta status table. Pin the exact case
+        that denormalization must still get right: a batch with a multi-row
+        status history (e.g. executing -> succeeded) is eligible because its
+        LATEST row is 'succeeded', while a batch stuck on its first ('executing')
+        row is not — the same answer the old latest-status LATERAL gave."""
+        multi_history_id = await _insert_batch(conn, run_uuid="run-latest-succeeded", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=multi_history_id, job_state="executing", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=multi_history_id, job_state="succeeded", attempt=1)
+
+        still_executing_id = await _insert_batch(conn, run_uuid="run-still-executing", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=still_executing_id, job_state="executing", attempt=1)
+
+        count, _, blocked, _, failing = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=[1])
+        assert (count, blocked, failing) == (1, 0, 0)
+
+
+class TestTeamScopeSargable:
+    """The team filter must become a plain, sargable ``= ANY(...)`` when
+    team_ids is a concrete (prod) list, and disappear entirely when unscoped
+    (dev/tests) — never the old ``%(team_ids)s IS NULL OR ...`` form, which
+    defeats index pruning under a bound parameter. See _team_scope's
+    docstring in jobs_db.py."""
+
+    def test_team_scope_scoped_emits_plain_any(self) -> None:
+        assert _team_scope("cb", scoped=True) == "AND cb.team_id = ANY(%(team_ids)s)"
+
+    def test_team_scope_unscoped_is_empty(self) -> None:
+        assert _team_scope("cb", scoped=False) == ""
+
+    def test_eligibility_ctes_scoped_has_no_is_null_or(self) -> None:
+        # Other IS NULL OR predicates (e.g. the duckgres-status join) are
+        # unrelated and must stay; only the old non-sargable team_ids form
+        # must be gone.
+        assert "team_ids)s::bigint[] IS NULL OR" not in _eligibility_ctes(True)
+
+    def test_eligibility_ctes_unscoped_has_no_team_ids_param(self) -> None:
+        assert "%(team_ids)s" not in _eligibility_ctes(False)
+
+    def test_eligibility_ctes_scoped_uses_sargable_any(self) -> None:
+        assert "team_id = ANY(%(team_ids)s)" in _eligibility_ctes(True)
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_backlog_stats_team_scoping_preserves_semantics(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        """The sargable rewrite must count exactly the same batches as the old
+        ``IS NULL OR`` form: scoped to [1] counts only team 1's batch, and
+        unscoped (None) counts every team's batch."""
+        team1_batch = await _insert_batch(conn, team_id=1, run_uuid="run-team-1", schema_id="schema-1")
+        await BatchQueue.update_status(conn, batch_id=team1_batch, job_state="succeeded", attempt=1)
+
+        team999_batch = await _insert_batch(conn, team_id=999, run_uuid="run-team-999", schema_id="schema-1")
+        await BatchQueue.update_status(conn, batch_id=team999_batch, job_state="succeeded", attempt=1)
+
+        count, _, blocked, _, failing = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=[1])
+        assert (count, blocked, failing) == (1, 0, 0)  # team 999 excluded
+
+        count, _, blocked, _, failing = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=None)
+        assert (count, blocked, failing) == (2, 0, 0)  # unscoped = all teams
 
 
 @pytest.mark.django_db(transaction=True)
