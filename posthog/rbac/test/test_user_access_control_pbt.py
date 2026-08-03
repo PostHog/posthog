@@ -209,10 +209,23 @@ def _build_evaluation(team: Team, user: User, model_cls: type[models.Model]) -> 
     )
 
 
+def _build_ticket(team: Team, user: User, model_cls: type[models.Model]) -> models.Model:
+    # ticket_number has a per-team unique constraint enforced via create_with_number's
+    # SELECT FOR UPDATE + MAX() dance; the generic field-filler has no way to satisfy
+    # a uniqueness constraint, so every generically-built Ticket would collide on 0.
+    manager: Any = model_cls._default_manager
+    return manager.create_with_number(
+        team=team,
+        widget_session_id=f"pbt-ticket-{next(_unique_counter)}",
+        distinct_id=f"pbt-ticket-{next(_unique_counter)}",
+    )
+
+
 # resource -> factory for models whose validation the generic build_instance can't
 # satisfy. Preferred over EXCLUSIONS so the resource keeps coverage.
 FACTORY_OVERRIDES: dict[APIScopeObject, Callable[[Team, User, type[models.Model]], models.Model]] = {
     "evaluation": _build_evaluation,
+    "ticket": _build_ticket,
 }
 
 

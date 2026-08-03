@@ -10,8 +10,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_pagespeed_insights.settings import (
     PAGESPEED_ENDPOINTS,
     PageSpeedEndpointConfig,
@@ -255,8 +255,14 @@ def validate_credentials(api_key: str, urls_raw: str | None) -> tuple[bool, str 
             "Invalid API key, or the PageSpeed Insights API is not enabled for your Google Cloud project. "
             "Check the key and enable the PageSpeed Insights API, then reconnect."
         )
+    if response.status_code == 429:
+        return False, ("The PageSpeed Insights API is rate limiting requests. Wait a few minutes, then try again.")
+    if response.status_code >= 500:
+        return False, (
+            "The PageSpeed Insights API returned a server error. This is usually temporary. Try again in a few minutes."
+        )
 
-    return False, f"The PageSpeed Insights API returned an unexpected status code: {response.status_code}"
+    return False, ("Could not validate against the PageSpeed Insights API. Check your API key and URL, then try again.")
 
 
 def get_rows(

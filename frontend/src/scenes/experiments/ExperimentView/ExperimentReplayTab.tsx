@@ -41,7 +41,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         effectiveMetricUuids,
         metricOptions,
     } = useValues(logic)
-    const { setSelectedVariantKey, setMetricSelected } = useActions(logic)
+    const { setSelectedVariantKey, setMetricSelected, recordingsLoaded, recordingOpened } = useActions(logic)
 
     if (!isLaunched(experiment)) {
         return <LemonBanner type="info">Launch the experiment to see recordings of participants.</LemonBanner>
@@ -150,6 +150,8 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     logicKey={`experiment-${experiment.id}`}
                     filters={recordingsFilters}
                     updateSearchParams={false}
+                    onRecordingsLoaded={(recordings) => recordingsLoaded(recordings.map((recording) => recording.id))}
+                    onRecordingSelected={(recordingId) => recordingOpened(recordingId)}
                 />
             </div>
         </div>

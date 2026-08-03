@@ -18,6 +18,10 @@ interface AlertLeadingActionsProps {
     onDeleteAlert: () => void
     onSnoozeAlert: (snoozeUntil: string) => void
     onClearSnooze: () => void
+    onSendTestDelivery: () => void
+    testDeliveryLoading: boolean
+    testDeliveryDisabledReason?: string
+    showTestDelivery: boolean
 }
 
 export function AlertLeadingActions({
@@ -26,9 +30,13 @@ export function AlertLeadingActions({
     onDeleteAlert,
     onSnoozeAlert,
     onClearSnooze,
+    onSendTestDelivery,
+    testDeliveryLoading,
+    testDeliveryDisabledReason,
+    showTestDelivery,
 }: AlertLeadingActionsProps): JSX.Element {
     return (
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             <LemonButton
                 type="secondary"
                 status="danger"
@@ -54,6 +62,16 @@ export function AlertLeadingActions({
                 value={alert?.snoozed_until}
                 disabledReason={alert?.state === AlertState.FIRING ? undefined : 'Only firing alerts can be snoozed'}
             />
+            {showTestDelivery ? (
+                <LemonButton
+                    type="secondary"
+                    onClick={onSendTestDelivery}
+                    loading={testDeliveryLoading}
+                    disabledReason={testDeliveryDisabledReason}
+                >
+                    Test delivery
+                </LemonButton>
+            ) : null}
             {alert?.state === AlertState.SNOOZED ? (
                 <LemonButton
                     type="secondary"
@@ -64,11 +82,14 @@ export function AlertLeadingActions({
                     Clear snooze
                 </LemonButton>
             ) : null}
-            <div className="ml-auto">
-                <LemonField name="enabled" className="m-0">
-                    <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
-                </LemonField>
-            </div>
         </div>
+    )
+}
+
+export function AlertEnabledAction({ alertForm }: Pick<AlertLeadingActionsProps, 'alertForm'>): JSX.Element {
+    return (
+        <LemonField name="enabled" className="m-0">
+            <LemonSwitch checked={alertForm.enabled} data-attr="alertForm-enabled" label="Enabled" />
+        </LemonField>
     )
 }

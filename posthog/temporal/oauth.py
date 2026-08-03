@@ -6,7 +6,13 @@ from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS, resolve_ceiling
+from posthog.scopes import (
+    API_SCOPE_OBJECTS,
+    INTERNAL_API_SCOPE_OBJECTS,
+    MCP_BUILT_IN_AGENT_SCOPE,
+    OAUTH_HIDDEN_SCOPE_OBJECTS,
+    resolve_ceiling,
+)
 from posthog.utils import get_instance_region
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -15,6 +21,11 @@ ARRAY_APP_CLIENT_ID_DEV = "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ"
 POSTHOG_AI_APP_CLIENT_ID_US = "N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu"
 POSTHOG_AI_APP_CLIENT_ID_EU = "0Lizwa3mFSlBuEEQ8V8FMJlskUXpDuSmoEdhzxyi"
 POSTHOG_AI_APP_CLIENT_ID_DEV = "DD2ZLG6a2YEUtpPANSzSiIBPuUryYmbndLnKKUy1"
+
+# The LLM gateway authorizes by application id, so these must stay equal to
+# POSTHOG_CODE_DEV_APP_ID / POSTHOG_AI_DEV_APP_ID in llm_gateway/products/config.py.
+ARRAY_APP_ID_DEV = "019ebb47-c750-0000-e1ea-723a6ff112d3"
+POSTHOG_AI_APP_ID_DEV = "019edb1a-cce4-0000-1f6d-682061862da9"
 
 # Every OAuth application sandbox agent tokens are minted under. Tokens for these apps
 # are only ever created server-side (never via the consent flow or personal API keys),
@@ -45,7 +56,6 @@ INTERNAL_SCOPES: list[str] = [
     # can't route around the posthog_code free-tier model gate through those.
     "internal_run:read",
 ]
-
 
 # Writes for the Signals scout harness — sandbox-only because the scope object is in
 # `INTERNAL_API_SCOPE_OBJECTS` and so cannot be minted via the personal API key UI or
@@ -226,9 +236,15 @@ def create_oauth_access_token_for_user(
     *,
     scopes: PosthogMcpScopes = "read_only",
     include_internal_scopes: bool = True,
+    include_mcp_builtin_agent_scope: bool = False,
     application: SandboxOAuthApplication = "array",
 ) -> str:
     resolved = resolve_scopes(scopes, include_internal_scopes=include_internal_scopes)
+    if include_mcp_builtin_agent_scope:
+        # Provenance marker: the MCP Store uses it to deny the human/member
+        # surface and route the agent through its explicit gateway grants. It
+        # does not narrow the token's other scopes.
+        resolved.append(MCP_BUILT_IN_AGENT_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_oauth_access_token(user, team_id, app=app, scopes=list(resolved))
 

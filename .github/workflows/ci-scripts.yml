@@ -71,3 +71,6 @@ jobs:
 
             - name: Turbo-discover dependent-cascade tests (Node)
               run: node --test .github/scripts/turbo-discover-cascade.test.js
+
+            - name: Trunk impacted-targets tests (Node)
+              run: node --test .github/scripts/trunk-impacted-targets.test.js

@@ -482,7 +482,10 @@ export const getConversationsTicketsBulkUpdateStatusCreateUrl = (projectId: stri
  * Update the status of multiple tickets in a single request.
  *
  * Only tickets belonging to the current team are affected; other-team UUIDs
- * are silently ignored.  Tickets already in the requested status are skipped.
+ * are silently ignored. Tickets the caller lacks editor-level access to (denied
+ * or view-only via object-level access control) are silently skipped too, the
+ * same way single-ticket updates enforce object-level access via get_object().
+ * Tickets already in the requested status are skipped.
  */
 export const conversationsTicketsBulkUpdateStatusCreate = async (
     projectId: string,
@@ -560,8 +563,11 @@ export const getConversationsTicketsUnreadCountRetrieveUrl = (projectId: string)
 /**
  * Get total unread ticket count for the team.
  *
- * Returns the sum of unread_team_count for all non-resolved tickets.
- * Cached in Redis for 30 seconds, invalidated on changes.
+ * Returns the sum of unread_team_count for all non-resolved tickets visible to the
+ * caller. The team-wide Redis cache (30s TTL, invalidated on changes) is only used for
+ * callers without object-level ticket restrictions, since it holds one unscoped total
+ * per team - serving it to a restricted member would leak counts for tickets they can't
+ * see.
  */
 export const conversationsTicketsUnreadCountRetrieve = async (
     projectId: string,

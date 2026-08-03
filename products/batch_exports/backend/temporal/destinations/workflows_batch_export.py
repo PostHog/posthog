@@ -20,7 +20,6 @@ from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
 from products.batch_exports.backend.service import BatchExportField, BatchExportInsertInputs, WorkflowsBatchExportInputs
 from products.batch_exports.backend.temporal.batch_exports import (
-    OverBillingLimitError,
     StartBatchExportRunInputs,
     get_data_interval,
     start_batch_export_run,
@@ -528,22 +527,21 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
+            # Workflows exports are excluded from rows exported billing, so skip the check.
+            check_billing=False,
         )
 
-        try:
-            run_id = await temporalio.workflow.execute_activity(
-                start_batch_export_run,
-                start_batch_export_run_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=5),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(seconds=10),
-                    maximum_interval=dt.timedelta(seconds=60),
-                    maximum_attempts=0,
-                    non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
-                ),
-            )
-        except OverBillingLimitError:
-            return
+        run_id = await temporalio.workflow.execute_activity(
+            start_batch_export_run,
+            start_batch_export_run_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                initial_interval=dt.timedelta(seconds=10),
+                maximum_interval=dt.timedelta(seconds=60),
+                maximum_attempts=0,
+                non_retryable_error_types=["NotNullViolation", "IntegrityError", "OverBillingLimitError"],
+            ),
+        )
 
         batch_export_inputs = BatchExportInsertInputs(
             team_id=inputs.team_id,

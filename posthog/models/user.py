@@ -111,6 +111,7 @@ class UserManager(BaseUserManager):
             raise ValueError("Email must be provided!")
         email = EmailNormalizer.normalize(email)
         extra_fields.setdefault("distinct_id", generate_random_token())
+        extra_fields.setdefault("ui_configuration", default_ui_configuration_for_new_users())
         user = cast("User", self.model(email=email, first_name=first_name, **extra_fields))
         if password is not None:
             # nosemgrep: python.django.security.audit.unvalidated-password.unvalidated-password (validation happens at serializer/view layer before reaching this method)
@@ -184,6 +185,22 @@ class UserManager(BaseUserManager):
 
 def events_column_config_default() -> dict[str, Any]:
     return {"active": "DEFAULT"}
+
+
+# New users start with a slimmer sidebar. Existing users keep ui_configuration NULL, which the
+# frontend resolves as "everything shown" (their pre-customization experience). Absent keys also
+# mean "shown", so this only lists the elements hidden by default for new accounts. The shape must
+# stay valid against the UserUIConfiguration schema (see frontend/src/queries/schema/schema-general.ts).
+def default_ui_configuration_for_new_users() -> dict[str, Any]:
+    return {
+        "version": 1,
+        "sidebar": {
+            "items": {
+                "files": {"visible": False},
+                "starred": {"visible": False},
+            },
+        },
+    }
 
 
 class ThemeMode(models.TextChoices):
@@ -260,6 +277,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         null=False,
         blank=False,
         help_text="When true, the user has opted out of in-app hints promoting the PostHog MCP integration after taking actions.",
+    )
+    # No field default on purpose: existing rows must stay NULL so long-time users keep seeing
+    # everything. New accounts get default_ui_configuration_for_new_users() via UserManager.create_user.
+    ui_configuration = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Per-user UI customization (currently sidebar element visibility), shaped like the "
+        "UserUIConfiguration schema. NULL means the user has no customization and every element shows.",
     )
 
     # Onboarding exit tracking. Set when the user explicitly leaves the onboarding flow (skip or delegate).

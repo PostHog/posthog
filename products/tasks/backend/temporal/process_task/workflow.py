@@ -100,11 +100,22 @@ from .credential_refresh import SANDBOX_GONE_ERROR_MESSAGE, CredentialRefreshExi
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
+MAX_ACCEPTED_MESSAGE_IDS = 500
 
 
 def _is_dead_sandbox_failure(error: BaseException) -> bool:
     cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
     return isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type in DEAD_SANDBOX_ERROR_TYPES
+
+
+def _message_dedupe_key(
+    message_id: str,
+    actor_user_id: int | None,
+    message_context: dict[str, Any] | None,
+) -> str:
+    slack_user_id = (message_context or {}).get("actor_slack_user_id")
+    actor_slack_user_id = slack_user_id if isinstance(slack_user_id, str) else ""
+    return f"{actor_user_id or ''}:{actor_slack_user_id}:{message_id}"
 
 
 @dataclass
@@ -122,6 +133,7 @@ class ResumedSandboxState:
     last_active_time: Optional[str]  # ISO8601, or None if never active
     # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
     pr_unresolved_threads: int = 0
+    accepted_message_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -131,6 +143,7 @@ class ProcessTaskInput:
     slack_thread_context: Optional[dict[str, Any]] = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     prewarmed: bool = False
+    initial_message: Optional["PendingFollowup"] = None
     # Set only on a continue_as_new continuation, to skip provisioning and re-attach.
     resumed_sandbox: Optional[ResumedSandboxState] = None
 
@@ -140,8 +153,6 @@ class PendingFollowup:
     message: str | None
     artifact_ids: list[str]
     actor_user_id: int | None = None
-    # Sender-supplied idempotency key (stable across the sender's retries);
-    # None falls back to a workflow-generated id.
     message_id: str | None = None
     # Signal context carried verbatim (e.g. actor_slack_user_id for reply
     # tagging); consumers validate the keys they read.
@@ -287,6 +298,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_followup: PendingFollowup | None = None
         self._pending_followups: list[PendingFollowup] = []
         self._next_followup_sequence: int = 0
+        self._accepted_message_ids: list[str] = []
+        self._accepted_message_id_set: set[str] = set()
         self._active_followup_task: asyncio.Task[None] | None = None
         self._shutting_down: bool = False
         self._pending_permission_responses: list[PendingPermissionResponse] = []
@@ -329,6 +342,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             slack_thread_context=loaded.get("slack_thread_context"),
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
             prewarmed=loaded.get("prewarmed", False),
+            initial_message=(
+                PendingFollowup(**loaded["initial_message"])
+                if isinstance(loaded.get("initial_message"), dict)
+                else None
+            ),
             resumed_sandbox=ResumedSandboxState(**resumed) if resumed else None,
         )
 
@@ -725,7 +743,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 )
 
             # A continuation already delivered the first user message in a prior execution.
-            if input.resumed_sandbox is None and self._should_forward_pending_user_message():
+            if input.resumed_sandbox is None and input.initial_message is not None:
+                self._pending_followups.append(input.initial_message)
+                await self._dispatch_next_followup()
+            elif input.resumed_sandbox is None and self._should_forward_pending_user_message():
                 await self._forward_pending_user_message()
 
             # Wait for completion signal or inactivity timeout.
@@ -1003,7 +1024,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
         # Announce the first progress step immediately so the desktop card
         # shows up before any provisioning log lines arrive.
-        await self._emit_progress("sandbox", "in_progress", "Setting up sandbox", "setup")
+        sandbox_label = "Restoring sandbox" if self.context.is_snapshot_resume else "Setting up sandbox"
+        await self._emit_progress("sandbox", "in_progress", sandbox_label, "setup")
 
         await self._track_workflow_event(
             "task_run_started",
@@ -1111,6 +1133,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 first_user_message_received=self._first_user_message_received,
                 is_agent_design_enabled=self._is_agent_design_enabled,
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
+                accepted_message_ids=self._accepted_message_ids,
             ),
         )
 
@@ -1121,15 +1144,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pr_unresolved_threads = resumed.pr_unresolved_threads
         self._pr_progress_emitted = resumed.pr_progress_emitted
         self._first_user_message_received = resumed.first_user_message_received
+        self._accepted_message_ids = resumed.accepted_message_ids
+        self._accepted_message_id_set = set(resumed.accepted_message_ids)
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
 
     async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
-        return await workflow.execute_activity(
+        context = await workflow.execute_activity(
             get_task_processing_context,
             GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        return context
 
     async def _get_sandbox_for_repository(self) -> GetSandboxForRepositoryOutput:
         prepared = await workflow.execute_activity(
@@ -1238,8 +1264,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
-        will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
+        repositories_to_clone = [] if used_snapshot or not has_clone_credentials else self.context.repositories
+        will_clone = bool(repositories_to_clone)
+        checkout_repository = self.context.repositories[0] if len(self.context.repositories) == 1 else None
+        will_checkout = bool(checkout_repository and prepared.branch and has_clone_credentials)
 
         overlap = bool(self.context.overlap_clone_boot_enabled and will_clone)
         boot_path = "overlap" if overlap else "classic"
@@ -1252,26 +1280,37 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         clone_ms: int | None = None
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup")
-            clone_output = await workflow.execute_activity(
-                clone_repository_in_sandbox,
-                CloneRepositoryInSandboxInput(
-                    context=self.context,
-                    sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
-                    github_token=prepared.github_token,
-                    shallow_clone=prepared.shallow_clone,
-                ),
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+            clone_outputs = await asyncio.gather(
+                *(
+                    workflow.execute_activity(
+                        clone_repository_in_sandbox,
+                        CloneRepositoryInSandboxInput(
+                            context=self.context,
+                            sandbox_id=created.sandbox_id,
+                            repository=repository,
+                            github_token=prepared.github_token,
+                            shallow_clone=prepared.shallow_clone,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=5),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    for repository in repositories_to_clone
+                )
             )
-            # Pre-rollout histories (and mocked tests) recorded a null result here.
-            clone_ms = getattr(clone_output, "clone_ms", None)
-            await self._emit_progress("clone", "completed", "Cloned repository", "setup")
+            clone_durations: list[int] = []
+            for clone_output in clone_outputs:
+                if (duration := getattr(clone_output, "clone_ms", None)) is not None:
+                    clone_durations.append(duration)
+            clone_ms = sum(clone_durations) if clone_durations else None
+            clone_label = "Cloned repository" if len(repositories_to_clone) == 1 else "Cloned repositories"
+            await self._emit_progress("clone", "completed", clone_label, "setup")
 
         state = self.context.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
         checkout_ms: int | None = None
         if will_checkout and not is_resume:
+            assert checkout_repository is not None
+            assert prepared.branch is not None
             branch_label_active = f"Checking out branch {prepared.branch}"
             branch_label_done = f"Checked out branch {prepared.branch}"
             await self._emit_progress("checkout", "in_progress", branch_label_active, "setup")
@@ -1280,7 +1319,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 CheckoutBranchInSandboxInput(
                     context=self.context,
                     sandbox_id=created.sandbox_id,
-                    repository=prepared.repository,
+                    repository=checkout_repository,
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
@@ -2005,6 +2044,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": context.run_id if context is not None else None},
             )
             return
+        if message_id:
+            dedupe_key = _message_dedupe_key(message_id, actor_user_id, message_context)
+            if dedupe_key in self._accepted_message_id_set:
+                return
+            if len(self._accepted_message_ids) >= MAX_ACCEPTED_MESSAGE_IDS:
+                oldest_key = self._accepted_message_ids.pop(0)
+                self._accepted_message_id_set.discard(oldest_key)
+            self._accepted_message_ids.append(dedupe_key)
+            self._accepted_message_id_set.add(dedupe_key)
+
         pending_followup = PendingFollowup(
             message=message,
             artifact_ids=artifact_ids or [],
@@ -2088,6 +2137,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             },
         )
         try:
+            max_attempts = 1 if self.context.task_runtime == "pi" else SEND_FOLLOWUP_MAX_ATTEMPTS
             return await workflow.execute_activity(
                 send_followup_to_sandbox,
                 SendFollowupToSandboxInput(
@@ -2099,17 +2149,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     actor_user_id=actor_user_id,
                     context=context,
                     steer=steer,
+                    max_attempts=max_attempts,
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
-                # The activity heartbeats while blocked on the sync delivery
-                # call, so a worker restart is detected here instead of at
-                # start_to_close. Retries are safe: message_id lets the
-                # agent-server drop a redelivery it already accepted, and
-                # sentinel-writing failures raise non-retryable.
                 heartbeat_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(
                     initial_interval=timedelta(seconds=5),
-                    maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+                    maximum_attempts=max_attempts,
                 ),
             )
         except Exception as e:

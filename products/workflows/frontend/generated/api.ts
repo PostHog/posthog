@@ -13,6 +13,7 @@ import type {
     AppMetricsTotalsResponseApi,
     BlastRadiusApi,
     BlastRadiusRequestApi,
+    EmailSendingSuspensionStatusApi,
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowInvocationApi,
@@ -811,6 +812,25 @@ export const hogFlowsBulkDeleteCreate = async (
     })
 }
 
+export const getHogFlowsEmailSendingSuspensionRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/email_sending_suspension/`
+}
+
+/**
+ * Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
+ * with no reputation computation. Every project member sees this — a suspension stops
+ * everyone's email, so hiding it would leave silent send failures unexplained.
+ */
+export const hogFlowsEmailSendingSuspensionRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EmailSendingSuspensionStatusApi> => {
+    return apiMutator<EmailSendingSuspensionStatusApi>(getHogFlowsEmailSendingSuspensionRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsMetricsGlobalRetrieveUrl = (
     projectId: string,
     params?: HogFlowsMetricsGlobalRetrieveParams
@@ -858,9 +878,10 @@ export const getHogFlowsReputationRetrieveUrl = (projectId: string, params?: Hog
 }
 
 /**
- * Email deliverability reputation for this project: the latest project-wide snapshot and the
- * latest recent snapshot per workflow (worst first, capped). Written daily by the Node
- * evaluator; everything is null/empty until the first run.
+ * Bounce/complaint rates for this project's workflow email over the last 30 days, computed on
+ * the fly from app metrics (a project-wide aggregate plus per-workflow rows, worst first,
+ * capped), together with the authoritative AWS SES tenant verdict — sending status and open
+ * reputation findings. Our rates are the per-workflow diagnosis; AWS judges and enforces.
  */
 export const hogFlowsReputationRetrieve = async (
     projectId: string,

@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.source import ZohoCRMSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoho_crm.zoho_crm import (
+    REFRESH_TOKEN_REJECTED_MESSAGE,
     ZOHO_REGIONS,
     ZohoCRMResumeConfig,
 )
@@ -168,7 +169,7 @@ class TestZohoCRMSource:
     @pytest.mark.parametrize(
         "probe_result, expected",
         [
-            ((False, "Zoho CRM token refresh failed: invalid_client"), "Zoho CRM token refresh failed: invalid_client"),
+            ((False, REFRESH_TOKEN_REJECTED_MESSAGE), REFRESH_TOKEN_REJECTED_MESSAGE),
             ((False, None), "Invalid Zoho CRM credentials"),
         ],
     )
