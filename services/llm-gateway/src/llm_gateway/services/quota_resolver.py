@@ -72,6 +72,7 @@ class QuotaResourceStatus:
     # synced numbers. None means unknown (unsynced org, fail-open) — never $0.
     used_usd: float | None = None
     limit_usd: float | None = None
+    billing_period_end: str | None = None
 
 
 def _optional_number(value: object) -> float | None:
@@ -209,6 +210,9 @@ class QuotaResolver:
             code_usage_billing_active=bool(data.get("code_usage_billing_active")),
             used_usd=_credits_to_usd(resource.get("usage")),
             limit_usd=_credits_to_usd(resource.get("limit")),
+            billing_period_end=data.get("billing_period_end")
+            if isinstance(data.get("billing_period_end"), str)
+            else None,
         ), self._cache_ttl
 
     async def _get_cached(self, resource_key: str, team_id: int) -> QuotaResourceStatus | None:
@@ -226,6 +230,9 @@ class QuotaResolver:
                 code_usage_billing_active=bool(payload.get("code_usage_billing_active")),
                 used_usd=_optional_number(payload.get("used_usd")),
                 limit_usd=_optional_number(payload.get("limit_usd")),
+                billing_period_end=(
+                    payload.get("billing_period_end") if isinstance(payload.get("billing_period_end"), str) else None
+                ),
             )
         except Exception:
             logger.debug("quota_cache_read_failed", resource=resource_key, team_id=team_id)
@@ -235,14 +242,15 @@ class QuotaResolver:
         if not self._redis:
             return
         try:
-            payload = json.dumps(
-                {
-                    "limited": status.limited,
-                    "code_usage_billing_active": status.code_usage_billing_active,
-                    "used_usd": status.used_usd,
-                    "limit_usd": status.limit_usd,
-                }
-            )
+            data: dict[str, object] = {
+                "limited": status.limited,
+                "code_usage_billing_active": status.code_usage_billing_active,
+                "used_usd": status.used_usd,
+                "limit_usd": status.limit_usd,
+            }
+            if status.billing_period_end is not None:
+                data["billing_period_end"] = status.billing_period_end
+            payload = json.dumps(data)
             await self._redis.set(_redis_key(resource_key, team_id), payload, ex=ttl)
         except Exception:
             logger.debug("quota_cache_write_failed", resource=resource_key, team_id=team_id)

@@ -284,6 +284,26 @@ class TestQuotaResolver:
         assert http_client.get.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_billing_period_end_round_trips_through_the_cache(self) -> None:
+        redis = _FakeRedis()
+        http_client = _make_http_client(
+            _make_response(
+                200,
+                {
+                    "limited": {"posthog_code_credits": {"limited": False}},
+                    "billing_period_end": "2026-08-09T00:00:00Z",
+                },
+            )
+        )
+        resolver = QuotaResolver(redis=redis, http_client=http_client)  # type: ignore[arg-type]
+
+        first = await resolver.get_resource_status("posthog_code_credits", team_id=42, auth_header="Bearer phx_test")
+        cached = await resolver.get_resource_status("posthog_code_credits", team_id=42, auth_header="Bearer phx_test")
+
+        assert first.billing_period_end == "2026-08-09T00:00:00Z"
+        assert cached.billing_period_end == "2026-08-09T00:00:00Z"
+
+    @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:
         http_client = _make_http_client(
             _make_response(200, {"team_id": 1, "limited": {"ai_credits": {"limited": False}}})

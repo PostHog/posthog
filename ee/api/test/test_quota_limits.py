@@ -54,6 +54,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["limited"]["ai_credits"], {"limited": False, "usage": None, "limit": None})
+        self.assertIsNone(data["billing_period_end"])
         # Org holds no billing-granted Desktop usage feature -> reads as not paying
         self.assertIs(data["code_usage_billing_active"], False)
 
@@ -93,6 +94,7 @@ class TestQuotaLimitsAPI(APIBaseTest):
         self.assertEqual(limited["signals_credits"], {"limited": False, "usage": None, "limit": 5000})
         # Never synced: unknown, not zero.
         self.assertEqual(limited["events"], {"limited": False, "usage": None, "limit": None})
+        self.assertEqual(response.json()["billing_period_end"], "2026-08-01T00:00:00Z")
 
     def test_returns_limited_when_team_is_over_quota(self) -> None:
         self._set_ai_credits_limit(self.team.api_token, 9_999_999_999)

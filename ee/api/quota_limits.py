@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -57,6 +57,7 @@ def _resource_usage(summary: dict[str, Any]) -> float | None:
     return (usage or 0) + (todays_usage or 0)
 
 
+@extend_schema_serializer(many=False)
 class QuotaLimitsResponseSerializer(serializers.Serializer):
     limited = serializers.DictField(
         child=QuotaResourceLimitSerializer(),
@@ -70,9 +71,13 @@ class QuotaLimitsResponseSerializer(serializers.Serializer):
             "behavior on this; an org unknown to billing reads as not paying."
         ),
     )
+    billing_period_end = serializers.DateTimeField(
+        allow_null=True,
+        help_text="End of the organization's current billing period. Null when billing has not synced a period.",
+    )
 
 
-@extend_schema(tags=["quota_limits"])
+@extend_schema(tags=["quota_limits"], extensions={"x-product": "tasks"})
 class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Read-only view of a team's quota-limit state."""
 
@@ -91,6 +96,7 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         org_usage = self.team.organization.usage or {}
+        billing_period = self.team.organization.current_billing_period
         # Fresh read on purpose: the gateway re-caches this answer for minutes, so serving
         # the 30s per-worker memo here would re-poison a just-invalidated gateway entry.
         limited_resources = get_fresh_team_limited_resources(self.team.api_token)
@@ -109,6 +115,7 @@ class QuotaLimitsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "code_usage_billing_active": self.team.organization.is_feature_available(
                         AvailableFeature.POSTHOG_CODE_USAGE
                     ),
+                    "billing_period_end": billing_period[1] if billing_period else None,
                 }
             ).data
         )

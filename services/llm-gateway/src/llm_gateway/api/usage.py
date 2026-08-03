@@ -124,8 +124,10 @@ async def get_usage(
             sustained_status = _to_cost_limit_status(empty, now=now)
 
     billing_period_end: datetime | None = None
-    if plan_info.billing_period:
+    raw_period_end = quota_status.billing_period_end
+    if raw_period_end is None and plan_info.billing_period:
         raw_period_end = plan_info.billing_period.current_period_end
+    if raw_period_end is not None:
         try:
             billing_period_end = parse_iso_utc(raw_period_end)
         except (ValueError, TypeError) as exc:
