@@ -516,6 +516,7 @@ from .google_cloud_storage.source import GoogleCloudStorageSource
 from .google_directory.source import GoogleDirectorySource
 from .google_drive.source import GoogleDriveSource
 from .google_forms.source import GoogleFormsSource
+from .google_merchant_center.source import GoogleMerchantCenterSource
 from .google_pagespeed_insights.source import GooglePageSpeedInsightsSource
 from .google_play_console.source import GooglePlayConsoleSource
 from .google_search_console.source import GoogleSearchConsoleSource

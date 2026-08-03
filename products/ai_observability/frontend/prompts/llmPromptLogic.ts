@@ -54,6 +54,7 @@ import {
     openMoveLabelDialog,
     openRemoveLabelDialog,
     requestPromptDuplicate,
+    stripPromptSceneSearchParams,
     validatePromptName,
 } from './utils'
 
@@ -872,7 +873,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             (prompt: LLMPrompt | PromptFormValues | null, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     name: 'Prompts',
-                    path: combineUrl(urls.aiObservabilityPrompts(), searchParams).url,
+                    path: combineUrl(urls.aiObservabilityPrompts(), stripPromptSceneSearchParams(searchParams)).url,
                     key: 'AIObservabilityPrompts',
                     iconType: 'llm_prompts',
                 },
@@ -1298,8 +1299,12 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         cancelEditing: () => {
             const exitEditMode = (): void => {
                 if (values.isNewPrompt) {
-                    const { edit: _edit, ...searchParams } = router.values.searchParams
-                    router.actions.push(combineUrl(urls.aiObservabilityPrompts(), searchParams).url)
+                    router.actions.push(
+                        combineUrl(
+                            urls.aiObservabilityPrompts(),
+                            stripPromptSceneSearchParams(router.values.searchParams)
+                        ).url
+                    )
                     return
                 }
                 if (isPrompt(values.prompt)) {
@@ -1326,7 +1331,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                     lemonToast.info(`${values.prompt.name || 'Prompt'} has been archived.`)
                     llmPromptsLogic.findMounted()?.actions.loadPrompts(false)
                     router.actions.replace(urls.aiObservabilityPrompts(), {
-                        ...router.values.searchParams,
+                        ...stripPromptSceneSearchParams(router.values.searchParams),
                         [LLM_PROMPTS_FORCE_RELOAD_PARAM]: String(Date.now()),
                     })
                 } catch (error) {
