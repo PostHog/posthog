@@ -247,6 +247,18 @@ describe('replayScannerLogic', () => {
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
         })
+
+        it('advance intent from triggers routes to /self_driving without calling the API', async () => {
+            router.actions.push('/replay-vision/new/triggers')
+            logic.actions.setScannerValues({
+                name: 'Test scanner',
+                scanner_config: { prompt: 'Q?' },
+            })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(createSpy).not.toHaveBeenCalled()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/self-driving')
+        })
     })
 
     describe('validation errors', () => {
@@ -610,6 +622,7 @@ describe('replayScannerLogic', () => {
         const configure = urls.replayVisionScannerConfigure(scannerId)
         const triggers = urls.replayVisionScannerTriggers(scannerId)
         const template = urls.replayVisionScannerTemplate(scannerId)
+        const selfDriving = urls.replayVisionScannerSelfDriving(scannerId)
         const detail = urls.replayVision(scannerId)
         const base = { hasUnsavedChanges: true, isSubmitting: false, scannerId, currentPathname: configure }
 
@@ -620,6 +633,16 @@ describe('replayScannerLogic', () => {
             // Moving between the wizard's own steps keeps the same draft mounted.
             ['forward to triggers step', { ...base, nextPathname: triggers }, false],
             ['back to template step', { ...base, currentPathname: triggers, nextPathname: template }, false],
+            [
+                'forward from triggers to self_driving step',
+                { ...base, currentPathname: triggers, nextPathname: selfDriving },
+                false,
+            ],
+            [
+                'back from self_driving to triggers step',
+                { ...base, currentPathname: selfDriving, nextPathname: triggers },
+                false,
+            ],
             // Only guard while actually inside this scanner's editor.
             ['not currently in the editor', { ...base, currentPathname: detail, nextPathname: '/insights' }, false],
             // Genuinely leaving the editor with unsaved edits.
@@ -629,6 +652,12 @@ describe('replayScannerLogic', () => {
             [
                 'over to a different scanner’s editor',
                 { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
+                true,
+            ],
+            // The self_driving step holds the entire draft — leaving it unsaved must warn.
+            [
+                'out of self_driving to the detail page',
+                { ...base, currentPathname: selfDriving, nextPathname: detail },
                 true,
             ],
         ])('%s', (_label, params, expected) => {

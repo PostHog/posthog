@@ -51,7 +51,12 @@ import { refreshVisionQuota } from '../logics/visionQuotaLogic'
 import { observationClipboardText } from '../utils/observation'
 import { type UrlSorting, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
-import { SCANNER_EDITOR_STEPS, scannerEditorSceneLogic, scannerStepUrl } from './scannerEditorSceneLogic'
+import {
+    SCANNER_EDITOR_STEPS,
+    scannerEditorSceneLogic,
+    scannerStepUrl,
+    scannerStepUrlWithCurrentParams,
+} from './scannerEditorSceneLogic'
 import type { ObservationStatusStats } from './scannerStats'
 import { availableTagsFromStats, daysFromDateRange, deriveObservationStatusStats } from './scannerStats'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
@@ -668,7 +673,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const nextStep = currentStep ? steps[steps.indexOf(currentStep) + 1] : undefined
                 if (nextStep && (values.submitIntent === 'advance' || values.isNew)) {
                     actions.setSubmitIntent('save')
-                    router.actions.push(scannerStepUrl(nextStep, props.id))
+                    router.actions.push(scannerStepUrlWithCurrentParams(nextStep, props.id))
                     return
                 }
                 const teamId = teamLogic.values.currentTeamId
@@ -1574,12 +1579,13 @@ const TABLE_URL_PARAM_KEYS = [
 /** Observation-filter params the scanner page reads from the URL; links into the Observations tab build from these keys. */
 export type ObservationsUrlParams = Partial<Record<(typeof TABLE_URL_PARAM_KEYS)[number], string>>
 
-/** The three step URLs of a scanner's editor wizard. */
+/** The four step URLs of a scanner's editor wizard. */
 function scannerEditorPaths(scannerId: string): string[] {
     return [
         urls.replayVisionScannerTemplate(scannerId),
         urls.replayVisionScannerConfigure(scannerId),
         urls.replayVisionScannerTriggers(scannerId),
+        urls.replayVisionScannerSelfDriving(scannerId),
     ]
 }
 

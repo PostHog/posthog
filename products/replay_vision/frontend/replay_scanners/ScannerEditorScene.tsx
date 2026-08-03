@@ -42,7 +42,7 @@ import {
     SCANNER_EDITOR_STEP_ORDER,
     ScannerEditorStep,
     scannerEditorSceneLogic,
-    scannerStepUrl,
+    scannerStepUrlWithCurrentParams,
 } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper, STEP_LABELS } from './ScannerEditorStepper'
 import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS } from './types'
@@ -136,13 +136,13 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         }
         if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step]) {
             if (step === 'template') {
-                router.actions.push(urls.replayVisionScannerConfigure(scannerId))
+                router.actions.push(scannerStepUrlWithCurrentParams('configure', scannerId))
                 return
             }
             advance()
             return
         }
-        router.actions.push(scannerStepUrl(next, scannerId))
+        router.actions.push(scannerStepUrlWithCurrentParams(next, scannerId))
     }
 
     return (
@@ -375,7 +375,11 @@ function EditorFooter({
                     Back to templates
                 </LemonButton>
             ) : prevStep ? (
-                <LemonButton type="tertiary" to={scannerStepUrl(prevStep, scannerId)} data-attr="vision-editor-back">
+                <LemonButton
+                    type="tertiary"
+                    to={scannerStepUrlWithCurrentParams(prevStep, scannerId)}
+                    data-attr="vision-editor-back"
+                >
                     Back
                 </LemonButton>
             ) : null}
