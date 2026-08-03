@@ -12,6 +12,7 @@ const base: QuotaProjection = {
     percentLabel: 0,
     resetsOn: null,
     usedPct: 0,
+    usedFreePct: 0,
     projectedPct: 0,
 }
 
@@ -36,7 +37,7 @@ describe('QuotaStatusLine', () => {
             text: 'July 21',
         },
     ])('$name', ({ projection, text }) => {
-        const { container } = render(<QuotaStatusLine projection={projection} />)
+        const { container } = render(<QuotaStatusLine projection={projection} onFreePlan={false} />)
 
         if (text === null) {
             expect(container.textContent).toBe('')
