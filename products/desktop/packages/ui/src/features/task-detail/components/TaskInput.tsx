@@ -700,6 +700,7 @@ export function TaskInput({
 
   useInitialRepoSelectionFromFolderId({
     folderId: view.folderId,
+    folderRepository: view.folderRepository,
     requestId: view.taskInputRequestId,
     folders,
     repositories,

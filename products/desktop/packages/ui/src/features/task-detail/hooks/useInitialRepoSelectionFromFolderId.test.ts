@@ -236,6 +236,78 @@ describe("resolveRepoSelectionForFolder", () => {
       }),
     ).toEqual(expected);
   });
+
+  // Cloud-only groups have no registered folder, so the group's own repo slug is
+  // all there is to prefill from.
+  it.each<{
+    name: string;
+    input: RepoSelectionInput;
+    expected: RepoSelection;
+  }>([
+    {
+      name: "no folder, connected repo: select it and go to cloud",
+      input: {
+        folderRepository: "posthog/posthog.com",
+        repositories: ["posthog/posthog", "posthog/posthog.com"],
+        reposLoaded: true,
+        currentMode: "local",
+        lastUsedLocalMode: "local",
+      },
+      expected: {
+        directory: undefined,
+        cloudRepository: "posthog/posthog.com",
+        nextMode: "cloud",
+      },
+    },
+    {
+      name: "no folder, repo not connected: change nothing",
+      input: {
+        folderRepository: "acme/private",
+        repositories: ["posthog/posthog"],
+        reposLoaded: true,
+        currentMode: "cloud",
+        lastUsedLocalMode: "local",
+      },
+      expected: {
+        directory: undefined,
+        cloudRepository: undefined,
+        nextMode: undefined,
+      },
+    },
+    {
+      name: "no folder, group id is a folder path: change nothing",
+      input: {
+        folderRepository: "/repos/a",
+        repositories: ["posthog/posthog"],
+        reposLoaded: true,
+        currentMode: "cloud",
+        lastUsedLocalMode: "local",
+      },
+      expected: {
+        directory: undefined,
+        cloudRepository: undefined,
+        nextMode: undefined,
+      },
+    },
+    {
+      name: "folder without a remote falls back to the group's repo slug",
+      input: {
+        folder: folder("a", "/repos/a", null),
+        folderRepository: "posthog/posthog.com",
+        repositories: ["posthog/posthog.com"],
+        reposLoaded: true,
+        currentMode: "cloud",
+        lastUsedLocalMode: "local",
+      },
+      expected: {
+        directory: "/repos/a",
+        cloudRepository: "posthog/posthog.com",
+        nextMode: undefined,
+      },
+    },
+  ])("$name", ({ input, expected }) => {
+    expect(resolveRepoSelectionForFolder(input)).toEqual(expected);
+  });
 });
 
 describe("areReposReady", () => {
@@ -284,6 +356,7 @@ describe("areReposReady", () => {
 
 type HookArgs = {
   folderId: string | undefined;
+  folderRepository?: string;
   requestId?: string;
   folders: RegisteredFolder[];
   repositories: string[];
@@ -300,6 +373,7 @@ function renderRepoSelectionHook(initial: HookArgs) {
     (props: HookArgs) =>
       useInitialRepoSelectionFromFolderId({
         folderId: props.folderId,
+        folderRepository: props.folderRepository,
         requestId: props.requestId,
         folders: props.folders,
         repositories: props.repositories,
@@ -475,6 +549,34 @@ describe("useInitialRepoSelectionFromFolderId", () => {
     expect(setSelectedDirectory).not.toHaveBeenCalled();
     expect(setSelectedRepository).not.toHaveBeenCalled();
     expect(setWorkspaceMode).not.toHaveBeenCalled();
+  });
+
+  it("selects the repo of a group that has no registered folder", () => {
+    const { rerender, setSelectedDirectory, setSelectedRepository } =
+      renderRepoSelectionHook({
+        folderId: undefined,
+        folderRepository: "posthog/posthog.com",
+        folders: [folder("a", "/repos/a", "posthog/posthog")],
+        repositories: ["posthog/posthog", "posthog/posthog.com"],
+        reposLoaded: true,
+        currentMode: "cloud",
+      });
+    expect(setSelectedRepository).toHaveBeenCalledExactlyOnceWith(
+      "posthog/posthog.com",
+    );
+    // Nothing is checked out locally, so there's no directory to select.
+    expect(setSelectedDirectory).not.toHaveBeenCalled();
+
+    // Clicking another group's "+" moves the pick to that group's repo.
+    rerender({
+      folderId: undefined,
+      folderRepository: "posthog/posthog",
+      folders: [folder("a", "/repos/a", "posthog/posthog")],
+      repositories: ["posthog/posthog", "posthog/posthog.com"],
+      reposLoaded: true,
+      currentMode: "cloud",
+    });
+    expect(setSelectedRepository).toHaveBeenLastCalledWith("posthog/posthog");
   });
 
   it("re-syncs the same folderId after it is cleared to undefined", () => {
