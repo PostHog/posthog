@@ -98,9 +98,20 @@ class Logger:
             self.produce(produce_message)
 
     def produce(self, message: bytes) -> None:
-        """Produce message to `self.queue`."""
-        if self.queue and self.loop:
+        """Produce message to `self.queue`.
+
+        The worker's event loop can already be closed by the time a log call lands here
+        (e.g. logging from a thread during worker shutdown), in which case scheduling onto
+        it raises `RuntimeError`. Logging must never raise into caller code, so we treat a
+        closed/unavailable loop as "can't produce right now" and drop the message.
+        """
+        if not self.queue or not self.loop or self.loop.is_closed():
+            return
+
+        try:
             asyncio.run_coroutine_threadsafe(self.queue.put(message), self.loop)
+        except RuntimeError:
+            pass
 
     def write(self, message: str) -> None:
         """Write messages to file using write logger."""

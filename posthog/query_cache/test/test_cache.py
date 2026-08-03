@@ -56,6 +56,23 @@ class TestQueryCacheFacade(BaseTest):
 
         assert cache.lookup().entry is None
 
+    def test_store_result_swallows_failures_even_when_logging_the_failure_also_raises(self):
+        # Regression: in a Temporal worker, `logger.exception` can itself raise (e.g. the
+        # worker's event loop is closed). That must not defeat the guard around the size
+        # tracker write and fail the query response.
+        cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_failsoft_logging_test_{self.team.pk}", insight_id=1)
+
+        with (
+            patch(
+                "posthog.query_cache.cache.TeamCacheSizeTracker.set",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+            patch("posthog.query_cache.cache.logger.exception", side_effect=RuntimeError("Event loop is closed")),
+        ):
+            cache.store_result(response={"results": []}, target_age=None)
+
+        assert cache.lookup().entry is None
+
     def test_store_result_updates_and_clears_freshness_index(self):
         cache = QueryCache(team_id=self.team.pk, cache_key=f"cache_fresh_test_{self.team.pk}", insight_id=42)
         past = datetime.now(UTC) - timedelta(minutes=5)

@@ -76,7 +76,12 @@ class QueryCache:
             tracker = TeamCacheSizeTracker(self.team_id)
             tracker.set(self.cache_key, fresh_response_serialized, data_size, settings.CACHED_RESULTS_TTL)
         except Exception:
-            logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
+            # Logging itself must not be able to defeat this guard - a failure here (e.g. a
+            # closed event loop in a Temporal worker) must not re-raise and fail the query.
+            try:
+                logger.exception("query_cache_store_result_failed", team_id=self.team_id, cache_key=self.cache_key)
+            except Exception:
+                pass
             return
 
         if target_age:
