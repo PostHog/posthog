@@ -31,9 +31,16 @@ function derivePurpose(taskRun: {
     if (taskRun.type === "implementation") {
       return { purpose: "implementation", purposeLabel: "Implementation" };
     }
-    // repo_selection runs are plumbing, not report work — never displayed (matches the
-    // pre-derivation behavior of only showing research/implementation).
-    return null;
+    // Only repo_selection is pipeline plumbing — hide it. All other non-research/non-implementation
+    // signals types (scout, discussion, etc.) are report work and should be visible in the Runs
+    // section, matching the web frontend's `deriveTaskPurpose` behaviour.
+    if (taskRun.type === "repo_selection") {
+      return null;
+    }
+    return {
+      purpose: "other",
+      purposeLabel: `Signals — ${humanizeIdentifier(taskRun.type)}`,
+    };
   }
   return {
     purpose: "other",
@@ -133,11 +140,15 @@ export function findContinuableImplementationTask(
   reportTasks: ReportTaskData[] | undefined,
 ): Task | null {
   if (!reportTasks) return null;
+  // First check any task that already produced a PR — a non-implementation run
+  // (e.g. a Discuss task that shipped a PR) should be resumed rather than
+  // starting a fresh implementation task, preventing duplicate PRs.
+  const anyWithPr = reportTasks.find((t) => getTaskPrUrl(t.task));
+  if (anyWithPr) return anyWithPr.task;
+  // Fall back to a running implementation task with no PR yet.
   const implementation = reportTasks.filter(
     (t) => t.purpose === "implementation",
   );
-  const withPr = implementation.find((t) => getTaskPrUrl(t.task));
-  if (withPr) return withPr.task;
   const running = implementation.find((t) => {
     const status = t.task.latest_run?.status;
     return status != null && !isTerminalStatus(status);
