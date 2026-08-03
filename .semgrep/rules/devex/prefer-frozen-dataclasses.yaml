@@ -33,12 +33,20 @@ rules:
               - '**/.semgrep/**'
       patterns:
           - pattern-either:
-                - pattern: |
-                      @dataclass
-                      class $C: ...
-                - pattern: |
-                      @dataclass(...)
-                      class $C: ...
+                # Bare @dataclass is ambiguous: skip it when pydantic's decorator
+                # (with its own validation semantics) is imported under that name.
+                - patterns:
+                      - pattern-either:
+                            - pattern: |
+                                  @dataclass
+                                  class $C: ...
+                            - pattern: |
+                                  @dataclass(...)
+                                  class $C: ...
+                      - pattern-not-inside: |
+                            from pydantic.dataclasses import dataclass
+                            ...
+                # The module-attribute form is always the stdlib decorator.
                 - pattern: |
                       @dataclasses.dataclass
                       class $C: ...
@@ -51,10 +59,6 @@ rules:
           - pattern-not: |
                 @dataclasses.dataclass(..., frozen=$V, ...)
                 class $C: ...
-          # pydantic's dataclass decorator has its own validation semantics
-          - pattern-not-inside: |
-                from pydantic.dataclasses import dataclass
-                ...
       metadata:
           category: best-practice
           subcategory:

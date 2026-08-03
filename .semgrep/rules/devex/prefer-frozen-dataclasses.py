@@ -75,3 +75,10 @@ from pydantic.dataclasses import dataclass  # noqa: E402
 @dataclass
 class PydanticDataclass:
     value: int
+
+
+# The module-attribute form is stdlib even in a pydantic-importing file.
+# ruleid: prefer-frozen-dataclasses
+@dataclasses.dataclass
+class StdlibAfterPydanticImport:
+    value: int
