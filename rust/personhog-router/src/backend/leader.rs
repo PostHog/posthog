@@ -302,9 +302,14 @@ impl LeaderBackend {
             .await
         {
             // Every leader use of FailedPrecondition is a routing-race
-            // rejection at admission ("fenced for handoff", "partition
-            // not owned") — never a semantic client error — so it
-            // classifies as a bounce rather than an outcome.
+            // rejection ("fenced for handoff", "partition not owned") —
+            // never a semantic client error — so it classifies as a
+            // bounce rather than an outcome. Most are refusals at
+            // admission, where nothing was attempted; one is not. A
+            // window fenced with its own commit outcome unknown answers
+            // the same way, and there the record may already be in the
+            // changelog, which is why the bounce below is treated as
+            // possibly applied.
             Ok((response, _call_ms))
                 if grpc_status_code(&response) == Some(Code::FailedPrecondition as i32) =>
             {
@@ -398,7 +403,15 @@ impl LeaderBackend {
                     return (response, Some(call_ms));
                 }
                 ForwardDecision::Bounced(reason) => {
-                    if reason == BounceReason::Transport {
+                    // A fenced bounce usually means the leader refused
+                    // before attempting anything, but it cannot be told
+                    // apart from a window whose commit outcome stayed
+                    // unknown — where the record may well be durable.
+                    // Counting the whole class as possibly applied
+                    // overstates the replays; the alternative understates
+                    // whether a write happened, which is the answer that
+                    // has to be conservative.
+                    if matches!(reason, BounceReason::Transport | BounceReason::Fenced) {
                         possibly_applied = true;
                     }
                     consecutive_bounces += 1;
