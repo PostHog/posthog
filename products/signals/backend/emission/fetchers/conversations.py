@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 from django.db.models import CharField, Exists, OuterRef, Q
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 import structlog
@@ -17,10 +17,13 @@ from products.signals.backend.models import SignalEmissionRecord
 
 logger = structlog.get_logger(__name__)
 
-# Cooldown period before a ticket is eligible for signal emission.
-# Vibes, ensures some conversation context has accumulated.
-# TODO: Use last_message_at instead of created_at so we snapshot after the thread goes quiet, not just after creation.
-TICKET_COOLDOWN_HOURS = 1
+# How long a thread must be quiet before it is snapshotted. Keyed off the last message rather than
+# ticket creation, because the decisive detail in a support thread (the repro, the error text, the
+# escalation) usually arrives in a reply, not the opening message.
+TICKET_QUIET_PERIOD_HOURS = 1
+# Floor between successive snapshots of the same ticket. A thread that keeps going gets re-read, but
+# at most once a window, so a chatty ticket can't emit a signal per lull.
+TICKET_RESNAPSHOT_MIN_INTERVAL_HOURS = 24
 
 
 def conversations_ticket_fetcher(
@@ -30,20 +33,26 @@ def conversations_ticket_fetcher(
 ) -> list[dict[str, Any]]:
     """Fetch conversation tickets from Postgres and record emission in SignalEmissionRecord."""
     now = timezone.now()
-    cutoff = now - timedelta(hours=TICKET_COOLDOWN_HOURS)
+    quiet_since = now - timedelta(hours=TICKET_QUIET_PERIOD_HOURS)
+    resnapshot_floor = now - timedelta(hours=TICKET_RESNAPSHOT_MIN_INTERVAL_HOURS)
     lookback = now - timedelta(days=config.first_sync_lookback_days)
-    # Pick tickets we haven't emitted signals for yet (NOT EXISTS subquery)
-    already_emitted = SignalEmissionRecord.objects.filter(
+    # Quiet for long enough, measured from the last message when there is one. Tickets predating
+    # last_message_at backfill fall back to created_at.
+    thread_is_quiet = Q(last_message_at__lte=quiet_since) | Q(last_message_at__isnull=True, created_at__lte=quiet_since)
+    # Skip a ticket when we already snapshotted it at or after its latest message (nothing new to
+    # read), or when the last snapshot is too recent to take another.
+    snapshot_still_current = SignalEmissionRecord.objects.filter(
         team=team,
         source_product=config.source_product,
         source_type=config.source_type,
         source_id=Cast(OuterRef("id"), output_field=CharField()),
+    ).filter(
+        Q(emitted_at__gte=Coalesce(OuterRef("last_message_at"), OuterRef("created_at")))
+        | Q(emitted_at__gte=resnapshot_floor)
     )
-    tickets_qs = Ticket.objects.filter(
-        team=team,
-        created_at__gte=lookback,
-        created_at__lte=cutoff,
-    ).filter(~Exists(already_emitted))
+    tickets_qs = Ticket.objects.filter(team=team, created_at__gte=lookback).filter(
+        thread_is_quiet, ~Exists(snapshot_still_current)
+    )
     if config.where_clause:
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (where_clause is a hardcoded config constant, not user input)
         tickets_qs = tickets_qs.extra(where=[config.where_clause])
@@ -88,7 +97,8 @@ def conversations_ticket_fetcher(
         ticket_id = str(ticket["id"])
         ticket["messages"] = comments_by_ticket.get(ticket_id, [])
         ticket["image_attachments"] = images_by_ticket.get(ticket_id, [])
-    # Record emission optimistically
+    # Record emission optimistically. Upsert rather than ignore conflicts, because a re-snapshotted
+    # ticket already has a row and its emitted_at is what gates the next one.
     # TODO: Revisit if signal loss on transient pipeline failure becomes a concern
     SignalEmissionRecord.objects.bulk_create(
         [
@@ -101,6 +111,8 @@ def conversations_ticket_fetcher(
             )
             for tid in ticket_ids
         ],
-        ignore_conflicts=True,
+        update_conflicts=True,
+        update_fields=["emitted_at"],
+        unique_fields=["team", "source_product", "source_type", "source_id"],
     )
     return tickets

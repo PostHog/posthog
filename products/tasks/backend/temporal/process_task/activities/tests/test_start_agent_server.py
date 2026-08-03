@@ -111,6 +111,24 @@ def test_ensure_repository_on_disk_passes_when_repo_present(mocker) -> None:
     assert sandbox_repo_path("PostHog/posthog") in sandbox.execute.call_args.args[0]
 
 
+def test_ensure_every_repository_is_on_disk(mocker) -> None:
+    sandbox = mocker.Mock()
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    _ensure_repository_on_disk(
+        _context(
+            repository="PostHog/posthog",
+            state={"repositories": ["PostHog/posthog", "PostHog/posthog-js"]},
+        ),
+        sandbox,
+    )
+
+    assert [call.args[0] for call in sandbox.execute.call_args_list] == [
+        f"test -d {sandbox_repo_path('PostHog/posthog')}",
+        f"test -d {sandbox_repo_path('PostHog/posthog-js')}",
+    ]
+
+
 def test_ensure_repository_on_disk_fails_non_retryably_when_repo_missing(mocker) -> None:
     # Without this, a run whose repo was never cloned (no snapshot, no GitHub credentials) burns
     # repeated 5-minute health-check timeouts and fails with a misleading "Failed to start agent
@@ -137,7 +155,7 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
 
 @pytest.mark.django_db
 async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker) -> None:
-    context = _context(sandbox_event_ingest_enabled=True)
+    context = _context(sandbox_event_ingest_enabled=True, state={"mcp_builtin_agent_key": "scout"})
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
@@ -146,15 +164,27 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
         return_value=sandbox,
     )
     mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
-    mocker.patch(
+    task = mocker.Mock(
+        created_by_id=None,
+        team_id=1,
+        internal=True,
+        origin_product="support_reply",
+        mcp_builtin_agent_key="support",
+    )
+    task_queryset = mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
-    ).return_value.get.return_value = mocker.Mock(created_by_id=None)
+    ).return_value
+    task_queryset.get.return_value = task
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
         return_value="oauth-token",
     )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_sandbox_ph_mcp_configs",
+        return_value=[],
+    )
+    get_user_mcp_configs = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.get_user_mcp_server_configs",
         return_value=[],
     )
     mocker.patch(
@@ -177,6 +207,18 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     assert result.sandbox_url == "https://sandbox.example"
     assert result.connect_token == "connect-token"
     create_event_ingest_token.assert_called_once()
+    assert create_event_ingest_token.call_args.kwargs == {"sandbox_id": "sandbox-id"}
+    task_queryset.get.assert_called_once_with(id="task-id")
+    get_user_mcp_configs.assert_called_once_with(
+        token="oauth-token",
+        team_id=1,
+        user_id=None,
+        include_personal=False,
+        interaction_origin=None,
+        allowed_installation_ids=None,
+        origin_product="support_reply",
+        task_agent_key="support",
+    )
     sandbox.start_agent_server.assert_called_once()
     assert sandbox.start_agent_server.call_args.kwargs["event_ingest_token"] == "event-ingest-token"
 
@@ -193,7 +235,13 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
     mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
-    ).return_value.get.return_value = mocker.Mock(created_by_id=None)
+    ).return_value.get.return_value = mocker.Mock(
+        created_by_id=None,
+        team_id=1,
+        internal=False,
+        origin_product="user_created",
+        mcp_builtin_agent_key=None,
+    )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
         return_value="oauth-token",
@@ -243,7 +291,13 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
     mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.emit_agent_log")
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Task.objects.select_related"
-    ).return_value.get.return_value = mocker.Mock(created_by_id=None)
+    ).return_value.get.return_value = mocker.Mock(
+        created_by_id=None,
+        team_id=1,
+        internal=False,
+        origin_product="user_created",
+        mcp_builtin_agent_key=None,
+    )
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.create_oauth_access_token_for_run",
         return_value="oauth-token",

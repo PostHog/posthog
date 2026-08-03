@@ -8,7 +8,8 @@ Celery task and Temporal activity contexts alike, no request assumed.
 ``payload`` carries event-specific detail from the caller. Recognized keys
 (all optional): ``title`` / ``body`` override the generated copy, ``url``
 links to the run or PR, ``task_id`` / ``task_run_id`` identify the run for
-push deep-linking and email idempotency.
+push deep-linking and email idempotency, ``report`` is the run's final agent
+message, delivered in the email body only.
 """
 
 from typing import Any
@@ -18,7 +19,7 @@ from django.db import transaction
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.email import EmailMessage, is_email_available
+from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.redis import get_client
 from posthog.tasks.push_notifications import send_user_push
@@ -159,6 +160,8 @@ def _send_email(
             "event_title": title,
             "event_body": body,
             "run_url": str(payload.get("url") or ""),
+            "report": str(payload.get("report") or ""),
+            **get_email_team_and_org_context(team=loop.team),
         }
         message = EmailMessage(
             campaign_key=campaign_key,

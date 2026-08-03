@@ -20,10 +20,6 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import OauthIntegration
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     ExternalWebhookInfo,
     FieldType,
@@ -40,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
@@ -60,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeAuthenticationError,
     StripePermissionError,
     StripeResumeConfig,
+    StripeTransientError,
     StripeValidationError,
     _all_known_webhook_events,
     check_endpoint_permissions as check_stripe_endpoint_permissions,
@@ -296,6 +294,12 @@ If automatic creation failed due to a permissions error and you're using a restr
             "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.": "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 is already retried in-process by _RateLimitRetryingRequestsClient's Retry-After-aware
+        # backoff (see stripe.py); if that budget still exhausts, Temporal's activity retry picks it
+        # back up, so this is self-recovering rather than a tracked-exception-worthy failure.
+        return {"Request rate limit exceeded"}
+
     def _get_api_key(self, config: StripeSourceConfig, team_id: int) -> str:
         if config.auth_method.selection == "api_key":
             if not config.auth_method.stripe_secret_key:
@@ -384,12 +388,20 @@ If automatic creation failed due to a permissions error and you're using a restr
                 False,
                 f"Stripe credentials lack permissions for {', '.join(e.missing_permissions.keys())}",
             )
+        except StripeTransientError:
+            # Stripe was unreachable or 5xx'd during the probe. The key may be fine, so don't echo
+            # Stripe's internal text as a validation failure — point the user at a retry.
+            return (
+                False,
+                "Couldn't reach Stripe to validate your credentials. This is usually temporary. Please try again in a few minutes.",
+            )
         except StripeValidationError as e:
-            # Non-403 failures (network, schema, rate limit, etc.) are not configuration issues, so
-            # surface the underlying Stripe message verbatim — the cause isn't obvious from the
-            # resource name. Fold any 403s collected before the unknown error into the same toast.
-            # Guard against empty / whitespace-only error strings so we never crash the response
-            # path while reporting a different error.
+            # Non-403, non-transient failures (e.g. an unexpected schema or response error) are not
+            # configuration issues, so surface the underlying Stripe message verbatim — the cause
+            # isn't obvious from the resource name. Transient 5xx/connection/rate-limit failures are
+            # handled by the StripeTransientError branch above. Fold any 403s collected before the
+            # unknown error into the same toast. Guard against empty / whitespace-only error strings
+            # so we never crash the response path while reporting a different error.
             def _first_line(msg: str) -> str:
                 lines = (msg or "").splitlines()
                 return lines[0][:200] if lines else "(no detail)"

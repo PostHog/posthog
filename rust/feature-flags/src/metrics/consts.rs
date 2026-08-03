@@ -390,6 +390,13 @@ pub const FLAG_DEPENDENCY_GRAPH_BUILD_COUNTER: &str = "flags_dependency_graph_bu
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_TIME: &str = "flags_dependency_graph_build_ms";
 pub const FLAG_MISSING_REQUESTED_FLAG_KEY: &str = "missing_requested_flag_key";
 
+// Requests short-circuited because the team is over its billing quota.
+pub const FLAG_QUOTA_LIMITED_COUNTER: &str = "flags_quota_limited_total";
+
+// Conditions skipped during evaluation because required context was absent.
+// Labels: reason (missing_device_id, missing_group_type)
+pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total";
+
 // Tombstone metric for tracking "impossible" failures that should never happen in production
 // Different failure types are tracked via the "failure_type" label
 pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";

@@ -26,8 +26,7 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
-from hogli_commands.workflow_lint.checks.schema_cache_epoch import SchemaCacheEpochCheck
-from hogli_commands.workflow_lint.checks.schema_cache_key_parity import SchemaCacheKeyParityCheck
+from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -817,205 +816,6 @@ class TestCacheWriteGateCheck:
 
 
 # ---------------------------------------------------------------------------
-# SchemaCacheEpochCheck
-# ---------------------------------------------------------------------------
-
-
-class TestSchemaCacheEpochCheck:
-    def test_passes_when_all_declarations_match(self, tmp_path: Path) -> None:
-        # Workflow-level (ci-backend/ci-dagster shape), step-level
-        # (ci-e2e-playwright shape), and a workflow with no declaration at all.
-        _write(
-            tmp_path,
-            "ci-backend.yml",
-            """
-            name: Backend
-            on: [push]
-            env:
-              SCHEMA_CACHE_EPOCH: v1
-            jobs: {}
-            """,
-        )
-        _write(
-            tmp_path,
-            "ci-e2e-playwright.yml",
-            """
-            name: E2E
-            on: [pull_request]
-            jobs:
-              build:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - id: schema-key
-                    env:
-                      SCHEMA_CACHE_EPOCH: v1
-                    run: echo ok
-            """,
-        )
-        _write(
-            tmp_path,
-            "ci-other.yml",
-            """
-            name: Other
-            on: [pull_request]
-            jobs: {}
-            """,
-        )
-        assert SchemaCacheEpochCheck().run(_read_all(tmp_path)).issues == []
-
-    @pytest.mark.parametrize("declaration_site", ["workflow", "step"])
-    def test_fails_when_consumer_lags_the_saver(self, tmp_path: Path, declaration_site: str) -> None:
-        _write(
-            tmp_path,
-            "ci-backend.yml",
-            """
-            name: Backend
-            on: [push]
-            env:
-              SCHEMA_CACHE_EPOCH: v2
-            jobs: {}
-            """,
-        )
-        if declaration_site == "workflow":
-            consumer = """
-            name: Dagster
-            on: [pull_request]
-            env:
-              SCHEMA_CACHE_EPOCH: v1
-            jobs: {}
-            """
-        else:
-            consumer = """
-            name: Dagster
-            on: [pull_request]
-            jobs:
-              changes:
-                runs-on: ubuntu-latest
-                timeout-minutes: 5
-                steps:
-                  - id: schema-key
-                    env:
-                      SCHEMA_CACHE_EPOCH: v1
-                    run: echo ok
-            """
-        _write(tmp_path, "ci-dagster.yml", consumer)
-        [issue] = SchemaCacheEpochCheck().run(_read_all(tmp_path)).issues
-        assert issue.workflow == "ci-dagster.yml"
-        assert "'v1'" in issue.message
-        assert "'v2'" in issue.message
-
-
-# ---------------------------------------------------------------------------
-# SchemaCacheKeyParityCheck
-# ---------------------------------------------------------------------------
-
-
-_KEY_BLOCK = """
-MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' {ref} \\
-    | grep -E '/migrations/[^/]+\\.py$' \\
-    | LC_ALL=C sort) || true
-PG_IMAGE=$(git show "{show_ref}:docker-compose.base.yml" 2>/dev/null \\
-    | grep -m1 -E 'postgres:' | tr -d '[:space:]')
-if [ -z "$PG_IMAGE" ]; then
-    echo "::warning::postgres image not resolved"
-fi
-if [ -z "$MIG_FILES" ]; then
-    echo "{out}=" >> $GITHUB_OUTPUT
-    echo "::notice::{notice}"
-else
-    MIG_HASH=$(printf '%s\\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
-    echo "{out}=posthog-schema-mig-${{SCHEMA_CACHE_EPOCH}}-${{MIG_HASH}}" >> $GITHUB_OUTPUT
-fi
-"""
-
-# The save side reads HEAD and writes `key`; restore sides read the merge-base and
-# write `migrations_key`. Neither difference can change the hash.
-_SAVE_SIDE = _KEY_BLOCK.format(ref="HEAD", show_ref="HEAD", out="key", notice="skipping the save")
-_RESTORE_SIDE = _KEY_BLOCK.format(
-    ref='"$MERGE_BASE"', show_ref="${MERGE_BASE}", out="migrations_key", notice="falling back to the SHA key"
-)
-
-
-def _write_key_workflow(dir_: Path, name: str, block: str) -> Path:
-    path = dir_ / name
-    path.write_text(
-        "name: X\n"
-        "on: [pull_request]\n"
-        "jobs:\n"
-        "  changes:\n"
-        "    runs-on: ubuntu-latest\n"
-        "    timeout-minutes: 5\n"
-        "    steps:\n"
-        "      - id: schema-key\n"
-        "        run: |\n" + textwrap.indent(block.strip(), " " * 10) + "\n"
-    )
-    return path
-
-
-def _workflows_dir(tmp_path: Path) -> Path:
-    workflows_dir = tmp_path / ".github" / "workflows"
-    workflows_dir.mkdir(parents=True)
-    return workflows_dir
-
-
-class TestSchemaCacheKeyParityCheck:
-    def test_passes_when_copies_differ_only_in_ref_output_name_and_message(self, tmp_path: Path) -> None:
-        # The real save/restore copies differ in exactly these three ways, so a
-        # normalization regression here would fail every PR that touches nothing.
-        workflows_dir = _workflows_dir(tmp_path)
-        _write_key_workflow(workflows_dir, "ci-backend.yml", _SAVE_SIDE)
-        _write_key_workflow(workflows_dir, "ci-dagster.yml", _RESTORE_SIDE)
-        assert SchemaCacheKeyParityCheck().run(_read_all(workflows_dir)).issues == []
-
-    @pytest.mark.parametrize(
-        "old,new",
-        [
-            ("| LC_ALL=C sort) || true", "| sort) || true"),
-            ('printf \'%s\\n%s\' "$MIG_FILES" "$PG_IMAGE"', "printf '%s' \"$MIG_FILES\""),
-            ("posthog-schema-mig-", "posthog-schema-migset-"),
-            ('if [ -z "$PG_IMAGE" ]; then\n    echo "::warning::postgres image not resolved"\nfi\n', ""),
-        ],
-        ids=["sort-locale", "dropped-hashed-input", "key-prefix", "dropped-pg-image-warning"],
-    )
-    def test_fails_when_a_copy_drifts(self, tmp_path: Path, old: str, new: str) -> None:
-        workflows_dir = _workflows_dir(tmp_path)
-        _write_key_workflow(workflows_dir, "ci-backend.yml", _SAVE_SIDE)
-        _write_key_workflow(workflows_dir, "ci-dagster.yml", _RESTORE_SIDE.replace(old, new))
-        [issue] = SchemaCacheKeyParityCheck().run(_read_all(workflows_dir)).issues
-        assert issue.workflow == "ci-dagster.yml"
-        assert "ci-backend.yml" in issue.message
-        assert "silently stops hitting" in issue.message
-
-    def test_compares_depot_shadow_copies(self, tmp_path: Path) -> None:
-        # .depot/workflows sits outside the linted directory, so a discovery
-        # regression would leave the shadow's copy of the key unlinted.
-        workflows_dir = _workflows_dir(tmp_path)
-        _write_key_workflow(workflows_dir, "ci-backend.yml", _SAVE_SIDE)
-        _write_key_workflow(workflows_dir, "ci-dagster.yml", _RESTORE_SIDE)
-        shadow_dir = tmp_path / ".depot" / "workflows"
-        shadow_dir.mkdir(parents=True)
-        _write_key_workflow(shadow_dir, "ci-backend.yml", _SAVE_SIDE.replace("cut -c1-40", "cut -c1-16"))
-        [issue] = SchemaCacheKeyParityCheck().run(_read_all(workflows_dir)).issues
-        assert issue.workflow == ".depot/workflows/ci-backend.yml"
-
-    def test_flags_a_block_it_cannot_delimit(self, tmp_path: Path) -> None:
-        # Without the guard there is no reliable end to the block, and skipping it
-        # silently would let the copy drift unchecked.
-        workflows_dir = _workflows_dir(tmp_path)
-        _write_key_workflow(workflows_dir, "ci-backend.yml", _SAVE_SIDE)
-        _write_key_workflow(
-            workflows_dir,
-            "ci-dagster.yml",
-            "MIG_FILES=$(git ls-tree -r HEAD | LC_ALL=C sort)\n"
-            'echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}" >> $GITHUB_OUTPUT\n',
-        )
-        [issue] = SchemaCacheKeyParityCheck().run(_read_all(workflows_dir)).issues
-        assert issue.workflow == "ci-dagster.yml"
-        assert 'no `if [ -z "$MIG_FILES" ]` guard' in issue.message
-
-
-# ---------------------------------------------------------------------------
 # Registry / smoke
 # ---------------------------------------------------------------------------
 
@@ -1074,6 +874,374 @@ class TestRegistry:
         for check in CHECKS:
             result = check.run(wfs)
             assert isinstance(result, CheckResult)
+
+
+# The shape these fixtures guard against: a `changes` detector cleared with a bare
+# `== "failure"`, then its outputs read to decide "nothing to test". Those outputs
+# are empty on a cancelled job, so the gate exits 0 green with no tests run.
+def _gate(body: str, condition: str = "always()") -> str:
+    return f"""
+    name: ci-thing
+    on: pull_request
+    jobs:
+      changes:
+        timeout-minutes: 5
+        steps:
+          - run: echo detect
+      build:
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [changes, build]
+        timeout-minutes: 5
+        if: {condition}
+        steps:
+          - run: |
+{textwrap.indent(textwrap.dedent(body).strip(), " " * 14)}
+"""
+
+
+SAFE_BODY = """
+    if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+    if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then
+      exit 0
+    fi
+    if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+      exit 1
+    fi
+"""
+
+# One dependency allowlisted, one denylisted — the shape a global scan for
+# result words calls clean.
+MIXED_BODY = SAFE_BODY.replace(
+    """if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then""",
+    """if [[ "${{ needs.changes.result }}" == "failure" ]]; then""",
+)
+
+# Two dependencies denylisted while the rest are allowlisted.
+TWO_BAD_BODY = MIXED_BODY.replace(
+    """if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then""",
+    """if [[ "${{ needs.affected.result }}" == "failure" ]]; then
+      exit 1
+    fi
+    if [[ "${{ needs.changes.outputs.thing }}" != "true" ]]; then""",
+)
+
+# Some gates route every result through one shell function, so no guard sits
+# next to `needs.<dep>.result`.
+HELPER_BODY = """
+    check() {
+      if [[ "$2" != "success" && "$2" != "skipped" ]]; then
+        exit 1
+      fi
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
+
+UNSAFE_HELPER_BODY = HELPER_BODY.replace(
+    """if [[ "$2" != "success" && "$2" != "skipped" ]]; then""",
+    """if [[ "$2" == "failure" ]]; then""",
+)
+
+# The positional is bound to a local before being tested, so the trace has to
+# follow the assignment as well as the call site to reach the guard.
+LOCAL_ALIAS_HELPER_BODY = """
+    check() {
+      local result="$2"
+      if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+        exit 1
+      fi
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
+
+# Guard-shaped text in a comment or log line asserts nothing. The only executed
+# test in these fixtures still clears everything but `failure`.
+DECOY_COMMENT_BODY = UNSAFE_HELPER_BODY.replace(
+    """    check() {""",
+    """    check() {
+      # if [[ "$2" != "success" && "$2" != "skipped" ]]; then exit 1; fi""",
+)
+
+DECOY_ECHO_BODY = UNSAFE_HELPER_BODY.replace(
+    """        exit 1""",
+    """        echo 'if [[ "$2" != "success" && "$2" != "skipped" ]]; then exit 1; fi'
+        exit 1""",
+)
+
+NON_FAILING_ALLOWLIST_BODY = """
+    check() {
+      if [[ "$2" != "success" && "$2" != "skipped" ]]; then
+        echo "dependency did not succeed"
+      fi
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
+
+INVERTED_ALLOWLIST_BODY = """
+    check() {
+      if [[ "$2" == "success" ]]; then
+        exit 1
+      fi
+    }
+    check "Changes" "${{ needs.changes.result }}"
+    check "Build" "${{ needs.build.result }}"
+"""
+
+# Results that are only ever logged reach no comparison at all, which has to fail
+# closed: the absence of a test is not evidence of a safe one.
+LOGGED_ONLY_BODY = """
+    echo "changes: ${{ needs.changes.result }}"
+    echo "build: ${{ needs.build.result }}"
+"""
+
+BUILD_CALL = """    check "Build" "${{ needs.build.result }}\""""
+
+# Helper calls whose trailing comment or label contains `()`. Discarding those lines
+# loses the argument binding, which reports a gate that does allowlist its results.
+COMMENTED_CALL_BODY = HELPER_BODY.replace(BUILD_CALL, f"{BUILD_CALL}  # see check() above")
+PAREN_LABEL_CALL_BODY = HELPER_BODY.replace(BUILD_CALL, """    check "Build ()" "${{ needs.build.result }}\"""")
+
+# A job wired into `needs:` that the gate never tests. Judging only the results the
+# body mentions would approve the two assertions that are here and say nothing
+# about the dependency whose assertion was forgotten.
+UNTESTED_DEPENDENCY_GATE = (
+    _gate(SAFE_BODY)
+    .replace(
+        "      build:",
+        "      lint:\n        timeout-minutes: 5\n        steps:\n          - run: echo lint\n      build:",
+    )
+    .replace("needs: [changes, build]", "needs: [changes, build, lint]")
+)
+
+# The env-loop form maps results into env and loops over the variable names.
+ENV_LOOP_GATE = """
+    name: ci-thing
+    on: pull_request
+    jobs:
+      build:
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [build]
+        timeout-minutes: 5
+        if: always()
+        steps:
+          - name: Check outcomes
+            env:
+              BUILD: ${{ needs.build.result }}
+            run: |
+              for var in BUILD; do
+                val="${!var}"
+                if [[ "$val" != "success" && "$val" != "skipped" ]]; then
+                  exit 1
+                fi
+              done
+"""
+
+CROSS_STEP_ENV_GATE = """
+    name: ci-thing
+    on: pull_request
+    jobs:
+      build:
+        timeout-minutes: 5
+        steps:
+          - run: echo build
+      thing_tests:
+        name: Thing Tests Pass
+        needs: [build]
+        timeout-minutes: 5
+        if: always()
+        steps:
+          - name: Log outcome
+            env:
+              RESULT: ${{ needs.build.result }}
+            run: echo "$RESULT"
+          - name: Check unrelated value
+            env:
+              RESULT: success
+            run: |
+              if [[ "$RESULT" != "success" && "$RESULT" != "skipped" ]]; then
+                exit 1
+              fi
+"""
+
+
+# A gate whose display name doesn't end in "Pass", so only structural detection finds it.
+def _off_convention_gate(marker: str = "", condition: str = "always()") -> str:
+    yaml_ = _gate(MIXED_BODY, condition=condition).replace("Thing Tests Pass", "Thing decision")
+    if marker:
+        yaml_ = yaml_.replace("      thing_tests:", f"      # {marker}\n      thing_tests:")
+    return yaml_
+
+
+def _off_convention_env_gate() -> str:
+    return ENV_LOOP_GATE.replace("Thing Tests Pass", "Thing decision").replace(
+        'if [[ "$val" != "success" && "$val" != "skipped" ]]; then',
+        'if [[ "$val" == "failure" ]]; then',
+    )
+
+
+def _nested_allow_marker_gate() -> str:
+    return _off_convention_gate().replace(
+        "      changes:\n",
+        """      changes:
+        env:
+          # hogli-lint: not-a-required-gate - nested keys cannot exempt a job
+          thing_tests:
+""",
+    )
+
+
+class TestRequiredGateCheck:
+    @pytest.mark.parametrize(
+        "content",
+        [
+            _gate(SAFE_BODY),
+            _gate(SAFE_BODY, condition="${{ always() }}"),
+            _gate(HELPER_BODY),
+            _gate(LOCAL_ALIAS_HELPER_BODY),
+            _gate(COMMENTED_CALL_BODY),
+            _gate(PAREN_LABEL_CALL_BODY),
+            ENV_LOOP_GATE,
+        ],
+        ids=[
+            "inline-allowlist",
+            "wrapped-always",
+            "shared-helper",
+            "helper-via-local",
+            "helper-call-with-trailing-comment",
+            "helper-call-with-parens-in-label",
+            "env-block-loop",
+        ],
+    )
+    def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
+        _write(tmp_path, "ci-thing.yml", content)
+        assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
+
+    @pytest.mark.parametrize(
+        "body,expected_deps",
+        [(MIXED_BODY, ["changes"]), (TWO_BAD_BODY, ["affected", "changes"])],
+        ids=["one-denylisted-among-allowlisted", "two-denylisted-among-allowlisted"],
+    )
+    def test_flags_exactly_the_denylisted_dependencies(
+        self, tmp_path: Path, body: str, expected_deps: list[str]
+    ) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(body))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert sorted(i.message.split("'")[1] for i in issues) == expected_deps
+
+    @pytest.mark.parametrize(
+        "condition",
+        ["${{ !cancelled() }}", "${{ always() && false }}", "${{ !always() }}"],
+        ids=["cancelled-condition", "conditional-always", "negated-always"],
+    )
+    def test_flags_gate_that_can_skip_itself(self, tmp_path: Path, condition: str) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(SAFE_BODY, condition=condition))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1
+        assert "always()" in issues[0].message
+
+    # Every fixture can exit zero for a cancelled dependency despite mentioning
+    # the expected statuses or guard shape.
+    @pytest.mark.parametrize(
+        "body",
+        [
+            UNSAFE_HELPER_BODY,
+            DECOY_COMMENT_BODY,
+            DECOY_ECHO_BODY,
+            NON_FAILING_ALLOWLIST_BODY,
+            INVERTED_ALLOWLIST_BODY,
+            LOGGED_ONLY_BODY,
+        ],
+        ids=[
+            "failure-only-helper",
+            "allowlist-guard-in-comment",
+            "allowlist-guard-in-echo",
+            "non-failing-allowlist",
+            "inverted-allowlist",
+            "results-only-logged",
+        ],
+    )
+    def test_flags_gate_whose_results_reach_no_fail_closed_guard(self, tmp_path: Path, body: str) -> None:
+        _write(tmp_path, "ci-thing.yml", _gate(body))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert sorted(i.message.split("'")[1] for i in issues) == ["build", "changes"]
+        assert all("fail-closed guard" in i.message for i in issues)
+
+    def test_flags_dependency_declared_in_needs_but_never_tested(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", UNTESTED_DEPENDENCY_GATE)
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split("'")[1] for i in issues] == ["lint"]
+        assert "never reaches" in issues[0].message
+
+    def test_ignores_non_gate_jobs(self, tmp_path: Path) -> None:
+        # Worker jobs *should* use !cancelled() so they stop when superseded;
+        # only the collate gate is held to always().
+        _write(
+            tmp_path,
+            "ci-thing.yml",
+            """
+            name: ci-thing
+            on: pull_request
+            jobs:
+              shards:
+                timeout-minutes: 5
+                if: ${{ !cancelled() }}
+                steps:
+                  - run: echo test
+            """,
+        )
+        assert RequiredGateCheck().run(_read_all(tmp_path)).issues == []
+
+    # A gate named off-convention is still a gate, so detection can't key on the
+    # name alone.
+    def test_finds_gate_not_named_pass(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate())
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [i.message.split("'")[1] for i in issues] == ["changes"]
+
+    def test_finds_off_convention_gate_without_always(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate(condition="${{ !cancelled() }}"))
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert any("unconditional `if: always()`" in issue.message for issue in issues)
+        assert [issue.message.split("'")[1] for issue in issues if "dependency" in issue.message] == ["changes"]
+
+    def test_finds_env_routed_gate_not_named_pass(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_env_gate())
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [issue.message.split("'")[1] for issue in issues] == ["build"]
+
+    def test_does_not_trace_step_env_into_another_step(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", CROSS_STEP_ENV_GATE)
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [issue.message.split("'")[1] for issue in issues] == ["build"]
+
+    @pytest.mark.parametrize(
+        "marker,exempted",
+        [
+            ("hogli-lint: not-a-required-gate", False),
+            ("hogli-lint: not-a-required-gate — decides a side effect, emits no check", True),
+        ],
+        ids=["without-reason", "with-reason"],
+    )
+    def test_allow_marker_needs_a_reason_to_exempt(self, tmp_path: Path, marker: str, exempted: bool) -> None:
+        _write(tmp_path, "ci-thing.yml", _off_convention_gate(marker))
+        assert (RequiredGateCheck().run(_read_all(tmp_path)).issues == []) is exempted
+
+    def test_nested_allow_marker_does_not_exempt_job(self, tmp_path: Path) -> None:
+        _write(tmp_path, "ci-thing.yml", _nested_allow_marker_gate())
+        issues = RequiredGateCheck().run(_read_all(tmp_path)).issues
+        assert [issue.message.split("'")[1] for issue in issues] == ["changes"]
 
 
 class TestLiveTreeSmoke:

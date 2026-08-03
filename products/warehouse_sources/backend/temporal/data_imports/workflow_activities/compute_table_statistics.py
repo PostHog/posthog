@@ -166,7 +166,7 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     # create_external_data_job_model_activity uses (it only imports statistics_enabled).
     from asgiref.sync import async_to_sync  # noqa: PLC0415
 
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (  # noqa: PLC0415
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta_table_helper import (  # noqa: PLC0415
         DeltaTableHelper,
     )
 
@@ -211,6 +211,9 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     if job is None:
         emit_completed("skipped", reason="no_job")
         return {"status": "skipped", "reason": "no_job"}
+    # Reuse the already-loaded, select_related schema instead of letting job.folder_path() lazily
+    # fetch job.schema on a pooled connection a transaction pooler may have dropped in the meantime.
+    job.schema = schema
 
     resource_name = schema.resolved_s3_folder_name or schema.name
     delta_table_helper = DeltaTableHelper(resource_name=resource_name, job=job, logger=log)

@@ -159,6 +159,7 @@
     'last_calculation_duration_ms',
     'last_realtime_cohort_calculation_at',
     'name',
+    'person_filters_shape_hash',
     'query',
   ])
 # ---
@@ -502,7 +503,7 @@
     '_insert_batch_via_personhog',
     '_insert_resolved_batch',
     '_insert_users_list_with_batching',
-    '_maintain_behavioral_shape',
+    '_maintain_filter_shape_hashes',
     '_meta',
     '_safe_reset_calculating_state',
     '_safe_save_cohort_state',

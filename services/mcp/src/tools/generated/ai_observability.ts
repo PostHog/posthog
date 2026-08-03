@@ -756,6 +756,9 @@ const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLM
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }
+        if (params.config !== undefined) {
+            body['config'] = params.config
+        }
         if (params.version_description !== undefined) {
             body['version_description'] = params.version_description
         }
@@ -890,6 +893,9 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
         }
         if (params.edits !== undefined) {
             body['edits'] = params.edits
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
         }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version

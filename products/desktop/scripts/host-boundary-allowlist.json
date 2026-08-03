@@ -1,0 +1,84 @@
+{
+  "note": "Files still trapped in apps/code. Remove entries as you evacuate. Goal: empty.",
+  "files": {
+    "apps/code/src/main/services/app-lifecycle/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/auth/port-adapters.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/deep-link/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/dev-actions/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/dev-flags/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/dev-logs/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/dev-metrics/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/dev-network/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/discord-presence/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/encryption/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/secure-store/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/speech/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/main/services/workspace-server/service.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/renderer/contributions/app-boot.contributions.ts": [
+      "injectable-outside-host"
+    ],
+    "apps/code/src/renderer/desktop-services.ts": ["cloud-client-in-renderer"],
+    "apps/code/src/renderer/features/code-review/reviewHost.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/DevToolbarHost.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/AgentsPanel.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/CpuPanel.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/DevToolbar.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/HealthPanel.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/IpcTimingsPanel.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/LogsPanel.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/MemoryPanel.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/MetricsCommon.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/components/NetworkPanel.tsx": [
+      "feature-ui-in-host"
+    ],
+    "apps/code/src/renderer/features/dev-toolbar/integration.tsx": [
+      "feature-ui-in-host"
+    ]
+  }
+}

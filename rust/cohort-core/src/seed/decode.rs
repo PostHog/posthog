@@ -6,6 +6,7 @@
 
 use serde::Deserialize;
 
+use super::person::{PersonSeed, PERSON_KIND, PERSON_SCHEMA_VERSION};
 use super::reconcile::{ReconcileTile, RECONCILE_KIND, RECONCILE_SCHEMA_VERSION};
 use super::tile::{SeedTile, SCHEMA_VERSION, TILE_KIND};
 
@@ -15,6 +16,7 @@ use super::tile::{SeedTile, SCHEMA_VERSION, TILE_KIND};
 pub enum DecodedSeed {
     Tile(SeedTile),
     Reconcile(ReconcileTile),
+    Person(PersonSeed),
     UnknownKind { kind: String, schema_version: u32 },
     UnsupportedSchema { kind: String, schema_version: u32 },
 }
@@ -34,7 +36,10 @@ pub fn decode_seed(payload: &[u8]) -> Result<DecodedSeed, serde_json::Error> {
         RECONCILE_KIND if probe.schema_version == RECONCILE_SCHEMA_VERSION => {
             Ok(DecodedSeed::Reconcile(serde_json::from_slice(payload)?))
         }
-        TILE_KIND | RECONCILE_KIND => Ok(DecodedSeed::UnsupportedSchema {
+        PERSON_KIND if probe.schema_version == PERSON_SCHEMA_VERSION => {
+            Ok(DecodedSeed::Person(serde_json::from_slice(payload)?))
+        }
+        TILE_KIND | RECONCILE_KIND | PERSON_KIND => Ok(DecodedSeed::UnsupportedSchema {
             kind: probe.kind,
             schema_version: probe.schema_version,
         }),
@@ -53,7 +58,8 @@ mod tests {
 
     use crate::filters::TeamId;
     use crate::seed::{
-        BehavioralShapeHash, ClaimEpoch, ConditionHash, ReconcileTile, RunId, SChunkMs,
+        BehavioralShapeHash, ClaimEpoch, ConditionHash, PersonSeed, ReconcileTile, RunId, SChunkMs,
+        ScannedAtMs,
     };
 
     use super::*;
@@ -85,6 +91,22 @@ mod tests {
         .unwrap()
     }
 
+    fn person_json() -> serde_json::Value {
+        serde_json::to_value(
+            PersonSeed::new(
+                TeamId(2),
+                Uuid::from_u128(7),
+                vec![ConditionHash::parse("0123456789abcdef").unwrap()],
+                vec![ConditionHash::parse("0123456789abcdef").unwrap()],
+                ScannedAtMs(1_783_470_000_000),
+                RunId(Uuid::nil()),
+                ClaimEpoch(1),
+            )
+            .unwrap(),
+        )
+        .unwrap()
+    }
+
     #[test]
     fn decode_probes_kind_and_schema_before_the_full_parse() {
         let tile = tile_json();
@@ -97,6 +119,27 @@ mod tests {
             decode(&reconcile).unwrap(),
             DecodedSeed::Reconcile(serde_json::from_value(reconcile.clone()).unwrap()),
         );
+
+        let person = person_json();
+        assert_eq!(
+            decode(&person).unwrap(),
+            DecodedSeed::Person(serde_json::from_value(person.clone()).unwrap()),
+        );
+
+        let mut newer_person = person.clone();
+        newer_person["schema_version"] = serde_json::json!(2);
+        assert_eq!(
+            decode(&newer_person).unwrap(),
+            DecodedSeed::UnsupportedSchema {
+                kind: "person_property".to_string(),
+                schema_version: 2,
+            },
+        );
+
+        // Supported kind and schema, illegal body: a decode error, never a silent skip.
+        let mut broken_person = person;
+        broken_person["matched"] = serde_json::json!(["fedcba9876543210"]);
+        assert!(decode(&broken_person).is_err());
 
         let mut unknown = tile.clone();
         unknown["kind"] = serde_json::json!("future_control");

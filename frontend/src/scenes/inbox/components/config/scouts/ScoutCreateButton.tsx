@@ -1,7 +1,6 @@
-import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconChevronDown, IconPlus, IconSparkles } from '@posthog/icons'
+import { IconPlus } from '@posthog/icons'
 import { LemonButton, type LemonButtonProps } from '@posthog/lemon-ui'
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -10,9 +9,8 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { SignalScoutCreateResponseApi } from 'products/signals/frontend/generated/api.schemas'
 
+import { captureScoutAction } from '../../../inboxAnalytics'
 import type { ScoutCreateInitialValues } from '../../../logics/scoutCreateModalLogic'
-import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
-import { SCOUT_AUTHOR_PROMPT } from '../../../utils/scoutRunsWindow'
 
 const LazyScoutCreateModal = React.lazy(async () => {
     const { ScoutCreateModal } = await import('./ScoutCreateModal')
@@ -29,20 +27,17 @@ export interface ScoutCreateButtonProps {
     'data-attr'?: string
 }
 
+/** Opens the scout form. Paired with `ScoutSuggestButton`, which drafts one with AI instead. */
 export function ScoutCreateButton({
     initialValues,
     onCreated,
-    children = 'Create scout with AI',
+    children = 'Create scout',
     className,
     size = 'small',
     type = 'primary',
     'data-attr': dataAttr,
 }: ScoutCreateButtonProps): JSX.Element {
-    const [isManualModalOpen, setIsManualModalOpen] = useState(false)
-    const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { runningChatPrompt } = useValues(scoutFleetLogic)
-    const isStartingAiTask = runningChatPrompt === SCOUT_AUTHOR_PROMPT
-    const anotherChatTaskIsStarting = runningChatPrompt !== null && !isStartingAiTask
+    const [isModalOpen, setIsModalOpen] = useState(false)
     const creationDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmSkill,
         AccessControlLevel.Editor
@@ -53,43 +48,28 @@ export function ScoutCreateButton({
             <LemonButton
                 type={type}
                 size={size}
-                icon={<IconSparkles />}
-                loading={isStartingAiTask}
-                disabledReason={
-                    anotherChatTaskIsStarting ? 'Starting another task…' : (creationDisabledReason ?? undefined)
-                }
-                onClick={() => startScoutChatTask(SCOUT_AUTHOR_PROMPT, 'scout authoring task', 'Create scout with AI')}
-                sideAction={{
-                    icon: <IconChevronDown />,
-                    'aria-label': 'Alternative ways to create a scout',
-                    tooltip: 'Alternative ways to create a scout',
-                    dropdown: {
-                        placement: 'bottom-end',
-                        overlay: (
-                            <LemonButton
-                                fullWidth
-                                size={size}
-                                icon={<IconPlus />}
-                                disabledReason={creationDisabledReason}
-                                onClick={() => setIsManualModalOpen(true)}
-                            >
-                                Create manually
-                            </LemonButton>
-                        ),
-                    },
-                }}
+                icon={<IconPlus />}
+                disabledReason={creationDisabledReason ?? undefined}
+                onClick={() => setIsModalOpen(true)}
                 className={className}
                 data-attr={dataAttr}
             >
                 {children}
             </LemonButton>
-            {isManualModalOpen ? (
+            {isModalOpen ? (
                 <React.Suspense fallback={null}>
                     <LazyScoutCreateModal
                         isOpen
                         initialValues={initialValues}
-                        onCreated={onCreated}
-                        onClose={() => setIsManualModalOpen(false)}
+                        onCreated={(scout) => {
+                            captureScoutAction({
+                                actionType: 'create_scout',
+                                surface: 'fleet_list',
+                                skillName: scout.config.skill_name,
+                            })
+                            onCreated?.(scout)
+                        }}
+                        onClose={() => setIsModalOpen(false)}
                     />
                 </React.Suspense>
             ) : null}

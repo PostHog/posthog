@@ -83,7 +83,8 @@ jobs:
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
-             github.event.pull_request.draft != true)
+             (github.event.pull_request.draft != true ||
+              startsWith(github.head_ref, 'trunk-merge/')))
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -152,6 +153,21 @@ jobs:
                         # boot the whole stack.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Same for Django's pytest modules: the suite drives the app through a
+                        # browser and never loads them. Narrow on purpose:
+                        #  - modules, not whole test/ dirs: posthog/test/ also holds live
+                        #    server code, notably playwright_setup_functions.py, which
+                        #    posthog/urls.py serves at api/setup_test/.
+                        #  - no '*_test.py': under posthog/ that suffix names production code
+                        #    (ClickHouse migrations, ClickHouse UDF scripts), not tests.
+                        #  - per-tree prefixes, because an exclude is tested against every file
+                        #    the filter sees, not just the include it sits next to: a bare
+                        #    '!**/test_*.py' would also veto the include above for
+                        #    tools/test_playwright_spec_selection.py.
+                        - '!posthog/**/test_*.py'
+                        - '!posthog/**/conftest.py'
+                        - '!ee/**/test_*.py'
+                        - '!ee/**/conftest.py'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
@@ -296,10 +312,6 @@ jobs:
                   DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" -- products/db_routing.yaml)
                   PG_IMAGE=$(git show "${REF}:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
-                  # A blobless checkout fetches docker-compose.base.yml lazily, so git show can come back empty without failing.
-                  if [ -z "$PG_IMAGE" ]; then
-                      echo "::warning::postgres image not resolved from docker-compose.base.yml, so the schema key omits the server version"
-                  fi
                   if [ -z "$MIG_FILES" ]; then
                       echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
@@ -532,11 +544,21 @@ jobs:
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: 3.13.13
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -571,7 +593,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             # This job checks out the PR head (not the merge ref), so it can't use
             # the ./.github/actions/pnpm-install local action — an un-rebased head
@@ -1036,7 +1058,9 @@ jobs:
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
 
             - name: Post Playwright section to CI report comment
-              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+              # unread, and each section write spends shared GITHUB_TOKEN budget.
+              if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
               continue-on-error: true
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
@@ -1049,6 +1073,7 @@ jobs:
                       echo "Skipping Playwright section — script not present on this checkout"
                   fi
 
+    # hogli-lint: not-a-required-gate - records telemetry and emits no required check.
     capture-run-time:
         name: Capture run time
         runs-on: ubuntu-latest
@@ -1151,11 +1176,21 @@ jobs:
                       playwright/snapshots.yml
                   sparse-checkout-cone-mode: false
 
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  token: ${{ github.token }}
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link

@@ -1,19 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonSegmentedButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { ChartDisplayType, InsightLogicProps, PropertyMathType } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { formatCredits } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount, formatCredits, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
-import { ReplayScanner, modelName } from '../types'
+import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -23,15 +23,31 @@ const SPEND_CHART_INTERVAL_OPTIONS: { value: SpendChartInterval; label: string }
     { value: 'day', label: 'Daily' },
     { value: 'week', label: 'Weekly' },
     { value: 'month', label: 'Monthly' },
-    { value: 'year', label: 'Yearly' },
 ]
 
-// Daily covers the current billing period (set at query time); the rest widen the window to fit the bucket size.
 const SPEND_CHART_DATE_FROM: Record<Exclude<SpendChartInterval, 'day'>, string> = {
     week: '-90d',
     month: '-365d',
-    year: 'all',
 }
+
+// Counted per model and priced in the formula: events predating the `credits` property would sum to zero.
+const SPEND_CHART_MODEL_PRICES = Object.entries(OBSERVATION_CREDITS_BY_MODEL)
+const SPEND_CHART_SERIES = SPEND_CHART_MODEL_PRICES.map(([model]) => ({
+    kind: NodeKind.EventsNode as const,
+    event: RECORDING_OBSERVED_EVENT,
+    math: BaseMathType.TotalCount,
+    properties: [
+        {
+            type: PropertyFilterType.Event as const,
+            key: 'model_used',
+            operator: PropertyOperator.Exact as const,
+            value: model,
+        },
+    ],
+}))
+const SPEND_CHART_FORMULA = `(${SPEND_CHART_MODEL_PRICES.map(
+    ([, credits], index) => `${String.fromCharCode(65 + index)}*${credits}`
+).join(' + ')}) / 100`
 
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, spendChartInterval } = useValues(visionUsageLogic)
@@ -47,27 +63,18 @@ export function VisionUsageTab(): JSX.Element {
     const spenders = usageScanners.filter((s: ReplayScanner) => s.credits_this_month > 0)
     const zeroSpendCount = usageScanners.length - spenders.length
     const totalCredits = spenders.reduce((sum: number, s: ReplayScanner) => sum + s.credits_this_month, 0)
-    const maxCredits = spenders.length > 0 ? spenders[0].credits_this_month : 0
 
-    // Memoized so a re-render (e.g. quota arriving) can't churn the query and abort an in-flight load.
-    // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
+    // Memoized so re-renders can't churn the query; `tags.productKey` is required or the runner aborts.
     const spendChartQuery = useMemo<InsightVizNode>(
         () => ({
             kind: NodeKind.InsightVizNode,
             source: {
                 kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: RECORDING_OBSERVED_EVENT,
-                        math: PropertyMathType.Sum,
-                        math_property: 'credits',
-                    },
-                ],
+                series: SPEND_CHART_SERIES,
                 trendsFilter: {
                     display: ChartDisplayType.ActionsLineGraph,
-                    // The credits event property is 1 credit = $0.01; chart in dollars to match the table.
-                    formulaNodes: [{ formula: 'A / 100', custom_name: 'Spend' }],
+                    // The /100 charts dollars (1 credit = $0.01).
+                    formulaNodes: [{ formula: SPEND_CHART_FORMULA, custom_name: 'Spend' }],
                     aggregationAxisPrefix: '$',
                 },
                 dateRange: {
@@ -141,14 +148,13 @@ export function VisionUsageTab(): JSX.Element {
             width: '30%',
             render: (_, scanner) => {
                 const sharePct = totalCredits > 0 ? Math.round((scanner.credits_this_month / totalCredits) * 100) : 0
-                const barPct = maxCredits > 0 ? Math.round((scanner.credits_this_month / maxCredits) * 100) : 0
                 return (
-                    <div className="flex items-center gap-2 pr-6">
-                        <LemonProgress percent={barPct} className="flex-1" />
-                        <span className="text-sm tabular-nums whitespace-nowrap w-32 text-right">
-                            {formatCredits(scanner.credits_this_month)}{' '}
-                            <span className="text-muted">({sharePct}%)</span>
+                    <div className="flex flex-col gap-1">
+                        <span className="text-sm tabular-nums flex items-baseline justify-between gap-2">
+                            {formatCredits(scanner.credits_this_month)}
+                            <span className="text-muted">{sharePct}%</span>
                         </span>
+                        <LemonProgress percent={sharePct} />
                     </div>
                 )
             },
@@ -162,11 +168,19 @@ export function VisionUsageTab(): JSX.Element {
                     <h3 className="text-base font-semibold m-0">Spend over time</h3>
                     <div className="flex items-center gap-3">
                         {quota && (
-                            <span className="text-xs text-muted tabular-nums">
-                                {formatCredits(quota.credits_used)}
-                                {hasCap ? ` of ${formatCredits(quota.credit_limit ?? 0)}` : ''} this period
-                                {projection.resetsOn ? `, resets ${projection.resetsOn}` : ''}
-                            </span>
+                            <Tooltip
+                                title={`≈ ${creditsToUsd(quota.credits_used)}${
+                                    hasCap ? ` of ${creditsToUsd(quota.credit_limit ?? 0)}` : ''
+                                }`}
+                            >
+                                <span className="text-xs text-muted tabular-nums">
+                                    {hasCap
+                                        ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
+                                        : formatCreditCount(quota.credits_used)}{' '}
+                                    this period
+                                    {projection.resetsOn ? `, resets ${projection.resetsOn}` : ''}
+                                </span>
+                            </Tooltip>
                         )}
                         <LemonSegmentedButton
                             size="small"

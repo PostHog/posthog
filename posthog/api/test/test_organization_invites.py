@@ -1843,7 +1843,7 @@ class TestOnboardingDelegationMigrationIndex(APIBaseTest):
 @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
 class TestOrganizationInviteRateLimits(APIBaseTest):
     # These tests exercise OrganizationInviteBurstThrottle (50/hour) and
-    # OrganizationInviteSustainedThrottle (100/day) against the live viewset.
+    # OrganizationInviteSustainedThrottle (200/day) against the live viewset.
     # Both throttles are keyed per-organization and count invites (not
     # requests), so a 20-item bulk POST consumes 20 slots.
 

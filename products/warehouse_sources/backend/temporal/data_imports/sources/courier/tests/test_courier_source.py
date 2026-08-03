@@ -6,9 +6,13 @@ from parameterized import parameterized
 
 from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.courier.courier import CourierResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.courier.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.courier.settings import (
+    COURIER_API_VERSION_2_0_0,
+    ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.courier.source import CourierSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -40,6 +44,14 @@ class TestSourceConfig:
     def test_non_retryable_errors_cover_auth_failure(self) -> None:
         errors = CourierSource().get_non_retryable_errors()
         assert any("403" in key for key in errors)
+
+    def test_supports_legacy_and_2_0_0_with_2_0_0_default(self) -> None:
+        # 2.0.0 is Courier's current API reference and the new default for new sources; the legacy
+        # placeholder stays supported so existing pinned rows keep resolving to the same unversioned
+        # wire behaviour (Courier's API has no version header/path, so both labels hit one API).
+        source = CourierSource()
+        assert source.supported_versions == (UNVERSIONED_API_VERSION, COURIER_API_VERSION_2_0_0)
+        assert source.default_version == COURIER_API_VERSION_2_0_0
 
 
 class TestGetSchemas:

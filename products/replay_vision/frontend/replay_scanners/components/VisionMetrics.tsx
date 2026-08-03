@@ -11,7 +11,7 @@ import { BaseMathType, ChartDisplayType, InsightLogicProps } from '~/types'
 
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
-import { formatCredits } from '../../utils/credits'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
@@ -117,18 +117,18 @@ export function VisionMetrics(): JSX.Element {
                     </div>
                     {quota ? (
                         <>
-                            {/* TODO(replay-vision): remove when Vision billing goes live with open beta. */}
-                            <div className="text-xs text-accent mb-1">
-                                Estimated spend. You won't be billed during the closed beta.
-                            </div>
                             <div className="text-3xl font-semibold tabular-nums">
-                                {formatCredits(quota.credits_used)}
+                                {formatCreditCount(quota.credits_used)}
                                 {hasCap && (
                                     <span className="text-muted text-lg font-normal">
                                         {' / '}
-                                        {formatCredits(quota.credit_limit ?? 0)}
+                                        {formatCreditCount(quota.credit_limit ?? 0)}
                                     </span>
                                 )}
+                            </div>
+                            <div className="text-muted text-sm tabular-nums">
+                                ≈ {creditsToUsd(quota.credits_used)}
+                                {hasCap ? ` / ${creditsToUsd(quota.credit_limit ?? 0)}` : ''}
                             </div>
                             {hasCap ? (
                                 <>
@@ -137,17 +137,17 @@ export function VisionMetrics(): JSX.Element {
                                             <div className="text-xs space-y-0.5">
                                                 <div>
                                                     Spent this period:{' '}
-                                                    <strong>{formatCredits(quota.credits_used)}</strong>
+                                                    <strong>{formatCreditCount(quota.credits_used)}</strong>
                                                 </div>
                                                 <div>
                                                     Projected from enabled scanners:{' '}
                                                     <strong>
-                                                        ~{formatCredits(quota.projected_monthly_credits)}/month
+                                                        ~{formatCreditCount(quota.projected_monthly_credits)}/month
                                                     </strong>
                                                 </div>
                                                 <div>
                                                     Monthly limit:{' '}
-                                                    <strong>{formatCredits(quota.credit_limit ?? 0)}</strong>
+                                                    <strong>{formatCreditCount(quota.credit_limit ?? 0)}</strong>
                                                 </div>
                                                 {resetsOn && <div className="text-muted">Resets {resetsOn}</div>}
                                             </div>
@@ -173,7 +173,7 @@ export function VisionMetrics(): JSX.Element {
                                 </>
                             ) : (
                                 <div className="text-xs text-muted mt-2">
-                                    No spend limit set: projected ~{formatCredits(quota.projected_monthly_credits)}
+                                    No spend limit set: projected ~{formatCreditCount(quota.projected_monthly_credits)}
                                     /month from enabled scanners. Set a billing limit in your billing settings to cap
                                     spend.
                                 </div>

@@ -91,6 +91,19 @@ describe('processPersonlessDistinctIdsChunkStep', () => {
             ])
         })
 
+        it('should skip inserts for teams with personless writes disabled', async () => {
+            const gatedTeam = createTestTeam({ id: 42 })
+            const step = processPersonlessDistinctIdsChunkStep(true, '', String(gatedTeam.id))
+            const events = [createInput('user-1', false, {}, gatedTeam), createInput('user-2', false)]
+
+            const results = await step(events)
+
+            expect(results).toHaveLength(2)
+            expect(mockPersonsStore.processPersonlessDistinctIdsBatch).toHaveBeenCalledWith([
+                { teamId: team.id, distinctId: 'user-2' },
+            ])
+        })
+
         it('should not call batch insert when no personless events', async () => {
             const step = processPersonlessDistinctIdsChunkStep(true)
             const events = [createInput('user-1', true), createInput('user-2')]

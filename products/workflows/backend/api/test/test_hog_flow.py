@@ -24,8 +24,12 @@ from posthog.test.fixtures import create_app_metric2
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
-from products.workflows.backend.api.hog_flow import _should_validate_strictly, mint_audience_confirm_token
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.api.hog_flow import (
+    HogFlowActionSerializer,
+    _should_validate_strictly,
+    mint_audience_confirm_token,
+)
+from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -120,6 +124,33 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
         return response.json()["id"]
+
+    @parameterized.expand(
+        [
+            ("name_match", "welcome", {"Welcome email"}),
+            ("case_insensitive", "WELCOME", {"Welcome email"}),
+            ("description_match", "quarterly", {"Digest"}),
+            ("space_matches_separators", "password reset", {"Password reset"}),
+            ("no_match", "nonexistent", set()),
+        ]
+    )
+    def test_list_search_matches_name_and_description(self, _name, search, expected_names):
+        HogFlow.objects.create(team=self.team, name="Welcome email", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Password reset", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Digest", description="quarterly summary", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?search={search}")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    def test_list_filter_by_created_by_uuid(self):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+        HogFlow.objects.create(team=self.team, name="Mine", created_by=self.user)
+        HogFlow.objects.create(team=self.team, name="Theirs", created_by=other_user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?created_by={other_user.uuid}")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
 
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value
@@ -3587,6 +3618,98 @@ class TestHogFlowAPI(APIBaseTest):
         if expected_error:
             assert response.json()["detail"] == expected_error
 
+    @parameterized.expand(
+        [
+            # Every unsupported type used to get the same person-properties example, so most of the
+            # stored offenders (webhooks, filters) were pointed at the wrong step.
+            ("person_property_family", "set_person_property", "template-posthog-update-person-properties"),
+            ("contact_family", "contact_update", "template-posthog-update-person-properties"),
+            ("outbound_call", "http", "template-webhook"),
+            # 'webhook' is a trigger kind, so the message has to say which of the two was confused.
+            ("trigger_kind", "webhook", "is a trigger type"),
+        ]
+    )
+    def test_rejection_points_at_the_step_the_caller_meant(self, _name, action_type, expected):
+        field = HogFlowActionSerializer().fields["type"]
+        with self.assertRaises(Exception) as ctx:
+            field.to_internal_value(action_type)
+        assert expected in str(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            # A step type invented from the name of a real feature ("Update person properties", which
+            # is really type 'function' + template-posthog-update-person-properties).
+            ("invented_from_a_feature_name", "update_person_properties"),
+            ("plausible_but_unhandled", "send_email"),
+            ("nonsense", "zzz_not_a_type"),
+        ]
+    )
+    def test_unsupported_action_type_is_rejected_at_write_time(self, _name, action_type):
+        # An action type with no worker handler can never run: it used to save fine and then kill
+        # every run that reached it, silently dropping every step downstream.
+        hog_flow, _ = self._create_hog_flow_with_action({})
+        hog_flow["actions"][1] = {
+            "id": "bad_node",
+            "name": "Tag person",
+            "type": action_type,
+            "config": {"properties": {"onboarding_variant": "A"}},
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        detail = response.json()["detail"]
+        assert action_type in detail
+        # The valid set is what every caller needs; the template suggestion is per-type and is
+        # covered by test_rejection_points_at_the_step_the_caller_meant.
+        assert "Valid types are:" in detail
+        assert "wait_until_condition" in detail
+
+    @parameterized.expand(
+        [
+            ("object", {}),
+            ("populated_object", {"a": 1}),
+            ("array", []),
+            ("array_of_a_valid_type", ["trigger"]),
+            ("integer", 123),
+            ("null", None),
+        ]
+    )
+    def test_non_string_action_type_is_a_400_not_a_500(self, _name, action_type):
+        # Closing the type field over a dict of choices makes an unhashable value (a JSON object or
+        # array) raise TypeError out of the membership test. DRF only catches ValidationError, so it
+        # escapes validation entirely and the endpoint 500s instead of rejecting the payload.
+        hog_flow, _ = self._create_hog_flow_with_action({})
+        hog_flow["actions"][1] = {"id": "bad_node", "name": "Tag person", "type": action_type, "config": {}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+
+    def test_non_string_action_type_error_does_not_echo_the_payload(self):
+        # The message interpolates the offending value, so a nested object would land in the response
+        # body and the logs behind it.
+        hog_flow, _ = self._create_hog_flow_with_action({})
+        secret = "dont-echo-me-9f3a"
+        hog_flow["actions"][1] = {"id": "bad_node", "name": "Tag person", "type": {"k": secret}, "config": {}}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert secret not in response.json()["detail"]
+
+    @parameterized.expand([(action_type,) for action_type in SUPPORTED_ACTION_TYPES])
+    def test_every_supported_action_type_is_accepted(self, action_type):
+        # The counterpart to the rejection above: tightening `type` must not lock out a type the
+        # worker does handle. Only the type field is under test, so per-type config errors are fine.
+        serializer = HogFlowActionSerializer(
+            data={"id": "a", "name": "a", "type": action_type, "config": {}},
+            context={"is_draft": True},
+        )
+        serializer.is_valid()
+
+        assert "type" not in serializer.errors
+
 
 class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
@@ -3779,10 +3902,18 @@ class TestHogFlowSecretInputs(APIBaseTest):
         )
 
         # Stage a draft (via MCP) that rotates the secret; live must stay untouched until publish.
-        draft_payload = self._flow_payload(api_key="ROTATED-IN-DRAFT")
+        # Uses the /graph endpoint which is the MCP-sanctioned path for action edits.
         stage = self.client.patch(
-            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-            {"actions": draft_payload["actions"]},
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"api_key": {"value": "ROTATED-IN-DRAFT"}}}},
+                    }
+                ]
+            },
             HTTP_X_POSTHOG_CLIENT="mcp",
         )
         assert stage.status_code == 200, stage.json()
@@ -3868,12 +3999,28 @@ class TestHogFlowSecretInputs(APIBaseTest):
         )
 
         # Rotate the secret through a published draft so live becomes ROTATED and revision v1 (the
-        # pre-rotation content, secrets stripped) is snapshotted.
-        rotated = self._flow_payload(api_key="ROTATED")
+        # pre-rotation content, secrets stripped) is snapshotted. The rotation carries a non-secret
+        # edit too: revisions are compared secret-free, so a secret-only change is content-equal and
+        # would never bump a version to restore.
         assert (
             self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-                {"actions": rotated["actions"]},
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+                {
+                    "operations": [
+                        {
+                            "op": "update_action",
+                            "id": "action_1",
+                            "patch": {
+                                "config": {
+                                    "inputs": {
+                                        "url": {"value": "https://rotated.example.com"},
+                                        "api_key": {"value": "ROTATED"},
+                                    }
+                                }
+                            },
+                        }
+                    ]
+                },
                 HTTP_X_POSTHOG_CLIENT="mcp",
             ).status_code
             == 200
@@ -3896,9 +4043,11 @@ class TestHogFlowSecretInputs(APIBaseTest):
         self._publish_confirmed(flow_id)
 
         # The restored graph re-attaches the CURRENT live secret, not the historical one - a rotated
-        # credential is never resurrected from a snapshot.
+        # credential is never resurrected from a snapshot - while its non-secret content does roll back.
         flow.refresh_from_db()
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "ROTATED"
+        live_inputs = next(a for a in flow.actions if a["id"] == "action_1")["config"]["inputs"]
+        assert live_inputs["url"]["value"] == "https://example.com"
         assert flow.draft is None
 
     def test_duplicate_action_id_is_rejected(self):

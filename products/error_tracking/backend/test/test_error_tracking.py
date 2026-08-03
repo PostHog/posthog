@@ -88,17 +88,38 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
 
         assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_three.id).count() == 3
 
-    def test_merge_missing_source_issue_is_noop(self):
+    def test_merge_drops_stale_source_and_merges_the_rest(self):
         issue_one = self.create_issue(["fingerprint_one"])
         issue_two = self.create_issue(["fingerprint_two"])
         stale_issue_id = self.create_issue(["fingerprint_three"]).id
         ErrorTrackingIssue.objects.filter(id=stale_issue_id).delete()
 
-        assert issue_two.merge(issue_ids=[issue_one.id, stale_issue_id]) == ErrorTrackingIssueMergeResult.STALE_ISSUES
+        assert issue_two.merge(issue_ids=[issue_one.id, stale_issue_id]) == ErrorTrackingIssueMergeResult.MERGED
 
+        # The still-present source is merged into the target even though a sibling source was stale
+        assert not ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_two.id
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 2
+
+    def test_merge_all_sources_stale_is_noop(self):
+        issue_two = self.create_issue(["fingerprint_two"])
+        stale_issue_id = self.create_issue(["fingerprint_three"]).id
+        ErrorTrackingIssue.objects.filter(id=stale_issue_id).delete()
+
+        assert issue_two.merge(issue_ids=[stale_issue_id]) == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES
+
+        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 1
+
+    def test_merge_missing_target_issue_is_stale(self):
+        issue_one = self.create_issue(["fingerprint_one"])
+        issue_two = self.create_issue(["fingerprint_two"])
+        ErrorTrackingIssue.objects.filter(id=issue_two.id).delete()
+
+        assert issue_two.merge(issue_ids=[issue_one.id]) == ErrorTrackingIssueMergeResult.STALE_ISSUES
+
+        # The source is left untouched when the target the frontend picked is gone
         assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
         assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
-        assert ErrorTrackingIssueFingerprintV2.objects.filter(issue_id=issue_two.id).count() == 1
 
     def test_merge_stale_expected_fingerprint_issue_is_noop(self):
         issue_one = self.create_issue(["fingerprint_one"])
@@ -411,8 +432,10 @@ class TestErrorTrackingMergeConcurrency(ErrorTrackingIssueTestMixin, NonAtomicBa
 
             merge_results = [merge_to_target_one.result(timeout=20), merge_to_target_two.result(timeout=20)]
 
+        # The loser races in after its shared sources were already merged away, so it finds nothing
+        # left to merge rather than failing outright.
         assert merge_results.count(ErrorTrackingIssueMergeResult.MERGED) == 1
-        assert merge_results.count(ErrorTrackingIssueMergeResult.STALE_ISSUES) == 1
+        assert merge_results.count(ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES) == 1
         assert not ErrorTrackingIssue.objects.filter(id__in=[source_issue_one.id, source_issue_two.id]).exists()
         assert ErrorTrackingIssue.objects.filter(id__in=[target_issue_one.id, target_issue_two.id]).count() == 2
 

@@ -1,9 +1,11 @@
-from typing import Any
+from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
@@ -11,15 +13,37 @@ from posthog.models import Team
 from posthog.models.integration import Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.replay_vision.backend.api.delivery import EVENT_NAME
+from products.replay_vision.backend.api.delivery import EVENT_NAME, provision_delivery
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction
+
+# The webhook template is defined in the nodejs registry (no Python source object like Slack's). The
+# serializer only needs the row to resolve by id and expose its inputs schema, so a minimal stand-in
+# with the same inputs is enough to exercise provisioning.
+_WEBHOOK_TEMPLATE = {
+    "id": "template-webhook",
+    "name": "HTTP Webhook",
+    "description": "Sends a webhook templated by the incoming event data",
+    "type": "destination",
+    "status": "stable",
+    "free": False,
+    "category": ["Custom"],
+    "code_language": "hog",
+    "code": "let res := fetch(inputs.url, {'method': inputs.method, 'headers': inputs.headers, 'body': inputs.body})",
+    "inputs_schema": [
+        {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+        {"key": "method", "type": "string", "label": "Method", "required": False},
+        {"key": "body", "type": "json", "label": "JSON Body", "required": False},
+        {"key": "headers", "type": "dictionary", "label": "Headers", "required": False},
+    ],
+}
 
 
 class TestVisionActionDelivery(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         sync_template_to_db(template_slack)
+        sync_template_to_db(_WEBHOOK_TEMPLATE)
         self.flag_patcher = patch(
             "products.replay_vision.backend.feature_flag.posthoganalytics.feature_enabled",
             return_value=True,
@@ -79,6 +103,27 @@ class TestVisionActionDelivery(APIBaseTest):
         resp = self.client.post(self.actions_url, data=self._payload(**overrides), format="json")
         self.assertEqual(resp.status_code, 201, resp.content)
         return VisionAction.all_teams.get(id=resp.json()["id"])
+
+    def _request(self) -> Request:
+        # provision_delivery threads a DRF Request into HogFunctionSerializer, which reads request.user.
+        drf_request = Request(APIRequestFactory().post("/"))
+        drf_request.user = self.user
+        return cast(Request, drf_request)
+
+    def _provision_action(self, delivery_config: list[dict[str, Any]]) -> VisionAction:
+        """Create an action with delivery_config set on the model and provision it directly, bypassing
+        the API serializer so a delivery type's provisioning can be exercised independently of the
+        serializer that gates which types the API accepts."""
+        action = VisionAction(
+            team=self.team,
+            scanner=self.scanner,
+            name=f"provisioned-{VisionAction.all_teams.count()}",
+            trigger_config={"rrule": "FREQ=DAILY", "timezone": "UTC"},
+            delivery_config=delivery_config,
+        )
+        action.save()
+        provision_delivery(action, request=self._request(), team=self.team)
+        return action
 
     def _destinations(self, action: VisionAction) -> list[HogFunction]:
         """The action's live internal_destination HogFunctions — found by the vision_action_id filter
@@ -210,3 +255,46 @@ class TestVisionActionDelivery(APIBaseTest):
         resp = self.client.patch(f"{self.actions_url}{action.id}/", data={"delivery_config": []}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(self._destinations(action), [])
+
+    def test_webhook_target_provisions_webhook_destination(self) -> None:
+        # A webhook target must resolve to the template-webhook destination with the URL, a POST, the
+        # versioned header, and a body that references the emitted event's structured props — otherwise
+        # the webhook fires with a malformed/empty payload.
+        action = self._provision_action([{"type": "webhook", "url": "https://example.com/hook"}])
+
+        destinations = self._destinations(action)
+        self.assertEqual(len(destinations), 1)
+        fn = destinations[0]
+        self.assertEqual(fn.template_id, "template-webhook")
+        inputs = self._inputs(fn)
+        self.assertEqual(inputs["url"]["value"], "https://example.com/hook")
+        self.assertEqual(inputs["method"]["value"], "POST")
+        self.assertEqual(inputs["headers"]["value"]["X-PostHog-Webhook-Version"], "1")
+        body = inputs["body"]["value"]
+        self.assertEqual(body["type"], "replay_vision.{event.properties.event_kind}")
+        self.assertEqual(body["data"]["report"], "{event.properties.report_markdown}")
+        self.assertEqual(body["data"]["run_url"], "{event.properties.run_url}")
+        # The trigger filter still binds the destination to this action (the same bind-by-filter as Slack).
+        self.assertEqual(self._filters(fn)["properties"][0]["value"], str(action.id))
+
+    def test_mixed_slack_and_webhook_targets(self) -> None:
+        action = self._provision_action(
+            [
+                {"type": "slack", "integration_id": self.integration.id, "channel": "C1|#general"},
+                {"type": "webhook", "url": "https://example.com/hook"},
+            ]
+        )
+        by_template = {fn.template_id for fn in self._destinations(action)}
+        self.assertEqual(by_template, {"template-slack", "template-webhook"})
+
+    def test_reprovision_switches_slack_to_webhook(self) -> None:
+        # Reconcile is archive-and-recreate: switching a target's type must drop the stale Slack
+        # destination and stand up the webhook one, not leave both firing.
+        action = self._provision_action([{"type": "slack", "integration_id": self.integration.id, "channel": "#a"}])
+        self.assertEqual([d.template_id for d in self._destinations(action)], ["template-slack"])
+
+        action.delivery_config = [{"type": "webhook", "url": "https://example.com/hook"}]
+        action.save(update_fields=["delivery_config"])
+        provision_delivery(action, request=self._request(), team=self.team)
+
+        self.assertEqual([d.template_id for d in self._destinations(action)], ["template-webhook"])

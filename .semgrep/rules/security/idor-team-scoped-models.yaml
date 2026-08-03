@@ -56,6 +56,7 @@ rules:
                           (?x)(
                               AccessControl
                               |Account
+                              |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipDefinition
                               |Action
@@ -160,6 +161,7 @@ rules:
                               |FeatureFlag
                               |TeamExperimentsConfig
                               |TeamFeatureFlagDefaultsConfig
+                              |TeamMCPGatewayConfig
                               |TeamSessionSummariesConfig
                               |TeamWorkflowsConfig
                               |FieldNote
@@ -192,6 +194,7 @@ rules:
                               |LogsAlertConfiguration
                               |LogsExclusionRule
                               |LogsMetricRule
+                              |LogsRetentionRule
                               |LogsView
                               |Loop
                               |LoopFire
@@ -212,9 +215,16 @@ rules:
                               |Metric
                               |RelationshipProposal
                               |MCPAnalyticsSubmission
+                              |MCPAuditEvent
+                              |MCPGatewayServer
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
+                              |MCPMemberServerRevocation
+                              |MCPOrgRule
+                              |MCPServiceAccount
+                              |MCPServiceAccountServerAccess
                               |MCPSession
+                              |MCPToolPolicy
                               |Opportunity
                               |OptOutSyncConfig
                               |Node
@@ -289,6 +299,7 @@ rules:
                               |TaskAutomation
                               |TaskPresence
                               |TaskRun
+                              |TaskSession
                               |TaskThreadMessage
                               |TaskThreadMessageMention
                               |Channel
@@ -299,6 +310,7 @@ rules:
                               |Threshold
                               |ToleratedHash
                               |TeamConversationsTeamsConfig
+                              |SigningSecret
                               |Ticket
                               |TicketView
                               |TicketViewFavorite
@@ -378,6 +390,7 @@ rules:
                     (?x)(
                         AccessControl
                         |Account
+                        |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipDefinition
                         |Action
@@ -482,6 +495,7 @@ rules:
                         |FeatureFlag
                         |TeamExperimentsConfig
                         |TeamFeatureFlagDefaultsConfig
+                        |TeamMCPGatewayConfig
                         |TeamSessionSummariesConfig
                         |TeamWorkflowsConfig
                         |FieldNote
@@ -529,9 +543,16 @@ rules:
                         |MessageTemplate
                         |Metric
                         |RelationshipProposal
+                        |MCPAuditEvent
+                        |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
+                        |MCPMemberServerRevocation
+                        |MCPOrgRule
+                        |MCPServiceAccount
+                        |MCPServiceAccountServerAccess
                         |MCPSession
+                        |MCPToolPolicy
                         |Opportunity
                         |OptOutSyncConfig
                         |Node
@@ -606,6 +627,7 @@ rules:
                         |TaskAutomation
                         |TaskPresence
                         |TaskRun
+                        |TaskSession
                         |TaskThreadMessage
                         |TaskThreadMessageMention
                         |Channel
@@ -616,6 +638,7 @@ rules:
                         |Threshold
                         |ToleratedHash
                         |TeamConversationsTeamsConfig
+                        |SigningSecret
                         |Ticket
                         |TicketView
                         |TicketViewFavorite
@@ -899,6 +922,7 @@ rules:
                               |PersonalAPIKey
                               |ScoreDefinitionVersion
                               |SignalUserAutonomyConfig
+                              |TaskPin
                               |UserPushToken
                               |WebauthnCredential
                           )$
@@ -953,6 +977,7 @@ rules:
                         |PersonalAPIKey
                         |ScoreDefinitionVersion
                         |SignalUserAutonomyConfig
+                        |TaskPin
                         |UserPushToken
                         |WebauthnCredential
                     )$

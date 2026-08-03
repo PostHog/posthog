@@ -14,6 +14,7 @@ from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
 from django.db import connection
+from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from django.utils.text import slugify
@@ -26,6 +27,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.api.oauth.toolbar_service import ToolbarOAuthState, build_toolbar_oauth_state, new_state_nonce
+from posthog.api.user import UserSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.instance_setting import set_instance_setting
@@ -33,6 +35,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant,
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.user import default_ui_configuration_for_new_users
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.temporal.tests.delete_teams.inline import execute_deletion_workflows_inline
@@ -260,6 +263,35 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get(f"/api/users/@me/hedgehog_config/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"a bag": "of data"}
+
+    def test_can_update_ui_configuration(self):
+        configuration = {
+            "version": 1,
+            "sidebar": {
+                "sections": {"recents": {"visible": False}},
+                "items": {"data": {"visible": False}},
+            },
+        }
+
+        response = self.client.patch("/api/users/@me/", {"ui_configuration": configuration})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["ui_configuration"], configuration)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.ui_configuration, configuration)
+
+    def test_cannot_update_ui_configuration_not_matching_schema(self):
+        configuration_before = self.user.ui_configuration
+
+        response = self.client.patch(
+            "/api/users/@me/",
+            {"ui_configuration": {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "ui_configuration")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.ui_configuration, configuration_before)
 
     def test_users_me_includes_active_realtime_notification_types(self):
         self.client.force_login(self.user)
@@ -2146,6 +2178,58 @@ class TestUserAPI(APIBaseTest):
                 "pipeline_notifications_disabled": {},  # Default value
             },
         )
+
+
+class TestUserUIConfigurationValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("not_an_object", ["version"]),
+            ("missing_version", {"sidebar": {}}),
+            ("unknown_top_level_key", {"version": 1, "surprise": True}),
+            ("unknown_section", {"version": 1, "sidebar": {"sections": {"bogus": {"visible": False}}}}),
+            ("unknown_item", {"version": 1, "sidebar": {"items": {"bogus": {"visible": False}}}}),
+            ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
+            ("non_boolean_visible", {"version": 1, "sidebar": {"items": {"home": {"visible": "nope"}}}}),
+            ("unknown_node_key", {"version": 1, "sidebar": {"items": {"home": {"visible": False, "size": 1}}}}),
+        ]
+    )
+    def test_invalid_ui_configuration_is_rejected(self, _name, value):
+        serializer = UserSerializer(data={"ui_configuration": value}, partial=True)
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("ui_configuration", serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("minimal", {"version": 1}),
+            (
+                "full",
+                {
+                    "version": 1,
+                    "sidebar": {
+                        "sections": {"project": {"visible": True}, "recents": {}, "my_tools": {"visible": False}},
+                        "items": {
+                            "home": {"visible": False},
+                            "inbox": {"visible": False},
+                            "data": {"visible": False},
+                            "files": {"visible": False},
+                            "tools": {"visible": False},
+                            "starred": {"visible": False},
+                            "notifications": {"visible": False},
+                            "help": {"visible": False},
+                        },
+                    },
+                },
+            ),
+            ("new_user_default", default_ui_configuration_for_new_users()),
+        ]
+    )
+    def test_valid_ui_configuration_is_accepted(self, _name, value):
+        serializer = UserSerializer(data={"ui_configuration": value}, partial=True)
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["ui_configuration"], value)
 
 
 @pytest.mark.ee

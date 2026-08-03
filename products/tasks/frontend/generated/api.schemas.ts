@@ -210,6 +210,7 @@ export const RuntimeAdapterEnumApi = {
  * * `high` - high
  * * `xhigh` - xhigh
  * * `max` - max
+ * * `ultracode` - ultracode
  */
 export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
 
@@ -219,6 +220,7 @@ export const ReasoningEffortEnumApi = {
     High: 'high',
     Xhigh: 'xhigh',
     Max: 'max',
+    Ultracode: 'ultracode',
 } as const
 
 export interface LoopRepositoryEntryApi {
@@ -404,7 +406,8 @@ export interface LoopWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -470,7 +473,8 @@ export interface PatchedLoopWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
@@ -1124,6 +1128,9 @@ export interface ChannelDTOApi {
     id: string
     name: string
     channel_type: string
+    /** @nullable */
+    github_integration: number | null
+    repositories: string[]
     created_at: string
     created_by?: TaskUserBasicInfoApi | null
 }
@@ -1199,15 +1206,23 @@ export interface ChannelFeedMessageWriteApi {
     created_at?: string
 }
 
-/**
- * Request body for creating (resolve-or-create) or renaming a public channel.
- */
-export interface PatchedChannelWriteApi {
+export interface PatchedChannelUpdateApi {
     /**
      * Channel name, rendered as #<name>. Normalized to lowercase-dashed.
      * @maxLength 128
      */
     name?: string
+    /**
+     * Team GitHub integration used for repositories linked to this channel.
+     * @nullable
+     */
+    github_integration?: number | null
+    /**
+     * GitHub repositories inherited by new tasks in this channel.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
 }
 
 /**
@@ -1307,6 +1322,8 @@ export interface TaskRunArtifactResponseApi {
     storage_path: string
     /** Timestamp when the artifact was uploaded */
     uploaded_at: string
+    /** Presigned download URL for the artifact. Populated on the finalize-upload response so the caller can link to the file directly; it is time-limited and not persisted on the manifest. */
+    url?: string
 }
 
 /**
@@ -1355,7 +1372,8 @@ export interface TaskRunDetailDTOApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Presigned S3 URL for log access (valid for 1 hour).
@@ -1404,6 +1422,7 @@ export interface TaskDetailDTOApi {
     readonly runtime: RuntimeEnumApi
     /** @nullable */
     repository: string | null
+    repositories: string[]
     /** @nullable */
     github_integration: number | null
     /** @nullable */
@@ -1498,7 +1517,7 @@ export interface TaskCreateApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -1525,6 +1544,12 @@ export interface TaskCreateApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -1578,7 +1603,8 @@ export interface TaskCreateApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -1634,7 +1660,7 @@ export interface TaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -1661,6 +1687,12 @@ export interface TaskWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -1714,7 +1746,8 @@ export interface TaskWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -1755,7 +1788,7 @@ export interface PatchedTaskWriteApi {
     title_manually_set?: boolean
     /** Free-form description of the work to be done. Used as the prompt passed to the agent. */
     description?: string
-    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).
+    /** PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.
      *
      * * `onboarding` - Onboarding
      * * `error_tracking` - Error Tracking
@@ -1782,6 +1815,12 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     repository?: string | null
+    /**
+     * GitHub repositories available to this task, each in `organization/repo` format.
+     * @maxItems 10
+     * @items.maxLength 255
+     */
+    repositories?: string[]
     /**
      * GitHub integration for this task.
      * @nullable
@@ -1835,7 +1874,8 @@ export interface PatchedTaskWriteApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * First user message to forward when creation reuses a pre-warmed Run. Write-only and not persisted on the task: lets clients deliver a message that differs from `description` (e.g. a resolved skill invocation with channel context folded in). Ignored when no warm Run is reused — cold creation takes the first message via the run start endpoint instead.
@@ -1857,6 +1897,18 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     channel?: string | null
+}
+
+export interface TaskPinRequestApi {
+    /** Whether the task should be pinned for the requester. */
+    pinned: boolean
+}
+
+export interface TaskPinResponseApi {
+    /** Task whose pin state was updated. */
+    task_id: string
+    /** Current pin state for the requester. */
+    pinned: boolean
 }
 
 /**
@@ -1956,6 +2008,17 @@ export const ClaudeRuntimeAdapterEnumApi = {
 } as const
 
 /**
+ * * `200k` - 200k
+ * * `1m` - 1m
+ */
+export type ContextWindowEnumApi = (typeof ContextWindowEnumApi)[keyof typeof ContextWindowEnumApi]
+
+export const ContextWindowEnumApi = {
+    '200k': '200k',
+    '1m': '1m',
+} as const
+
+/**
  * * `default` - default
  * * `acceptEdits` - acceptEdits
  * * `plan` - plan
@@ -2040,8 +2103,19 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
     /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Claude runtimes.
@@ -2151,8 +2225,19 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
     /** Optional GitHub user token from PostHog Desktop for user-authored cloud pull requests. Prefer linking GitHub from Settings → Linked accounts so the server can manage tokens; this field remains supported for callers that still manage their own tokens. */
     github_user_token?: string
     /** Initial permission mode for Codex runtimes.
@@ -2470,8 +2555,19 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi
+    /** Context window size for models that support the 1M window.
+     *
+     * * `200k` - 200k
+     * * `1m` - 1m */
+    context_window?: ContextWindowEnumApi
+    /**
+     * Enable fast mode for models that support it.
+     * @nullable
+     */
+    fast_mode?: boolean | null
     /** Ephemeral GitHub user token from PostHog Desktop for user-authored cloud pull requests. */
     github_user_token?: string
     /** Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'plan', 'auto', and 'read-only'.
@@ -2786,16 +2882,23 @@ export const JsonrpcEnumApi = {
  * * `permission_response` - permission_response
  * * `set_config_option` - set_config_option
  * * `mcp_response` - mcp_response
+ * * `pi/rpc` - pi/rpc
+ * * `queue_get` - queue_get
+ * * `queue_clear` - queue_clear
  */
-export type MethodEnumApi = (typeof MethodEnumApi)[keyof typeof MethodEnumApi]
+export type TaskRunCommandRequestMethodEnumApi =
+    (typeof TaskRunCommandRequestMethodEnumApi)[keyof typeof TaskRunCommandRequestMethodEnumApi]
 
-export const MethodEnumApi = {
+export const TaskRunCommandRequestMethodEnumApi = {
     UserMessage: 'user_message',
     Cancel: 'cancel',
     Close: 'close',
     PermissionResponse: 'permission_response',
     SetConfigOption: 'set_config_option',
     McpResponse: 'mcp_response',
+    PiRpc: 'pi/rpc',
+    QueueGet: 'queue_get',
+    QueueClear: 'queue_clear',
 } as const
 
 /**
@@ -2813,18 +2916,16 @@ export interface TaskRunCommandRequestApi {
      * * `close` - close
      * * `permission_response` - permission_response
      * * `set_config_option` - set_config_option
-     * * `mcp_response` - mcp_response */
-    method: MethodEnumApi
+     * * `mcp_response` - mcp_response
+     * * `pi/rpc` - pi/rpc
+     * * `queue_get` - queue_get
+     * * `queue_clear` - queue_clear */
+    method: TaskRunCommandRequestMethodEnumApi
     /** Parameters for the command */
     params?: TaskRunCommandRequestApiParams
     /** Optional JSON-RPC request ID (string or number) */
     id?: unknown
 }
-
-/**
- * Command result on success
- */
-export type TaskRunCommandResponseApiResult = { [key: string]: unknown }
 
 /**
  * Error details on failure
@@ -2840,7 +2941,7 @@ export interface TaskRunCommandResponseApi {
     /** Request ID echoed back (string or number) */
     id?: unknown
     /** Command result on success */
-    result?: TaskRunCommandResponseApiResult
+    result?: unknown
     /** Error details on failure */
     error?: TaskRunCommandResponseApiError
 }
@@ -2905,6 +3006,28 @@ export interface StreamReadTokenResponseApi {
      * @nullable
      */
     stream_base_url: string | null
+}
+
+export interface TaskSessionResponseApi {
+    /** Task session identifier */
+    id: string
+    /**
+     * Temporary URL for downloading the session
+     * @nullable
+     */
+    download_url: string | null
+    /**
+     * SHA-256 digest of the current session content
+     * @nullable
+     */
+    content_sha256: string | null
+}
+
+export interface TaskSessionSyncResponseApi {
+    /** Task session identifier */
+    id: string
+    /** SHA-256 digest of the uploaded session content */
+    content_sha256: string
 }
 
 /**
@@ -3158,6 +3281,35 @@ export interface TaskRunLivingArtifactEditRequestApi {
     metadata?: TaskRunLivingArtifactEditRequestApiMetadata
 }
 
+/**
+ * Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id.
+ */
+export type TaskRunLivingArtifactChartRequestApiQuery = { [key: string]: unknown }
+
+export interface TaskRunLivingArtifactChartRequestApi {
+    /**
+     * Chart title, also used as the delivered file name.
+     * @maxLength 255
+     */
+    name: string
+    /** Insight query JSON to render ad hoc, e.g. {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", ...}}. SQL queries (DataVisualizationNode, HogQLQuery) are not supported yet. Provide exactly one of query or insight_id. */
+    query?: TaskRunLivingArtifactChartRequestApiQuery
+    /** Numeric id of a saved insight to render. Provide exactly one of query or insight_id. */
+    insight_id?: number
+}
+
+export interface TaskRunLivingArtifactChartResponseApi {
+    /** The living artifact registered for delivery. */
+    artifact: TaskRunLivingArtifactResponseApi
+    /** Id of the rendered PNG export backing the chart. */
+    export_asset_id: number
+    /**
+     * Link to explore this chart interactively in PostHog.
+     * @nullable
+     */
+    url?: string | null
+}
+
 export type TaskThreadMessageDTOApiPayload = { [key: string]: unknown }
 
 /**
@@ -3210,6 +3362,11 @@ export interface WizardCloudRunDTOApi {
      * @nullable
      */
     started_at?: string | null
+}
+
+export interface PinnedTaskIdsResponseApi {
+    /** Visible task IDs pinned by the requester, newest pin first. */
+    task_ids: string[]
 }
 
 export interface TaskRepositoriesResponseApi {
@@ -3558,7 +3715,8 @@ export interface WarmTaskRequestApi {
      * * `medium` - medium
      * * `high` - high
      * * `xhigh` - xhigh
-     * * `max` - max */
+     * * `max` - max
+     * * `ultracode` - ultracode */
     reasoning_effort?: ReasoningEffortEnumApi | null
     /**
      * Optional sandbox environment to provision before the task is submitted.

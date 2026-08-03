@@ -121,7 +121,7 @@ from ee.api.rbac.access_control import AccessControlViewSetMixin
 
 logger = structlog.get_logger(__name__)
 
-MAX_ALLOWED_PROJECTS_PER_ORG = 1500
+MAX_ALLOWED_PROJECTS_PER_ORG = 2000
 
 
 # --- Backward-compatibility logic for the /api/projects/ surface ---
@@ -1395,9 +1395,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 if request_fields and request_fields.issubset(downgradable_fields):
                     return ["project:read"]
 
-        # Team-level config actions that any member should be able to edit via the UI.
-        # Only downgrade for session auth to preserve read-only API key semantics.
-        if self.action in ("default_release_conditions", "default_evaluation_contexts"):
+        # Team-level config actions members can read via the UI. Only downgrade for session auth to
+        # preserve read-only API key semantics; writes are still gated to admins by the action's
+        # TeamMemberStrictManagementPermission.
+        if self.action in ("default_evaluation_contexts",):
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 return ["project:read"]
@@ -1501,12 +1502,10 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         # Environments already removed before a block are re-pushed lazily on the next
         # warehouse status read, so a partial pass self-heals.
         # Keep the product API off the core import path.
-        from products.data_warehouse.backend.presentation.views.managed_warehouse import (  # noqa: PLC0415
-            block_team_deletion,
-        )
+        from products.managed_warehouse.backend.facade.api import get_team_deletion_block_reason  # noqa: PLC0415
 
         for team_id in team_ids:
-            warehouse_block_reason = block_team_deletion(team_id, organization_id)
+            warehouse_block_reason = get_team_deletion_block_reason(team_id, organization_id)
             if warehouse_block_reason:
                 raise exceptions.ValidationError(warehouse_block_reason)
 
@@ -1652,11 +1651,12 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["GET", "PUT"],
         detail=True,
-        permission_classes=[TeamMemberLightManagementPermission],
+        permission_classes=[TeamMemberStrictManagementPermission],
         url_path="default_release_conditions",
     )
     def default_release_conditions(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default release conditions for new feature flags in this project."""
+        """Manage default release conditions for new feature flags in this project. Members can read;
+        writing requires project admin, matching the admin-only settings UI."""
         return team_default_release_conditions_view(self.get_object().passthrough_team, request)
 
     @action(
@@ -1672,10 +1672,11 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     @action(
         methods=["GET", "POST", "DELETE"],
         detail=True,
-        permission_classes=[IsAuthenticated],
+        permission_classes=[TeamMemberStrictManagementPermission],
     )
     def default_evaluation_contexts(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        """Manage default evaluation contexts for a project."""
+        """Manage default evaluation contexts for a project. Members can read; writing requires
+        project admin, matching the admin-only settings UI."""
         return team_default_evaluation_contexts_view(self.get_object().passthrough_team, request, self.user_permissions)
 
     @extend_schema(

@@ -38,11 +38,7 @@ from structlog.types import FilteringBoundLogger
 # their guard tests patch `mysql.capture_exception` to enforce that.
 from posthog.exceptions_capture import capture_exception  # noqa: F401
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
-    SourceInputs,
-    SourceResponse,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
     build_pyarrow_decimal_type,
@@ -71,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     normalize_namespace,
     resolve_source_location,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -523,6 +520,23 @@ def _is_transient_vitess_dial_timeout(e: BaseException) -> bool:
     return _VITESS_DIAL_TOKEN in args_text and _VITESS_DIAL_TIMEOUT_TOKEN in args_text
 
 
+# MySQL/MariaDB error 1040 (ER_CON_COUNT_ERROR): the server refuses a *new* connection because
+# `max_connections` is already reached. A transient capacity condition on the customer's database,
+# not a misconfiguration — a slot frees the moment another connection closes — so a fresh attempt
+# after a short backoff usually succeeds. Mirrors the Postgres source's "sorry, too many clients
+# already" / "remaining connection slots are reserved" handling, which is retried the same way and
+# likewise kept out of `get_non_retryable_errors` (see `MySQLSource.get_retryable_errors`).
+_TOO_MANY_CONNECTIONS_CODE = 1040
+
+
+def _is_transient_too_many_connections(e: BaseException) -> bool:
+    """Return True if the server refused a new connection because it's at `max_connections`."""
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    return code == _TOO_MANY_CONNECTIONS_CODE
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -546,6 +560,7 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 or _is_transient_connect_broken_pipe(e)
                 or _is_transient_packet_sequence_error(e)
                 or _is_transient_vitess_dial_timeout(e)
+                or _is_transient_too_many_connections(e)
             ):
                 raise
             structlog.get_logger().warning(
@@ -813,7 +828,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         with self._ssh_tunnel_endpoint(config) as (host, port):
             kwargs: dict[str, Any] = {
                 "host": host,
-                "port": port,
+                # pymysql rejects a non-int port; config.port can arrive as a string when the
+                # config is built directly rather than through the int-coercing from_dict.
+                "port": int(port),
                 "database": config.database,
                 "user": config.user,
                 "password": config.password,
