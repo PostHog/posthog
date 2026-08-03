@@ -17,6 +17,26 @@ A reviewer reads a description to decide whether a change is correct. They scan,
 A sentence that packs four facts into three clauses forces them to hold all four before any of them can be checked.
 Split it, and each line stands on its own.
 
+## Choose the form before you write the sentence
+
+These rules apply to prose. Prose is the last resort, not the default.
+The template's authoring rules already ask for mermaid, tables, alerts and permalinks; this skill governs what is left after you use them.
+
+| The content                                          | The form                             |
+| ---------------------------------------------------- | ------------------------------------ |
+| A flow or topology that changed                      | Two `flowchart` blocks, before first |
+| Values compared across cases, files, runs or time    | A table                              |
+| Repeated structure: same fields, three or more times | A table, never a bullet list         |
+| A causal chain, a decision, a risk                   | Bullets, one fact each               |
+| Long output, logs, full test runs                    | A `<details>` block                  |
+| Code that already exists                             | A line-range permalink               |
+
+The test: if three bullets in a row repeat the same shape, they are table rows. Convert them.
+A table cell is not a sentence and these rules do not apply inside it. Keep cells to a few words.
+
+Splitting a sentence into bullets makes each fact checkable. It also adds words.
+If a rewrite made the section longer without making it clearer, the content wanted a table.
+
 ## The eight rules
 
 1. **One fact per bullet.** If a sentence joins two facts with "so", "which", ";" or a comma splice, it is two bullets.
@@ -69,6 +89,8 @@ Where the stakes are the point, state them as a fact: "the CI-breakage skill rea
 
 ## Before you publish
 
+- The right form carries each part: diagram, table, bullets, prose.
+- No run of bullets repeats the same shape where a table would be denser.
 - Every bullet holds one fact.
 - No sentence runs past 25 words.
 - No `-ing` verb form that a simple tense would carry.
