@@ -85,6 +85,37 @@ def _public_url(host: str, public_port: int) -> str:
     return f"https://{host}:{public_port}"
 
 
+def _configured_public_ports() -> set[int]:
+    """Public ports that already carry Tailscale Serve/Funnel config, parsed from
+    ``tailscale serve status --json``. Empty when nothing is configured or the
+    status can't be read — so a collision is only ever reported on evidence, never
+    guessed."""
+    try:
+        result = _run_tailscale(["serve", "status", "--json"], timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if result.returncode != 0:
+        return set()
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return set()
+    if not isinstance(payload, dict):
+        return set()
+    ports: set[int] = set()
+    # Web/AllowFunnel keys are "host:port"; TCP keys are a bare port.
+    for section in ("Web", "AllowFunnel", "TCP"):
+        entries = payload.get(section)
+        if not isinstance(entries, dict):
+            continue
+        for key in entries:
+            try:
+                ports.add(int(str(key).rsplit(":", 1)[-1]))
+            except ValueError:
+                continue
+    return ports
+
+
 class TailscaleFunnel:
     """Modal-only Tailscale Funnel lifecycle: publicly exposes the host services a
     remote Modal sandbox must reach (Django API, LLM gateway, MCP server).
@@ -112,6 +143,18 @@ class TailscaleFunnel:
 
     def start(self) -> None:
         host = self._resolve_public_host()
+        # Refuse rather than clobber: Funnel's three ports are all we have, so if the
+        # developer already serves one, overwriting it (and turning it off on teardown)
+        # would silently take down their service. Bail with a fix instead.
+        occupied = _configured_public_ports()
+        conflicts = sorted(a.public_port for a in self._assignments.values() if a.public_port in occupied)
+        if conflicts:
+            raise TailscaleFunnelError(
+                self._failure_message(
+                    f"Tailscale Serve/Funnel is already configured on port(s) {', '.join(map(str, conflicts))}. "
+                    f"Free them (e.g. `tailscale funnel --https {conflicts[0]} off`) before running Modal evals."
+                )
+            )
         for name, assignment in self._assignments.items():
             self._enable_funnel(assignment.public_port, assignment.local_port)
             self._enabled_ports.append(assignment.public_port)
@@ -122,16 +165,32 @@ class TailscaleFunnel:
         return self._public_urls[name].rstrip("/")
 
     def stop(self) -> None:
-        # Turn off only the ports this run enabled, so a developer's own Funnel or
-        # `tailscale serve` config is never clobbered. Best effort: a failure here
-        # must not mask the run's real outcome.
-        while self._enabled_ports:
-            port = self._enabled_ports.pop()
+        # Turn off only the ports this run enabled — start() refused any port that was
+        # already configured, so these are ours to reclaim. A port whose `off` fails
+        # stays public, so keep it tracked and log loudly: the caller registers stop()
+        # on its cleanup stack (and atexit), so a later invocation retries it.
+        still_public: list[int] = []
+        for port in self._enabled_ports:
             try:
-                _run_tailscale(["funnel", "--https", str(port), "off"], timeout=15)
+                result = _run_tailscale(["funnel", "--https", str(port), "off"], timeout=15)
             except Exception:
-                logger.warning("Failed to turn off Tailscale Funnel on port %s", port, exc_info=True)
-        self._public_urls = {}
+                logger.warning(
+                    "Failed to turn off Tailscale Funnel on port %s; it is still public", port, exc_info=True
+                )
+                still_public.append(port)
+                continue
+            if result.returncode != 0:
+                detail = (result.stderr or result.stdout or "").strip()
+                logger.error(
+                    "Tailscale Funnel port %s is still public: `tailscale funnel --https %s off` failed: %s",
+                    port,
+                    port,
+                    detail,
+                )
+                still_public.append(port)
+        self._enabled_ports = still_public
+        if not still_public:
+            self._public_urls = {}
 
     def _resolve_public_host(self) -> str:
         status = tailscale_status()
