@@ -31,8 +31,13 @@ fn build_code_snippet(chunk_id: &str, release_id: Option<&str>) -> Result<String
 pub struct SourceMapContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub release_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "debugId")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub chunk_id: Option<String>,
+    /// Bundler-emitted ECMA-426 debug id. Kept separate from `chunk_id` so a bundler-stamped
+    /// map isn't mistaken for one we already processed (which would skip the mapping
+    /// adjustment on inject). Preserved on save for interop.
+    #[serde(rename = "debugId", skip_serializing_if = "Option::is_none")]
+    pub debug_id: Option<String>,
     #[serde(flatten)]
     pub fields: BTreeMap<String, Value>,
 }
@@ -102,6 +107,10 @@ impl SourceMapFile {
         self.inner.content.chunk_id.clone()
     }
 
+    pub fn get_debug_id(&self) -> Option<String> {
+        self.inner.content.debug_id.clone()
+    }
+
     pub fn get_release_id(&self) -> Option<String> {
         self.inner.content.release_id.clone()
     }
@@ -151,6 +160,7 @@ impl SourceMapFile {
         let mut old_content = std::mem::replace(&mut self.inner.content, new_content);
         self.inner.content.chunk_id = old_content.chunk_id.take();
         self.inner.content.release_id = old_content.release_id.take();
+        self.inner.content.debug_id = old_content.debug_id.take();
         // Preserve extension fields (e.g. x_org_dartlang_dart2js for Flutter/Dart minified name mapping)
         // Skip "sections" since that's specific to index sourcemaps which we flatten above
         for (key, value) in old_content.fields {
@@ -188,6 +198,11 @@ impl MinifiedSourceFile {
 
     pub fn get_chunk_id(&self) -> Option<String> {
         let patterns = ["//# chunkId="];
+        self.get_comment_value(&patterns)
+    }
+
+    pub fn get_debug_id(&self) -> Option<String> {
+        let patterns = ["//# debugId="];
         self.get_comment_value(&patterns)
     }
 
@@ -364,7 +379,10 @@ fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<u
 
     for (line_start, line_end, line) in lines.into_iter().rev() {
         let trimmed_line = line.trim();
-        if trimmed_line.is_empty() || trimmed_line.starts_with("//# chunkId=") {
+        if trimmed_line.is_empty()
+            || trimmed_line.starts_with("//# chunkId=")
+            || trimmed_line.starts_with("//# debugId=")
+        {
             continue;
         }
         if trimmed_line.starts_with("//# sourceMappingURL=")
@@ -382,8 +400,11 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
     type Error = anyhow::Error;
 
     fn try_into(self) -> Result<SymbolSetUpload> {
+        // Hermes maps built with other tooling may carry only a debug id; accept it as the
+        // chunk id so those uploads keep working.
         let chunk_id = self
             .get_chunk_id()
+            .or_else(|| self.get_debug_id())
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
 
         let release_id = self.get_release_id();
@@ -540,6 +561,47 @@ mod tests {
             ],
         }));
         assert!(!sm.is_empty());
+    }
+
+    #[test]
+    fn debug_id_is_not_conflated_with_chunk_id_and_round_trips() {
+        let sm = content_from(json!({
+            "version": 3,
+            "mappings": "AAAA",
+            "sources": ["a.ts"],
+            "names": [],
+            "debugId": "11111111-2222-4333-8444-555555555555",
+        }));
+
+        assert_eq!(
+            sm.debug_id.as_deref(),
+            Some("11111111-2222-4333-8444-555555555555")
+        );
+        assert!(sm.chunk_id.is_none());
+
+        let out = serde_json::to_value(&sm).expect("Failed to serialize");
+        assert_eq!(out["debugId"], "11111111-2222-4333-8444-555555555555");
+        assert!(out.get("chunk_id").is_none());
+    }
+
+    #[test]
+    fn hermes_upload_accepts_map_with_only_debug_id() {
+        let file = SourceMapFile {
+            inner: SourceFile::new(
+                PathBuf::from("bundle.js.map"),
+                content_from(json!({
+                    "version": 3,
+                    "mappings": "AAAA",
+                    "sources": ["a.ts"],
+                    "names": [],
+                    "debugId": "11111111-2222-4333-8444-555555555555",
+                    "x_hermes_function_offsets": {},
+                })),
+            ),
+        };
+
+        let upload: SymbolSetUpload = file.try_into().expect("Failed to convert to upload");
+        assert_eq!(upload.chunk_id, "11111111-2222-4333-8444-555555555555");
     }
 
     #[test]

@@ -55,7 +55,7 @@ pub fn upload(args: &Args) -> Result<()> {
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
     let mut empty_skipped = 0usize;
     for mut map in maps.into_iter() {
-        if map.get_chunk_id().is_none() {
+        if map.get_chunk_id().is_none() && map.get_debug_id().is_none() {
             warn!("Skipping map {}, no chunk ID", map.inner.path.display());
             continue;
         }

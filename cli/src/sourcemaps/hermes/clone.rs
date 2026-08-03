@@ -63,8 +63,12 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
         minified_map.save()?;
     }
 
-    // Copy metadata from source map to composed map
-    if let Some(chunk_id) = minified_map.get_chunk_id() {
+    // Copy metadata from source map to composed map; a map carrying only a debug id
+    // contributes it as the chunk id.
+    if let Some(chunk_id) = minified_map
+        .get_chunk_id()
+        .or_else(|| minified_map.get_debug_id())
+    {
         composed_map.set_chunk_id(Some(chunk_id));
     }
 

@@ -117,12 +117,29 @@ pub fn inject_pairs(
         // Chunk ids are content-addressed and stable, so a chunk that already carries one is
         // already injected — leave it untouched (idempotent re-injection).
         if pair.get_chunk_id().is_none() {
-            let chunk_id = stable_chunk_id(&pair.source.inner.content);
+            let chunk_id = adopted_debug_id(pair)
+                .unwrap_or_else(|| stable_chunk_id(&pair.source.inner.content));
             pair.add_chunk_id(chunk_id, release_id)?;
         }
     }
 
     Ok(pairs)
+}
+
+/// A bundler-emitted ECMA-426 debug id is already content-derived, so adopt it as the chunk id
+/// instead of deriving our own. Non-UUID values are refused: the id flows into upload rows and
+/// SDK events, and a malformed one is worse than a derived one.
+fn adopted_debug_id(pair: &SourcePair) -> Option<String> {
+    let debug_id = pair.get_debug_id()?;
+    if uuid::Uuid::parse_str(&debug_id).is_err() {
+        warn!(
+            "ignoring malformed debug id {:?} on {} — falling back to a content-derived chunk id",
+            debug_id,
+            pair.source.inner.path.display()
+        );
+        return None;
+    }
+    Some(debug_id)
 }
 
 /// Legacy injection: a random per-build chunk id and the created release id stamped into the
