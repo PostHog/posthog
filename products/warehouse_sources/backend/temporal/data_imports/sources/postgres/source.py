@@ -555,12 +555,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # `_pinned_ssh_host` (common/mixins.py) re-checks the SSH tunnel host on every connect,
             # since a host that resolved to a public address at setup can drift (DNS change, or a
             # short-TTL record). It rejects the host if it doesn't resolve or resolves to a
-            # private/internal address — a config problem only the customer can fix, so retrying
-            # just re-hits the same rejection. Match the stable prefix and exclude the volatile
-            # host/IP details that follow it in `resolution.error`.
+            # private/internal address, which is a config problem only the customer can fix, so
+            # retrying just re-hits the same rejection. Match the stable prefix and exclude the
+            # volatile host/IP details that follow it in `resolution.error`.
             "SSH tunnel host not allowed": (
-                "PostHog rejected the SSH tunnel host for this source — it either couldn't be "
-                "resolved, or resolves to a private/internal address. Check that the SSH tunnel "
+                "PostHog rejected the SSH tunnel host for this source because it either couldn't "
+                "be resolved, or resolves to a private/internal address. Check that the SSH tunnel "
                 "host is spelled correctly and reachable from the public internet, then re-enable "
                 "the sync."
             ),
