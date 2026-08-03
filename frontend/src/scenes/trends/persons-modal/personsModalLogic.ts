@@ -167,6 +167,7 @@ export interface personsModalLogicValues {
     actorsQuery: ActorsQuery | null
     actorsResponse: ListActorsResponse | null
     actorsResponseLoading: boolean
+    distinctIdsFromLoadedActors: string[]
     errorObject: Record<string, any> | null
     exploreUrl: string | null
     insightActorsQueryOptions: InsightActorsQueryOptionsResponse | null
@@ -180,7 +181,6 @@ export interface personsModalLogicValues {
     recordingFilters: Partial<RecordingUniversalFilters>
     searchTerm: string
     selectFields: string[]
-    distinctIdsFromLoadedActors: string[]
     sessionIdsFromLoadedActors: string[]
     validationError: string | null
 }
@@ -281,7 +281,7 @@ export interface personsModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         actorLabel: (
             actors: ActorType[],
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => Noun
         validationError: (errorObject: Record<string, any> | null) => string | null
         propertiesTimelineFilterFromUrl: (arg: any) => PropertiesTimelineFilterType
@@ -295,10 +295,12 @@ export interface personsModalLogicMeta {
         exploreUrl: (actorsQuery: ActorsQuery | null) => string | null
         insightEventsQueryUrl: (actorsQuery: ActorsQuery | null) => string | null
         sessionIdsFromLoadedActors: (actors: ActorType[]) => string[]
+        distinctIdsFromLoadedActors: (actors: ActorType[]) => string[]
         recordingFilters: (
             actorsQuery: ActorsQuery | null,
             propertiesTimelineFilterFromUrl: PropertiesTimelineFilterType,
-            sessionIdsFromLoadedActors: string[]
+            sessionIdsFromLoadedActors: string[],
+            distinctIdsFromLoadedActors: string[]
         ) => Partial<RecordingUniversalFilters>
     }
 }
