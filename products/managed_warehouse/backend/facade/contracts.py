@@ -32,6 +32,7 @@ __all__ = [
     "DuckLakeCatalogConnectionConfig",
     "DuckLakeQueryResult",
     "DuckLakeTableResult",
+    "DucklingTables",
     "ManagedWarehouseBackfillState",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseTableNames",
@@ -90,6 +91,14 @@ class DuckgresStoredServerConfig:
     catalog: DuckLakeCatalogConnectionConfig | None
     bucket: DuckgresStoredBucketConfig | None
     sink_max_concurrency: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class DucklingTables:
+    """The per-team events/persons duckling table names the backfill writes to."""
+
+    events_table: str
+    persons_table: str
 
 
 @dataclass(frozen=True, kw_only=True)
