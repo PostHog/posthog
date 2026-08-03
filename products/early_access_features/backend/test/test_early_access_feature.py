@@ -344,13 +344,27 @@ class TestEarlyAccessFeature(APIBaseTest):
             },
         )
 
-    def test_cant_create_early_access_feature_with_duplicate_key(self):
-        FeatureFlag.objects.create(
+    @parameterized.expand(
+        [
+            ("linkable_flag", False, "Rename this feature, or link the existing flag instead."),
+            ("flag_already_attached", True, "Rename this feature."),
+        ]
+    )
+    def test_cant_create_early_access_feature_with_duplicate_key(self, _name, attach_existing_feature, remedy):
+        flag = FeatureFlag.objects.create(
             team=self.team,
             filters={"groups": [{"properties": [], "rollout_percentage": None}]},
             key="hick-bondoogling",
             created_by=self.user,
         )
+        if attach_existing_feature:
+            EarlyAccessFeature.objects.create(
+                team=self.team,
+                name="Hick bondoogling (original)",
+                description="The one that got there first.",
+                stage="beta",
+                feature_flag=flag,
+            )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
@@ -368,8 +382,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         self.assertEqual(response_data["attr"], "name")
         self.assertEqual(
             response_data["detail"],
-            "A feature flag with the key 'hick-bondoogling' already exists. "
-            "Rename this feature, or link the existing flag instead.",
+            f"A feature flag with the key 'hick-bondoogling' already exists. {remedy}",
         )
 
     def test_can_create_new_early_access_feature_with_soft_deleted_flag(self):

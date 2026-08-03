@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
@@ -17,6 +17,31 @@ interface FlagSelectorProps {
     initialButtonLabel?: string
 }
 
+interface PickedFlag {
+    id: number
+    label: string
+}
+
+export function flagSelectorButtonLabel({
+    flagKey,
+    value,
+    pickedFlag,
+    initialButtonLabel,
+}: {
+    flagKey: string
+    value: number | undefined
+    pickedFlag: PickedFlag | undefined
+    initialButtonLabel: string | undefined
+}): string {
+    // A pick only labels the button while it still agrees with `value`, so a pick the caller never
+    // stored can't linger. It ranks below `flagKey` because a pick from the recents list carries no
+    // key and falls back to `name`, which on a flag holds the description rather than a title.
+    // `flagKey` is '' both while the lookup is in flight and when it fails, which is the gap the
+    // pick covers.
+    const pickedLabel = pickedFlag && pickedFlag.id === value ? pickedFlag.label : undefined
+    return flagKey || pickedLabel || (initialButtonLabel ?? 'Select flag')
+}
+
 export function FlagSelector({
     value,
     onChange,
@@ -25,26 +50,18 @@ export function FlagSelector({
     initialButtonLabel,
 }: FlagSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
-    // Recently-used flags are persisted with just `{ name, id }` (no `key`), so a selection made
-    // from the recents list can't be labeled from the picked item alone. Track the label directly
-    // from whatever the picker handed us, falling back to a live lookup only until that resolves.
-    const [selectedFlag, setSelectedFlag] = useState<{ id: number; label: string } | undefined>(undefined)
+    // Recently-used flags are persisted with just `{ name, id }` (no `key`), so a pick from the
+    // recents list has nothing to label the button with until the live lookup resolves. Hold
+    // whatever the picker handed us to cover that gap.
+    const [selectedFlag, setSelectedFlag] = useState<PickedFlag | undefined>(undefined)
 
     const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
-
-    useEffect(() => {
-        if (value === undefined || selectedFlag?.id !== value) {
-            setSelectedFlag(undefined)
-        }
-    }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         groupType: TaxonomicFilterGroupType.FeatureFlags,
         value: value,
         onChange: (_, __, item) => {
-            // Only close the popover and report a selection when the clicked item actually
-            // resolved to a flag id -- otherwise we'd silently close on a no-op click, leaving
-            // the user unsure whether anything happened.
+            // The picker can hand back an item with no flag id; that isn't a selection.
             if ('id' in item && item.id) {
                 setSelectedFlag({ id: item.id, label: item.key || item.name })
                 onChange(item.id, item.key, item)
@@ -59,7 +76,12 @@ export function FlagSelector({
         selectingKeyOnly: true,
     }
 
-    const buttonLabel = selectedFlag?.label || featureFlag.key || (initialButtonLabel ?? 'Select flag')
+    const buttonLabel = flagSelectorButtonLabel({
+        flagKey: featureFlag.key,
+        value,
+        pickedFlag: selectedFlag,
+        initialButtonLabel,
+    })
 
     return (
         <Popover

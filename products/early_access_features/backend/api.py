@@ -63,6 +63,16 @@ def assert_feature_flag_rbac_access(
         raise PermissionDenied("You don't have sufficient permissions to modify the linked feature flag.")
 
 
+def derive_feature_flag_key(feature_name: str) -> str:
+    """Key of the flag auto-created for a feature of this name.
+
+    The collision pre-check in validate() and the actual creation in create() must derive the key
+    identically. If they drift, the pre-check clears a key create() never uses and the collision
+    resurfaces as an error on "key", the field the form doesn't have.
+    """
+    return slugify(feature_name)
+
+
 def clear_feature_enrollment(feature_flag: FeatureFlag, *, team: Team) -> None:
     """Clear the enrollment marker on a feature's linked flag (feature demoted or deleted).
 
@@ -422,21 +432,24 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     "Multivariate feature flags are not supported for Early Access Features."
                 )
         elif data.get("name"):
-            # No flag chosen: one gets auto-created from the name below in create(). Check the
-            # derived key for collisions here so the error attaches to the "name" field the form
-            # actually has, instead of surfacing from the nested FeatureFlagSerializer as an
-            # error on "key" -- a field this form never shows.
-            feature_flag_key = slugify(data["name"])
-            if FeatureFlag.objects.filter(
+            # No flag was chosen, so create() derives one from the name below. Checking the derived
+            # key for collisions here attaches the error to "name", the field this form actually
+            # has, instead of letting the nested FeatureFlagSerializer raise it on "key", which the
+            # form never shows.
+            feature_flag_key = derive_feature_flag_key(data["name"])
+            existing_flag = FeatureFlag.objects.filter(
                 key=feature_flag_key, team__project_id=self.context["get_team"]().project_id
-            ).exists():
+            ).first()
+            if existing_flag is not None:
+                # Linking is only advice worth giving when the flag is actually linkable; the check
+                # above rejects a flag that already has a feature attached.
+                remedy = (
+                    "Rename this feature."
+                    if existing_flag.features.exists()
+                    else "Rename this feature, or link the existing flag instead."
+                )
                 raise serializers.ValidationError(
-                    {
-                        "name": (
-                            f"A feature flag with the key '{feature_flag_key}' already exists. "
-                            "Rename this feature, or link the existing flag instead."
-                        )
-                    }
+                    {"name": f"A feature flag with the key '{feature_flag_key}' already exists. {remedy}"}
                 )
 
         return data
@@ -488,7 +501,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 team_id=self.context["team_id"],
             )
             assert_feature_flag_rbac_access(self.user_access_control)
-            feature_flag_key = slugify(validated_data["name"])
+            feature_flag_key = derive_feature_flag_key(validated_data["name"])
 
             filters: dict[str, Any] = {
                 "groups": default_condition,
